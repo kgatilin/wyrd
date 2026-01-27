@@ -713,15 +713,27 @@ func (r *reader) typeRefToSymbolRef(ref domain.TypeRef, pkg *packages.Package) *
 		Symbol: ref.Name,
 	}
 
+	currentPkgRelPath := r.relativePath(pkg.PkgPath)
+
 	if ref.Package == "" || ref.Package == "." {
 		// Local type - look up in current package to find file
-		symRef.Package = r.relativePath(pkg.PkgPath)
+		symRef.Package = currentPkgRelPath
 		symRef.File = r.findSymbolFile(pkg, ref.Name)
-	} else if strings.Contains(ref.Package, "/") {
-		// Internal package path
+	} else if ref.Package == currentPkgRelPath {
+		// Same package (handles root-level packages like "observability")
 		symRef.Package = ref.Package
+		symRef.File = r.findSymbolFile(pkg, ref.Name)
+	} else if r.modulePath != "" && (strings.HasPrefix(ref.Package, r.modulePath) || strings.Contains(ref.Package, "/")) {
+		// Internal package: either has full module prefix or contains /
+		symRef.Package = ref.Package
+	} else if !strings.Contains(ref.Package, "/") && r.modulePath != "" {
+		// No slash and we have a module path - check if it could be a sibling root package
+		// by seeing if the module has no slashes (meaning root packages are valid)
+		// For now, assume packages without / that aren't the current package are external (stdlib)
+		symRef.Package = ref.Package
+		symRef.External = true
 	} else {
-		// External package (likely standard library like "context")
+		// External package (standard library like "context", "time")
 		symRef.Package = ref.Package
 		symRef.External = true
 	}
