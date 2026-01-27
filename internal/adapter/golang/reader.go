@@ -487,14 +487,31 @@ func (r *reader) convertTypeRef(t types.Type) domain.TypeRef {
 			ref.Name = "interface{}"
 		} else {
 			// For non-empty interfaces, use the string representation
-			ref.Name = t.String()
+			ref.Name = r.stripModulePath(t.String())
 		}
 		return ref
 	}
 
-	// Fallback: use string representation
-	ref.Name = t.String()
+	// Handle signature/function types
+	if sig, ok := t.(*types.Signature); ok {
+		ref.Name = r.stripModulePath(sig.String())
+		return ref
+	}
+
+	// Fallback: use string representation with module path stripped
+	ref.Name = r.stripModulePath(t.String())
 	return ref
+}
+
+// stripModulePath removes the module path prefix from type strings.
+// e.g., "github.com/user/project/pkg.Type" becomes "pkg.Type"
+func (r *reader) stripModulePath(s string) string {
+	if r.modulePath == "" {
+		return s
+	}
+	// Replace full module path with empty string, leaving just the relative path
+	// The module path in type strings appears as "module/path/pkg.Type"
+	return strings.ReplaceAll(s, r.modulePath+"/", "")
 }
 
 // getSourceFile extracts the filename from a token position.
