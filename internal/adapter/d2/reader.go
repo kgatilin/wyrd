@@ -5,19 +5,20 @@ import (
 	"errors"
 
 	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/archai/internal/service"
 )
 
-// Reader reads D2 diagram files and converts them to domain.PackageModel structures.
+// reader reads D2 diagram files and converts them to domain.PackageModel structures.
 // This is a placeholder for US-3+ functionality.
-type Reader struct{}
+type reader struct{}
 
-// NewReader creates a new D2 diagram reader.
-func NewReader() *Reader {
-	return &Reader{}
+// NewReader creates a new D2 diagram reader that implements service.ModelReader.
+func NewReader() service.ModelReader {
+	return &reader{}
 }
 
 // Read parses D2 diagram files and returns package models.
 // This functionality is not yet implemented (planned for US-3).
-func (r *Reader) Read(ctx context.Context, paths []string) ([]domain.PackageModel, error) {
+func (r *reader) Read(ctx context.Context, paths []string) ([]domain.PackageModel, error) {
 	return nil, errors.New("d2.Reader: not implemented (planned for US-3)")
 }

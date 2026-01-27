@@ -1,10 +1,9 @@
-package d2_test
+package d2
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/domain"
 )
 
@@ -158,7 +157,7 @@ func TestD2TextBuilder_Build(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			builder := d2.NewD2TextBuilderForTest()
+			builder := newD2TextBuilder()
 			got := builder.Build(tt.model, tt.publicOnly)
 
 			// Check expected parts are present
@@ -253,7 +252,7 @@ func TestD2TextBuilder_MethodSignatures(t *testing.T) {
 				},
 			}
 
-			builder := d2.NewD2TextBuilderForTest()
+			builder := newD2TextBuilder()
 			got := builder.Build(model, false)
 
 			if !strings.Contains(got, tt.want) {

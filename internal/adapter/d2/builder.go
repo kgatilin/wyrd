@@ -134,7 +134,7 @@ func (b *d2TextBuilder) groupByFile(pkg domain.PackageModel, publicOnly bool) []
 func (b *d2TextBuilder) writeFileContainer(fg fileGroup, publicOnly bool) {
 	// Calculate file container color from dominant stereotype
 	symbols := b.collectSymbolInfo(fg)
-	color := FileContainerColor(symbols)
+	color := fileContainerColor(symbols)
 
 	// Container ID is filename without extension
 	containerID := b.fileContainerID(fg.filename)
@@ -329,7 +329,7 @@ func (b *d2TextBuilder) writeTypeDef(td domain.TypeDef) {
 
 	b.writeLine("shape: class")
 
-	label := StereotypeLabel(td.Stereotype)
+	label := stereotypeLabel(td.Stereotype)
 	if label != "" {
 		b.writeLine(fmt.Sprintf(`stereotype: "%s"`, label))
 	}

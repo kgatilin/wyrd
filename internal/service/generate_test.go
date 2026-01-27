@@ -23,8 +23,10 @@ func (m *mockReader) Read(ctx context.Context, paths []string) ([]domain.Package
 
 // mockWriter implements ModelWriter for testing.
 type mockWriter struct {
-	writeFunc func(ctx context.Context, model domain.PackageModel, opts domain.WriteOptions) error
-	calls     []writeCall
+	writeFunc         func(ctx context.Context, model domain.PackageModel, opts domain.WriteOptions) error
+	writeCombinedFunc func(ctx context.Context, models []domain.PackageModel, outputPath string) error
+	calls             []writeCall
+	combinedCalls     []writeCombinedCall
 }
 
 type writeCall struct {
@@ -32,10 +34,23 @@ type writeCall struct {
 	opts  domain.WriteOptions
 }
 
+type writeCombinedCall struct {
+	models     []domain.PackageModel
+	outputPath string
+}
+
 func (m *mockWriter) Write(ctx context.Context, model domain.PackageModel, opts domain.WriteOptions) error {
 	m.calls = append(m.calls, writeCall{model: model, opts: opts})
 	if m.writeFunc != nil {
 		return m.writeFunc(ctx, model, opts)
+	}
+	return nil
+}
+
+func (m *mockWriter) WriteCombined(ctx context.Context, models []domain.PackageModel, outputPath string) error {
+	m.combinedCalls = append(m.combinedCalls, writeCombinedCall{models: models, outputPath: outputPath})
+	if m.writeCombinedFunc != nil {
+		return m.writeCombinedFunc(ctx, models, outputPath)
 	}
 	return nil
 }

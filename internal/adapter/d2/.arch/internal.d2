@@ -89,9 +89,73 @@ builder: {
 
 }
 
+combined_builder: {
+  label: "combined_builder.go"
+  style.fill: "#f8f8f8"
+
+  combinedBuilder: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-buf strings.Builder": ""
+    "-indent int": ""
+
+    "+Build(packages []internal/domain.PackageModel)": "string"
+    "-writePackageContainer(pkg internal/domain.PackageModel, symbolIndex map[string]map[string]bool)": ""
+    "-collectSymbolInfo(pkg internal/domain.PackageModel)": "[]internal/adapter/d2.symbolInfo"
+    "-writeInterface(iface internal/domain.InterfaceDef)": ""
+    "-writeStruct(s internal/domain.StructDef)": ""
+    "-writeFunction(fn internal/domain.FunctionDef)": ""
+    "-writeTypeDef(td internal/domain.TypeDef)": ""
+    "-writeMethod(m internal/domain.MethodDef)": ""
+    "-writeField(f internal/domain.FieldDef)": ""
+    "-formatMethodSignature(m internal/domain.MethodDef)": "string"
+    "-formatParams(params []internal/domain.ParamDef)": "string"
+    "-formatReturns(returns []internal/domain.TypeRef)": "string"
+    "-filterExportedMethods(methods []internal/domain.MethodDef)": "[]internal/domain.MethodDef"
+    "-filterExportedFields(fields []internal/domain.FieldDef)": "[]internal/domain.FieldDef"
+    "-buildSymbolIndex(packages []internal/domain.PackageModel)": "map[string]map[string]bool"
+    "-collectIntraPackageDeps(pkg internal/domain.PackageModel, symbolIndex map[string]map[string]bool)": "[]internal/adapter/d2.depInfo"
+    "-collectCrossPackageDeps(packages []internal/domain.PackageModel, symbolIndex map[string]map[string]bool)": "[]internal/adapter/d2.depInfo"
+    "-writeIntraPackageDep(dep internal/adapter/d2.depInfo)": ""
+    "-writeCrossPackageDep(dep internal/adapter/d2.depInfo)": ""
+    "-writeComment(text string)": ""
+    "-writeLine(line string)": ""
+    "-writeRaw(text string)": ""
+  }
+
+  depInfo: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-fromPkg string": ""
+    "-fromSymbol string": ""
+    "-toPkg string": ""
+    "-toSymbol string": ""
+    "-kind internal/domain.DependencyKind": ""
+  }
+
+  newCombinedBuilder: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "return": "*internal/adapter/d2.combinedBuilder"
+  }
+
+  sanitizePackageID: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "return": "string"
+  }
+
+
+}
+
 reader: {
   label: "reader.go"
-  style.fill: "#f8f8f8"
+  style.fill: "#e8fce8"
 
   Reader: {
     shape: class
@@ -121,7 +185,7 @@ styles: {
     "-stereotype internal/domain.Stereotype": ""
   }
 
-  FileContainerColor: {
+  fileContainerColor: {
     shape: class
     stereotype: "<<function>>"
 
@@ -129,7 +193,7 @@ styles: {
     "return": "string"
   }
 
-  StereotypeColor: {
+  stereotypeColor: {
     shape: class
     stereotype: "<<function>>"
 
@@ -137,7 +201,7 @@ styles: {
     "return": "string"
   }
 
-  StereotypeLabel: {
+  stereotypeLabel: {
     shape: class
     stereotype: "<<function>>"
 
@@ -171,6 +235,7 @@ writer: {
     stereotype: "<<struct>>"
 
     "+Write(ctx context.Context, model internal/domain.PackageModel, opts internal/domain.WriteOptions)": "error"
+    "+WriteCombined(ctx context.Context, models []internal/domain.PackageModel, outputPath string)": "error"
   }
 
   NewWriter: {
@@ -184,9 +249,12 @@ writer: {
 }
 
 # Dependencies
+combined_builder.combinedBuilder -> styles.symbolInfo: "returns"
+combined_builder.combinedBuilder -> combined_builder.depInfo: "returns"
 builder.d2TextBuilder -> builder.fileGroup: "returns"
 builder.d2TextBuilder -> styles.symbolInfo: "returns"
-styles.FileContainerColor -> styles.symbolInfo: "uses"
 reader.NewReader -> reader.Reader: "returns"
 writer.NewWriter -> writer.Writer: "returns"
+styles.fileContainerColor -> styles.symbolInfo: "uses"
+combined_builder.newCombinedBuilder -> combined_builder.combinedBuilder: "returns"
 builder.newD2TextBuilder -> builder.d2TextBuilder: "returns"

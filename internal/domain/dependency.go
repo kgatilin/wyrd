@@ -67,6 +67,10 @@ type Dependency struct {
 
 	// Kind indicates the type of dependency (uses, returns, implements).
 	Kind DependencyKind
+
+	// ThroughExported indicates if this dependency is through an exported
+	// method or field. Used for filtering public API dependencies.
+	ThroughExported bool
 }
 
 // String returns a human-readable representation of the dependency.

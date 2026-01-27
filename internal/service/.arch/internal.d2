@@ -59,7 +59,6 @@ generate: {
     stereotype: "<<struct>>"
 
     "+Paths []string": ""
-    "+OutputFile string": ""
     "+PublicOnly bool": ""
     "+InternalOnly bool": ""
   }
@@ -72,6 +71,28 @@ generate: {
     "+PubFile string": ""
     "+InternalFile string": ""
     "+Error error": ""
+  }
+
+}
+
+generate_combined: {
+  label: "generate_combined.go"
+  style.fill: "#f8f8f8"
+
+  GenerateCombinedOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Paths []string": ""
+    "+OutputPath string": ""
+  }
+
+  GenerateCombinedResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+OutputPath string": ""
+    "+PackageCount int": ""
   }
 
 }
@@ -92,6 +113,7 @@ options: {
     stereotype: "<<interface>>"
 
     "+Write(ctx context.Context, model internal/domain.PackageModel, opts internal/domain.WriteOptions)": "error"
+    "+WriteCombined(ctx context.Context, models []internal/domain.PackageModel, outputPath string)": "error"
   }
 
 }
@@ -111,6 +133,7 @@ service: {
     "+Generate(ctx context.Context, opts internal/service.GenerateOptions)": "([]internal/service.GenerateResult, error)"
     "-generatePackageDiagrams(ctx context.Context, pkg internal/domain.PackageModel, opts internal/service.GenerateOptions)": "internal/service.GenerateResult"
     "-resolveArchDir(pkgPath string)": "string"
+    "+GenerateCombined(ctx context.Context, opts internal/service.GenerateCombinedOptions)": "(*internal/service.GenerateCombinedResult, error)"
   }
 
 }
@@ -120,6 +143,8 @@ service.Service -> options.ModelReader: "uses"
 service.Service -> options.ModelWriter: "uses"
 service.Service -> generate.GenerateOptions: "uses"
 service.Service -> generate.GenerateResult: "returns"
+service.Service -> generate_combined.GenerateCombinedOptions: "uses"
+service.Service -> generate_combined.GenerateCombinedResult: "returns"
 factory.NewService -> options.ModelReader: "uses"
 factory.NewService -> options.ModelWriter: "uses"
 factory.NewService -> service.Service: "returns"

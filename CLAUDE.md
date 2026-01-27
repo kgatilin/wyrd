@@ -106,11 +106,15 @@ Each function is its own class shape with parameters as fields and a `return` fi
 
 ## Development Rules
 
-1. **No test-only production code** - Don't add functions/parameters solely for testing
-2. **Proper DI** - Services receive dependencies via constructor, not create them
-3. **Domain models are data containers** - No behavior, no external dependencies
-4. **Adapters depend on domain** - Never the reverse
-5. **CLI does the wiring** - Assembles adapters and passes to service
+1. **No test-only production code** - Don't add functions/parameters, types, or exported wrappers solely for testing. If you need to expose internals for testing, the architecture is wrong. Solutions:
+   - Test through the public interface (e.g., test `Writer.Write()` output, not internal builder methods)
+   - Use internal tests (`package foo`) instead of external tests (`package foo_test`) when testing implementation details
+   - Refactor to make the code naturally testable through its public API
+2. **No unnecessary exports** - Don't export functions, types, or constants that are only used within the package. Exported symbols are public API and should have a reason to be public. If tests need access to internals, use internal tests (`package foo`) not external tests.
+3. **Proper DI** - Services receive dependencies via constructor, not create them
+4. **Domain models are data containers** - No behavior, no external dependencies
+5. **Adapters depend on domain** - Never the reverse
+6. **CLI does the wiring** - Assembles adapters and passes to service
 
 ## Running Tests
 

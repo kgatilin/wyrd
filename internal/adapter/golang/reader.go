@@ -13,22 +13,23 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/archai/internal/service"
 )
 
-// Reader reads Go source code and converts it to domain.PackageModel structures.
-type Reader struct {
+// reader reads Go source code and converts it to domain.PackageModel structures.
+type reader struct {
 	// modulePath is cached from the first package load to calculate relative paths.
 	modulePath string
 }
 
-// NewReader creates a new Go code reader.
-func NewReader() *Reader {
-	return &Reader{}
+// NewReader creates a new Go code reader that implements service.ModelReader.
+func NewReader() service.ModelReader {
+	return &reader{}
 }
 
 // Read parses Go source code at the given paths and returns package models.
 // Paths can be package patterns like "./...", "./internal/...", etc.
-func (r *Reader) Read(ctx context.Context, paths []string) ([]domain.PackageModel, error) {
+func (r *reader) Read(ctx context.Context, paths []string) ([]domain.PackageModel, error) {
 	// Check context cancellation before starting
 	select {
 	case <-ctx.Done():
@@ -85,7 +86,7 @@ func (r *Reader) Read(ctx context.Context, paths []string) ([]domain.PackageMode
 }
 
 // convertPackage converts a loaded go/packages.Package to a domain.PackageModel.
-func (r *Reader) convertPackage(pkg *packages.Package) (domain.PackageModel, error) {
+func (r *reader) convertPackage(pkg *packages.Package) (domain.PackageModel, error) {
 	model := domain.PackageModel{
 		Path: r.relativePath(pkg.PkgPath),
 		Name: pkg.Name,
@@ -126,7 +127,7 @@ func (r *Reader) convertPackage(pkg *packages.Package) (domain.PackageModel, err
 }
 
 // relativePath converts an absolute package path to a path relative to the module.
-func (r *Reader) relativePath(pkgPath string) string {
+func (r *reader) relativePath(pkgPath string) string {
 	if r.modulePath != "" && strings.HasPrefix(pkgPath, r.modulePath) {
 		relPath := strings.TrimPrefix(pkgPath, r.modulePath)
 		relPath = strings.TrimPrefix(relPath, "/")
@@ -139,7 +140,7 @@ func (r *Reader) relativePath(pkgPath string) string {
 }
 
 // collectMethodsByReceiver builds a map from receiver type name to its methods.
-func (r *Reader) collectMethodsByReceiver(pkg *packages.Package) map[string][]domain.MethodDef {
+func (r *reader) collectMethodsByReceiver(pkg *packages.Package) map[string][]domain.MethodDef {
 	methodsByReceiver := make(map[string][]domain.MethodDef)
 
 	scope := pkg.Types.Scope()
@@ -168,7 +169,7 @@ func (r *Reader) collectMethodsByReceiver(pkg *packages.Package) map[string][]do
 }
 
 // collectConstantsByType builds a map from type name to its constants (for enum detection).
-func (r *Reader) collectConstantsByType(pkg *packages.Package) map[string][]string {
+func (r *reader) collectConstantsByType(pkg *packages.Package) map[string][]string {
 	constantsByType := make(map[string][]string)
 
 	scope := pkg.Types.Scope()
@@ -193,7 +194,7 @@ func (r *Reader) collectConstantsByType(pkg *packages.Package) map[string][]stri
 }
 
 // extractInterfaces extracts all interface definitions from the package.
-func (r *Reader) extractInterfaces(pkg *packages.Package, astFiles map[string]*ast.File) []domain.InterfaceDef {
+func (r *reader) extractInterfaces(pkg *packages.Package, astFiles map[string]*ast.File) []domain.InterfaceDef {
 	var interfaces []domain.InterfaceDef
 
 	scope := pkg.Types.Scope()
@@ -231,7 +232,7 @@ func (r *Reader) extractInterfaces(pkg *packages.Package, astFiles map[string]*a
 }
 
 // extractInterfaceMethods extracts method definitions from an interface type.
-func (r *Reader) extractInterfaceMethods(iface *types.Interface) []domain.MethodDef {
+func (r *reader) extractInterfaceMethods(iface *types.Interface) []domain.MethodDef {
 	var methods []domain.MethodDef
 
 	for i := 0; i < iface.NumMethods(); i++ {
@@ -244,7 +245,7 @@ func (r *Reader) extractInterfaceMethods(iface *types.Interface) []domain.Method
 }
 
 // extractStructs extracts all struct definitions from the package.
-func (r *Reader) extractStructs(
+func (r *reader) extractStructs(
 	pkg *packages.Package,
 	astFiles map[string]*ast.File,
 	methodsByReceiver map[string][]domain.MethodDef,
@@ -287,7 +288,7 @@ func (r *Reader) extractStructs(
 }
 
 // extractStructFields extracts field definitions from a struct type.
-func (r *Reader) extractStructFields(structType *types.Struct) []domain.FieldDef {
+func (r *reader) extractStructFields(structType *types.Struct) []domain.FieldDef {
 	var fields []domain.FieldDef
 
 	for i := 0; i < structType.NumFields(); i++ {
@@ -307,7 +308,7 @@ func (r *Reader) extractStructFields(structType *types.Struct) []domain.FieldDef
 }
 
 // extractFunctions extracts all package-level functions (no receiver).
-func (r *Reader) extractFunctions(pkg *packages.Package, astFiles map[string]*ast.File) []domain.FunctionDef {
+func (r *reader) extractFunctions(pkg *packages.Package, astFiles map[string]*ast.File) []domain.FunctionDef {
 	var functions []domain.FunctionDef
 
 	scope := pkg.Types.Scope()
@@ -348,7 +349,7 @@ func (r *Reader) extractFunctions(pkg *packages.Package, astFiles map[string]*as
 }
 
 // extractTypeDefs extracts type definitions (type aliases with constants for enums).
-func (r *Reader) extractTypeDefs(
+func (r *reader) extractTypeDefs(
 	pkg *packages.Package,
 	astFiles map[string]*ast.File,
 	constantsByType map[string][]string,
@@ -392,7 +393,7 @@ func (r *Reader) extractTypeDefs(
 }
 
 // convertMethod converts a types.Func to a domain.MethodDef.
-func (r *Reader) convertMethod(fn *types.Func, sig *types.Signature) domain.MethodDef {
+func (r *reader) convertMethod(fn *types.Func, sig *types.Signature) domain.MethodDef {
 	return domain.MethodDef{
 		Name:       fn.Name(),
 		Params:     r.extractParams(sig.Params()),
@@ -402,7 +403,7 @@ func (r *Reader) convertMethod(fn *types.Func, sig *types.Signature) domain.Meth
 }
 
 // extractParams extracts parameter definitions from a types.Tuple.
-func (r *Reader) extractParams(tuple *types.Tuple) []domain.ParamDef {
+func (r *reader) extractParams(tuple *types.Tuple) []domain.ParamDef {
 	if tuple == nil {
 		return nil
 	}
@@ -420,7 +421,7 @@ func (r *Reader) extractParams(tuple *types.Tuple) []domain.ParamDef {
 }
 
 // extractReturns extracts return type references from a types.Tuple.
-func (r *Reader) extractReturns(tuple *types.Tuple) []domain.TypeRef {
+func (r *reader) extractReturns(tuple *types.Tuple) []domain.TypeRef {
 	if tuple == nil {
 		return nil
 	}
@@ -435,7 +436,7 @@ func (r *Reader) extractReturns(tuple *types.Tuple) []domain.TypeRef {
 }
 
 // convertTypeRef converts a types.Type to a domain.TypeRef.
-func (r *Reader) convertTypeRef(t types.Type) domain.TypeRef {
+func (r *reader) convertTypeRef(t types.Type) domain.TypeRef {
 	ref := domain.TypeRef{}
 
 	// Handle pointer types
@@ -497,7 +498,7 @@ func (r *Reader) convertTypeRef(t types.Type) domain.TypeRef {
 }
 
 // getSourceFile extracts the filename from a token position.
-func (r *Reader) getSourceFile(fset *token.FileSet, pos token.Pos) string {
+func (r *reader) getSourceFile(fset *token.FileSet, pos token.Pos) string {
 	if !pos.IsValid() {
 		return ""
 	}
@@ -506,7 +507,7 @@ func (r *Reader) getSourceFile(fset *token.FileSet, pos token.Pos) string {
 }
 
 // getDocComment retrieves the doc comment for a named declaration.
-func (r *Reader) getDocComment(astFiles map[string]*ast.File, filename, name string) string {
+func (r *reader) getDocComment(astFiles map[string]*ast.File, filename, name string) string {
 	for path, f := range astFiles {
 		if filepath.Base(path) != filename {
 			continue
@@ -554,7 +555,10 @@ func (r *Reader) getDocComment(astFiles map[string]*ast.File, filename, name str
 }
 
 // collectDependencies collects all dependencies for the package.
-func (r *Reader) collectDependencies(pkg *packages.Package, model *domain.PackageModel) []domain.Dependency {
+// All dependencies are collected regardless of visibility - filtering is done
+// by the diagram builders based on the mode (public vs internal).
+// Each dependency tracks whether it's through an exported method/field.
+func (r *reader) collectDependencies(pkg *packages.Package, model *domain.PackageModel) []domain.Dependency {
 	var deps []domain.Dependency
 	seenDeps := make(map[string]bool)
 
@@ -576,7 +580,9 @@ func (r *Reader) collectDependencies(pkg *packages.Package, model *domain.Packag
 		}
 
 		for _, method := range iface.Methods {
-			r.collectMethodDependencies(fromRef, method, pkg, addDep)
+			// Interface + exported method = through exported
+			throughExported := iface.IsExported && method.IsExported
+			r.collectMethodDependenciesWithVisibility(fromRef, method, pkg, throughExported, addDep)
 		}
 	}
 
@@ -591,17 +597,22 @@ func (r *Reader) collectDependencies(pkg *packages.Package, model *domain.Packag
 		// Field dependencies
 		for _, field := range s.Fields {
 			if toRef := r.typeRefToSymbolRef(field.Type, pkg); toRef != nil {
+				// Struct + exported field = through exported
+				throughExported := s.IsExported && field.IsExported
 				addDep(domain.Dependency{
-					From: fromRef,
-					To:   *toRef,
-					Kind: domain.DependencyUses,
+					From:            fromRef,
+					To:              *toRef,
+					Kind:            domain.DependencyUses,
+					ThroughExported: throughExported,
 				})
 			}
 		}
 
 		// Method dependencies
 		for _, method := range s.Methods {
-			r.collectMethodDependencies(fromRef, method, pkg, addDep)
+			// Struct + exported method = through exported
+			throughExported := s.IsExported && method.IsExported
+			r.collectMethodDependenciesWithVisibility(fromRef, method, pkg, throughExported, addDep)
 		}
 	}
 
@@ -613,13 +624,17 @@ func (r *Reader) collectDependencies(pkg *packages.Package, model *domain.Packag
 			Symbol:  fn.Name,
 		}
 
+		// Function is its own visibility gate
+		throughExported := fn.IsExported
+
 		// Parameter dependencies
 		for _, param := range fn.Params {
 			if toRef := r.typeRefToSymbolRef(param.Type, pkg); toRef != nil {
 				addDep(domain.Dependency{
-					From: fromRef,
-					To:   *toRef,
-					Kind: domain.DependencyUses,
+					From:            fromRef,
+					To:              *toRef,
+					Kind:            domain.DependencyUses,
+					ThroughExported: throughExported,
 				})
 			}
 		}
@@ -628,9 +643,10 @@ func (r *Reader) collectDependencies(pkg *packages.Package, model *domain.Packag
 		for _, ret := range fn.Returns {
 			if toRef := r.typeRefToSymbolRef(ret, pkg); toRef != nil {
 				addDep(domain.Dependency{
-					From: fromRef,
-					To:   *toRef,
-					Kind: domain.DependencyReturns,
+					From:            fromRef,
+					To:              *toRef,
+					Kind:            domain.DependencyReturns,
+					ThroughExported: throughExported,
 				})
 			}
 		}
@@ -639,20 +655,23 @@ func (r *Reader) collectDependencies(pkg *packages.Package, model *domain.Packag
 	return deps
 }
 
-// collectMethodDependencies collects dependencies from a method's parameters and returns.
-func (r *Reader) collectMethodDependencies(
+// collectMethodDependenciesWithVisibility collects dependencies from a method's parameters and returns.
+// throughExported indicates if this is through an exported method on an exported type.
+func (r *reader) collectMethodDependenciesWithVisibility(
 	fromRef domain.SymbolRef,
 	method domain.MethodDef,
 	pkg *packages.Package,
+	throughExported bool,
 	addDep func(domain.Dependency),
 ) {
 	// Parameter dependencies
 	for _, param := range method.Params {
 		if toRef := r.typeRefToSymbolRef(param.Type, pkg); toRef != nil {
 			addDep(domain.Dependency{
-				From: fromRef,
-				To:   *toRef,
-				Kind: domain.DependencyUses,
+				From:            fromRef,
+				To:              *toRef,
+				Kind:            domain.DependencyUses,
+				ThroughExported: throughExported,
 			})
 		}
 	}
@@ -661,7 +680,8 @@ func (r *Reader) collectMethodDependencies(
 	for _, ret := range method.Returns {
 		if toRef := r.typeRefToSymbolRef(ret, pkg); toRef != nil {
 			addDep(domain.Dependency{
-				From: fromRef,
+				From:            fromRef,
+				ThroughExported: throughExported,
 				To:   *toRef,
 				Kind: domain.DependencyReturns,
 			})
@@ -671,7 +691,7 @@ func (r *Reader) collectMethodDependencies(
 
 // typeRefToSymbolRef converts a TypeRef to a SymbolRef for dependency tracking.
 // Returns nil for basic types that don't create meaningful dependencies.
-func (r *Reader) typeRefToSymbolRef(ref domain.TypeRef, pkg *packages.Package) *domain.SymbolRef {
+func (r *reader) typeRefToSymbolRef(ref domain.TypeRef, pkg *packages.Package) *domain.SymbolRef {
 	// Handle maps - collect dependencies for key and value types
 	if ref.IsMap {
 		// We don't create a single dependency for maps, the caller should handle
@@ -710,7 +730,7 @@ func (r *Reader) typeRefToSymbolRef(ref domain.TypeRef, pkg *packages.Package) *
 }
 
 // findSymbolFile finds the source file for a symbol in a package.
-func (r *Reader) findSymbolFile(pkg *packages.Package, symbolName string) string {
+func (r *reader) findSymbolFile(pkg *packages.Package, symbolName string) string {
 	scope := pkg.Types.Scope()
 	obj := scope.Lookup(symbolName)
 	if obj == nil {
@@ -720,7 +740,7 @@ func (r *Reader) findSymbolFile(pkg *packages.Package, symbolName string) string
 }
 
 // applyStereotypes applies stereotype detection to all symbols in the model.
-func (r *Reader) applyStereotypes(model *domain.PackageModel) {
+func (r *reader) applyStereotypes(model *domain.PackageModel) {
 	for i := range model.Interfaces {
 		model.Interfaces[i].Stereotype = detectInterfaceStereotype(model.Interfaces[i], model.Path)
 	}

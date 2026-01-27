@@ -19,5 +19,10 @@ type ModelReader interface {
 // This interface is implemented by:
 // - adapter/d2.Writer (writes D2 diagram files)
 type ModelWriter interface {
+	// Write generates a diagram for a single package.
 	Write(ctx context.Context, model domain.PackageModel, opts domain.WriteOptions) error
+
+	// WriteCombined generates a single diagram from multiple packages.
+	// Combined mode always renders public API only with package-level containers.
+	WriteCombined(ctx context.Context, models []domain.PackageModel, outputPath string) error
 }

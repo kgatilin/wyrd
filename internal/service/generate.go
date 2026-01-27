@@ -8,14 +8,11 @@ import (
 	"github.com/kgatilin/archai/internal/domain"
 )
 
-// GenerateOptions configures the generate operation.
+// GenerateOptions configures the generate operation (split mode).
+// For combined mode, use GenerateCombinedOptions with GenerateCombined method.
 type GenerateOptions struct {
 	// Paths are package paths to analyze (e.g., "./internal/...", "./cmd/...").
 	Paths []string
-
-	// OutputFile specifies a single output file for combined mode.
-	// If empty, split mode is used (per-package .arch/ folders).
-	OutputFile string
 
 	// PublicOnly generates only pub.d2 (public API diagram).
 	// If both PublicOnly and InternalOnly are false, both diagrams are generated.

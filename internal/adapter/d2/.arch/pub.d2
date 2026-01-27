@@ -36,7 +36,7 @@ legend: {
 # Files
 reader: {
   label: "reader.go"
-  style.fill: "#f8f8f8"
+  style.fill: "#e8fce8"
 
   Reader: {
     shape: class
@@ -55,37 +55,6 @@ reader: {
 
 }
 
-styles: {
-  label: "styles.go"
-  style.fill: "#f8f8f8"
-
-  FileContainerColor: {
-    shape: class
-    stereotype: "<<function>>"
-
-    "symbols": "[]internal/adapter/d2.symbolInfo"
-    "return": "string"
-  }
-
-  StereotypeColor: {
-    shape: class
-    stereotype: "<<function>>"
-
-    "s": "internal/domain.Stereotype"
-    "return": "string"
-  }
-
-  StereotypeLabel: {
-    shape: class
-    stereotype: "<<function>>"
-
-    "s": "internal/domain.Stereotype"
-    "return": "string"
-  }
-
-
-}
-
 writer: {
   label: "writer.go"
   style.fill: "#f8f8f8"
@@ -95,6 +64,7 @@ writer: {
     stereotype: "<<struct>>"
 
     "+Write(ctx context.Context, model internal/domain.PackageModel, opts internal/domain.WriteOptions)": "error"
+    "+WriteCombined(ctx context.Context, models []internal/domain.PackageModel, outputPath string)": "error"
   }
 
   NewWriter: {

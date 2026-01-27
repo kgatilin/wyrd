@@ -7,18 +7,19 @@ import (
 	"path/filepath"
 
 	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/archai/internal/service"
 )
 
-// Writer writes domain.PackageModel structures as D2 diagram files.
-type Writer struct{}
+// writer writes domain.PackageModel structures as D2 diagram files.
+type writer struct{}
 
-// NewWriter creates a new D2 diagram writer.
-func NewWriter() *Writer {
-	return &Writer{}
+// NewWriter creates a new D2 diagram writer that implements service.ModelWriter.
+func NewWriter() service.ModelWriter {
+	return &writer{}
 }
 
 // Write generates a D2 diagram from a package model and writes it to the output.
-func (w *Writer) Write(ctx context.Context, model domain.PackageModel, opts domain.WriteOptions) error {
+func (w *writer) Write(ctx context.Context, model domain.PackageModel, opts domain.WriteOptions) error {
 	// Check context cancellation before starting
 	select {
 	case <-ctx.Done():
@@ -51,6 +52,34 @@ func (w *Writer) Write(ctx context.Context, model domain.PackageModel, opts doma
 	// Write to file
 	if err := os.WriteFile(outputPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("writing D2 file %s: %w", outputPath, err)
+	}
+
+	return nil
+}
+
+// WriteCombined generates a single D2 diagram from multiple packages.
+// Combined mode always renders public API only with package-level containers.
+func (w *writer) WriteCombined(ctx context.Context, models []domain.PackageModel, outputPath string) error {
+	// Check context cancellation before starting
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// Build combined D2 content
+	builder := newCombinedBuilder()
+	content := builder.Build(models)
+
+	// Ensure parent directory exists
+	dir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("creating output directory %s: %w", dir, err)
+	}
+
+	// Write to file
+	if err := os.WriteFile(outputPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("writing combined D2 file %s: %w", outputPath, err)
 	}
 
 	return nil

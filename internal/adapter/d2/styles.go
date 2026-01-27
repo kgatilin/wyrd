@@ -25,8 +25,8 @@ const (
 	ColorLegendFill = "#fafafa"
 )
 
-// StereotypeColor returns the D2 fill color for a given stereotype.
-func StereotypeColor(s domain.Stereotype) string {
+// stereotypeColor returns the D2 fill color for a given stereotype.
+func stereotypeColor(s domain.Stereotype) string {
 	switch s {
 	case domain.StereotypeService,
 		domain.StereotypeRepository,
@@ -47,9 +47,9 @@ func StereotypeColor(s domain.Stereotype) string {
 	}
 }
 
-// StereotypeLabel returns the D2 stereotype label (e.g., "<<service>>").
+// stereotypeLabel returns the D2 stereotype label (e.g., "<<service>>").
 // Returns empty string for StereotypeNone.
-func StereotypeLabel(s domain.Stereotype) string {
+func stereotypeLabel(s domain.Stereotype) string {
 	if s == domain.StereotypeNone {
 		return ""
 	}
@@ -61,9 +61,9 @@ type symbolInfo struct {
 	stereotype domain.Stereotype
 }
 
-// FileContainerColor determines the fill color for a file container
+// fileContainerColor determines the fill color for a file container
 // based on the dominant stereotype of its contents.
-func FileContainerColor(symbols []symbolInfo) string {
+func fileContainerColor(symbols []symbolInfo) string {
 	if len(symbols) == 0 {
 		return ColorGray
 	}
@@ -84,5 +84,5 @@ func FileContainerColor(symbols []symbolInfo) string {
 		}
 	}
 
-	return StereotypeColor(dominant)
+	return stereotypeColor(dominant)
 }

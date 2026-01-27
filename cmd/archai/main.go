@@ -54,7 +54,7 @@ Examples:
   # Generate only internal diagrams
   archai diagram generate ./internal/... --internal
 
-  # Generate combined diagram to single file (future)
+  # Generate combined diagram to single file
   archai diagram generate ./internal/... -o architecture.d2`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runGenerate,
@@ -63,7 +63,7 @@ Examples:
 	// Add flags
 	generateCmd.Flags().Bool("pub", false, "Generate only pub.d2 (public API)")
 	generateCmd.Flags().Bool("internal", false, "Generate only internal.d2 (full implementation)")
-	generateCmd.Flags().StringP("output", "o", "", "Output to single file (combined mode, for future US-2)")
+	generateCmd.Flags().StringP("output", "o", "", "Output to single file (combined mode)")
 
 	diagramCmd.AddCommand(generateCmd)
 
@@ -85,28 +85,49 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	internalOnly, _ := cmd.Flags().GetBool("internal")
 	output, _ := cmd.Flags().GetString("output")
 
-	opts := service.GenerateOptions{
-		Paths:        args,
-		PublicOnly:   pubOnly,
-		InternalOnly: internalOnly,
-		OutputFile:   output,
-	}
-
 	// Validate flags
 	if pubOnly && internalOnly {
 		return fmt.Errorf("cannot specify both --pub and --internal flags")
 	}
 
-	// Warn about combined mode (not yet implemented)
-	if output != "" {
-		fmt.Fprintf(os.Stderr, "WARNING: Combined mode (-o/--output) is not yet implemented (planned for US-2)\n")
-		return fmt.Errorf("combined mode not yet supported")
-	}
-
-	// Execute generation
+	// Get context
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
+	}
+
+	// Combined mode: --output flag present
+	if output != "" {
+		// --pub and --internal don't apply to combined mode
+		if pubOnly || internalOnly {
+			fmt.Fprintln(os.Stderr, "Note: --pub and --internal flags are ignored in combined mode (always public)")
+		}
+
+		opts := service.GenerateCombinedOptions{
+			Paths:      args,
+			OutputPath: output,
+		}
+
+		result, err := svc.GenerateCombined(ctx, opts)
+		if err != nil {
+			return fmt.Errorf("generation failed: %w", err)
+		}
+
+		if result.PackageCount == 0 {
+			fmt.Println("No packages with exported symbols found")
+			return nil
+		}
+
+		fmt.Printf("Combined diagram generated: %s\n", result.OutputPath)
+		fmt.Printf("Packages included: %d\n", result.PackageCount)
+		return nil
+	}
+
+	// Split mode: existing logic
+	opts := service.GenerateOptions{
+		Paths:        args,
+		PublicOnly:   pubOnly,
+		InternalOnly: internalOnly,
 	}
 
 	results, err := svc.Generate(ctx, opts)

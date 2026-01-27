@@ -1,0 +1,394 @@
+# Combined Architecture Diagram
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    label: "Service"
+    shape: class
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Packages
+internal.adapter.d2: {
+  label: "internal/adapter/d2"
+  style.fill: "#e8fce8"
+
+  NewReader: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "return": "internal/service.ModelReader"
+  }
+
+  NewWriter: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "return": "internal/service.ModelWriter"
+  }
+
+}
+
+internal.adapter.golang: {
+  label: "internal/adapter/golang"
+  style.fill: "#e8fce8"
+
+  NewReader: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "return": "internal/service.ModelReader"
+  }
+
+}
+
+internal.domain: {
+  label: "internal/domain"
+  style.fill: "#e8f4fc"
+
+  Dependency: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+From internal/domain.SymbolRef": ""
+    "+To internal/domain.SymbolRef": ""
+    "+Kind internal/domain.DependencyKind": ""
+    "+ThroughExported bool": ""
+
+    "+String()": "string"
+  }
+
+  FieldDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/domain.TypeRef": ""
+    "+IsExported bool": ""
+    "+Tag string": ""
+
+    "+String()": "string"
+    "+StringWithVisibility()": "string"
+  }
+
+  FunctionDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Params []internal/domain.ParamDef": ""
+    "+Returns []internal/domain.TypeRef": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype internal/domain.Stereotype": ""
+
+    "+Signature()": "string"
+    "+SignatureWithVisibility()": "string"
+  }
+
+  InterfaceDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Methods []internal/domain.MethodDef": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype internal/domain.Stereotype": ""
+  }
+
+  MethodDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Params []internal/domain.ParamDef": ""
+    "+Returns []internal/domain.TypeRef": ""
+    "+IsExported bool": ""
+
+    "+Signature()": "string"
+    "+SignatureWithVisibility()": "string"
+  }
+
+  Module: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Path string": ""
+    "+Packages []internal/domain.PackageModel": ""
+
+    "+FindPackage(path string)": "*internal/domain.PackageModel"
+    "+PackageCount()": "int"
+  }
+
+  PackageModel: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Path string": ""
+    "+Name string": ""
+    "+Interfaces []internal/domain.InterfaceDef": ""
+    "+Structs []internal/domain.StructDef": ""
+    "+Functions []internal/domain.FunctionDef": ""
+    "+TypeDefs []internal/domain.TypeDef": ""
+    "+Dependencies []internal/domain.Dependency": ""
+
+    "+SourceFiles()": "[]string"
+    "+ExportedInterfaces()": "[]internal/domain.InterfaceDef"
+    "+ExportedStructs()": "[]internal/domain.StructDef"
+    "+ExportedFunctions()": "[]internal/domain.FunctionDef"
+    "+ExportedTypeDefs()": "[]internal/domain.TypeDef"
+    "+HasExportedSymbols()": "bool"
+  }
+
+  ParamDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/domain.TypeRef": ""
+
+    "+String()": "string"
+  }
+
+  StructDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Fields []internal/domain.FieldDef": ""
+    "+Methods []internal/domain.MethodDef": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype internal/domain.Stereotype": ""
+  }
+
+  SymbolRef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Package string": ""
+    "+File string": ""
+    "+Symbol string": ""
+    "+External bool": ""
+
+    "+String()": "string"
+    "+QualifiedName()": "string"
+  }
+
+  TypeDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+UnderlyingType internal/domain.TypeRef": ""
+    "+Constants []string": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype internal/domain.Stereotype": ""
+
+    "+IsEnum()": "bool"
+  }
+
+  TypeRef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Package string": ""
+    "+IsPointer bool": ""
+    "+IsSlice bool": ""
+    "+IsMap bool": ""
+    "+KeyType *internal/domain.TypeRef": ""
+    "+ValueType *internal/domain.TypeRef": ""
+
+    "+String()": "string"
+  }
+
+  WriteOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+OutputPath string": ""
+    "+PublicOnly bool": ""
+    "+ToStdout bool": ""
+  }
+
+  DependencyKind: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "string"
+
+    "DependencyImplements": "const"
+    "DependencyReturns": "const"
+    "DependencyUses": "const"
+  }
+
+  Stereotype: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "string"
+
+    "StereotypeAggregate": "const"
+    "StereotypeEntity": "const"
+    "StereotypeEnum": "const"
+    "StereotypeFactory": "const"
+    "StereotypeInterface": "const"
+    "StereotypeNone": "const"
+    "StereotypePort": "const"
+    "StereotypeRepository": "const"
+    "StereotypeService": "const"
+    "StereotypeValue": "const"
+  }
+
+  # Dependencies
+  Dependency -> DependencyKind: "uses"
+  Dependency -> SymbolRef: "uses"
+  FieldDef -> TypeRef: "uses"
+  FunctionDef -> ParamDef: "uses"
+  FunctionDef -> Stereotype: "uses"
+  FunctionDef -> TypeRef: "uses"
+  InterfaceDef -> MethodDef: "uses"
+  InterfaceDef -> Stereotype: "uses"
+  MethodDef -> ParamDef: "uses"
+  MethodDef -> TypeRef: "uses"
+  Module -> PackageModel: "uses"
+  Module -> PackageModel: "returns"
+  PackageModel -> Dependency: "uses"
+  PackageModel -> FunctionDef: "returns"
+  PackageModel -> FunctionDef: "uses"
+  PackageModel -> InterfaceDef: "uses"
+  PackageModel -> InterfaceDef: "returns"
+  PackageModel -> StructDef: "returns"
+  PackageModel -> StructDef: "uses"
+  PackageModel -> TypeDef: "uses"
+  PackageModel -> TypeDef: "returns"
+  ParamDef -> TypeRef: "uses"
+  StructDef -> FieldDef: "uses"
+  StructDef -> MethodDef: "uses"
+  StructDef -> Stereotype: "uses"
+  TypeDef -> Stereotype: "uses"
+  TypeDef -> TypeRef: "uses"
+
+}
+
+internal.service: {
+  label: "internal/service"
+  style.fill: "#f8f8f8"
+
+  ModelReader: {
+    shape: class
+    stereotype: "<<interface>>"
+
+    "+Read(ctx context.Context, paths []string)": "([]internal/domain.PackageModel, error)"
+  }
+
+  ModelWriter: {
+    shape: class
+    stereotype: "<<interface>>"
+
+    "+Write(ctx context.Context, model internal/domain.PackageModel, opts internal/domain.WriteOptions)": "error"
+    "+WriteCombined(ctx context.Context, models []internal/domain.PackageModel, outputPath string)": "error"
+  }
+
+  GenerateCombinedOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Paths []string": ""
+    "+OutputPath string": ""
+  }
+
+  GenerateCombinedResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+OutputPath string": ""
+    "+PackageCount int": ""
+  }
+
+  GenerateOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Paths []string": ""
+    "+PublicOnly bool": ""
+    "+InternalOnly bool": ""
+  }
+
+  GenerateResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+PackagePath string": ""
+    "+PubFile string": ""
+    "+InternalFile string": ""
+    "+Error error": ""
+  }
+
+  Service: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Generate(ctx context.Context, opts internal/service.GenerateOptions)": "([]internal/service.GenerateResult, error)"
+    "+GenerateCombined(ctx context.Context, opts internal/service.GenerateCombinedOptions)": "(*internal/service.GenerateCombinedResult, error)"
+  }
+
+  NewService: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "goReader": "internal/service.ModelReader"
+    "d2Writer": "internal/service.ModelWriter"
+    "return": "*internal/service.Service"
+  }
+
+  # Dependencies
+  NewService -> ModelReader: "uses"
+  NewService -> ModelWriter: "uses"
+  NewService -> Service: "returns"
+  Service -> GenerateCombinedOptions: "uses"
+  Service -> GenerateCombinedResult: "returns"
+  Service -> GenerateOptions: "uses"
+  Service -> GenerateResult: "returns"
+
+}
+
+# Cross-package dependencies
+internal.adapter.d2.NewReader -> internal.service.ModelReader: "returns"
+internal.adapter.d2.NewWriter -> internal.service.ModelWriter: "returns"
+internal.adapter.golang.NewReader -> internal.service.ModelReader: "returns"
+internal.service.ModelReader -> internal.domain.PackageModel: "returns"
+internal.service.ModelWriter -> internal.domain.PackageModel: "uses"
+internal.service.ModelWriter -> internal.domain.WriteOptions: "uses"

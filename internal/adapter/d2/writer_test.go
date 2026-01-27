@@ -346,3 +346,125 @@ func TestWriter_Write_Dependencies(t *testing.T) {
 		t.Errorf("Output missing dependency: %q\nGot:\n%s", wantDep, contentStr)
 	}
 }
+
+func TestWriter_WriteCombined(t *testing.T) {
+	tests := []struct {
+		name      string
+		packages  []domain.PackageModel
+		wantParts []string
+	}{
+		{
+			name: "writes combined diagram for multiple packages",
+			packages: []domain.PackageModel{
+				{
+					Name: "service",
+					Path: "internal/service",
+					Interfaces: []domain.InterfaceDef{
+						{Name: "Service", IsExported: true, SourceFile: "service.go"},
+					},
+				},
+				{
+					Name: "domain",
+					Path: "internal/domain",
+					Structs: []domain.StructDef{
+						{Name: "Entity", IsExported: true, SourceFile: "entity.go"},
+					},
+				},
+			},
+			wantParts: []string{
+				"# Combined Architecture Diagram",
+				"# Legend",
+				"# Packages",
+				"internal.service: {",
+				"internal.domain: {",
+				"Service: {",
+				"Entity: {",
+			},
+		},
+		{
+			name: "writes empty diagram for empty package list",
+			packages: []domain.PackageModel{},
+			wantParts: []string{
+				"# Combined Architecture Diagram",
+				"# Legend",
+				"# Packages",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			outputPath := filepath.Join(tmpDir, "combined.d2")
+
+			writer := d2.NewWriter()
+
+			err := writer.WriteCombined(context.Background(), tt.packages, outputPath)
+			if err != nil {
+				t.Fatalf("WriteCombined() error = %v", err)
+			}
+
+			content, err := os.ReadFile(outputPath)
+			if err != nil {
+				t.Fatalf("Failed to read output file: %v", err)
+			}
+
+			contentStr := string(content)
+			for _, part := range tt.wantParts {
+				if !strings.Contains(contentStr, part) {
+					t.Errorf("Output missing expected part: %q\nGot:\n%s", part, contentStr)
+				}
+			}
+		})
+	}
+}
+
+func TestWriter_WriteCombined_ContextCancellation(t *testing.T) {
+	packages := []domain.PackageModel{
+		{Name: "test", Path: "test"},
+	}
+
+	writer := d2.NewWriter()
+
+	// Create already cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "combined.d2")
+
+	err := writer.WriteCombined(ctx, packages, outputPath)
+	if err == nil {
+		t.Fatal("WriteCombined() expected error for cancelled context")
+	}
+	if err != context.Canceled {
+		t.Errorf("WriteCombined() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestWriter_WriteCombined_CreatesDirectory(t *testing.T) {
+	packages := []domain.PackageModel{
+		{
+			Name: "test",
+			Path: "test",
+			Interfaces: []domain.InterfaceDef{
+				{Name: "Service", IsExported: true, SourceFile: "service.go"},
+			},
+		},
+	}
+
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "nested", "dirs", "combined.d2")
+
+	writer := d2.NewWriter()
+
+	err := writer.WriteCombined(context.Background(), packages, outputPath)
+	if err != nil {
+		t.Fatalf("WriteCombined() error = %v", err)
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
+		t.Fatal("WriteCombined() did not create output file")
+	}
+}
