@@ -64,6 +64,7 @@ Examples:
 	generateCmd.Flags().Bool("pub", false, "Generate only pub.d2 (public API)")
 	generateCmd.Flags().Bool("internal", false, "Generate only internal.d2 (full implementation)")
 	generateCmd.Flags().StringP("output", "o", "", "Output to single file (combined mode)")
+	generateCmd.Flags().Bool("debug", false, "Print debug information about packages and dependencies")
 
 	diagramCmd.AddCommand(generateCmd)
 
@@ -109,6 +110,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	pubOnly, _ := cmd.Flags().GetBool("pub")
 	internalOnly, _ := cmd.Flags().GetBool("internal")
 	output, _ := cmd.Flags().GetString("output")
+	debug, _ := cmd.Flags().GetBool("debug")
 
 	// Validate flags
 	if pubOnly && internalOnly {
@@ -131,6 +133,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		opts := service.GenerateCombinedOptions{
 			Paths:      args,
 			OutputPath: output,
+			Debug:      debug,
 		}
 
 		result, err := svc.GenerateCombined(ctx, opts)
@@ -153,6 +156,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		Paths:        args,
 		PublicOnly:   pubOnly,
 		InternalOnly: internalOnly,
+		Debug:        debug,
 	}
 
 	results, err := svc.Generate(ctx, opts)

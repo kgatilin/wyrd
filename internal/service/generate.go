@@ -21,6 +21,12 @@ type GenerateOptions struct {
 	// InternalOnly generates only internal.d2 (full implementation diagram).
 	// If both PublicOnly and InternalOnly are false, both diagrams are generated.
 	InternalOnly bool
+
+	// Debug enables verbose output for troubleshooting dependency detection.
+	Debug bool
+
+	// DebugPrintf is the function to use for debug output. If nil, fmt.Printf is used.
+	DebugPrintf func(format string, args ...any)
 }
 
 // GenerateResult contains the result of generating diagrams for a package.
@@ -49,10 +55,58 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) ([]Generat
 	default:
 	}
 
+	// Setup debug printf
+	debugf := opts.DebugPrintf
+	if debugf == nil {
+		debugf = func(format string, args ...any) {
+			fmt.Printf(format, args...)
+		}
+	}
+
 	// Read all packages from Go source code
 	packages, err := s.goReader.Read(ctx, opts.Paths)
 	if err != nil {
 		return nil, fmt.Errorf("reading packages: %w", err)
+	}
+
+	// Debug: output package and dependency information
+	if opts.Debug {
+		debugf("\n=== DEBUG: Package Analysis ===\n")
+		debugf("Paths requested: %v\n", opts.Paths)
+		debugf("Packages found: %d\n\n", len(packages))
+
+		for _, pkg := range packages {
+			debugf("--- Package: %s (name: %s) ---\n", pkg.Path, pkg.Name)
+			debugf("  Interfaces: %d\n", len(pkg.Interfaces))
+			for _, iface := range pkg.Interfaces {
+				debugf("    - %s (exported: %v, file: %s, methods: %d)\n",
+					iface.Name, iface.IsExported, iface.SourceFile, len(iface.Methods))
+			}
+			debugf("  Structs: %d\n", len(pkg.Structs))
+			for _, s := range pkg.Structs {
+				debugf("    - %s (exported: %v, file: %s, fields: %d, methods: %d)\n",
+					s.Name, s.IsExported, s.SourceFile, len(s.Fields), len(s.Methods))
+			}
+			debugf("  Functions: %d\n", len(pkg.Functions))
+			for _, fn := range pkg.Functions {
+				debugf("    - %s (exported: %v, file: %s, stereotype: %v)\n",
+					fn.Name, fn.IsExported, fn.SourceFile, fn.Stereotype)
+			}
+			debugf("  TypeDefs: %d\n", len(pkg.TypeDefs))
+			for _, td := range pkg.TypeDefs {
+				debugf("    - %s (exported: %v, file: %s, constants: %d)\n",
+					td.Name, td.IsExported, td.SourceFile, len(td.Constants))
+			}
+			debugf("  Dependencies (raw): %d\n", len(pkg.Dependencies))
+			for _, dep := range pkg.Dependencies {
+				debugf("    - %s.%s [%s] -> %s.%s [%s] (kind: %s, throughExported: %v, external: %v)\n",
+					dep.From.Package, dep.From.Symbol, dep.From.File,
+					dep.To.Package, dep.To.Symbol, dep.To.File,
+					dep.Kind, dep.ThroughExported, dep.To.External)
+			}
+			debugf("\n")
+		}
+		debugf("=== END DEBUG ===\n\n")
 	}
 
 	var results []GenerateResult
