@@ -67,6 +67,30 @@ Examples:
 
 	diagramCmd.AddCommand(generateCmd)
 
+	// Split subcommand
+	splitCmd := &cobra.Command{
+		Use:   "split <diagram-file>",
+		Short: "Split combined diagram into per-package specs",
+		Long: `Split a combined D2 diagram into per-package specification files.
+
+Takes a combined diagram (e.g., created with 'diagram generate -o') and creates
+individual pub-spec.d2 files in each package's .arch/ directory.
+
+The -spec.d2 suffix indicates these are target specifications (what the architecture
+should look like) as opposed to pub.d2 files generated from actual code.
+
+Examples:
+  # Split a combined diagram into per-package specs
+  archai diagram split docs/architecture.d2
+
+  # Preview what would be created without writing files
+  archai diagram split docs/architecture.d2 --dry-run`,
+		Args: cobra.ExactArgs(1),
+		RunE: runSplit,
+	}
+	splitCmd.Flags().Bool("dry-run", false, "Show what would be created without writing files")
+	diagramCmd.AddCommand(splitCmd)
+
 	// Execute root command
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -77,8 +101,9 @@ Examples:
 func runGenerate(cmd *cobra.Command, args []string) error {
 	// Wire up dependencies
 	goReader := golang.NewReader()
+	d2Reader := d2.NewReader()
 	d2Writer := d2.NewWriter()
-	svc := service.NewService(goReader, d2Writer)
+	svc := service.NewService(goReader, d2Reader, d2Writer)
 
 	// Build options from flags
 	pubOnly, _ := cmd.Flags().GetBool("pub")
@@ -159,6 +184,65 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 
 	if errorCount > 0 {
 		return fmt.Errorf("generation completed with %d error(s)", errorCount)
+	}
+
+	return nil
+}
+
+// runSplit executes the diagram split command.
+func runSplit(cmd *cobra.Command, args []string) error {
+	// Wire up dependencies
+	goReader := golang.NewReader()
+	d2Reader := d2.NewReader()
+	d2Writer := d2.NewWriter()
+	svc := service.NewService(goReader, d2Reader, d2Writer)
+
+	// Get flags
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+	// Get context
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	opts := service.SplitOptions{
+		DiagramPath: args[0],
+		DryRun:      dryRun,
+	}
+
+	result, err := svc.Split(ctx, opts)
+	if err != nil {
+		return fmt.Errorf("split failed: %w", err)
+	}
+
+	// Display results
+	successCount := 0
+	errorCount := 0
+
+	for _, r := range result.Files {
+		if r.Error != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: %s: %v\n", r.PackagePath, r.Error)
+			errorCount++
+		} else {
+			if result.DryRun {
+				fmt.Printf("Would create: %s\n", r.FilePath)
+			} else {
+				fmt.Printf("Created: %s\n", r.FilePath)
+			}
+			successCount++
+		}
+	}
+
+	// Summary
+	if result.DryRun {
+		fmt.Printf("\n%d spec file(s) would be created\n", successCount)
+	} else {
+		fmt.Printf("\nSplit complete: %d spec file(s) created\n", successCount)
+	}
+
+	if errorCount > 0 {
+		return fmt.Errorf("split completed with %d error(s)", errorCount)
 	}
 
 	return nil

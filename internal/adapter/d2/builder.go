@@ -195,8 +195,12 @@ func (b *d2TextBuilder) collectSymbolInfo(fg fileGroup) []symbolInfo {
 }
 
 // fileContainerID returns the D2 container ID for a filename.
-// It strips the .go extension.
+// It strips the .go extension. If filename is empty (e.g., from combined diagrams),
+// returns "symbols" as a fallback container name.
 func (b *d2TextBuilder) fileContainerID(filename string) string {
+	if filename == "" {
+		return "symbols"
+	}
 	return strings.TrimSuffix(filename, ".go")
 }
 

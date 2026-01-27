@@ -13,7 +13,7 @@ import (
 )
 
 func newTestService() *service.Service {
-	return service.NewService(golang.NewReader(), d2.NewWriter())
+	return service.NewService(golang.NewReader(), d2.NewReader(), d2.NewWriter())
 }
 
 // TestIntegration_GoCodeToD2Diagram tests the full flow from Go code to D2 diagram.
