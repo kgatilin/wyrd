@@ -25,6 +25,14 @@ const (
 	ColorLegendFill = "#fafafa"
 )
 
+// D2 class names for different stereotype categories.
+const (
+	ClassDomain  = "domain"
+	ClassService = "service"
+	ClassFactory = "factory"
+	ClassValue   = "value"
+)
+
 // stereotypeColor returns the D2 fill color for a given stereotype.
 func stereotypeColor(s domain.Stereotype) string {
 	switch s {
@@ -47,6 +55,28 @@ func stereotypeColor(s domain.Stereotype) string {
 	}
 }
 
+// stereotypeClass returns the D2 class name for a given stereotype.
+func stereotypeClass(s domain.Stereotype) string {
+	switch s {
+	case domain.StereotypeService,
+		domain.StereotypeRepository,
+		domain.StereotypePort,
+		domain.StereotypeInterface:
+		return ClassService
+	case domain.StereotypeFactory:
+		return ClassFactory
+	case domain.StereotypeAggregate,
+		domain.StereotypeEntity:
+		return ClassDomain
+	case domain.StereotypeValue,
+		domain.StereotypeEnum,
+		domain.StereotypeNone:
+		return ClassValue
+	default:
+		return ClassValue
+	}
+}
+
 // stereotypeLabel returns the D2 stereotype label (e.g., "<<service>>").
 // Returns empty string for StereotypeNone.
 func stereotypeLabel(s domain.Stereotype) string {
@@ -64,8 +94,19 @@ type symbolInfo struct {
 // fileContainerColor determines the fill color for a file container
 // based on the dominant stereotype of its contents.
 func fileContainerColor(symbols []symbolInfo) string {
+	return stereotypeColor(dominantStereotype(symbols))
+}
+
+// fileContainerClass determines the D2 class for a file container
+// based on the dominant stereotype of its contents.
+func fileContainerClass(symbols []symbolInfo) string {
+	return stereotypeClass(dominantStereotype(symbols))
+}
+
+// dominantStereotype finds the most common stereotype in a list of symbols.
+func dominantStereotype(symbols []symbolInfo) domain.Stereotype {
 	if len(symbols) == 0 {
-		return ColorGray
+		return domain.StereotypeNone
 	}
 
 	// Count occurrences of each stereotype
@@ -84,5 +125,5 @@ func fileContainerColor(symbols []symbolInfo) string {
 		}
 	}
 
-	return stereotypeColor(dominant)
+	return dominant
 }

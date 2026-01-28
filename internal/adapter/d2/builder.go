@@ -28,13 +28,18 @@ func (b *d2TextBuilder) Build(pkg domain.PackageModel, publicOnly bool) string {
 	b.writeComment(fmt.Sprintf("%s package", pkg.Name))
 	b.writeLine("")
 
-	// 2. Write legend
+	// 2. Write reusable style classes
+	b.writeComment("Style classes")
+	b.writeRaw(classesTemplate())
+	b.writeLine("")
+
+	// 3. Write legend
 	b.writeComment("Legend")
 	b.writeRaw(legendTemplate())
 	b.writeLine("")
 	b.writeLine("")
 
-	// 3. Group symbols by file and write containers
+	// 4. Group symbols by file and write containers
 	b.writeComment("Files")
 	fileGroups := b.groupByFile(pkg, publicOnly)
 	for _, fg := range fileGroups {
@@ -42,7 +47,7 @@ func (b *d2TextBuilder) Build(pkg domain.PackageModel, publicOnly bool) string {
 		b.writeLine("")
 	}
 
-	// 4. Write dependencies
+	// 5. Write dependencies
 	b.writeComment("Dependencies")
 	deps := b.filterDependencies(pkg.Dependencies, publicOnly, pkg)
 	for _, dep := range deps {
@@ -132,9 +137,9 @@ func (b *d2TextBuilder) groupByFile(pkg domain.PackageModel, publicOnly bool) []
 
 // writeFileContainer writes a D2 container for a source file.
 func (b *d2TextBuilder) writeFileContainer(fg fileGroup, publicOnly bool) {
-	// Calculate file container color from dominant stereotype
+	// Calculate file container class from dominant stereotype
 	symbols := b.collectSymbolInfo(fg)
-	color := fileContainerColor(symbols)
+	class := fileContainerClass(symbols)
 
 	// Container ID is filename without extension
 	containerID := b.fileContainerID(fg.filename)
@@ -143,7 +148,7 @@ func (b *d2TextBuilder) writeFileContainer(fg fileGroup, publicOnly bool) {
 	b.indent++
 
 	b.writeLine(fmt.Sprintf(`label: "%s"`, fg.filename))
-	b.writeLine(fmt.Sprintf(`style.fill: "%s"`, color))
+	b.writeLine(fmt.Sprintf(`class: %s`, class))
 	b.writeLine("")
 
 	// Write interfaces

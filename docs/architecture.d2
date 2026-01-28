@@ -1,5 +1,25 @@
 # Combined Architecture Diagram
 
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
 # Legend
 legend: {
   label: "Color Legend (DDD)"
@@ -10,33 +30,29 @@ legend: {
   aggregate: {
     label: "Domain Model"
     shape: class
-    style.fill: "#e8f4fc"
-    style.font-color: "#000"
+    class: domain
   }
   service: {
     label: "Service"
     shape: class
-    style.fill: "#f0e8fc"
-    style.font-color: "#000"
+    class: service
   }
   factory: {
     label: "Factory"
     shape: class
-    style.fill: "#e8fce8"
-    style.font-color: "#000"
+    class: factory
   }
   options: {
     label: "Value Object"
     shape: class
-    style.fill: "#f8f8f8"
-    style.font-color: "#000"
+    class: value
   }
 }
 
 # Packages
 internal.adapter.d2: {
   label: "internal/adapter/d2"
-  style.fill: "#e8fce8"
+  class: factory
 
   NewReader: {
     shape: class
@@ -56,7 +72,7 @@ internal.adapter.d2: {
 
 internal.adapter.golang: {
   label: "internal/adapter/golang"
-  style.fill: "#e8fce8"
+  class: factory
 
   NewReader: {
     shape: class
@@ -69,7 +85,7 @@ internal.adapter.golang: {
 
 internal.domain: {
   label: "internal/domain"
-  style.fill: "#e8f4fc"
+  class: domain
 
   Dependency: {
     shape: class
@@ -305,7 +321,7 @@ internal.domain: {
 
 internal.service: {
   label: "internal/service"
-  style.fill: "#f8f8f8"
+  class: value
 
   ModelReader: {
     shape: class
@@ -328,6 +344,8 @@ internal.service: {
 
     "+Paths []string": ""
     "+OutputPath string": ""
+    "+Debug bool": ""
+    "+DebugPrintf func(format string, args ...any)": ""
   }
 
   GenerateCombinedResult: {
@@ -345,6 +363,8 @@ internal.service: {
     "+Paths []string": ""
     "+PublicOnly bool": ""
     "+InternalOnly bool": ""
+    "+Debug bool": ""
+    "+DebugPrintf func(format string, args ...any)": ""
   }
 
   GenerateResult: {
@@ -363,6 +383,33 @@ internal.service: {
 
     "+Generate(ctx context.Context, opts internal/service.GenerateOptions)": "([]internal/service.GenerateResult, error)"
     "+GenerateCombined(ctx context.Context, opts internal/service.GenerateCombinedOptions)": "(*internal/service.GenerateCombinedResult, error)"
+    "+Split(ctx context.Context, opts internal/service.SplitOptions)": "(*internal/service.SplitResult, error)"
+  }
+
+  SplitFileResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+PackagePath string": ""
+    "+FilePath string": ""
+    "+Created bool": ""
+    "+Error error": ""
+  }
+
+  SplitOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+DiagramPath string": ""
+    "+DryRun bool": ""
+  }
+
+  SplitResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Files []internal/service.SplitFileResult": ""
+    "+DryRun bool": ""
   }
 
   NewService: {
@@ -370,6 +417,7 @@ internal.service: {
     stereotype: "<<factory>>"
 
     "goReader": "internal/service.ModelReader"
+    "d2Reader": "internal/service.ModelReader"
     "d2Writer": "internal/service.ModelWriter"
     "return": "*internal/service.Service"
   }
@@ -382,6 +430,9 @@ internal.service: {
   Service -> GenerateCombinedResult: "returns"
   Service -> GenerateOptions: "uses"
   Service -> GenerateResult: "returns"
+  Service -> SplitOptions: "uses"
+  Service -> SplitResult: "returns"
+  SplitResult -> SplitFileResult: "uses"
 
 }
 

@@ -36,24 +36,16 @@ legend: {
 # Files
 reader: {
   label: "reader.go"
-  style.fill: "#f8f8f8"
-
-  Reader: {
-    shape: class
-    stereotype: "<<struct>>"
-
-    "+Read(ctx context.Context, paths []string)": "([]internal/domain.PackageModel, error)"
-  }
+  style.fill: "#e8fce8"
 
   NewReader: {
     shape: class
     stereotype: "<<factory>>"
 
-    "return": "*internal/adapter/golang.Reader"
+    "return": "internal/service.ModelReader"
   }
 
 
 }
 
 # Dependencies
-reader.NewReader -> reader.Reader: "returns"

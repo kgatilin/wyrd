@@ -38,18 +38,11 @@ reader: {
   label: "reader.go"
   style.fill: "#e8fce8"
 
-  Reader: {
-    shape: class
-    stereotype: "<<struct>>"
-
-    "+Read(ctx context.Context, paths []string)": "([]internal/domain.PackageModel, error)"
-  }
-
   NewReader: {
     shape: class
     stereotype: "<<factory>>"
 
-    "return": "*internal/adapter/d2.Reader"
+    "return": "internal/service.ModelReader"
   }
 
 
@@ -57,26 +50,16 @@ reader: {
 
 writer: {
   label: "writer.go"
-  style.fill: "#f8f8f8"
-
-  Writer: {
-    shape: class
-    stereotype: "<<struct>>"
-
-    "+Write(ctx context.Context, model internal/domain.PackageModel, opts internal/domain.WriteOptions)": "error"
-    "+WriteCombined(ctx context.Context, models []internal/domain.PackageModel, outputPath string)": "error"
-  }
+  style.fill: "#e8fce8"
 
   NewWriter: {
     shape: class
     stereotype: "<<factory>>"
 
-    "return": "*internal/adapter/d2.Writer"
+    "return": "internal/service.ModelWriter"
   }
 
 
 }
 
 # Dependencies
-reader.NewReader -> reader.Reader: "returns"
-writer.NewWriter -> writer.Writer: "returns"

@@ -32,30 +32,35 @@ func (b *combinedBuilder) Build(packages []domain.PackageModel) string {
 	b.writeComment("Combined Architecture Diagram")
 	b.writeLine("")
 
-	// 2. Write legend
+	// 2. Write reusable style classes
+	b.writeComment("Style classes")
+	b.writeRaw(classesTemplate())
+	b.writeLine("")
+
+	// 3. Write legend
 	b.writeComment("Legend")
 	b.writeRaw(legendTemplate())
 	b.writeLine("")
 	b.writeLine("")
 
-	// 3. Sort packages for deterministic output
+	// 4. Sort packages for deterministic output
 	sortedPackages := make([]domain.PackageModel, len(packages))
 	copy(sortedPackages, packages)
 	sort.Slice(sortedPackages, func(i, j int) bool {
 		return sortedPackages[i].Path < sortedPackages[j].Path
 	})
 
-	// 4. Build symbol index for dependency filtering
+	// 5. Build symbol index for dependency filtering
 	symbolIndex := b.buildSymbolIndex(sortedPackages)
 
-	// 5. Write package containers (including intra-package dependencies)
+	// 6. Write package containers (including intra-package dependencies)
 	b.writeComment("Packages")
 	for _, pkg := range sortedPackages {
 		b.writePackageContainer(pkg, symbolIndex)
 		b.writeLine("")
 	}
 
-	// 6. Write cross-package dependencies
+	// 7. Write cross-package dependencies
 	crossDeps := b.collectCrossPackageDeps(sortedPackages, symbolIndex)
 	if len(crossDeps) > 0 {
 		b.writeComment("Cross-package dependencies")
@@ -71,9 +76,9 @@ func (b *combinedBuilder) Build(packages []domain.PackageModel) string {
 func (b *combinedBuilder) writePackageContainer(pkg domain.PackageModel, symbolIndex map[string]map[string]bool) {
 	pkgID := sanitizePackageID(pkg.Path)
 
-	// Calculate container color from dominant stereotype
+	// Calculate container class from dominant stereotype
 	symbols := b.collectSymbolInfo(pkg)
-	color := fileContainerColor(symbols)
+	class := fileContainerClass(symbols)
 
 	b.writeLine(fmt.Sprintf("%s: {", pkgID))
 	b.indent++
@@ -84,7 +89,7 @@ func (b *combinedBuilder) writePackageContainer(pkg domain.PackageModel, symbolI
 		label = pkg.Name
 	}
 	b.writeLine(fmt.Sprintf(`label: "%s"`, label))
-	b.writeLine(fmt.Sprintf(`style.fill: "%s"`, color))
+	b.writeLine(fmt.Sprintf(`class: %s`, class))
 	b.writeLine("")
 
 	// Write exported interfaces

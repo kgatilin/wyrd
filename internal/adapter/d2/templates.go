@@ -1,5 +1,28 @@
 package d2
 
+// classesTemplate returns the D2 classes block for reusable styles.
+func classesTemplate() string {
+	return `classes: {
+  ` + ClassDomain + `: {
+    style.fill: "` + ColorBlue + `"
+    style.font-color: "#000"
+  }
+  ` + ClassService + `: {
+    style.fill: "` + ColorPurple + `"
+    style.font-color: "#000"
+  }
+  ` + ClassFactory + `: {
+    style.fill: "` + ColorGreen + `"
+    style.font-color: "#000"
+  }
+  ` + ClassValue + `: {
+    style.fill: "` + ColorGray + `"
+    style.font-color: "#000"
+  }
+}
+`
+}
+
 // legendTemplate returns the D2 legend block content.
 // The legend is positioned at top-right and shows the DDD color coding.
 func legendTemplate() string {
@@ -12,26 +35,22 @@ func legendTemplate() string {
   aggregate: {
     label: "Domain Model"
     shape: class
-    style.fill: "` + ColorBlue + `"
-    style.font-color: "#000"
+    class: ` + ClassDomain + `
   }
   service: {
     label: "Service"
     shape: class
-    style.fill: "` + ColorPurple + `"
-    style.font-color: "#000"
+    class: ` + ClassService + `
   }
   factory: {
     label: "Factory"
     shape: class
-    style.fill: "` + ColorGreen + `"
-    style.font-color: "#000"
+    class: ` + ClassFactory + `
   }
   options: {
     label: "Value Object"
     shape: class
-    style.fill: "` + ColorGray + `"
-    style.font-color: "#000"
+    class: ` + ClassValue + `
   }
 }`
 }

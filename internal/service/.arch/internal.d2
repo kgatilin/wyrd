@@ -43,6 +43,7 @@ factory: {
     stereotype: "<<factory>>"
 
     "goReader": "internal/service.ModelReader"
+    "d2Reader": "internal/service.ModelReader"
     "d2Writer": "internal/service.ModelWriter"
     "return": "*internal/service.Service"
   }
@@ -61,6 +62,8 @@ generate: {
     "+Paths []string": ""
     "+PublicOnly bool": ""
     "+InternalOnly bool": ""
+    "+Debug bool": ""
+    "+DebugPrintf func(format string, args ...any)": ""
   }
 
   GenerateResult: {
@@ -85,6 +88,8 @@ generate_combined: {
 
     "+Paths []string": ""
     "+OutputPath string": ""
+    "+Debug bool": ""
+    "+DebugPrintf func(format string, args ...any)": ""
   }
 
   GenerateCombinedResult: {
@@ -134,6 +139,40 @@ service: {
     "-generatePackageDiagrams(ctx context.Context, pkg internal/domain.PackageModel, opts internal/service.GenerateOptions)": "internal/service.GenerateResult"
     "-resolveArchDir(pkgPath string)": "string"
     "+GenerateCombined(ctx context.Context, opts internal/service.GenerateCombinedOptions)": "(*internal/service.GenerateCombinedResult, error)"
+    "+Split(ctx context.Context, opts internal/service.SplitOptions)": "(*internal/service.SplitResult, error)"
+    "-splitPackage(ctx context.Context, pkg internal/domain.PackageModel, dryRun bool)": "internal/service.SplitFileResult"
+  }
+
+}
+
+split: {
+  label: "split.go"
+  style.fill: "#f8f8f8"
+
+  SplitFileResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+PackagePath string": ""
+    "+FilePath string": ""
+    "+Created bool": ""
+    "+Error error": ""
+  }
+
+  SplitOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+DiagramPath string": ""
+    "+DryRun bool": ""
+  }
+
+  SplitResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Files []internal/service.SplitFileResult": ""
+    "+DryRun bool": ""
   }
 
 }
@@ -145,6 +184,10 @@ service.Service -> generate.GenerateOptions: "uses"
 service.Service -> generate.GenerateResult: "returns"
 service.Service -> generate_combined.GenerateCombinedOptions: "uses"
 service.Service -> generate_combined.GenerateCombinedResult: "returns"
+service.Service -> split.SplitOptions: "uses"
+service.Service -> split.SplitResult: "returns"
+service.Service -> split.SplitFileResult: "returns"
+split.SplitResult -> split.SplitFileResult: "uses"
 factory.NewService -> options.ModelReader: "uses"
 factory.NewService -> options.ModelWriter: "uses"
 factory.NewService -> service.Service: "returns"

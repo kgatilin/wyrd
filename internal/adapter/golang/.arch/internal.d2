@@ -38,7 +38,7 @@ reader: {
   label: "reader.go"
   style.fill: "#f8f8f8"
 
-  Reader: {
+  reader: {
     shape: class
     stereotype: "<<struct>>"
 
@@ -59,10 +59,11 @@ reader: {
     "-extractParams(tuple *go/types.Tuple)": "[]internal/domain.ParamDef"
     "-extractReturns(tuple *go/types.Tuple)": "[]internal/domain.TypeRef"
     "-convertTypeRef(t go/types.Type)": "internal/domain.TypeRef"
+    "-stripModulePath(s string)": "string"
     "-getSourceFile(fset *go/token.FileSet, pos go/token.Pos)": "string"
     "-getDocComment(astFiles map[string]*go/ast.File, filename string, name string)": "string"
     "-collectDependencies(pkg *golang.org/x/tools/go/packages.Package, model *internal/domain.PackageModel)": "[]internal/domain.Dependency"
-    "-collectMethodDependenciesWithVisibility(fromRef internal/domain.SymbolRef, method internal/domain.MethodDef, pkg *golang.org/x/tools/go/packages.Package, throughExported bool, addDep func(github.com/kgatilin/archai/internal/domain.Dependency))": ""
+    "-collectMethodDependenciesWithVisibility(fromRef internal/domain.SymbolRef, method internal/domain.MethodDef, pkg *golang.org/x/tools/go/packages.Package, throughExported bool, addDep func(internal/domain.Dependency))": ""
     "-typeRefToSymbolRef(ref internal/domain.TypeRef, pkg *golang.org/x/tools/go/packages.Package)": "*internal/domain.SymbolRef"
     "-findSymbolFile(pkg *golang.org/x/tools/go/packages.Package, symbolName string)": "string"
     "-applyStereotypes(model *internal/domain.PackageModel)": ""
@@ -72,7 +73,7 @@ reader: {
     shape: class
     stereotype: "<<factory>>"
 
-    "return": "*internal/adapter/golang.Reader"
+    "return": "internal/service.ModelReader"
   }
 
   isBasicType: {
@@ -152,4 +153,3 @@ stereotype: {
 }
 
 # Dependencies
-reader.NewReader -> reader.Reader: "returns"

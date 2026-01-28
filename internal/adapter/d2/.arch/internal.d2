@@ -155,22 +155,101 @@ combined_builder: {
 
 reader: {
   label: "reader.go"
-  style.fill: "#e8fce8"
+  style.fill: "#f8f8f8"
 
-  Reader: {
+  reader: {
     shape: class
     stereotype: "<<struct>>"
 
     "+Read(ctx context.Context, paths []string)": "([]internal/domain.PackageModel, error)"
+    "-readFile(path string)": "([]internal/domain.PackageModel, error)"
+    "-parseAST(ast *oss.terrastruct.com/d2/d2ast.Map)": "([]internal/domain.PackageModel, error)"
+    "-parsePackageContainer(m *oss.terrastruct.com/d2/d2ast.Map)": "(internal/domain.PackageModel, error)"
+    "-parseSymbol(name string, m *oss.terrastruct.com/d2/d2ast.Map)": "(any, internal/adapter/d2.symbolKind)"
+    "-parseInterface(name string, m *oss.terrastruct.com/d2/d2ast.Map)": "internal/domain.InterfaceDef"
+    "-parseStruct(name string, m *oss.terrastruct.com/d2/d2ast.Map)": "internal/domain.StructDef"
+    "-parseFunction(name string, m *oss.terrastruct.com/d2/d2ast.Map, stereotype string)": "internal/domain.FunctionDef"
+    "-parseTypeDef(name string, m *oss.terrastruct.com/d2/d2ast.Map, stereotype internal/domain.Stereotype)": "internal/domain.TypeDef"
+    "-parseMethod(signature string, returnStr string)": "internal/domain.MethodDef"
+    "-parseField(fieldStr string)": "internal/domain.FieldDef"
   }
 
   NewReader: {
     shape: class
     stereotype: "<<factory>>"
 
-    "return": "*internal/adapter/d2.Reader"
+    "return": "internal/service.ModelReader"
   }
 
+  getKeyPathString: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "kp": "*oss.terrastruct.com/d2/d2ast.KeyPath"
+    "return": "string"
+  }
+
+  getScalarValue: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "vb": "oss.terrastruct.com/d2/d2ast.ValueBox"
+    "return": "string"
+  }
+
+  isExported: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "name": "string"
+    "return": "bool"
+  }
+
+  parseParams: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "paramStr": "string"
+    "return": "[]internal/domain.ParamDef"
+  }
+
+  parseReturnTypes: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "returnStr": "string"
+    "return": "[]internal/domain.TypeRef"
+  }
+
+  parseTypeRef: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "typeStr": "string"
+    "return": "internal/domain.TypeRef"
+  }
+
+  splitParams: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "s": "string"
+    "return": "[]string"
+  }
+
+
+  symbolKind: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "int"
+
+    "symbolKindFunction": "const"
+    "symbolKindInterface": "const"
+    "symbolKindStruct": "const"
+    "symbolKindTypeDef": "const"
+    "symbolKindUnknown": "const"
+  }
 
 }
 
@@ -230,7 +309,7 @@ writer: {
   label: "writer.go"
   style.fill: "#f8f8f8"
 
-  Writer: {
+  writer: {
     shape: class
     stereotype: "<<struct>>"
 
@@ -242,7 +321,7 @@ writer: {
     shape: class
     stereotype: "<<factory>>"
 
-    "return": "*internal/adapter/d2.Writer"
+    "return": "internal/service.ModelWriter"
   }
 
 
@@ -253,8 +332,7 @@ combined_builder.combinedBuilder -> styles.symbolInfo: "returns"
 combined_builder.combinedBuilder -> combined_builder.depInfo: "returns"
 builder.d2TextBuilder -> builder.fileGroup: "returns"
 builder.d2TextBuilder -> styles.symbolInfo: "returns"
-reader.NewReader -> reader.Reader: "returns"
-writer.NewWriter -> writer.Writer: "returns"
+reader.reader -> reader.symbolKind: "returns"
 styles.fileContainerColor -> styles.symbolInfo: "uses"
 combined_builder.newCombinedBuilder -> combined_builder.combinedBuilder: "returns"
 builder.newD2TextBuilder -> builder.d2TextBuilder: "returns"

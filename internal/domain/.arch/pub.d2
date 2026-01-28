@@ -1,5 +1,25 @@
 # domain package
 
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
 # Legend
 legend: {
   label: "Color Legend (DDD)"
@@ -10,33 +30,29 @@ legend: {
   aggregate: {
     label: "Domain Model"
     shape: class
-    style.fill: "#e8f4fc"
-    style.font-color: "#000"
+    class: domain
   }
   service: {
     label: "Service"
     shape: class
-    style.fill: "#f0e8fc"
-    style.font-color: "#000"
+    class: service
   }
   factory: {
     label: "Factory"
     shape: class
-    style.fill: "#e8fce8"
-    style.font-color: "#000"
+    class: factory
   }
   options: {
     label: "Value Object"
     shape: class
-    style.fill: "#f8f8f8"
-    style.font-color: "#000"
+    class: value
   }
 }
 
 # Files
 dependency: {
   label: "dependency.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   Dependency: {
     shape: class
@@ -78,7 +94,7 @@ dependency: {
 
 field: {
   label: "field.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   FieldDef: {
     shape: class
@@ -97,7 +113,7 @@ field: {
 
 function: {
   label: "function.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   FunctionDef: {
     shape: class
@@ -119,7 +135,7 @@ function: {
 
 interface: {
   label: "interface.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   InterfaceDef: {
     shape: class
@@ -137,7 +153,7 @@ interface: {
 
 method: {
   label: "method.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   MethodDef: {
     shape: class
@@ -181,7 +197,7 @@ method: {
 
 module: {
   label: "module.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   Module: {
     shape: class
@@ -198,7 +214,7 @@ module: {
 
 package: {
   label: "package.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   PackageModel: {
     shape: class
@@ -224,7 +240,7 @@ package: {
 
 stereotype: {
   label: "stereotype.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   Stereotype: {
     shape: class
@@ -248,7 +264,7 @@ stereotype: {
 
 struct: {
   label: "struct.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   StructDef: {
     shape: class
@@ -267,7 +283,7 @@ struct: {
 
 typedef: {
   label: "typedef.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   TypeDef: {
     shape: class
@@ -288,7 +304,7 @@ typedef: {
 
 write_options: {
   label: "write_options.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   WriteOptions: {
     shape: class

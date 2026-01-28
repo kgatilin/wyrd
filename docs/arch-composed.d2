@@ -1,0 +1,399 @@
+# Combined Architecture Diagram
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Packages
+internal.adapter.d2: {
+  label: "internal/adapter/d2"
+  class: factory
+
+  NewReader: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "return": "internal/service.ModelReader"
+  }
+
+  NewWriter: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "return": "internal/service.ModelWriter"
+  }
+
+}
+
+internal.adapter.golang: {
+  label: "internal/adapter/golang"
+  class: factory
+
+  NewReader: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "return": "internal/service.ModelReader"
+  }
+
+}
+
+internal.domain: {
+  label: "internal/domain"
+  class: value
+
+  Dependency: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+From internal/domain.SymbolRef": ""
+    "+To internal/domain.SymbolRef": ""
+    "+Kind internal/domain.DependencyKind": ""
+    "+ThroughExported bool": ""
+
+    "+String()": "string"
+  }
+
+  SymbolRef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Package string": ""
+    "+File string": ""
+    "+Symbol string": ""
+    "+External bool": ""
+
+    "+String()": "string"
+    "+QualifiedName()": "string"
+  }
+
+  FieldDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/domain.TypeRef": ""
+    "+IsExported bool": ""
+    "+Tag string": ""
+
+    "+String()": "string"
+    "+StringWithVisibility()": "string"
+  }
+
+  FunctionDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Params []internal/domain.ParamDef": ""
+    "+Returns []internal/domain.TypeRef": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype internal/domain.Stereotype": ""
+
+    "+Signature()": "string"
+    "+SignatureWithVisibility()": "string"
+  }
+
+  InterfaceDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Methods []internal/domain.MethodDef": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype internal/domain.Stereotype": ""
+  }
+
+  MethodDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Params []internal/domain.ParamDef": ""
+    "+Returns []internal/domain.TypeRef": ""
+    "+IsExported bool": ""
+
+    "+Signature()": "string"
+    "+SignatureWithVisibility()": "string"
+  }
+
+  ParamDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/domain.TypeRef": ""
+
+    "+String()": "string"
+  }
+
+  TypeRef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Package string": ""
+    "+IsPointer bool": ""
+    "+IsSlice bool": ""
+    "+IsMap bool": ""
+    "+KeyType *internal/domain.TypeRef": ""
+    "+ValueType *internal/domain.TypeRef": ""
+
+    "+String()": "string"
+  }
+
+  Module: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Path string": ""
+    "+Packages []internal/domain.PackageModel": ""
+
+    "+FindPackage(path string)": "*internal/domain.PackageModel"
+    "+PackageCount()": "int"
+  }
+
+  PackageModel: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Path string": ""
+    "+Name string": ""
+    "+Interfaces []internal/domain.InterfaceDef": ""
+    "+Structs []internal/domain.StructDef": ""
+    "+Functions []internal/domain.FunctionDef": ""
+    "+TypeDefs []internal/domain.TypeDef": ""
+    "+Dependencies []internal/domain.Dependency": ""
+
+    "+SourceFiles()": "[]string"
+    "+ExportedInterfaces()": "[]internal/domain.InterfaceDef"
+    "+ExportedStructs()": "[]internal/domain.StructDef"
+    "+ExportedFunctions()": "[]internal/domain.FunctionDef"
+    "+ExportedTypeDefs()": "[]internal/domain.TypeDef"
+    "+HasExportedSymbols()": "bool"
+  }
+
+  StructDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Fields []internal/domain.FieldDef": ""
+    "+Methods []internal/domain.MethodDef": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype internal/domain.Stereotype": ""
+  }
+
+  TypeDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+UnderlyingType internal/domain.TypeRef": ""
+    "+Constants []string": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype internal/domain.Stereotype": ""
+
+    "+IsEnum()": "bool"
+  }
+
+  WriteOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+OutputPath string": ""
+    "+PublicOnly bool": ""
+    "+ToStdout bool": ""
+  }
+
+  DependencyKind: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "string"
+
+    "DependencyImplements": "const"
+    "DependencyReturns": "const"
+    "DependencyUses": "const"
+  }
+
+  Stereotype: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "string"
+
+    "StereotypeAggregate": "const"
+    "StereotypeEntity": "const"
+    "StereotypeEnum": "const"
+    "StereotypeFactory": "const"
+    "StereotypeInterface": "const"
+    "StereotypeNone": "const"
+    "StereotypePort": "const"
+    "StereotypeRepository": "const"
+    "StereotypeService": "const"
+    "StereotypeValue": "const"
+  }
+
+}
+
+internal.service: {
+  label: "internal/service"
+  class: value
+
+  ModelReader: {
+    shape: class
+    stereotype: "<<interface>>"
+
+    "+Read(ctx context.Context, paths []string)": "([]internal/domain.PackageModel, error)"
+  }
+
+  ModelWriter: {
+    shape: class
+    stereotype: "<<interface>>"
+
+    "+Write(ctx context.Context, model internal/domain.PackageModel, opts internal/domain.WriteOptions)": "error"
+    "+WriteCombined(ctx context.Context, models []internal/domain.PackageModel, outputPath string)": "error"
+  }
+
+  GenerateOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Paths []string": ""
+    "+PublicOnly bool": ""
+    "+InternalOnly bool": ""
+    "+Debug bool": ""
+
+    "+DebugPrintf func(format string, args ...any)": ""
+  }
+
+  GenerateResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+PackagePath string": ""
+    "+PubFile string": ""
+    "+InternalFile string": ""
+    "+Error error": ""
+  }
+
+  GenerateCombinedOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Paths []string": ""
+    "+OutputPath string": ""
+    "+Debug bool": ""
+
+    "+DebugPrintf func(format string, args ...any)": ""
+  }
+
+  GenerateCombinedResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+OutputPath string": ""
+    "+PackageCount int": ""
+  }
+
+  Service: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Generate(ctx context.Context, opts internal/service.GenerateOptions)": "([]internal/service.GenerateResult, error)"
+    "+GenerateCombined(ctx context.Context, opts internal/service.GenerateCombinedOptions)": "(*internal/service.GenerateCombinedResult, error)"
+    "+Split(ctx context.Context, opts internal/service.SplitOptions)": "(*internal/service.SplitResult, error)"
+  }
+
+  SplitFileResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+PackagePath string": ""
+    "+FilePath string": ""
+    "+Created bool": ""
+    "+Error error": ""
+  }
+
+  SplitOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+DiagramPath string": ""
+    "+DryRun bool": ""
+  }
+
+  SplitResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Files []internal/service.SplitFileResult": ""
+    "+DryRun bool": ""
+  }
+
+  NewService: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "goReader": "internal/service.ModelReader"
+    "d2Reader": "internal/service.ModelReader"
+    "d2Writer": "internal/service.ModelWriter"
+    "return": "*internal/service.Service"
+  }
+
+}
+
