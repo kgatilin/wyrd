@@ -800,6 +800,95 @@ func TestReader_Read_EmptyPaths(t *testing.T) {
 	}
 }
 
+func TestReader_Read_SplitMode(t *testing.T) {
+	// Split-mode files have file groups with .go labels instead of package containers
+	d2File := `
+# service package
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  near: top-right
+}
+
+# Files
+service: {
+  label: "service.go"
+  style.fill: "#f0e8fc"
+
+  Service: {
+    shape: class
+    stereotype: "<<interface>>"
+
+    "+Process()": "error"
+  }
+}
+
+factory: {
+  label: "factory.go"
+  style.fill: "#e8fce8"
+
+  NewService: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "return": "*Service"
+  }
+}
+`
+	tmpDir := t.TempDir()
+
+	// Create the file in a .arch directory to simulate real usage
+	archDir := filepath.Join(tmpDir, "internal", "service", ".arch")
+	if err := os.MkdirAll(archDir, 0755); err != nil {
+		t.Fatalf("Failed to create .arch directory: %v", err)
+	}
+	d2Path := filepath.Join(archDir, "pub.d2")
+	if err := os.WriteFile(d2Path, []byte(d2File), 0644); err != nil {
+		t.Fatalf("Failed to write D2 file: %v", err)
+	}
+
+	reader := d2.NewReader()
+	packages, err := reader.Read(context.Background(), []string{d2Path})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+
+	// Should return exactly 1 package (not 2 file groups)
+	if len(packages) != 1 {
+		t.Fatalf("Read() got %d packages, want 1", len(packages))
+	}
+
+	pkg := packages[0]
+
+	// Package path should be derived from file location
+	expectedPath := filepath.Join(tmpDir, "internal", "service")
+	if pkg.Path != expectedPath {
+		t.Errorf("PackageModel.Path = %q, want %q", pkg.Path, expectedPath)
+	}
+	if pkg.Name != "service" {
+		t.Errorf("PackageModel.Name = %q, want %q", pkg.Name, "service")
+	}
+
+	// Should have both the interface and the factory function
+	if len(pkg.Interfaces) != 1 {
+		t.Errorf("PackageModel.Interfaces count = %d, want 1", len(pkg.Interfaces))
+	}
+	if len(pkg.Functions) != 1 {
+		t.Errorf("PackageModel.Functions count = %d, want 1", len(pkg.Functions))
+	}
+
+	// Verify interface
+	if len(pkg.Interfaces) > 0 && pkg.Interfaces[0].Name != "Service" {
+		t.Errorf("Interface name = %q, want %q", pkg.Interfaces[0].Name, "Service")
+	}
+
+	// Verify function
+	if len(pkg.Functions) > 0 && pkg.Functions[0].Name != "NewService" {
+		t.Errorf("Function name = %q, want %q", pkg.Functions[0].Name, "NewService")
+	}
+}
+
 // assertPackageEqual compares two PackageModel instances for equality.
 func assertPackageEqual(t *testing.T, got, want domain.PackageModel) {
 	t.Helper()

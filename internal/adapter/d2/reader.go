@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -83,7 +84,293 @@ func (r *reader) readFile(path string) ([]domain.PackageModel, error) {
 		return nil, fmt.Errorf("parsing D2: %w", err)
 	}
 
+	// Detect if this is a split-mode file (per-file grouping) vs combined-mode (per-package)
+	if r.isSplitMode(ast) {
+		return r.parseSplitModeAST(ast, path)
+	}
+
 	return r.parseAST(ast)
+}
+
+// isSplitMode detects if a D2 file uses split-mode format (per-file grouping).
+// Split-mode files have top-level containers with labels like "reader.go" (file names),
+// while combined-mode files have containers with labels like "internal/adapter/d2" (package paths).
+func (r *reader) isSplitMode(ast *d2ast.Map) bool {
+	if ast == nil || len(ast.Nodes) == 0 {
+		return false
+	}
+
+	for _, node := range ast.Nodes {
+		if node.MapKey == nil || node.MapKey.Key == nil {
+			continue
+		}
+
+		containerID := getKeyPathString(node.MapKey.Key)
+
+		// Skip legend and other special containers
+		if containerID == "legend" || containerID == "classes" {
+			continue
+		}
+
+		// Skip edges
+		if len(node.MapKey.Edges) > 0 {
+			continue
+		}
+
+		// Must have a map value to be a container
+		if node.MapKey.Value.Map == nil {
+			continue
+		}
+
+		// Check the label of this container
+		for _, child := range node.MapKey.Value.Map.Nodes {
+			if child.MapKey == nil || child.MapKey.Key == nil {
+				continue
+			}
+			keyName := getKeyPathString(child.MapKey.Key)
+			if keyName == "label" {
+				label := getScalarValue(child.MapKey.Value)
+				// Split-mode: labels are file names (end with .go)
+				// Combined-mode: labels are package paths (contain /)
+				if strings.HasSuffix(label, ".go") {
+					return true
+				}
+				if strings.Contains(label, "/") {
+					return false
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// parseSplitModeAST parses a split-mode D2 file where symbols are grouped by file.
+// It extracts the package path from the file's directory and collects all symbols
+// into a single PackageModel.
+func (r *reader) parseSplitModeAST(ast *d2ast.Map, filePath string) ([]domain.PackageModel, error) {
+	if ast == nil || len(ast.Nodes) == 0 {
+		return nil, ErrEmptyDiagram
+	}
+
+	// Derive package path from file location: /path/to/pkg/.arch/pub.d2 -> /path/to/pkg
+	pkgPath := derivePackagePath(filePath)
+	pkgName := extractPackageName(pkgPath)
+
+	pkg := domain.PackageModel{
+		Name: pkgName,
+		Path: pkgPath,
+	}
+
+	// Iterate through file groups and collect all symbols
+	for _, node := range ast.Nodes {
+		if node.MapKey == nil || node.MapKey.Key == nil {
+			continue
+		}
+
+		containerID := getKeyPathString(node.MapKey.Key)
+
+		// Skip legend and other special containers
+		if containerID == "legend" || containerID == "classes" {
+			continue
+		}
+
+		// Skip edges at this level (handled separately)
+		if len(node.MapKey.Edges) > 0 {
+			continue
+		}
+
+		// Must have a map value to be a file group
+		if node.MapKey.Value.Map == nil {
+			continue
+		}
+
+		// Parse symbols from this file group
+		r.extractSymbolsFromFileGroup(node.MapKey.Value.Map, &pkg)
+	}
+
+	// Extract dependencies from root level (intra-package dependencies in split-mode)
+	// In split-mode, dependencies use file-group prefixes like "dependency.Dependency"
+	// We need to strip the prefix and use just the symbol name
+	rawDeps := r.extractDependencies(ast)
+	for _, dep := range rawDeps {
+		// For split-mode, strip file-group prefixes from symbol references
+		// e.g., "dependency.Dependency" -> symbol="Dependency", package=pkgPath
+		dep.From = stripFileGroupPrefix(dep.From, pkgPath)
+		dep.To = stripFileGroupPrefix(dep.To, pkgPath)
+		pkg.Dependencies = append(pkg.Dependencies, dep)
+	}
+
+	if len(pkg.Interfaces) == 0 && len(pkg.Structs) == 0 &&
+		len(pkg.Functions) == 0 && len(pkg.TypeDefs) == 0 {
+		return nil, ErrNoPackages
+	}
+
+	return []domain.PackageModel{pkg}, nil
+}
+
+// extractSymbolsFromFileGroup extracts symbols from a file group container in split-mode.
+func (r *reader) extractSymbolsFromFileGroup(m *d2ast.Map, pkg *domain.PackageModel) {
+	for _, node := range m.Nodes {
+		if node.MapKey == nil || node.MapKey.Key == nil {
+			continue
+		}
+
+		keyName := getKeyPathString(node.MapKey.Key)
+
+		// Skip label and style properties
+		if keyName == "label" || strings.HasPrefix(keyName, "style.") {
+			continue
+		}
+
+		// Skip edges
+		if len(node.MapKey.Edges) > 0 {
+			continue
+		}
+
+		// Skip if not a map (symbols are maps with shape: class)
+		if node.MapKey.Value.Map == nil {
+			continue
+		}
+
+		// Parse the symbol
+		symbol, kind := r.parseSymbol(keyName, node.MapKey.Value.Map)
+		switch kind {
+		case symbolKindInterface:
+			if iface, ok := symbol.(domain.InterfaceDef); ok {
+				pkg.Interfaces = append(pkg.Interfaces, iface)
+			}
+		case symbolKindStruct:
+			if s, ok := symbol.(domain.StructDef); ok {
+				pkg.Structs = append(pkg.Structs, s)
+			}
+		case symbolKindFunction:
+			if fn, ok := symbol.(domain.FunctionDef); ok {
+				pkg.Functions = append(pkg.Functions, fn)
+			}
+		case symbolKindTypeDef:
+			if td, ok := symbol.(domain.TypeDef); ok {
+				pkg.TypeDefs = append(pkg.TypeDefs, td)
+			}
+		}
+	}
+}
+
+// derivePackagePath extracts the package path from a .arch/ file path.
+// Example: "/path/to/pkg/.arch/pub.d2" -> "/path/to/pkg"
+func derivePackagePath(filePath string) string {
+	// Get directory containing the file
+	dir := filepath.Dir(filePath)
+
+	// If we're in .arch, go up one level
+	if filepath.Base(dir) == ".arch" {
+		return filepath.Dir(dir)
+	}
+
+	return dir
+}
+
+// extractPackageName extracts the package name from a path.
+func extractPackageName(pkgPath string) string {
+	return filepath.Base(pkgPath)
+}
+
+// parseEdge parses a D2 edge node into a domain.Dependency.
+// D2 edges look like: "From -> To: label" where label is "uses", "returns", etc.
+func (r *reader) parseEdge(key *d2ast.Key) *domain.Dependency {
+	if len(key.Edges) == 0 {
+		return nil
+	}
+
+	edge := key.Edges[0]
+	if edge.Src == nil || edge.Dst == nil {
+		return nil
+	}
+
+	fromStr := getKeyPathString(edge.Src)
+	toStr := getKeyPathString(edge.Dst)
+
+	// Get the dependency kind from the edge label
+	kindStr := getScalarValue(key.Value)
+	kind := domain.DependencyUses
+	switch kindStr {
+	case "returns":
+		kind = domain.DependencyReturns
+	case "implements":
+		kind = domain.DependencyImplements
+	default:
+		kind = domain.DependencyUses
+	}
+
+	return &domain.Dependency{
+		From:            parseSymbolRef(fromStr),
+		To:              parseSymbolRef(toStr),
+		Kind:            kind,
+		ThroughExported: true, // pub.d2 files only contain exported dependencies
+	}
+}
+
+// stripFileGroupPrefix converts a split-mode symbol ref like "dependency.Dependency"
+// to a proper SymbolRef with the actual package path.
+// In split-mode, the prefix (e.g., "dependency") is a file group, not a package.
+func stripFileGroupPrefix(ref domain.SymbolRef, pkgPath string) domain.SymbolRef {
+	// If the symbol has a package that looks like a file group (no slashes),
+	// it's actually just a file prefix from split-mode, not a real package
+	if ref.Package != "" && !strings.Contains(ref.Package, "/") {
+		// The "package" is actually a file group prefix, use the real package path
+		return domain.SymbolRef{
+			Package: pkgPath,
+			Symbol:  ref.Symbol,
+		}
+	}
+	// Already has a proper package path or no package at all
+	if ref.Package == "" {
+		ref.Package = pkgPath
+	}
+	return ref
+}
+
+// parseSymbolRef parses a symbol reference string like "internal.service.Service" or "Service".
+func parseSymbolRef(s string) domain.SymbolRef {
+	// Handle qualified names like "internal.service.Service"
+	lastDot := strings.LastIndex(s, ".")
+	if lastDot == -1 {
+		return domain.SymbolRef{Symbol: s}
+	}
+
+	pkg := s[:lastDot]
+	symbol := s[lastDot+1:]
+
+	// Convert D2 path format (dots) to Go package path (slashes)
+	// e.g., "internal.service" -> "internal/service"
+	pkg = strings.ReplaceAll(pkg, ".", "/")
+
+	return domain.SymbolRef{
+		Package: pkg,
+		Symbol:  symbol,
+	}
+}
+
+// extractDependencies extracts all dependency edges from a D2 map.
+func (r *reader) extractDependencies(m *d2ast.Map) []domain.Dependency {
+	var deps []domain.Dependency
+
+	for _, node := range m.Nodes {
+		if node.MapKey == nil {
+			continue
+		}
+
+		// Only process edges
+		if len(node.MapKey.Edges) == 0 {
+			continue
+		}
+
+		if dep := r.parseEdge(node.MapKey); dep != nil {
+			deps = append(deps, *dep)
+		}
+	}
+
+	return deps
 }
 
 // parseAST extracts package models from the D2 AST.
@@ -101,7 +388,7 @@ func (r *reader) parseAST(ast *d2ast.Map) ([]domain.PackageModel, error) {
 
 		key := node.MapKey
 
-		// Skip edges (dependency arrows) - they have edges but we don't parse deps
+		// Skip edges for now (handled below for cross-package deps)
 		if len(key.Edges) > 0 {
 			continue
 		}
@@ -113,8 +400,8 @@ func (r *reader) parseAST(ast *d2ast.Map) ([]domain.PackageModel, error) {
 
 		containerID := getKeyPathString(key.Key)
 
-		// Skip the "legend" container
-		if containerID == "legend" {
+		// Skip the "legend" and "classes" containers
+		if containerID == "legend" || containerID == "classes" {
 			continue
 		}
 
@@ -133,6 +420,24 @@ func (r *reader) parseAST(ast *d2ast.Map) ([]domain.PackageModel, error) {
 		}
 
 		packages = append(packages, pkg)
+	}
+
+	// Extract cross-package dependencies from root level and distribute to packages
+	crossPkgDeps := r.extractDependencies(ast)
+	if len(crossPkgDeps) > 0 {
+		// Build a map of package paths to indices for quick lookup
+		pkgIndex := make(map[string]int)
+		for i, pkg := range packages {
+			pkgIndex[pkg.Path] = i
+		}
+
+		// Assign each cross-package dependency to its "From" package
+		for _, dep := range crossPkgDeps {
+			fromPkg := dep.From.Package
+			if idx, ok := pkgIndex[fromPkg]; ok {
+				packages[idx].Dependencies = append(packages[idx].Dependencies, dep)
+			}
+		}
 	}
 
 	return packages, nil
@@ -211,6 +516,9 @@ func (r *reader) parsePackageContainer(m *d2ast.Map) (domain.PackageModel, error
 			}
 		}
 	}
+
+	// Extract intra-package dependencies
+	pkg.Dependencies = r.extractDependencies(m)
 
 	return pkg, nil
 }

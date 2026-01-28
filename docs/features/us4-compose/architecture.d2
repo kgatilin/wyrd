@@ -1,0 +1,297 @@
+# US-4 Architecture Diagram - Compose from Saved Specs
+# Shows additions to existing architecture (highlighted in green)
+
+# ==========================================
+# Reusable Style Classes
+# ==========================================
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.stroke: "#faf5ef"
+    style.font-color: "#fff"
+  }
+  new: {
+    style.font-color: "#d4edda"
+    style.stroke: "#d4edda"
+  }
+  new-arrow: {
+    style.stroke: "#28a745"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+  new: {
+    label: "NEW (US-4)"
+    shape: class
+    class: new
+  }
+}
+
+# Packages
+internal.adapter.d2: {
+  label: "internal/adapter/d2"
+  class: factory
+
+  NewReader: {
+    shape: class
+    stereotype: "<<factory>>"
+    "return": "internal/service.ModelReader"
+  }
+
+  NewWriter: {
+    shape: class
+    stereotype: "<<factory>>"
+    "return": "internal/service.ModelWriter"
+  }
+}
+
+internal.adapter.golang: {
+  label: "internal/adapter/golang"
+  class: factory
+
+  NewReader: {
+    shape: class
+    stereotype: "<<factory>>"
+    "return": "internal/service.ModelReader"
+  }
+}
+
+internal.domain: {
+  label: "internal/domain"
+  class: domain
+
+  PackageModel: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Path string": ""
+    "+Name string": ""
+    "+Interfaces []InterfaceDef": ""
+    "+Structs []StructDef": ""
+    "+Functions []FunctionDef": ""
+    "+TypeDefs []TypeDef": ""
+    "+Dependencies []Dependency": ""
+
+    "+SourceFiles()": "[]string"
+    "+ExportedInterfaces()": "[]InterfaceDef"
+    "+ExportedStructs()": "[]StructDef"
+    "+ExportedFunctions()": "[]FunctionDef"
+    "+ExportedTypeDefs()": "[]TypeDef"
+    "+HasExportedSymbols()": "bool"
+  }
+
+  WriteOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+OutputPath string": ""
+    "+PublicOnly bool": ""
+    "+ToStdout bool": ""
+  }
+}
+
+internal.service: {
+  label: "internal/service"
+  class: value
+
+  # Existing interfaces
+  ModelReader: {
+    shape: class
+    stereotype: "<<interface>>"
+    "+Read(ctx context.Context, paths []string)": "([]PackageModel, error)"
+  }
+
+  ModelWriter: {
+    shape: class
+    stereotype: "<<interface>>"
+    "+Write(ctx context.Context, model PackageModel, opts WriteOptions)": "error"
+    "+WriteCombined(ctx context.Context, models []PackageModel, outputPath string)": "error"
+  }
+
+  # Existing options/results
+  GenerateOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+    class: value
+    "+Paths []string": ""
+    "+PublicOnly bool": ""
+    "+InternalOnly bool": ""
+  }
+
+  GenerateResult: {
+    shape: class
+    stereotype: "<<struct>>"
+    class: value
+    "+PackagePath string": ""
+    "+PubFile string": ""
+    "+InternalFile string": ""
+    "+Error error": ""
+  }
+
+  GenerateCombinedOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+    class: value
+    "+Paths []string": ""
+    "+OutputPath string": ""
+  }
+
+  GenerateCombinedResult: {
+    shape: class
+    stereotype: "<<struct>>"
+    class: value
+    "+OutputPath string": ""
+    "+PackageCount int": ""
+  }
+
+  SplitOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+    class: value
+    "+DiagramPath string": ""
+    "+DryRun bool": ""
+  }
+
+  SplitResult: {
+    shape: class
+    stereotype: "<<struct>>"
+    class: value
+    "+Files []SplitFileResult": ""
+    "+DryRun bool": ""
+  }
+
+  SplitFileResult: {
+    shape: class
+    stereotype: "<<struct>>"
+    class: value
+    "+PackagePath string": ""
+    "+FilePath string": ""
+    "+Created bool": ""
+  }
+
+  # ==========================================
+  # NEW: US-4 Compose Types
+  # ==========================================
+
+  ComposeMode: {
+    shape: class
+    stereotype: "<<enum>>"
+    class: new
+
+    "type": "int"
+    "ComposeModeAuto": "const (default: use pub.d2)"
+    "ComposeModeSpec": "const (use *-spec.d2)"
+  }
+
+  ComposeOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+    class: new
+
+    "+Paths []string": "Package paths to search"
+    "+OutputPath string": "Required: output file"
+    "+Mode ComposeMode": "Which files to use"
+  }
+
+  ComposeResult: {
+    shape: class
+    stereotype: "<<struct>>"
+    class: new
+
+    "+OutputPath string": "Generated file path"
+    "+PackageCount int": "Packages included"
+    "+SkippedPaths []string": "Packages without .arch/"
+  }
+
+  # Service with new Compose method
+  Service: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Generate(ctx, opts GenerateOptions)": "([]GenerateResult, error)"
+    "+GenerateCombined(ctx, opts GenerateCombinedOptions)": "(*GenerateCombinedResult, error)"
+    "+Split(ctx, opts SplitOptions)": "(*SplitResult, error)"
+    "+Compose(ctx, opts ComposeOptions)": "(*ComposeResult, error)" {
+      class: new
+    }
+  }
+
+  NewService: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "goReader": "ModelReader"
+    "d2Reader": "ModelReader"
+    "d2Writer": "ModelWriter"
+    "return": "*Service"
+  }
+
+  # ==========================================
+  # Dependencies within service package
+  # ==========================================
+
+  # Existing
+  NewService -> ModelReader: "uses"
+  NewService -> ModelWriter: "uses"
+  NewService -> Service: "returns"
+  Service -> GenerateOptions: "uses"
+  Service -> GenerateResult: "returns"
+  Service -> GenerateCombinedOptions: "uses"
+  Service -> GenerateCombinedResult: "returns"
+  Service -> SplitOptions: "uses"
+  Service -> SplitResult: "returns"
+  SplitResult -> SplitFileResult: "uses"
+
+  # NEW: Compose dependencies
+  Service -> ComposeOptions: "uses" {class: new-arrow}
+  Service -> ComposeResult: "returns" {class: new-arrow}
+  ComposeOptions -> ComposeMode: "uses" {class: new-arrow}
+}
+
+# ==========================================
+# Cross-package dependencies
+# ==========================================
+
+internal.adapter.d2.NewReader -> internal.service.ModelReader: "returns"
+internal.adapter.d2.NewWriter -> internal.service.ModelWriter: "returns"
+internal.adapter.golang.NewReader -> internal.service.ModelReader: "returns"
+internal.service.ModelReader -> internal.domain.PackageModel: "returns"
+internal.service.ModelWriter -> internal.domain.PackageModel: "uses"
+internal.service.ModelWriter -> internal.domain.WriteOptions: "uses"

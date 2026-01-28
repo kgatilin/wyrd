@@ -92,6 +92,30 @@ Examples:
 	splitCmd.Flags().Bool("dry-run", false, "Show what would be created without writing files")
 	diagramCmd.AddCommand(splitCmd)
 
+	// Compose subcommand
+	composeCmd := &cobra.Command{
+		Use:   "compose [packages...]",
+		Short: "Compose a single diagram from saved .arch/ spec files",
+		Long: `Compose reads saved .arch/ specification files from multiple packages
+and combines them into a single diagram file.
+
+By default, uses pub.d2 files (code-generated diagrams).
+Use --spec to compose from pub-spec.d2 files (target specifications).
+
+Examples:
+  # Compose from code-generated diagrams (default)
+  archai diagram compose ./internal/... --output=docs/current-architecture.d2
+
+  # Compose from saved specs (target state)
+  archai diagram compose ./internal/... --spec --output=docs/target-architecture.d2`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: runCompose,
+	}
+	composeCmd.Flags().StringP("output", "o", "", "Output file path (required)")
+	composeCmd.Flags().Bool("spec", false, "Use *-spec.d2 files instead of pub.d2")
+	_ = composeCmd.MarkFlagRequired("output")
+	diagramCmd.AddCommand(composeCmd)
+
 	// Execute root command
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -247,6 +271,52 @@ func runSplit(cmd *cobra.Command, args []string) error {
 
 	if errorCount > 0 {
 		return fmt.Errorf("split completed with %d error(s)", errorCount)
+	}
+
+	return nil
+}
+
+// runCompose executes the diagram compose command.
+func runCompose(cmd *cobra.Command, args []string) error {
+	// Wire up dependencies
+	goReader := golang.NewReader()
+	d2Reader := d2.NewReader()
+	d2Writer := d2.NewWriter()
+	svc := service.NewService(goReader, d2Reader, d2Writer)
+
+	// Get flags
+	outputPath, _ := cmd.Flags().GetString("output")
+	specOnly, _ := cmd.Flags().GetBool("spec")
+
+	// Determine mode
+	mode := service.ComposeModeAuto
+	if specOnly {
+		mode = service.ComposeModeSpec
+	}
+
+	// Get context
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Execute compose
+	result, err := svc.Compose(ctx, service.ComposeOptions{
+		Paths:      args,
+		OutputPath: outputPath,
+		Mode:       mode,
+	})
+	if err != nil {
+		return fmt.Errorf("compose failed: %w", err)
+	}
+
+	// Display result
+	fmt.Printf("Composed %d packages into %s\n", result.PackageCount, result.OutputPath)
+	if len(result.SkippedPaths) > 0 {
+		fmt.Printf("Skipped %d packages (no .arch/ folder or missing files):\n", len(result.SkippedPaths))
+		for _, path := range result.SkippedPaths {
+			fmt.Printf("  - %s\n", path)
+		}
 	}
 
 	return nil

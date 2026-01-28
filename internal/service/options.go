@@ -26,3 +26,25 @@ type ModelWriter interface {
 	// Combined mode always renders public API only with package-level containers.
 	WriteCombined(ctx context.Context, models []domain.PackageModel, outputPath string) error
 }
+
+// ComposeMode specifies which diagram files to compose from.
+type ComposeMode int
+
+const (
+	ComposeModeAuto ComposeMode = iota // Default: use pub.d2 files (code-generated)
+	ComposeModeSpec                    // Only use *-spec.d2 files (target specs)
+)
+
+// ComposeOptions configures the compose operation.
+type ComposeOptions struct {
+	Paths      []string    // Package paths to search for .arch/ folders
+	OutputPath string      // Required: path to output combined diagram
+	Mode       ComposeMode // Which files to compose from
+}
+
+// ComposeResult contains the result of a compose operation.
+type ComposeResult struct {
+	OutputPath   string   // Path to generated combined diagram
+	PackageCount int      // Number of packages included
+	SkippedPaths []string // Packages skipped due to missing .arch/
+}
