@@ -37,6 +37,16 @@ type PackageModel struct {
 
 	// Dependencies is the list of dependencies between symbols.
 	Dependencies []Dependency
+
+	// Layer is the architectural layer this package belongs to,
+	// as assigned by the overlay (archai.yaml). Empty when no overlay
+	// has been applied or the package does not match any layer.
+	Layer string
+
+	// Aggregate is the domain aggregate this package belongs to,
+	// as assigned by the overlay (archai.yaml) when the package
+	// contains the aggregate root type. Empty otherwise.
+	Aggregate string
 }
 
 // SourceFiles returns a deduplicated list of all source files in the package.

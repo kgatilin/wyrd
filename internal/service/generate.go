@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/archai/internal/overlay"
 )
 
 // GenerateOptions configures the generate operation (split mode).
@@ -31,6 +32,17 @@ type GenerateOptions struct {
 
 	// DebugPrintf is the function to use for debug output. If nil, fmt.Printf is used.
 	DebugPrintf func(format string, args ...any)
+
+	// OverlayPath is the optional path to an archai.yaml overlay file.
+	// When set, Generate loads and applies it to every package after
+	// reading from Go source and before writing output, so serialized
+	// models (e.g. YAML) carry Layer/Aggregate fields. Violations are
+	// returned via GenerateResult aggregation.
+	OverlayPath string
+
+	// GoModPath is the optional path to go.mod used to validate the
+	// overlay's module directive. Ignored when OverlayPath is empty.
+	GoModPath string
 }
 
 // GenerateResult contains the result of generating diagrams for a package.
@@ -52,10 +64,25 @@ type GenerateResult struct {
 // In split mode (default), it creates .arch/ folders in each package directory
 // with pub.d2 and/or internal.d2 files.
 func (s *Service) Generate(ctx context.Context, opts GenerateOptions) ([]GenerateResult, error) {
+	results, _, err := s.generateInternal(ctx, opts)
+	return results, err
+}
+
+// GenerateWithOverlay behaves like Generate but also applies the
+// overlay referenced by opts.OverlayPath (if set) to the loaded
+// packages before writing output, and returns any layer-rule
+// violations discovered. When opts.OverlayPath is empty,
+// GenerateWithOverlay is equivalent to Generate and returns nil
+// violations.
+func (s *Service) GenerateWithOverlay(ctx context.Context, opts GenerateOptions) ([]GenerateResult, []overlay.Violation, error) {
+	return s.generateInternal(ctx, opts)
+}
+
+func (s *Service) generateInternal(ctx context.Context, opts GenerateOptions) ([]GenerateResult, []overlay.Violation, error) {
 	// Check context cancellation before starting
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, nil, ctx.Err()
 	default:
 	}
 
@@ -70,7 +97,24 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) ([]Generat
 	// Read all packages from Go source code
 	packages, err := s.goReader.Read(ctx, opts.Paths)
 	if err != nil {
-		return nil, fmt.Errorf("reading packages: %w", err)
+		return nil, nil, fmt.Errorf("reading packages: %w", err)
+	}
+
+	// Apply overlay (if configured) so Layer/Aggregate propagate to
+	// serialized output. Violations are returned to the caller.
+	var violations []overlay.Violation
+	if opts.OverlayPath != "" {
+		cfg, err := overlay.Load(opts.OverlayPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("loading overlay: %w", err)
+		}
+		if err := overlay.Validate(cfg, opts.GoModPath); err != nil {
+			return nil, nil, fmt.Errorf("validating overlay: %w", err)
+		}
+		packages, violations, err = overlay.Merge(packages, cfg)
+		if err != nil {
+			return nil, nil, fmt.Errorf("applying overlay: %w", err)
+		}
 	}
 
 	// Debug: output package and dependency information
@@ -118,7 +162,7 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) ([]Generat
 		// Check context cancellation between packages
 		select {
 		case <-ctx.Done():
-			return results, ctx.Err()
+			return results, violations, ctx.Err()
 		default:
 		}
 
@@ -126,7 +170,7 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) ([]Generat
 		results = append(results, result)
 	}
 
-	return results, nil
+	return results, violations, nil
 }
 
 // generatePackageDiagrams generates diagrams for a single package.

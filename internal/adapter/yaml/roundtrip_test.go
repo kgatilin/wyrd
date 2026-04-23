@@ -12,8 +12,10 @@ import (
 // testPackageModel creates a representative PackageModel with all field types.
 func testPackageModel() domain.PackageModel {
 	return domain.PackageModel{
-		Path: "github.com/example/project/internal/service",
-		Name: "service",
+		Path:      "github.com/example/project/internal/service",
+		Name:      "service",
+		Layer:     "service",
+		Aggregate: "Order",
 		Interfaces: []domain.InterfaceDef{
 			{
 				Name:       "Repository",
@@ -186,6 +188,12 @@ func TestRoundtrip_SinglePackage(t *testing.T) {
 	}
 	if got.Name != original.Name {
 		t.Errorf("Name: got %q, want %q", got.Name, original.Name)
+	}
+	if got.Layer != original.Layer {
+		t.Errorf("Layer: got %q, want %q", got.Layer, original.Layer)
+	}
+	if got.Aggregate != original.Aggregate {
+		t.Errorf("Aggregate: got %q, want %q", got.Aggregate, original.Aggregate)
 	}
 
 	// Verify interfaces

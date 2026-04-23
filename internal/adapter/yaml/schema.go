@@ -6,16 +6,18 @@ package yaml
 
 // PackageSpec is the top-level YAML document for a single package.
 type PackageSpec struct {
-	Schema       string          `yaml:"schema"`                  // "archai/v1"
-	Package      string          `yaml:"package"`                 // package path
-	Name         string          `yaml:"name"`                    // package name
-	Interfaces   []InterfaceSpec `yaml:"interfaces,omitempty"`
-	Structs      []StructSpec    `yaml:"structs,omitempty"`
-	Functions    []FunctionSpec  `yaml:"functions,omitempty"`
-	TypeDefs     []TypeDefSpec   `yaml:"typedefs,omitempty"`
-	Constants    []ConstSpec     `yaml:"constants,omitempty"`
-	Variables    []VarSpec       `yaml:"variables,omitempty"`
-	Errors       []ErrorSpec     `yaml:"errors,omitempty"`
+	Schema       string           `yaml:"schema"`                  // "archai/v1"
+	Package      string           `yaml:"package"`                 // package path
+	Name         string           `yaml:"name"`                    // package name
+	Layer        string           `yaml:"layer,omitempty"`         // overlay-assigned layer
+	Aggregate    string           `yaml:"aggregate,omitempty"`     // overlay-assigned aggregate
+	Interfaces   []InterfaceSpec  `yaml:"interfaces,omitempty"`
+	Structs      []StructSpec     `yaml:"structs,omitempty"`
+	Functions    []FunctionSpec   `yaml:"functions,omitempty"`
+	TypeDefs     []TypeDefSpec    `yaml:"typedefs,omitempty"`
+	Constants    []ConstSpec      `yaml:"constants,omitempty"`
+	Variables    []VarSpec        `yaml:"variables,omitempty"`
+	Errors       []ErrorSpec      `yaml:"errors,omitempty"`
 	Dependencies []DependencySpec `yaml:"dependencies,omitempty"`
 }
 

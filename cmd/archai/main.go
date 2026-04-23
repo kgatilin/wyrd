@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/adapter/golang"
@@ -68,6 +69,7 @@ Examples:
 	generateCmd.Flags().StringP("output", "o", "", "Output to single file (combined mode)")
 	generateCmd.Flags().StringP("format", "f", "d2", "Output format: d2 or yaml")
 	generateCmd.Flags().Bool("debug", false, "Print debug information about packages and dependencies")
+	generateCmd.Flags().String("overlay", "", "Path to archai.yaml overlay (default: auto-detect in current directory)")
 
 	diagramCmd.AddCommand(generateCmd)
 
@@ -189,6 +191,31 @@ and freeze them — along with archai.yaml — into .arch/targets/<id>/.`,
 	}
 }
 
+// resolveOverlay determines the overlay path and accompanying go.mod
+// path used by the generate command. When explicitPath is non-empty
+// it is used verbatim (and the adjacent go.mod is looked up); when
+// empty we auto-detect ./archai.yaml in the working directory.
+// Returns empty strings when no overlay is found.
+func resolveOverlay(explicitPath string) (overlayPath, goModPath string) {
+	if explicitPath != "" {
+		dir := filepath.Dir(explicitPath)
+		gm := filepath.Join(dir, "go.mod")
+		if _, err := os.Stat(gm); err != nil {
+			gm = ""
+		}
+		return explicitPath, gm
+	}
+	candidate := "archai.yaml"
+	if _, err := os.Stat(candidate); err != nil {
+		return "", ""
+	}
+	gm := "go.mod"
+	if _, err := os.Stat(gm); err != nil {
+		gm = ""
+	}
+	return candidate, gm
+}
+
 // runGenerate executes the diagram generation command.
 func runGenerate(cmd *cobra.Command, args []string) error {
 	// Build options from flags
@@ -197,6 +224,11 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	output, _ := cmd.Flags().GetString("output")
 	format, _ := cmd.Flags().GetString("format")
 	debug, _ := cmd.Flags().GetBool("debug")
+	overlayFlag, _ := cmd.Flags().GetString("overlay")
+
+	// Resolve overlay path: explicit flag wins; otherwise auto-detect
+	// archai.yaml in the current working directory.
+	overlayPath, goModPath := resolveOverlay(overlayFlag)
 
 	// Wire up dependencies based on format
 	goReader := golang.NewReader()
@@ -265,11 +297,22 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		InternalOnly:  internalOnly,
 		FileExtension: fileExt,
 		Debug:         debug,
+		OverlayPath:   overlayPath,
+		GoModPath:     goModPath,
 	}
 
-	results, err := svc.Generate(ctx, opts)
+	results, violations, err := svc.GenerateWithOverlay(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("generation failed: %w", err)
+	}
+
+	// Print any overlay layer-rule violations to stderr so the user
+	// sees them alongside generation output.
+	if len(violations) > 0 {
+		fmt.Fprintf(os.Stderr, "\nOverlay layer-rule violations (%d):\n", len(violations))
+		for _, v := range violations {
+			fmt.Fprintf(os.Stderr, "  %s [%s] imports forbidden: %v\n", v.Package, v.Layer, v.Imports)
+		}
 	}
 
 	// Display results

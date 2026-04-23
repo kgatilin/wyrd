@@ -5,9 +5,11 @@ import "github.com/kgatilin/archai/internal/domain"
 // toSpec converts a domain PackageModel to the YAML schema.
 func toSpec(model domain.PackageModel, publicOnly bool) PackageSpec {
 	spec := PackageSpec{
-		Schema:  "archai/v1",
-		Package: model.Path,
-		Name:    model.Name,
+		Schema:    "archai/v1",
+		Package:   model.Path,
+		Name:      model.Name,
+		Layer:     model.Layer,
+		Aggregate: model.Aggregate,
 	}
 
 	ifaces := model.Interfaces
@@ -79,8 +81,10 @@ func toSpec(model domain.PackageModel, publicOnly bool) PackageSpec {
 // fromSpec converts a YAML schema back to a domain PackageModel.
 func fromSpec(spec PackageSpec) domain.PackageModel {
 	model := domain.PackageModel{
-		Path: spec.Package,
-		Name: spec.Name,
+		Path:      spec.Package,
+		Name:      spec.Name,
+		Layer:     spec.Layer,
+		Aggregate: spec.Aggregate,
 	}
 
 	for _, iface := range spec.Interfaces {
