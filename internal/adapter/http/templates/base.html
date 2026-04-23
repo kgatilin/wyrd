@@ -1,0 +1,23 @@
+{{define "base"}}<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}} — archai</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/htmx.min.js" defer></script>
+</head>
+<body>
+<header class="site-nav">
+    <a href="/" class="brand">archai</a>
+    <nav>
+        {{range .NavItems}}
+            <a href="{{.Href}}"{{if .Active}} class="active"{{end}}>{{.Label}}</a>
+        {{end}}
+    </nav>
+</header>
+<main class="content">
+    {{template "content" .}}
+</main>
+</body>
+</html>{{end}}

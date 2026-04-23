@@ -27,8 +27,16 @@ type Options struct {
 	MCPServe func(ctx context.Context, state *State) error
 
 	// HTTPAddr enables the HTTP transport on the given address
-	// (e.g. ":8080"). Empty disables HTTP. Stub until M7a.
+	// (e.g. ":8080"). Empty disables HTTP.
 	HTTPAddr string
+
+	// HTTPServerFactory, when non-nil, is invoked after the initial
+	// model load and receives the live State. The returned transport
+	// is started by Serve whenever HTTPAddr is set. Factory-style
+	// wiring keeps the serve package free of an http dependency
+	// (internal/adapter/http imports serve, so serve cannot import
+	// back).
+	HTTPServerFactory func(*State) (HTTPTransport, error)
 
 	// Debug enables verbose per-event logging.
 	Debug bool
@@ -40,6 +48,13 @@ type Options struct {
 	// Debounce overrides the event coalescing window. Zero uses the
 	// default (200ms). Exposed mainly for tests.
 	Debounce time.Duration
+}
+
+// HTTPTransport is the minimal contract the serve daemon needs from an
+// HTTP transport: serve on addr until ctx is cancelled, return nil on a
+// graceful shutdown. Implemented by internal/adapter/http.Server.
+type HTTPTransport interface {
+	Serve(ctx context.Context, addr string) error
 }
 
 // Serve runs the daemon: it builds the in-memory model, starts the
@@ -74,8 +89,26 @@ func Serve(ctx context.Context, opts Options) error {
 	fmt.Fprintf(logOut, "serve: loaded %d package(s), overlay=%v, target=%q\n",
 		len(snap.Packages), snap.Overlay != nil, snap.CurrentTarget)
 
+	// HTTP transport: start in a goroutine when both an address and a
+	// factory are provided. If the caller set the address but didn't
+	// wire a factory we keep the old stub log so operators aren't
+	// silently ignored.
+	httpErrCh := make(chan error, 1)
+	var httpStarted bool
 	if opts.HTTPAddr != "" {
-		fmt.Fprintf(logOut, "serve: HTTP transport requested on %s — not implemented yet (stub)\n", opts.HTTPAddr)
+		if opts.HTTPServerFactory != nil {
+			srv, err := opts.HTTPServerFactory(state)
+			if err != nil {
+				return fmt.Errorf("serve: building HTTP transport: %w", err)
+			}
+			fmt.Fprintf(logOut, "serve: HTTP transport listening on %s\n", opts.HTTPAddr)
+			httpStarted = true
+			go func() {
+				httpErrCh <- srv.Serve(ctx, opts.HTTPAddr)
+			}()
+		} else {
+			fmt.Fprintf(logOut, "serve: HTTP transport requested on %s — no transport wired (stub)\n", opts.HTTPAddr)
+		}
 	}
 
 	watcher, err := NewWatcher(absRoot, opts.Debounce)
@@ -119,12 +152,19 @@ func Serve(ctx context.Context, opts Options) error {
 	}
 
 	fmt.Fprintln(logOut, "serve: watching for changes (Ctrl-C to stop)")
-	if err := watcher.Run(ctx, handler); err != nil {
-		if errors.Is(err, context.Canceled) {
-			return nil
-		}
-		return err
+	watchErr := watcher.Run(ctx, handler)
+	if watchErr != nil && !errors.Is(watchErr, context.Canceled) {
+		return watchErr
 	}
+
+	// Wait for the HTTP goroutine to unwind (if one was started) so we
+	// don't return while the listener is still closing sockets.
+	if httpStarted {
+		if err := <-httpErrCh; err != nil {
+			fmt.Fprintf(logOut, "serve: http transport: %v\n", err)
+		}
+	}
+
 	fmt.Fprintln(logOut, "serve: shutdown complete")
 	return nil
 }

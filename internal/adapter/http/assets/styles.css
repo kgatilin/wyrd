@@ -1,0 +1,143 @@
+/* archai HTTP UI — minimal, clean, dark/light aware. */
+
+:root {
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-fg: #ffffff;
+    --border: #e5e7eb;
+    --nav-bg: #f9fafb;
+    --code-bg: #f3f4f6;
+    --hover: #f3f4f6;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #0f172a;
+        --fg: #e5e7eb;
+        --muted: #94a3b8;
+        --accent: #60a5fa;
+        --accent-fg: #0f172a;
+        --border: #1e293b;
+        --nav-bg: #111827;
+        --code-bg: #1e293b;
+        --hover: #1e293b;
+    }
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+header.site-nav {
+    border-bottom: 1px solid var(--border);
+    background: var(--nav-bg);
+    padding: 0.75rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+header.site-nav .brand {
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: var(--fg);
+    text-decoration: none;
+}
+
+header.site-nav nav {
+    display: flex;
+    gap: 0.25rem;
+}
+
+header.site-nav nav a {
+    color: var(--muted);
+    text-decoration: none;
+    padding: 0.4rem 0.75rem;
+    border-radius: 0.3rem;
+    font-size: 0.95rem;
+}
+
+header.site-nav nav a:hover {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+header.site-nav nav a.active {
+    background: var(--accent);
+    color: var(--accent-fg);
+}
+
+main.content {
+    padding: 1.5rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+h1, h2, h3 {
+    margin-top: 0;
+    color: var(--fg);
+}
+
+h1 {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+p.lede {
+    color: var(--muted);
+    margin-top: 0;
+}
+
+code, pre {
+    font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    background: var(--code-bg);
+    border-radius: 0.25rem;
+}
+
+code {
+    padding: 0.1rem 0.35rem;
+    font-size: 0.9em;
+}
+
+pre {
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+}
+
+a {
+    color: var(--accent);
+}
+
+.coming-soon {
+    border: 1px dashed var(--border);
+    padding: 2rem;
+    border-radius: 0.5rem;
+    text-align: center;
+    color: var(--muted);
+    background: var(--nav-bg);
+}
+
+.coming-soon .tag {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--accent-fg);
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}

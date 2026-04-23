@@ -1,0 +1,159 @@
+package http
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	nethttp "net/http"
+)
+
+// navItem is one link in the top navigation bar. Active is set on the
+// link matching the current page so the base template can highlight
+// it.
+type navItem struct {
+	Label  string
+	Href   string
+	Active bool
+}
+
+// pageData is the model passed to every page template (which all wrap
+// templates/base.html). Handlers populate Title, ActivePath, and
+// (optionally) content-specific fields.
+type pageData struct {
+	Title      string
+	ActivePath string
+	NavItems   []navItem
+}
+
+// navTemplate is the canonical, ordered nav used for every page.
+var navTemplate = []navItem{
+	{Label: "Dashboard", Href: "/"},
+	{Label: "Layers", Href: "/layers"},
+	{Label: "Packages", Href: "/packages"},
+	{Label: "Configs", Href: "/configs"},
+	{Label: "Targets", Href: "/targets"},
+	{Label: "Diff", Href: "/diff"},
+	{Label: "Search", Href: "/search"},
+}
+
+// routes registers every handler on mux. Kept in one place so the
+// route table is easy to scan.
+func (s *Server) routes(mux *nethttp.ServeMux) {
+	// Static assets (CSS, htmx.min.js). Served from the embedded FS.
+	mux.Handle("/assets/", nethttp.StripPrefix("/assets/", nethttp.FileServer(nethttp.FS(s.assets))))
+
+	// D2 → SVG smoke endpoint. Used by M7b-f to render server-side
+	// diagrams; accepts POST with a `d2` form field or raw text body.
+	mux.HandleFunc("/render", s.handleRender)
+
+	// Nav pages. The root handler must stay last so it doesn't shadow
+	// more-specific routes.
+	mux.HandleFunc("/layers", s.pageHandler("layers.html", "Layers", "/layers"))
+	mux.HandleFunc("/packages", s.pageHandler("packages.html", "Packages", "/packages"))
+	mux.HandleFunc("/configs", s.pageHandler("configs.html", "Configs", "/configs"))
+	mux.HandleFunc("/targets", s.pageHandler("targets.html", "Targets", "/targets"))
+	mux.HandleFunc("/diff", s.pageHandler("diff.html", "Diff", "/diff"))
+	mux.HandleFunc("/search", s.pageHandler("search.html", "Search", "/search"))
+	mux.HandleFunc("/", s.handleIndex)
+}
+
+// handleIndex serves the dashboard at "/". net/http's ServeMux routes
+// every unmatched path to "/", so we reject anything that isn't the
+// root with a 404 to keep URLs predictable.
+func (s *Server) handleIndex(w nethttp.ResponseWriter, r *nethttp.Request) {
+	if r.URL.Path != "/" {
+		nethttp.NotFound(w, r)
+		return
+	}
+	s.pageHandler("index.html", "Dashboard", "/")(w, r)
+}
+
+// pageHandler returns a handler that renders the named template inside
+// the base layout with the given title and active-path marker.
+func (s *Server) pageHandler(tmpl, title, activePath string) nethttp.HandlerFunc {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		s.renderPage(w, tmpl, pageData{
+			Title:      title,
+			ActivePath: activePath,
+			NavItems:   buildNav(activePath),
+		})
+	}
+}
+
+// renderPage renders the given page template followed by the base
+// layout. We render into a buffer first so template errors produce a
+// 500 instead of a half-written response.
+func (s *Server) renderPage(w nethttp.ResponseWriter, tmpl string, data pageData) {
+	// Clone so the page template and base template live in their own
+	// namespace — each page file defines its own "content" block and
+	// we don't want successive requests to see a stale definition.
+	t, err := s.templates.Clone()
+	if err != nil {
+		nethttp.Error(w, fmt.Sprintf("template clone: %v", err), nethttp.StatusInternalServerError)
+		return
+	}
+	if _, err := t.ParseFS(embedded, "templates/"+tmpl); err != nil {
+		nethttp.Error(w, fmt.Sprintf("template parse %s: %v", tmpl, err), nethttp.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, "base", data); err != nil {
+		nethttp.Error(w, fmt.Sprintf("template execute: %v", err), nethttp.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(buf.Bytes())
+}
+
+// handleRender converts arbitrary D2 source to SVG. Accepts:
+//   - POST form field `d2`
+//   - POST raw body (any Content-Type other than application/x-www-form-urlencoded)
+//   - GET query param `d2` (convenient for smoke tests; not intended for large payloads)
+func (s *Server) handleRender(w nethttp.ResponseWriter, r *nethttp.Request) {
+	var source string
+	switch r.Method {
+	case nethttp.MethodGet:
+		source = r.URL.Query().Get("d2")
+	case nethttp.MethodPost:
+		ct := r.Header.Get("Content-Type")
+		if ct == "application/x-www-form-urlencoded" || ct == "multipart/form-data" {
+			_ = r.ParseForm()
+			source = r.FormValue("d2")
+		} else {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				nethttp.Error(w, "read body: "+err.Error(), nethttp.StatusBadRequest)
+				return
+			}
+			source = string(body)
+		}
+	default:
+		nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
+		return
+	}
+
+	if source == "" {
+		nethttp.Error(w, "missing d2 source", nethttp.StatusBadRequest)
+		return
+	}
+
+	svg, err := renderD2(r.Context(), source)
+	if err != nil {
+		nethttp.Error(w, "render: "+err.Error(), nethttp.StatusUnprocessableEntity)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
+	_, _ = w.Write(svg)
+}
+
+// buildNav returns a fresh nav slice with Active set on the item whose
+// Href matches activePath. The source navTemplate is never mutated.
+func buildNav(activePath string) []navItem {
+	out := make([]navItem, len(navTemplate))
+	for i, n := range navTemplate {
+		n.Active = n.Href == activePath
+		out[i] = n
+	}
+	return out
+}

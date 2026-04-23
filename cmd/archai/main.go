@@ -16,6 +16,7 @@ import (
 
 	"github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/adapter/golang"
+	httpAdapter "github.com/kgatilin/archai/internal/adapter/http"
 	"github.com/kgatilin/archai/internal/adapter/mcp"
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
 	"github.com/kgatilin/archai/internal/apply"
@@ -284,10 +285,9 @@ Examples:
 	overlayCheckCmd.Flags().String("overlay", "", "Path to archai.yaml overlay (default: ./archai.yaml)")
 	overlayCmd.AddCommand(overlayCheckCmd)
 
-	// Serve command (M5a) — long-running daemon holding an in-memory
-	// model kept current via fsnotify. Transports for MCP stdio (M5b)
-	// and HTTP (M7a) are wired as stubs; they log a notice and the
-	// daemon still runs so the watcher loop can be exercised.
+	// Serve command — long-running daemon holding an in-memory model
+	// kept current via fsnotify. HTTP transport (M7a) is wired to the
+	// browser UI; MCP stdio (--mcp-stdio) is still a stub until M5b.
 	serveCmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run archai as a long-running daemon with an in-memory model",
@@ -297,8 +297,9 @@ Loads the Go model, the archai.yaml overlay (if present), and the active
 target id into memory, then watches the project root with fsnotify and
 incrementally refreshes the model on change.
 
-The MCP stdio (--mcp-stdio) and HTTP (--http) transports are stubs in
-this milestone; they will be filled in by M5b and M7a. With no
+The HTTP transport (--http) serves the browser UI (dashboard, layers,
+packages, configs, targets, diff, search) backed by the in-memory
+model. MCP stdio (--mcp-stdio) remains a stub until M5b. With no
 transport flag, the daemon runs as a silent model-keeper useful for
 manual verification and as a base for future features.`,
 		Args: cobra.NoArgs,
@@ -306,7 +307,7 @@ manual verification and as a base for future features.`,
 	}
 	serveCmd.Flags().String("root", ".", "Project root directory")
 	serveCmd.Flags().Bool("mcp-stdio", false, "Enable MCP stdio transport")
-	serveCmd.Flags().String("http", "", "HTTP transport address, e.g. :8080 (stub in M5a)")
+	serveCmd.Flags().String("http", "", "HTTP transport address, e.g. :8080")
 	serveCmd.Flags().Bool("debug", false, "Verbose per-event logging")
 	rootCmd.AddCommand(serveCmd)
 
@@ -365,7 +366,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 			return mcp.Serve(ctx, state)
 		},
 		HTTPAddr: httpAddr,
-		Debug:    debug,
+		HTTPServerFactory: func(state *serve.State) (serve.HTTPTransport, error) {
+			return httpAdapter.NewServer(state)
+		},
+		Debug: debug,
 	})
 }
 
