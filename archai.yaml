@@ -1,0 +1,46 @@
+# archai overlay for the archai project itself.
+#
+# Declares the architectural layers of archai and the allowed cross-layer
+# dependencies. Consumed by `archai overlay check` to detect layering
+# regressions, and by `archai diagram generate --overlay` to tag
+# packages in generated diagrams.
+#
+# Architecture style: hexagonal (ports & adapters).
+#   - `domain` has no dependencies.
+#   - `service` orchestrates operations and owns the port interfaces
+#     (ModelReader, ModelWriter); it depends on `domain` and `overlay`.
+#   - `adapter` implementations (d2, golang, yaml) depend on `domain`
+#     plus `service` (to reference the port interfaces they implement).
+#   - `overlay` consumes `domain` only.
+#   - `target` is self-contained: pure filesystem layout, no internal deps.
+#   - `cli` wires everything together.
+
+module: github.com/kgatilin/archai
+
+layers:
+  cli:
+    - cmd/...
+  service:
+    - internal/service/...
+  adapter:
+    - internal/adapter/...
+  domain:
+    - internal/domain/...
+  overlay:
+    - internal/overlay/...
+  target:
+    - internal/target/...
+
+layer_rules:
+  cli:      [adapter, domain, overlay, service, target]
+  service:  [domain, overlay]
+  adapter:  [domain, service]
+  overlay:  [domain]
+  domain:   []
+  target:   []
+
+aggregates:
+  package_model:
+    root: github.com/kgatilin/archai/internal/domain.PackageModel
+
+configs: []

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/archai/internal/overlay"
 	"github.com/kgatilin/archai/internal/service"
 	"github.com/kgatilin/archai/internal/target"
 	"github.com/spf13/cobra"
@@ -209,10 +211,146 @@ json for machine-readable output.`,
 	diffCmd.Flags().StringP("format", "f", "text", "Output format: text, yaml, or json")
 	rootCmd.AddCommand(diffCmd)
 
+	// Overlay command group (M3c)
+	overlayCmd := &cobra.Command{
+		Use:   "overlay",
+		Short: "Commands for working with archai.yaml overlays",
+		Long: `Commands for validating and inspecting the archai.yaml overlay
+(layers, layer rules, aggregates) against the current Go code.`,
+	}
+	rootCmd.AddCommand(overlayCmd)
+
+	// overlay check
+	overlayCheckCmd := &cobra.Command{
+		Use:   "check",
+		Short: "Validate overlay and report layer-rule violations",
+		Long: `Load the archai.yaml overlay, validate it against go.mod, extract the
+current Go model, and report any layer-rule violations.
+
+Exits 0 when the overlay is valid and there are no violations; exits 1
+when the overlay fails validation or when any violations are reported.
+
+Examples:
+  # Check the overlay at ./archai.yaml (default)
+  archai overlay check
+
+  # Check a specific overlay file
+  archai overlay check --overlay path/to/archai.yaml`,
+		Args: cobra.NoArgs,
+		RunE: runOverlayCheck,
+	}
+	overlayCheckCmd.Flags().String("overlay", "", "Path to archai.yaml overlay (default: ./archai.yaml)")
+	overlayCmd.AddCommand(overlayCheckCmd)
+
 	// Execute root command
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// runOverlayCheck executes `archai overlay check`. It loads the overlay,
+// validates it against the adjacent go.mod, extracts the current Go
+// model, merges the overlay to detect layer-rule violations, and prints
+// a human-readable report. Returns a non-nil error (which Cobra turns
+// into a non-zero exit code) when validation fails or violations exist.
+func runOverlayCheck(cmd *cobra.Command, args []string) error {
+	overlayFlag, _ := cmd.Flags().GetString("overlay")
+
+	overlayPath, goModPath := resolveOverlay(overlayFlag)
+	if overlayPath == "" {
+		return fmt.Errorf("no overlay found: pass --overlay or create archai.yaml in the current directory")
+	}
+
+	cfg, err := overlay.Load(overlayPath)
+	if err != nil {
+		return fmt.Errorf("loading overlay %s: %w", overlayPath, err)
+	}
+
+	if err := overlay.Validate(cfg, goModPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Overlay validation failed:\n%v\n", err)
+		return fmt.Errorf("overlay validation failed")
+	}
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Extract current Go model. Always scan "./..." from the working
+	// directory — callers are expected to run `archai overlay check`
+	// from the project root (same directory as go.mod).
+	goReader := golang.NewReader()
+	models, err := goReader.Read(ctx, []string{"./..."})
+	if err != nil {
+		return fmt.Errorf("reading Go packages: %w", err)
+	}
+
+	mergedModels, violations, err := overlay.Merge(models, cfg)
+	if err != nil {
+		return fmt.Errorf("merging overlay: %w", err)
+	}
+
+	if len(violations) == 0 {
+		fmt.Println("OK: overlay is valid and no layer-rule violations found.")
+		return nil
+	}
+
+	// Build module-relative pkg path -> layer lookup from merged models
+	// so the report can show the imported package's layer.
+	pkgLayer := make(map[string]string)
+	for _, m := range mergedModels {
+		if m.Layer == "" {
+			continue
+		}
+		rel := m.Path
+		if cfg.Module != "" {
+			rel = trimModulePrefix(cfg.Module, m.Path)
+		}
+		pkgLayer[rel] = m.Layer
+	}
+
+	printOverlayViolations(os.Stdout, violations, pkgLayer)
+	return fmt.Errorf("%d layer-rule violation(s) found", violationCount(violations))
+}
+
+// printOverlayViolations renders a human-readable report of the given
+// violations to w. pkgLayer maps module-relative package paths to their
+// assigned layer so the "layer B" half of each line is accurate.
+func printOverlayViolations(w io.Writer, violations []overlay.Violation, pkgLayer map[string]string) {
+	total := violationCount(violations)
+	fmt.Fprintf(w, "Found %d layer-rule violation(s):\n\n", total)
+	for _, v := range violations {
+		for _, imp := range v.Imports {
+			targetLayer := pkgLayer[imp]
+			if targetLayer == "" {
+				targetLayer = "?"
+			}
+			fmt.Fprintf(w,
+				"VIOLATION: package %s (layer %s) imports package %s (layer %s) — not allowed\n",
+				v.Package, v.Layer, imp, targetLayer)
+		}
+	}
+}
+
+// trimModulePrefix returns pkgPath with the module prefix stripped, or
+// pkgPath unchanged if the prefix does not apply.
+func trimModulePrefix(module, pkgPath string) string {
+	if pkgPath == module {
+		return ""
+	}
+	if len(pkgPath) > len(module) && pkgPath[:len(module)] == module && pkgPath[len(module)] == '/' {
+		return pkgPath[len(module)+1:]
+	}
+	return pkgPath
+}
+
+// violationCount sums the forbidden-import entries across all Violation records.
+func violationCount(violations []overlay.Violation) int {
+	n := 0
+	for _, v := range violations {
+		n += len(v.Imports)
+	}
+	return n
 }
 
 // resolveOverlay determines the overlay path and accompanying go.mod
