@@ -21,6 +21,7 @@ import (
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/archai/internal/sequence"
 	"github.com/kgatilin/archai/internal/serve"
 	"github.com/kgatilin/archai/internal/service"
 	"github.com/kgatilin/archai/internal/target"
@@ -308,6 +309,33 @@ manual verification and as a base for future features.`,
 	serveCmd.Flags().Bool("debug", false, "Verbose per-event logging")
 	rootCmd.AddCommand(serveCmd)
 
+	// Sequence command (M6b)
+	sequenceCmd := &cobra.Command{
+		Use:   "sequence <target>",
+		Short: "Render a static call-sequence tree rooted at a function or method",
+		Long: `Walk the static call graph starting at the given symbol and print
+the resulting tree as either an indented outline (default) or a D2 sequence
+diagram.
+
+Target format:
+  <pkg/path>.<FuncName>
+  <pkg/path>.<TypeName>.<MethodName>
+
+The current model is loaded from per-package .arch/*.yaml files when
+present; otherwise the Go reader parses ./... directly.
+
+Examples:
+  archai sequence internal/service.Service.Generate
+  archai sequence internal/service.Service.Generate --depth 3
+  archai sequence internal/service.Service.Generate --format d2 -o gen.d2`,
+		Args: cobra.ExactArgs(1),
+		RunE: runSequence,
+	}
+	sequenceCmd.Flags().Int("depth", 5, "Maximum call-chain depth")
+	sequenceCmd.Flags().StringP("format", "f", "text", "Output format: text or d2")
+	sequenceCmd.Flags().StringP("output", "o", "", "Write output to file instead of stdout")
+	rootCmd.AddCommand(sequenceCmd)
+
 	// Execute root command
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -335,6 +363,60 @@ func runServe(cmd *cobra.Command, args []string) error {
 		HTTPAddr: httpAddr,
 		Debug:    debug,
 	})
+}
+
+// runSequence handles `archai sequence <target>`. It parses the target,
+// loads the current model (YAML specs preferred, Go reader fallback),
+// builds the call-sequence tree and emits it in the requested format.
+func runSequence(cmd *cobra.Command, args []string) error {
+	target := args[0]
+	depth, _ := cmd.Flags().GetInt("depth")
+	format, _ := cmd.Flags().GetString("format")
+	output, _ := cmd.Flags().GetString("output")
+
+	start, ok := sequence.ParseTarget(target)
+	if !ok {
+		return fmt.Errorf("invalid target %q (expected pkg/path.Func or pkg/path.Type.Method)", target)
+	}
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+
+	models, err := loadCurrentModel(ctx, projectRoot)
+	if err != nil {
+		return fmt.Errorf("loading current model: %w", err)
+	}
+
+	tree := sequence.Build(models, start, depth)
+	if tree == nil {
+		return fmt.Errorf("could not build sequence for %q", target)
+	}
+
+	var rendered string
+	switch format {
+	case "", "text":
+		rendered = sequence.FormatText(tree)
+	case "d2":
+		rendered = sequence.FormatD2(tree)
+	default:
+		return fmt.Errorf("unsupported format %q (use text or d2)", format)
+	}
+
+	if output == "" {
+		fmt.Print(rendered)
+		return nil
+	}
+	if err := os.WriteFile(output, []byte(rendered), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", output, err)
+	}
+	return nil
 }
 
 // runOverlayCheck executes `archai overlay check`. It loads the overlay,
