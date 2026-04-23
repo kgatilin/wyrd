@@ -8,6 +8,7 @@ import (
 
 	"github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/adapter/golang"
+	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
 	"github.com/kgatilin/archai/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -64,6 +65,7 @@ Examples:
 	generateCmd.Flags().Bool("pub", false, "Generate only pub.d2 (public API)")
 	generateCmd.Flags().Bool("internal", false, "Generate only internal.d2 (full implementation)")
 	generateCmd.Flags().StringP("output", "o", "", "Output to single file (combined mode)")
+	generateCmd.Flags().StringP("format", "f", "d2", "Output format: d2 or yaml")
 	generateCmd.Flags().Bool("debug", false, "Print debug information about packages and dependencies")
 
 	diagramCmd.AddCommand(generateCmd)
@@ -124,17 +126,33 @@ Examples:
 
 // runGenerate executes the diagram generation command.
 func runGenerate(cmd *cobra.Command, args []string) error {
-	// Wire up dependencies
-	goReader := golang.NewReader()
-	d2Reader := d2.NewReader()
-	d2Writer := d2.NewWriter()
-	svc := service.NewService(goReader, d2Reader, d2Writer)
-
 	// Build options from flags
 	pubOnly, _ := cmd.Flags().GetBool("pub")
 	internalOnly, _ := cmd.Flags().GetBool("internal")
 	output, _ := cmd.Flags().GetString("output")
+	format, _ := cmd.Flags().GetString("format")
 	debug, _ := cmd.Flags().GetBool("debug")
+
+	// Wire up dependencies based on format
+	goReader := golang.NewReader()
+	d2Reader := d2.NewReader()
+
+	var writer service.ModelWriter
+	var fileExt string
+	switch format {
+	case "yaml":
+		writer = yamlAdapter.NewWriter()
+		fileExt = ".yaml"
+	case "d2":
+		writer = d2.NewWriter()
+		fileExt = ".d2"
+	default:
+		return fmt.Errorf("unsupported format %q (use d2 or yaml)", format)
+	}
+
+	yamlReader := yamlAdapter.NewReader()
+	yamlWriter := yamlAdapter.NewWriter()
+	svc := service.NewService(goReader, d2Reader, writer, service.WithYAML(yamlReader, yamlWriter))
 
 	// Validate flags
 	if pubOnly && internalOnly {
@@ -177,10 +195,11 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 
 	// Split mode: existing logic
 	opts := service.GenerateOptions{
-		Paths:        args,
-		PublicOnly:   pubOnly,
-		InternalOnly: internalOnly,
-		Debug:        debug,
+		Paths:         args,
+		PublicOnly:    pubOnly,
+		InternalOnly:  internalOnly,
+		FileExtension: fileExt,
+		Debug:         debug,
 	}
 
 	results, err := svc.Generate(ctx, opts)
@@ -223,7 +242,7 @@ func runSplit(cmd *cobra.Command, args []string) error {
 	goReader := golang.NewReader()
 	d2Reader := d2.NewReader()
 	d2Writer := d2.NewWriter()
-	svc := service.NewService(goReader, d2Reader, d2Writer)
+	svc := service.NewService(goReader, d2Reader, d2Writer, service.WithYAML(yamlAdapter.NewReader(), yamlAdapter.NewWriter()))
 
 	// Get flags
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
@@ -282,7 +301,7 @@ func runCompose(cmd *cobra.Command, args []string) error {
 	goReader := golang.NewReader()
 	d2Reader := d2.NewReader()
 	d2Writer := d2.NewWriter()
-	svc := service.NewService(goReader, d2Reader, d2Writer)
+	svc := service.NewService(goReader, d2Reader, d2Writer, service.WithYAML(yamlAdapter.NewReader(), yamlAdapter.NewWriter()))
 
 	// Get flags
 	outputPath, _ := cmd.Flags().GetString("output")

@@ -22,6 +22,10 @@ type GenerateOptions struct {
 	// If both PublicOnly and InternalOnly are false, both diagrams are generated.
 	InternalOnly bool
 
+	// FileExtension is the output file extension (e.g., ".d2", ".yaml").
+	// Defaults to ".d2" if empty.
+	FileExtension string
+
 	// Debug enables verbose output for troubleshooting dependency detection.
 	Debug bool
 
@@ -129,34 +133,39 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) ([]Generat
 func (s *Service) generatePackageDiagrams(ctx context.Context, pkg domain.PackageModel, opts GenerateOptions) GenerateResult {
 	result := GenerateResult{PackagePath: pkg.Path}
 
+	ext := opts.FileExtension
+	if ext == "" {
+		ext = ".d2"
+	}
+
 	// Determine output directory
 	archDir := s.resolveArchDir(pkg.Path)
 
-	// Generate pub.d2 unless InternalOnly is set
+	// Generate pub file unless InternalOnly is set
 	if !opts.InternalOnly {
-		pubPath := filepath.Join(archDir, "pub.d2")
+		pubPath := filepath.Join(archDir, "pub"+ext)
 		writeOpts := domain.WriteOptions{
 			OutputPath: pubPath,
 			PublicOnly: true,
 		}
 
 		if err := s.d2Writer.Write(ctx, pkg, writeOpts); err != nil {
-			result.Error = fmt.Errorf("writing pub.d2: %w", err)
+			result.Error = fmt.Errorf("writing pub%s: %w", ext, err)
 			return result
 		}
 		result.PubFile = pubPath
 	}
 
-	// Generate internal.d2 unless PublicOnly is set
+	// Generate internal file unless PublicOnly is set
 	if !opts.PublicOnly {
-		internalPath := filepath.Join(archDir, "internal.d2")
+		internalPath := filepath.Join(archDir, "internal"+ext)
 		writeOpts := domain.WriteOptions{
 			OutputPath: internalPath,
 			PublicOnly: false,
 		}
 
 		if err := s.d2Writer.Write(ctx, pkg, writeOpts); err != nil {
-			result.Error = fmt.Errorf("writing internal.d2: %w", err)
+			result.Error = fmt.Errorf("writing internal%s: %w", ext, err)
 			return result
 		}
 		result.InternalFile = internalPath

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kgatilin/archai/internal/domain"
 )
@@ -52,8 +53,14 @@ func (s *Service) Split(ctx context.Context, opts SplitOptions) (*SplitResult, e
 	default:
 	}
 
+	// Select reader based on input file extension
+	reader := s.d2Reader
+	if (strings.HasSuffix(opts.DiagramPath, ".yaml") || strings.HasSuffix(opts.DiagramPath, ".yml")) && s.yamlReader != nil {
+		reader = s.yamlReader
+	}
+
 	// Read the combined diagram file
-	models, err := s.d2Reader.Read(ctx, []string{opts.DiagramPath})
+	models, err := reader.Read(ctx, []string{opts.DiagramPath})
 	if err != nil {
 		return nil, fmt.Errorf("reading diagram: %w", err)
 	}

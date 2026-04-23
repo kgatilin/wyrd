@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/kgatilin/archai/internal/domain"
 )
 
 // Compose combines saved .arch/ spec files into a single diagram.
@@ -20,7 +22,7 @@ func (s *Service) Compose(ctx context.Context, opts ComposeOptions) (*ComposeRes
 		return nil, errors.New("at least one package path is required")
 	}
 
-	// Find spec files
+	// Find spec files (both D2 and YAML)
 	files, skipped, err := findSpecFiles(opts.Paths, opts.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("finding spec files: %w", err)
@@ -30,14 +32,40 @@ func (s *Service) Compose(ctx context.Context, opts ComposeOptions) (*ComposeRes
 		return nil, errors.New("no spec files found in specified packages")
 	}
 
-	// Read spec files into models
-	models, err := s.d2Reader.Read(ctx, files)
-	if err != nil {
-		return nil, fmt.Errorf("reading spec files: %w", err)
+	// Partition files by format and read with the appropriate reader
+	var d2Files, yamlFiles []string
+	for _, f := range files {
+		if strings.HasSuffix(f, ".yaml") || strings.HasSuffix(f, ".yml") {
+			yamlFiles = append(yamlFiles, f)
+		} else {
+			d2Files = append(d2Files, f)
+		}
+	}
+
+	var models []domain.PackageModel
+	if len(d2Files) > 0 {
+		m, err := s.d2Reader.Read(ctx, d2Files)
+		if err != nil {
+			return nil, fmt.Errorf("reading D2 spec files: %w", err)
+		}
+		models = append(models, m...)
+	}
+	if len(yamlFiles) > 0 && s.yamlReader != nil {
+		m, err := s.yamlReader.Read(ctx, yamlFiles)
+		if err != nil {
+			return nil, fmt.Errorf("reading YAML spec files: %w", err)
+		}
+		models = append(models, m...)
+	}
+
+	// Determine output writer based on output file extension
+	writer := s.d2Writer
+	if (strings.HasSuffix(opts.OutputPath, ".yaml") || strings.HasSuffix(opts.OutputPath, ".yml")) && s.yamlWriter != nil {
+		writer = s.yamlWriter
 	}
 
 	// Write combined diagram
-	if err := s.d2Writer.WriteCombined(ctx, models, opts.OutputPath); err != nil {
+	if err := writer.WriteCombined(ctx, models, opts.OutputPath); err != nil {
 		return nil, fmt.Errorf("writing combined diagram: %w", err)
 	}
 
@@ -66,22 +94,33 @@ func findSpecFiles(paths []string, mode ComposeMode) (files []string, skipped []
 			continue
 		}
 
-		// Select file based on mode
-		var targetFile string
+		// Select file based on mode, trying D2 first then YAML
+		var candidates []string
 		switch mode {
 		case ComposeModeSpec:
-			targetFile = filepath.Join(archDir, "pub-spec.d2")
+			candidates = []string{
+				filepath.Join(archDir, "pub-spec.d2"),
+				filepath.Join(archDir, "pub-spec.yaml"),
+			}
 		default: // ComposeModeAuto
-			targetFile = filepath.Join(archDir, "pub.d2")
+			candidates = []string{
+				filepath.Join(archDir, "pub.d2"),
+				filepath.Join(archDir, "pub.yaml"),
+			}
 		}
 
-		// Check if target file exists
-		if _, err := os.Stat(targetFile); os.IsNotExist(err) {
+		found := false
+		for _, candidate := range candidates {
+			if _, err := os.Stat(candidate); err == nil {
+				files = append(files, candidate)
+				found = true
+				break
+			}
+		}
+		if !found {
 			skipped = append(skipped, pkgPath)
 			continue
 		}
-
-		files = append(files, targetFile)
 	}
 
 	return files, skipped, nil
