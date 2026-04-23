@@ -23,7 +23,7 @@ require (
 	github.com/dsoprea/go-png-image-structure/v2 v2.0.0-20210512210324-29b889a6093d // indirect
 	github.com/dsoprea/go-utility/v2 v2.0.0-20221003172846-a3e1774ef349 // indirect
 	github.com/ericpauley/go-quantize v0.0.0-20200331213906-ae555eb2afa4 // indirect
-	github.com/fsnotify/fsnotify v1.7.1-0.20240403050945-7086bea086b7 // indirect
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.3 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect

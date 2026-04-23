@@ -8,9 +8,11 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/adapter/golang"
@@ -19,6 +21,7 @@ import (
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/archai/internal/serve"
 	"github.com/kgatilin/archai/internal/service"
 	"github.com/kgatilin/archai/internal/target"
 	"github.com/spf13/cobra"
@@ -279,10 +282,59 @@ Examples:
 	overlayCheckCmd.Flags().String("overlay", "", "Path to archai.yaml overlay (default: ./archai.yaml)")
 	overlayCmd.AddCommand(overlayCheckCmd)
 
+	// Serve command (M5a) — long-running daemon holding an in-memory
+	// model kept current via fsnotify. Transports for MCP stdio (M5b)
+	// and HTTP (M7a) are wired as stubs; they log a notice and the
+	// daemon still runs so the watcher loop can be exercised.
+	serveCmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Run archai as a long-running daemon with an in-memory model",
+		Long: `Run archai as a long-running daemon.
+
+Loads the Go model, the archai.yaml overlay (if present), and the active
+target id into memory, then watches the project root with fsnotify and
+incrementally refreshes the model on change.
+
+The MCP stdio (--mcp-stdio) and HTTP (--http) transports are stubs in
+this milestone; they will be filled in by M5b and M7a. With no
+transport flag, the daemon runs as a silent model-keeper useful for
+manual verification and as a base for future features.`,
+		Args: cobra.NoArgs,
+		RunE: runServe,
+	}
+	serveCmd.Flags().String("root", ".", "Project root directory")
+	serveCmd.Flags().Bool("mcp-stdio", false, "Enable MCP stdio transport (stub in M5a)")
+	serveCmd.Flags().String("http", "", "HTTP transport address, e.g. :8080 (stub in M5a)")
+	serveCmd.Flags().Bool("debug", false, "Verbose per-event logging")
+	rootCmd.AddCommand(serveCmd)
+
 	// Execute root command
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// runServe handles `archai serve`. It wires SIGINT/SIGTERM into a
+// cancellable context and delegates the rest to the serve package.
+func runServe(cmd *cobra.Command, args []string) error {
+	root, _ := cmd.Flags().GetString("root")
+	mcpStdio, _ := cmd.Flags().GetBool("mcp-stdio")
+	httpAddr, _ := cmd.Flags().GetString("http")
+	debug, _ := cmd.Flags().GetBool("debug")
+
+	parent := cmd.Context()
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	return serve.Serve(ctx, serve.Options{
+		Root:     root,
+		MCPStdio: mcpStdio,
+		HTTPAddr: httpAddr,
+		Debug:    debug,
+	})
 }
 
 // runOverlayCheck executes `archai overlay check`. It loads the overlay,
