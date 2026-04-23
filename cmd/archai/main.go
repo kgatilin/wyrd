@@ -3,13 +3,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/adapter/golang"
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
+	"github.com/kgatilin/archai/internal/diff"
+	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/service"
 	"github.com/kgatilin/archai/internal/target"
 	"github.com/spf13/cobra"
@@ -184,6 +190,24 @@ and freeze them — along with archai.yaml — into .arch/targets/<id>/.`,
 	}
 	targetDeleteCmd.Flags().Bool("force", false, "Delete even if <id> is the current target")
 	targetCmd.AddCommand(targetDeleteCmd)
+
+	// Diff command (M4b)
+	diffCmd := &cobra.Command{
+		Use:   "diff",
+		Short: "Show differences between current code and a locked target",
+		Long: `Compare the project's current architecture model (from .arch/*.yaml specs,
+or the Go source if no specs are present) against a locked target and print
+the structured differences.
+
+By default, the active target (.arch/targets/CURRENT) is used; override with
+--target <id>. Output format is plain text; use --format yaml or --format
+json for machine-readable output.`,
+		Args: cobra.NoArgs,
+		RunE: runDiff,
+	}
+	diffCmd.Flags().String("target", "", "Target id to compare against (defaults to CURRENT)")
+	diffCmd.Flags().StringP("format", "f", "text", "Output format: text, yaml, or json")
+	rootCmd.AddCommand(diffCmd)
 
 	// Execute root command
 	if err := rootCmd.Execute(); err != nil {
@@ -572,4 +596,172 @@ func runTargetDelete(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("Deleted target %q\n", id)
 	return nil
+}
+
+// runDiff handles `archai diff`. It loads the current model from the
+// project's per-package .arch/*.yaml files (falling back to parsing Go
+// sources if no specs are present) and the target model from
+// .arch/targets/<id>/model/, computes a structured diff and prints it in
+// the requested format.
+func runDiff(cmd *cobra.Command, args []string) error {
+	targetID, _ := cmd.Flags().GetString("target")
+	format, _ := cmd.Flags().GetString("format")
+
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+
+	// Resolve target id.
+	if targetID == "" {
+		cur, err := target.Current(projectRoot)
+		if err != nil {
+			return fmt.Errorf("reading CURRENT: %w", err)
+		}
+		if cur == "" {
+			return errors.New("no target specified and no CURRENT target set; use --target <id> or `archai target use <id>`")
+		}
+		targetID = cur
+	}
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	current, err := loadCurrentModel(ctx, projectRoot)
+	if err != nil {
+		return fmt.Errorf("loading current model: %w", err)
+	}
+
+	targetModel, err := loadTargetModel(ctx, projectRoot, targetID)
+	if err != nil {
+		return fmt.Errorf("loading target %q: %w", targetID, err)
+	}
+
+	d := diff.Compute(current, targetModel)
+
+	switch format {
+	case "", "text":
+		fmt.Print(diff.FormatText(d))
+	case "yaml":
+		out, err := diff.FormatYAML(d)
+		if err != nil {
+			return err
+		}
+		fmt.Print(out)
+	case "json":
+		out, err := diff.FormatJSON(d)
+		if err != nil {
+			return err
+		}
+		fmt.Print(out)
+	default:
+		return fmt.Errorf("unsupported format %q (use text, yaml, or json)", format)
+	}
+
+	return nil
+}
+
+// loadCurrentModel builds the "current" package model for diff. Preference
+// order:
+//  1. Per-package .arch/*.yaml specs found under projectRoot (excluding
+//     .arch/targets/).
+//  2. Fallback: parse Go sources under ./... via the Go reader.
+func loadCurrentModel(ctx context.Context, projectRoot string) ([]domain.PackageModel, error) {
+	files, err := findCurrentYAMLSpecs(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) > 0 {
+		return yamlAdapter.NewReader().Read(ctx, files)
+	}
+
+	// Fallback to Go source parsing.
+	return golang.NewReader().Read(ctx, []string{"./..."})
+}
+
+// loadTargetModel loads the frozen model from .arch/targets/<id>/model/.
+func loadTargetModel(ctx context.Context, projectRoot, id string) ([]domain.PackageModel, error) {
+	targetDir := filepath.Join(projectRoot, ".arch", "targets", id)
+	if _, err := os.Stat(targetDir); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("target %q not found", id)
+		}
+		return nil, err
+	}
+	modelDir := filepath.Join(targetDir, "model")
+	files, err := collectYAMLFiles(modelDir)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("target %q has no model files under %s", id, modelDir)
+	}
+	return yamlAdapter.NewReader().Read(ctx, files)
+}
+
+// findCurrentYAMLSpecs walks projectRoot for package-level .arch/*.yaml
+// files. The .arch/targets tree is skipped so locked targets don't leak
+// into the "current" model.
+func findCurrentYAMLSpecs(projectRoot string) ([]string, error) {
+	var out []string
+	targetsTree := filepath.Join(projectRoot, ".arch", "targets")
+
+	err := filepath.WalkDir(projectRoot, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			// Skip the targets tree entirely.
+			if path == targetsTree || strings.HasPrefix(path, targetsTree+string(os.PathSeparator)) {
+				return filepath.SkipDir
+			}
+			// Skip hidden directories except `.arch` itself.
+			name := d.Name()
+			if strings.HasPrefix(name, ".") && name != ".arch" && name != "." {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".yaml" && filepath.Ext(path) != ".yml" {
+			return nil
+		}
+		// Only include files located directly inside a .arch directory.
+		if filepath.Base(filepath.Dir(path)) != ".arch" {
+			return nil
+		}
+		out = append(out, path)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// collectYAMLFiles returns every *.yaml / *.yml file under root.
+func collectYAMLFiles(root string) ([]string, error) {
+	var out []string
+	if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if filepath.Ext(path) == ".yaml" || filepath.Ext(path) == ".yml" {
+			out = append(out, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(out)
+	return out, nil
 }
