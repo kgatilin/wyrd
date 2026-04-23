@@ -498,6 +498,13 @@ func (r *reader) convertTypeRef(t types.Type) domain.TypeRef {
 		return ref
 	}
 
+	// Handle anonymous struct types - simplify to avoid D2 parsing issues
+	// with curly braces, colons, and quotes in the full struct definition
+	if _, ok := t.(*types.Struct); ok {
+		ref.Name = "struct{...}"
+		return ref
+	}
+
 	// Fallback: use string representation with module path stripped
 	ref.Name = r.stripModulePath(t.String())
 	return ref
