@@ -52,8 +52,8 @@ func mustWrite(t *testing.T, path, body string) {
 
 func TestToolDefinitions(t *testing.T) {
 	defs := ToolDefinitions()
-	if len(defs) != 3 {
-		t.Fatalf("expected 3 tool definitions, got %d", len(defs))
+	if len(defs) != 9 {
+		t.Fatalf("expected 9 tool definitions, got %d", len(defs))
 	}
 	names := map[string]bool{}
 	for _, d := range defs {
@@ -65,7 +65,7 @@ func TestToolDefinitions(t *testing.T) {
 			t.Errorf("tool %q missing input schema", d.Name)
 		}
 	}
-	for _, want := range []string{"extract", "list_packages", "get_package"} {
+	for _, want := range []string{"extract", "list_packages", "get_package", "lock_target", "list_targets", "set_current_target", "diff", "apply_diff", "validate"} {
 		if !names[want] {
 			t.Errorf("missing tool definition for %q", want)
 		}
