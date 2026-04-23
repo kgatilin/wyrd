@@ -82,6 +82,11 @@ func (r *reader) Read(ctx context.Context, paths []string) ([]domain.PackageMode
 		models = append(models, model)
 	}
 
+	// Compute interface implementations across all loaded packages.
+	// This must run after all packages are loaded because implementations
+	// may cross package boundaries.
+	r.computeImplementations(pkgs, models)
+
 	return models, nil
 }
 
@@ -1001,6 +1006,169 @@ func (r *reader) applyStereotypes(model *domain.PackageModel) {
 
 	for i := range model.TypeDefs {
 		model.TypeDefs[i].Stereotype = detectTypeDefStereotype(model.TypeDefs[i])
+	}
+}
+
+// computeImplementations computes interface implementations via go/types.Implements.
+// For each exported interface defined in the loaded packages, it iterates over all
+// named types across loaded packages and records which concrete types (T or *T)
+// implement it. Results are stored in the owning interface's PackageModel.
+func (r *reader) computeImplementations(pkgs []*packages.Package, models []domain.PackageModel) {
+	// Collect all interfaces (from loaded packages only) that are exported.
+	type ifaceEntry struct {
+		pkg       *packages.Package
+		name      string
+		iface     *types.Interface
+		modelIdx  int    // index into models slice
+		sourceFile string
+	}
+
+	// Map model.Path -> model index for quick lookup.
+	modelIdxByPath := make(map[string]int, len(models))
+	for i, m := range models {
+		modelIdxByPath[m.Path] = i
+	}
+
+	var ifaceEntries []ifaceEntry
+	for _, pkg := range pkgs {
+		if pkg.Types == nil {
+			continue
+		}
+		scope := pkg.Types.Scope()
+		relPath := r.relativePath(pkg.PkgPath)
+		modelIdx, ok := modelIdxByPath[relPath]
+		if !ok {
+			continue
+		}
+		for _, name := range scope.Names() {
+			obj := scope.Lookup(name)
+			typeName, ok := obj.(*types.TypeName)
+			if !ok {
+				continue
+			}
+			if !typeName.Exported() {
+				continue
+			}
+			iface, ok := typeName.Type().Underlying().(*types.Interface)
+			if !ok {
+				continue
+			}
+			// Skip empty interfaces (any/interface{}): every type satisfies them.
+			if iface.Empty() {
+				continue
+			}
+			ifaceEntries = append(ifaceEntries, ifaceEntry{
+				pkg:        pkg,
+				name:       name,
+				iface:      iface,
+				modelIdx:   modelIdx,
+				sourceFile: r.getSourceFile(pkg.Fset, typeName.Pos()),
+			})
+		}
+	}
+
+	if len(ifaceEntries) == 0 {
+		return
+	}
+
+	// Collect all named concrete types (non-interfaces) across loaded packages.
+	type concreteEntry struct {
+		pkg       *packages.Package
+		name      string
+		named     *types.Named
+		sourceFile string
+	}
+	var concretes []concreteEntry
+	for _, pkg := range pkgs {
+		if pkg.Types == nil {
+			continue
+		}
+		scope := pkg.Types.Scope()
+		for _, name := range scope.Names() {
+			obj := scope.Lookup(name)
+			typeName, ok := obj.(*types.TypeName)
+			if !ok {
+				continue
+			}
+			named, ok := typeName.Type().(*types.Named)
+			if !ok {
+				continue
+			}
+			// Skip interfaces — we only care about concrete types as implementers.
+			if _, isIface := named.Underlying().(*types.Interface); isIface {
+				continue
+			}
+			concretes = append(concretes, concreteEntry{
+				pkg:        pkg,
+				name:       name,
+				named:      named,
+				sourceFile: r.getSourceFile(pkg.Fset, typeName.Pos()),
+			})
+		}
+	}
+
+	// Deduplicate implementations per owning package.
+	seen := make(map[string]bool)
+
+	for _, ie := range ifaceEntries {
+		ifaceRelPath := r.relativePath(ie.pkg.PkgPath)
+		ifaceRef := domain.SymbolRef{
+			Package: ifaceRelPath,
+			File:    ie.sourceFile,
+			Symbol:  ie.name,
+		}
+
+		for _, c := range concretes {
+			concreteRelPath := r.relativePath(c.pkg.PkgPath)
+			// Skip if concrete type is identical to the interface type itself.
+			if c.pkg == ie.pkg && c.name == ie.name {
+				continue
+			}
+
+			concreteRef := domain.SymbolRef{
+				Package: concreteRelPath,
+				File:    c.sourceFile,
+				Symbol:  c.name,
+			}
+
+			// Check value type first.
+			if types.Implements(c.named, ie.iface) {
+				key := fmt.Sprintf("%s.%s->%s.%s|v",
+					concreteRef.Package, concreteRef.Symbol,
+					ifaceRef.Package, ifaceRef.Symbol)
+				if !seen[key] {
+					seen[key] = true
+					models[ie.modelIdx].Implementations = append(
+						models[ie.modelIdx].Implementations,
+						domain.Implementation{
+							Concrete:  concreteRef,
+							Interface: ifaceRef,
+							IsPointer: false,
+						},
+					)
+				}
+				continue
+			}
+
+			// Check pointer type only if value type does not implement.
+			ptr := types.NewPointer(c.named)
+			if types.Implements(ptr, ie.iface) {
+				key := fmt.Sprintf("%s.%s->%s.%s|p",
+					concreteRef.Package, concreteRef.Symbol,
+					ifaceRef.Package, ifaceRef.Symbol)
+				if !seen[key] {
+					seen[key] = true
+					models[ie.modelIdx].Implementations = append(
+						models[ie.modelIdx].Implementations,
+						domain.Implementation{
+							Concrete:  concreteRef,
+							Interface: ifaceRef,
+							IsPointer: true,
+						},
+					)
+				}
+			}
+		}
 	}
 }
 

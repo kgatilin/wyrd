@@ -54,6 +54,16 @@ func (b *d2TextBuilder) Build(pkg domain.PackageModel, publicOnly bool) string {
 		b.writeDependency(dep)
 	}
 
+	// 6. Write implementation edges (dashed arrows from concrete -> interface)
+	impls := b.filterImplementations(pkg.Implementations, publicOnly, pkg)
+	if len(impls) > 0 {
+		b.writeLine("")
+		b.writeComment("Implementations")
+		for _, impl := range impls {
+			b.writeImplementation(impl)
+		}
+	}
+
 	return b.buf.String()
 }
 
@@ -631,6 +641,91 @@ func (b *d2TextBuilder) writeDependency(dep domain.Dependency) {
 	fromPath := b.toD2Path(dep.From)
 	toPath := b.toD2Path(dep.To)
 	b.writeLine(fmt.Sprintf(`%s -> %s: "%s"`, fromPath, toPath, dep.Kind))
+}
+
+// filterImplementations returns implementations that can be rendered within
+// this package's diagram. Only intra-package implementations (concrete and
+// interface both in this package) are rendered, since cross-package concrete
+// types are not represented as shapes in a single-package diagram.
+func (b *d2TextBuilder) filterImplementations(
+	impls []domain.Implementation,
+	publicOnly bool,
+	pkg domain.PackageModel,
+) []domain.Implementation {
+	// Build a set of visible struct and interface names (with source files).
+	visibleStructs := make(map[string]string) // name -> file
+	visibleIfaces := make(map[string]string)  // name -> file
+
+	for _, iface := range pkg.Interfaces {
+		if !publicOnly || iface.IsExported {
+			visibleIfaces[iface.Name] = iface.SourceFile
+		}
+	}
+	for _, s := range pkg.Structs {
+		if !publicOnly || s.IsExported {
+			visibleStructs[s.Name] = s.SourceFile
+		}
+	}
+
+	var result []domain.Implementation
+	seen := make(map[string]bool)
+
+	for _, impl := range impls {
+		// Interface must be in this package and visible.
+		if impl.Interface.Package != pkg.Path {
+			continue
+		}
+		ifaceFile, ok := visibleIfaces[impl.Interface.Symbol]
+		if !ok {
+			continue
+		}
+		// Concrete must also be in this package and visible as a struct.
+		if impl.Concrete.Package != pkg.Path {
+			continue
+		}
+		concreteFile, ok := visibleStructs[impl.Concrete.Symbol]
+		if !ok {
+			continue
+		}
+
+		// Fill in source files if empty.
+		if impl.Interface.File == "" {
+			impl.Interface.File = ifaceFile
+		}
+		if impl.Concrete.File == "" {
+			impl.Concrete.File = concreteFile
+		}
+
+		key := fmt.Sprintf("%s.%s->%s.%s",
+			b.fileContainerID(impl.Concrete.File), impl.Concrete.Symbol,
+			b.fileContainerID(impl.Interface.File), impl.Interface.Symbol)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, impl)
+	}
+
+	// Sort deterministically.
+	sort.Slice(result, func(i, j int) bool {
+		ki := fmt.Sprintf("%s.%s->%s.%s",
+			b.fileContainerID(result[i].Concrete.File), result[i].Concrete.Symbol,
+			b.fileContainerID(result[i].Interface.File), result[i].Interface.Symbol)
+		kj := fmt.Sprintf("%s.%s->%s.%s",
+			b.fileContainerID(result[j].Concrete.File), result[j].Concrete.Symbol,
+			b.fileContainerID(result[j].Interface.File), result[j].Interface.Symbol)
+		return ki < kj
+	})
+
+	return result
+}
+
+// writeImplementation writes a D2 dashed arrow from the concrete type to the interface.
+func (b *d2TextBuilder) writeImplementation(impl domain.Implementation) {
+	fromPath := b.toD2Path(impl.Concrete)
+	toPath := b.toD2Path(impl.Interface)
+	// Dashed arrow with "implements" label. Style block sets stroke-dash.
+	b.writeLine(fmt.Sprintf(`%s -> %s: "implements" {style.stroke-dash: 3}`, fromPath, toPath))
 }
 
 // toD2Path converts a SymbolRef to a D2 container path.

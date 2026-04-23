@@ -119,6 +119,21 @@ func testPackageModel() domain.PackageModel {
 				Doc:        "ErrNotFound is returned when a lookup fails.",
 			},
 		},
+		Implementations: []domain.Implementation{
+			{
+				Concrete: domain.SymbolRef{
+					Package: "github.com/example/project/internal/service",
+					File:    "handler.go",
+					Symbol:  "Handler",
+				},
+				Interface: domain.SymbolRef{
+					Package: "github.com/example/project/internal/service",
+					File:    "repository.go",
+					Symbol:  "Repository",
+				},
+				IsPointer: true,
+			},
+		},
 		Dependencies: []domain.Dependency{
 			{
 				From: domain.SymbolRef{
@@ -282,6 +297,18 @@ func TestRoundtrip_SinglePackage(t *testing.T) {
 	dep2 := got.Dependencies[1]
 	if !dep2.To.External {
 		t.Errorf("Expected external dependency, got: %+v", dep2.To)
+	}
+
+	// Verify implementations
+	if len(got.Implementations) != len(original.Implementations) {
+		t.Fatalf("Implementations count: got %d, want %d", len(got.Implementations), len(original.Implementations))
+	}
+	impl := got.Implementations[0]
+	if impl.Concrete.Symbol != "Handler" || impl.Interface.Symbol != "Repository" {
+		t.Errorf("Implementation symbols mismatch: %+v", impl)
+	}
+	if !impl.IsPointer {
+		t.Errorf("Implementation IsPointer: got false, want true")
 	}
 }
 

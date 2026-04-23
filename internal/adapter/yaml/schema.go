@@ -19,6 +19,14 @@ type PackageSpec struct {
 	Variables    []VarSpec        `yaml:"variables,omitempty"`
 	Errors       []ErrorSpec      `yaml:"errors,omitempty"`
 	Dependencies []DependencySpec `yaml:"dependencies,omitempty"`
+	Implementations []ImplementationSpec `yaml:"implementations,omitempty"`
+}
+
+// ImplementationSpec represents an interface implementation relationship.
+type ImplementationSpec struct {
+	Concrete  SymbolRefSpec `yaml:"concrete"`
+	Interface SymbolRefSpec `yaml:"interface"`
+	Pointer   bool          `yaml:"pointer,omitempty"`
 }
 
 // ConstSpec represents a package-level constant declaration.

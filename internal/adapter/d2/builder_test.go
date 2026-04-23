@@ -261,3 +261,61 @@ func TestD2TextBuilder_MethodSignatures(t *testing.T) {
 		})
 	}
 }
+
+func TestD2TextBuilder_RendersImplementations(t *testing.T) {
+	model := domain.PackageModel{
+		Name: "svc",
+		Path: "internal/svc",
+		Interfaces: []domain.InterfaceDef{
+			{Name: "Greeter", IsExported: true, SourceFile: "greeter.go"},
+		},
+		Structs: []domain.StructDef{
+			{Name: "Hello", IsExported: true, SourceFile: "hello.go"},
+		},
+		Implementations: []domain.Implementation{
+			{
+				Concrete:  domain.SymbolRef{Package: "internal/svc", File: "hello.go", Symbol: "Hello"},
+				Interface: domain.SymbolRef{Package: "internal/svc", File: "greeter.go", Symbol: "Greeter"},
+				IsPointer: false,
+			},
+		},
+	}
+
+	builder := newD2TextBuilder()
+	got := builder.Build(model, false)
+
+	wantParts := []string{
+		"# Implementations",
+		`hello.Hello -> greeter.Greeter: "implements"`,
+		"style.stroke-dash",
+	}
+	for _, want := range wantParts {
+		if !strings.Contains(got, want) {
+			t.Errorf("Build() output missing %q\n\nGot:\n%s", want, got)
+		}
+	}
+}
+
+func TestD2TextBuilder_SkipsCrossPackageImplementations(t *testing.T) {
+	model := domain.PackageModel{
+		Name: "api",
+		Path: "internal/api",
+		Interfaces: []domain.InterfaceDef{
+			{Name: "Service", IsExported: true, SourceFile: "api.go"},
+		},
+		Implementations: []domain.Implementation{
+			{
+				// Concrete from different package — can't be rendered here.
+				Concrete:  domain.SymbolRef{Package: "internal/impl", File: "impl.go", Symbol: "Worker"},
+				Interface: domain.SymbolRef{Package: "internal/api", File: "api.go", Symbol: "Service"},
+			},
+		},
+	}
+
+	builder := newD2TextBuilder()
+	got := builder.Build(model, false)
+
+	if strings.Contains(got, "# Implementations") {
+		t.Errorf("expected no Implementations section for cross-package impl\n\nGot:\n%s", got)
+	}
+}

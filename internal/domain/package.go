@@ -47,6 +47,11 @@ type PackageModel struct {
 	// as assigned by the overlay (archai.yaml) when the package
 	// contains the aggregate root type. Empty otherwise.
 	Aggregate string
+
+	// Implementations is the list of interface implementation relationships
+	// where the interface is defined in this package. Concrete types may be
+	// from other packages.
+	Implementations []Implementation
 }
 
 // SourceFiles returns a deduplicated list of all source files in the package.

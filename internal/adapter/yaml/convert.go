@@ -75,6 +75,10 @@ func toSpec(model domain.PackageModel, publicOnly bool) PackageSpec {
 		spec.Dependencies = append(spec.Dependencies, toDependencySpec(dep))
 	}
 
+	for _, impl := range model.Implementations {
+		spec.Implementations = append(spec.Implementations, toImplementationSpec(impl))
+	}
+
 	return spec
 }
 
@@ -110,6 +114,9 @@ func fromSpec(spec PackageSpec) domain.PackageModel {
 	}
 	for _, dep := range spec.Dependencies {
 		model.Dependencies = append(model.Dependencies, fromDependencySpec(dep))
+	}
+	for _, impl := range spec.Implementations {
+		model.Implementations = append(model.Implementations, fromImplementationSpec(impl))
 	}
 
 	return model
@@ -263,6 +270,22 @@ func toDependencySpec(d domain.Dependency) DependencySpec {
 		To:              toSymbolRefSpec(d.To),
 		Kind:            string(d.Kind),
 		ThroughExported: d.ThroughExported,
+	}
+}
+
+func toImplementationSpec(i domain.Implementation) ImplementationSpec {
+	return ImplementationSpec{
+		Concrete:  toSymbolRefSpec(i.Concrete),
+		Interface: toSymbolRefSpec(i.Interface),
+		Pointer:   i.IsPointer,
+	}
+}
+
+func fromImplementationSpec(s ImplementationSpec) domain.Implementation {
+	return domain.Implementation{
+		Concrete:  fromSymbolRefSpec(s.Concrete),
+		Interface: fromSymbolRefSpec(s.Interface),
+		IsPointer: s.Pointer,
 	}
 }
 
