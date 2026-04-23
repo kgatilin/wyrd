@@ -15,12 +15,14 @@ import (
 	"github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/adapter/golang"
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
+	"github.com/kgatilin/archai/internal/apply"
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/overlay"
 	"github.com/kgatilin/archai/internal/service"
 	"github.com/kgatilin/archai/internal/target"
 	"github.com/spf13/cobra"
+	yamlv3 "gopkg.in/yaml.v3"
 )
 
 func main() {
@@ -210,6 +212,41 @@ json for machine-readable output.`,
 	diffCmd.Flags().String("target", "", "Target id to compare against (defaults to CURRENT)")
 	diffCmd.Flags().StringP("format", "f", "text", "Output format: text, yaml, or json")
 	rootCmd.AddCommand(diffCmd)
+
+	// diff apply <patch.yaml> (M4c)
+	diffApplyCmd := &cobra.Command{
+		Use:   "apply <patch.yaml>",
+		Short: "Apply a diff patch onto the active target snapshot",
+		Long: `Apply a previously-computed diff (YAML) onto the active target
+snapshot. The patch is interpreted as "how current code differs from target";
+applying it updates the target model so it matches the current code.
+
+The current code model is read from .arch/*.yaml (or via the Go reader when
+no specs are present) and is used as the source of truth for any symbol
+payload the patch needs. Target snapshot files under
+.arch/targets/<id>/model/ are overwritten.`,
+		Args: cobra.ExactArgs(1),
+		RunE: runDiffApply,
+	}
+	diffApplyCmd.Flags().String("target", "", "Target id to apply patch onto (defaults to CURRENT)")
+	diffCmd.AddCommand(diffApplyCmd)
+
+	// validate (M4c)
+	validateCmd := &cobra.Command{
+		Use:   "validate",
+		Short: "Validate that current code matches the active target (CI mode)",
+		Long: `Compare the project's current architecture model against the active
+target and exit 0 when they match, non-zero otherwise. Violations are
+printed in a CI-friendly format (one per line: <op> <kind> <path>).
+
+Use --format yaml|json for machine-readable diff output. --target overrides
+the CURRENT target.`,
+		Args: cobra.NoArgs,
+		RunE: runValidate,
+	}
+	validateCmd.Flags().String("target", "", "Target id to validate against (defaults to CURRENT)")
+	validateCmd.Flags().StringP("format", "f", "text", "Output format: text, yaml, or json")
+	rootCmd.AddCommand(validateCmd)
 
 	// Overlay command group (M3c)
 	overlayCmd := &cobra.Command{
@@ -902,4 +939,189 @@ func collectYAMLFiles(root string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// runDiffApply handles `archai diff apply <patch.yaml>`. It loads the patch,
+// resolves the active target, rebuilds the current + target models, invokes
+// apply.Apply, and overwrites the target snapshot's model/ tree with the
+// result.
+func runDiffApply(cmd *cobra.Command, args []string) error {
+	patchPath := args[0]
+	targetID, _ := cmd.Flags().GetString("target")
+
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+
+	patchData, err := os.ReadFile(patchPath)
+	if err != nil {
+		return fmt.Errorf("reading patch %s: %w", patchPath, err)
+	}
+	var patch diff.Diff
+	if err := yamlv3.Unmarshal(patchData, &patch); err != nil {
+		return fmt.Errorf("parsing patch %s: %w", patchPath, err)
+	}
+	if err := validatePatch(&patch); err != nil {
+		return fmt.Errorf("patch %s: %w", patchPath, err)
+	}
+
+	if targetID == "" {
+		cur, err := target.Current(projectRoot)
+		if err != nil {
+			return fmt.Errorf("reading CURRENT: %w", err)
+		}
+		if cur == "" {
+			return errors.New("no target specified and no CURRENT target set; use --target <id> or `archai target use <id>`")
+		}
+		targetID = cur
+	}
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	current, err := loadCurrentModel(ctx, projectRoot)
+	if err != nil {
+		return fmt.Errorf("loading current model: %w", err)
+	}
+
+	targetModel, err := loadTargetModel(ctx, projectRoot, targetID)
+	if err != nil {
+		return fmt.Errorf("loading target %q: %w", targetID, err)
+	}
+
+	updated, err := apply.Apply(&patch, current, targetModel)
+	if err != nil {
+		return fmt.Errorf("applying patch: %w", err)
+	}
+
+	if err := writeTargetModels(ctx, projectRoot, targetID, updated); err != nil {
+		return fmt.Errorf("writing target %q: %w", targetID, err)
+	}
+	fmt.Printf("Applied %d change(s) to target %q\n", len(patch.Changes), targetID)
+	return nil
+}
+
+// runValidate handles `archai validate`. It exits 0 when current matches
+// target, non-zero otherwise. Output format is controlled by --format.
+func runValidate(cmd *cobra.Command, args []string) error {
+	targetID, _ := cmd.Flags().GetString("target")
+	format, _ := cmd.Flags().GetString("format")
+
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+
+	if targetID == "" {
+		cur, err := target.Current(projectRoot)
+		if err != nil {
+			return fmt.Errorf("reading CURRENT: %w", err)
+		}
+		if cur == "" {
+			return errors.New("no target specified and no CURRENT target set; use --target <id> or `archai target use <id>`")
+		}
+		targetID = cur
+	}
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	current, err := loadCurrentModel(ctx, projectRoot)
+	if err != nil {
+		return fmt.Errorf("loading current model: %w", err)
+	}
+	targetModel, err := loadTargetModel(ctx, projectRoot, targetID)
+	if err != nil {
+		return fmt.Errorf("loading target %q: %w", targetID, err)
+	}
+
+	d := diff.Compute(current, targetModel)
+	if d.IsEmpty() {
+		fmt.Printf("code matches target %q\n", targetID)
+		return nil
+	}
+
+	switch format {
+	case "", "text":
+		// CI-friendly: one violation per line, "<op> <kind> <path>".
+		for _, c := range d.Changes {
+			fmt.Printf("%s %s %s\n", c.Op, c.Kind, c.Path)
+		}
+	case "yaml":
+		out, err := diff.FormatYAML(d)
+		if err != nil {
+			return err
+		}
+		fmt.Print(out)
+	case "json":
+		out, err := diff.FormatJSON(d)
+		if err != nil {
+			return err
+		}
+		fmt.Print(out)
+	default:
+		return fmt.Errorf("unsupported format %q (use text, yaml, or json)", format)
+	}
+	return fmt.Errorf("drift detected: %d change(s) against target %q", len(d.Changes), targetID)
+}
+
+// validatePatch ensures every Change in d carries a recognized Op and Kind
+// so we fail fast on malformed patches before any on-disk writes.
+func validatePatch(d *diff.Diff) error {
+	if d == nil {
+		return nil
+	}
+	for i, c := range d.Changes {
+		switch c.Op {
+		case diff.OpAdd, diff.OpRemove, diff.OpChange:
+		default:
+			return fmt.Errorf("change[%d]: unknown op %q", i, c.Op)
+		}
+		switch c.Kind {
+		case diff.KindPackage, diff.KindInterface, diff.KindStruct, diff.KindFunction,
+			diff.KindMethod, diff.KindField, diff.KindConst, diff.KindVar, diff.KindError,
+			diff.KindDep, diff.KindLayerRule, diff.KindTypeDef:
+		default:
+			return fmt.Errorf("change[%d]: unknown kind %q", i, c.Kind)
+		}
+		if c.Path == "" {
+			return fmt.Errorf("change[%d]: empty path", i)
+		}
+	}
+	return nil
+}
+
+// writeTargetModels overwrites the target snapshot's model/ tree with the
+// given per-package models. Existing package YAML files are replaced; the
+// internal.yaml per package is regenerated (pub.yaml is redundant with
+// internal.yaml for the full model and is left absent to avoid drift
+// between the two on subsequent diffs — the YAML reader accepts either).
+func writeTargetModels(ctx context.Context, projectRoot, id string, models []domain.PackageModel) error {
+	targetDir := filepath.Join(projectRoot, ".arch", "targets", id)
+	modelDir := filepath.Join(targetDir, "model")
+
+	// Wipe the existing model/ tree so removed packages vanish cleanly.
+	if err := os.RemoveAll(modelDir); err != nil {
+		return fmt.Errorf("removing %s: %w", modelDir, err)
+	}
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", modelDir, err)
+	}
+
+	writer := yamlAdapter.NewWriter()
+	for _, m := range models {
+		out := filepath.Join(modelDir, m.Path, "internal.yaml")
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+			return fmt.Errorf("creating %s: %w", filepath.Dir(out), err)
+		}
+		if err := writer.Write(ctx, m, domain.WriteOptions{OutputPath: out}); err != nil {
+			return fmt.Errorf("writing %s: %w", out, err)
+		}
+	}
+	return nil
 }
