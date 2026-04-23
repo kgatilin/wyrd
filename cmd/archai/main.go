@@ -16,6 +16,7 @@ import (
 
 	"github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/adapter/golang"
+	"github.com/kgatilin/archai/internal/adapter/mcp"
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
 	"github.com/kgatilin/archai/internal/apply"
 	"github.com/kgatilin/archai/internal/diff"
@@ -304,7 +305,7 @@ manual verification and as a base for future features.`,
 		RunE: runServe,
 	}
 	serveCmd.Flags().String("root", ".", "Project root directory")
-	serveCmd.Flags().Bool("mcp-stdio", false, "Enable MCP stdio transport (stub in M5a)")
+	serveCmd.Flags().Bool("mcp-stdio", false, "Enable MCP stdio transport")
 	serveCmd.Flags().String("http", "", "HTTP transport address, e.g. :8080 (stub in M5a)")
 	serveCmd.Flags().Bool("debug", false, "Verbose per-event logging")
 	rootCmd.AddCommand(serveCmd)
@@ -360,6 +361,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	return serve.Serve(ctx, serve.Options{
 		Root:     root,
 		MCPStdio: mcpStdio,
+		MCPServe: func(ctx context.Context, state *serve.State) error {
+			return mcp.Serve(ctx, state)
+		},
 		HTTPAddr: httpAddr,
 		Debug:    debug,
 	})

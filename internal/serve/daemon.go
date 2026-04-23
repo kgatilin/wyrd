@@ -16,9 +16,15 @@ type Options struct {
 	// Root is the project root directory. Defaults to cwd when empty.
 	Root string
 
-	// MCPStdio enables the MCP stdio transport. Currently a stub
-	// (M5a only wires the flag so M5b can implement it).
+	// MCPStdio enables the MCP stdio transport. When true, MCPServe is
+	// invoked with the live State so the transport can answer tool
+	// calls from its in-memory snapshot.
 	MCPStdio bool
+
+	// MCPServe is the MCP stdio entry point. Left as a callback so the
+	// serve package avoids importing the mcp adapter (which depends on
+	// serve). cmd/archai wires this to mcp.Serve.
+	MCPServe func(ctx context.Context, state *State) error
 
 	// HTTPAddr enables the HTTP transport on the given address
 	// (e.g. ":8080"). Empty disables HTTP. Stub until M7a.
@@ -68,12 +74,6 @@ func Serve(ctx context.Context, opts Options) error {
 	fmt.Fprintf(logOut, "serve: loaded %d package(s), overlay=%v, target=%q\n",
 		len(snap.Packages), snap.Overlay != nil, snap.CurrentTarget)
 
-	// Transport stubs. M5b / M7a will replace these with real
-	// implementations; for now we log so operators know they were
-	// requested.
-	if opts.MCPStdio {
-		fmt.Fprintln(logOut, "serve: MCP stdio transport requested — not implemented yet (stub)")
-	}
 	if opts.HTTPAddr != "" {
 		fmt.Fprintf(logOut, "serve: HTTP transport requested on %s — not implemented yet (stub)\n", opts.HTTPAddr)
 	}
@@ -85,6 +85,38 @@ func Serve(ctx context.Context, opts Options) error {
 	defer func() { _ = watcher.Close() }()
 
 	handler := buildHandler(ctx, state, logOut, opts.Debug)
+
+	// When the MCP stdio transport is requested, it owns the process's
+	// stdin/stdout and drives shutdown: we run the watcher loop in a
+	// goroutine for the duration of the MCP session. Stdout is reserved
+	// for JSON-RPC frames; diagnostics stay on stderr (logOut).
+	if opts.MCPStdio {
+		if opts.MCPServe == nil {
+			return fmt.Errorf("serve: --mcp-stdio set but MCPServe is nil")
+		}
+
+		childCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		watchErrCh := make(chan error, 1)
+		go func() {
+			fmt.Fprintln(logOut, "serve: watching for changes (MCP stdio mode)")
+			watchErrCh <- watcher.Run(childCtx, handler)
+		}()
+
+		fmt.Fprintln(logOut, "serve: starting MCP stdio transport")
+		mcpErr := opts.MCPServe(childCtx, state)
+		cancel()
+
+		// Drain the watcher goroutine so we don't leak it.
+		<-watchErrCh
+
+		if mcpErr != nil && !errors.Is(mcpErr, context.Canceled) {
+			return mcpErr
+		}
+		fmt.Fprintln(logOut, "serve: shutdown complete")
+		return nil
+	}
 
 	fmt.Fprintln(logOut, "serve: watching for changes (Ctrl-C to stop)")
 	if err := watcher.Run(ctx, handler); err != nil {
