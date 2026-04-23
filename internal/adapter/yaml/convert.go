@@ -42,6 +42,30 @@ func toSpec(model domain.PackageModel, publicOnly bool) PackageSpec {
 		spec.TypeDefs = append(spec.TypeDefs, toTypeDefSpec(td))
 	}
 
+	consts := model.Constants
+	if publicOnly {
+		consts = model.ExportedConstants()
+	}
+	for _, c := range consts {
+		spec.Constants = append(spec.Constants, toConstSpec(c))
+	}
+
+	vars := model.Variables
+	if publicOnly {
+		vars = model.ExportedVariables()
+	}
+	for _, v := range vars {
+		spec.Variables = append(spec.Variables, toVarSpec(v))
+	}
+
+	errs := model.Errors
+	if publicOnly {
+		errs = model.ExportedErrors()
+	}
+	for _, e := range errs {
+		spec.Errors = append(spec.Errors, toErrorSpec(e))
+	}
+
 	for _, dep := range model.Dependencies {
 		if publicOnly && !dep.ThroughExported {
 			continue
@@ -70,6 +94,15 @@ func fromSpec(spec PackageSpec) domain.PackageModel {
 	}
 	for _, td := range spec.TypeDefs {
 		model.TypeDefs = append(model.TypeDefs, fromTypeDefSpec(td))
+	}
+	for _, c := range spec.Constants {
+		model.Constants = append(model.Constants, fromConstSpec(c))
+	}
+	for _, v := range spec.Variables {
+		model.Variables = append(model.Variables, fromVarSpec(v))
+	}
+	for _, e := range spec.Errors {
+		model.Errors = append(model.Errors, fromErrorSpec(e))
 	}
 	for _, dep := range spec.Dependencies {
 		model.Dependencies = append(model.Dependencies, fromDependencySpec(dep))
@@ -137,6 +170,37 @@ func toTypeDefSpec(t domain.TypeDef) TypeDefSpec {
 		SourceFile:     t.SourceFile,
 		Doc:            t.Doc,
 		Stereotype:     string(t.Stereotype),
+	}
+}
+
+func toConstSpec(c domain.ConstDef) ConstSpec {
+	return ConstSpec{
+		Name:       c.Name,
+		Type:       toTypeRefSpec(c.Type),
+		Value:      c.Value,
+		Exported:   c.IsExported,
+		SourceFile: c.SourceFile,
+		Doc:        c.Doc,
+	}
+}
+
+func toVarSpec(v domain.VarDef) VarSpec {
+	return VarSpec{
+		Name:       v.Name,
+		Type:       toTypeRefSpec(v.Type),
+		Exported:   v.IsExported,
+		SourceFile: v.SourceFile,
+		Doc:        v.Doc,
+	}
+}
+
+func toErrorSpec(e domain.ErrorDef) ErrorSpec {
+	return ErrorSpec{
+		Name:       e.Name,
+		Message:    e.Message,
+		Exported:   e.IsExported,
+		SourceFile: e.SourceFile,
+		Doc:        e.Doc,
 	}
 }
 
@@ -266,6 +330,37 @@ func fromTypeDefSpec(s TypeDefSpec) domain.TypeDef {
 		SourceFile:     s.SourceFile,
 		Doc:            s.Doc,
 		Stereotype:     domain.Stereotype(s.Stereotype),
+	}
+}
+
+func fromConstSpec(s ConstSpec) domain.ConstDef {
+	return domain.ConstDef{
+		Name:       s.Name,
+		Type:       fromTypeRefSpec(s.Type),
+		Value:      s.Value,
+		IsExported: s.Exported,
+		SourceFile: s.SourceFile,
+		Doc:        s.Doc,
+	}
+}
+
+func fromVarSpec(s VarSpec) domain.VarDef {
+	return domain.VarDef{
+		Name:       s.Name,
+		Type:       fromTypeRefSpec(s.Type),
+		IsExported: s.Exported,
+		SourceFile: s.SourceFile,
+		Doc:        s.Doc,
+	}
+}
+
+func fromErrorSpec(s ErrorSpec) domain.ErrorDef {
+	return domain.ErrorDef{
+		Name:       s.Name,
+		Message:    s.Message,
+		IsExported: s.Exported,
+		SourceFile: s.SourceFile,
+		Doc:        s.Doc,
 	}
 }
 

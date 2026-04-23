@@ -64,6 +64,9 @@ type fileGroup struct {
 	structs    []domain.StructDef
 	functions  []domain.FunctionDef
 	typeDefs   []domain.TypeDef
+	constants  []domain.ConstDef
+	variables  []domain.VarDef
+	errors     []domain.ErrorDef
 }
 
 // groupByFile groups package symbols by their source file.
@@ -116,12 +119,40 @@ func (b *d2TextBuilder) groupByFile(pkg domain.PackageModel, publicOnly bool) []
 		fg.typeDefs = append(fg.typeDefs, td)
 	}
 
+	// Group constants
+	for _, c := range pkg.Constants {
+		if publicOnly && !c.IsExported {
+			continue
+		}
+		fg := getGroup(c.SourceFile)
+		fg.constants = append(fg.constants, c)
+	}
+
+	// Group variables
+	for _, v := range pkg.Variables {
+		if publicOnly && !v.IsExported {
+			continue
+		}
+		fg := getGroup(v.SourceFile)
+		fg.variables = append(fg.variables, v)
+	}
+
+	// Group errors
+	for _, e := range pkg.Errors {
+		if publicOnly && !e.IsExported {
+			continue
+		}
+		fg := getGroup(e.SourceFile)
+		fg.errors = append(fg.errors, e)
+	}
+
 	// Convert map to sorted slice
 	var result []fileGroup
 	for _, fg := range groups {
 		// Skip empty groups
 		if len(fg.interfaces) == 0 && len(fg.structs) == 0 &&
-			len(fg.functions) == 0 && len(fg.typeDefs) == 0 {
+			len(fg.functions) == 0 && len(fg.typeDefs) == 0 &&
+			len(fg.constants) == 0 && len(fg.variables) == 0 && len(fg.errors) == 0 {
 			continue
 		}
 		result = append(result, *fg)
@@ -175,8 +206,94 @@ func (b *d2TextBuilder) writeFileContainer(fg fileGroup, publicOnly bool) {
 		b.writeLine("")
 	}
 
+	// Write constants container (if any)
+	if len(fg.constants) > 0 {
+		b.writeConstantsBlock(fg.constants)
+		b.writeLine("")
+	}
+
+	// Write variables container (if any)
+	if len(fg.variables) > 0 {
+		b.writeVariablesBlock(fg.variables)
+		b.writeLine("")
+	}
+
+	// Write errors container (if any)
+	if len(fg.errors) > 0 {
+		b.writeErrorsBlock(fg.errors)
+		b.writeLine("")
+	}
+
 	b.indent--
 	b.writeLine("}")
+}
+
+// writeConstantsBlock renders a D2 class grouping all standalone constants
+// defined in the same source file.
+func (b *d2TextBuilder) writeConstantsBlock(consts []domain.ConstDef) {
+	b.writeLine("Constants: {")
+	b.indent++
+	b.writeLine("shape: class")
+	b.writeLine(`stereotype: "<<const>>"`)
+	b.writeLine("")
+	for _, c := range consts {
+		label := c.Type.String()
+		if label == "" {
+			label = "const"
+		}
+		if c.Value != "" {
+			label = fmt.Sprintf("%s = %s", label, c.Value)
+		}
+		b.writeLine(fmt.Sprintf(`"%s": "%s"`, c.Name, escapeD2(label)))
+	}
+	b.indent--
+	b.writeLine("}")
+}
+
+// writeVariablesBlock renders a D2 class grouping all package-level variables
+// defined in the same source file.
+func (b *d2TextBuilder) writeVariablesBlock(vars []domain.VarDef) {
+	b.writeLine("Variables: {")
+	b.indent++
+	b.writeLine("shape: class")
+	b.writeLine(`stereotype: "<<var>>"`)
+	b.writeLine("")
+	for _, v := range vars {
+		label := v.Type.String()
+		if label == "" {
+			label = "var"
+		}
+		b.writeLine(fmt.Sprintf(`"%s": "%s"`, v.Name, escapeD2(label)))
+	}
+	b.indent--
+	b.writeLine("}")
+}
+
+// writeErrorsBlock renders a D2 class grouping sentinel error variables
+// defined in the same source file.
+func (b *d2TextBuilder) writeErrorsBlock(errs []domain.ErrorDef) {
+	b.writeLine("Errors: {")
+	b.indent++
+	b.writeLine("shape: class")
+	b.writeLine(`stereotype: "<<error>>"`)
+	b.writeLine("")
+	for _, e := range errs {
+		label := e.Message
+		if label == "" {
+			label = "error"
+		}
+		b.writeLine(fmt.Sprintf(`"%s": "%s"`, e.Name, escapeD2(label)))
+	}
+	b.indent--
+	b.writeLine("}")
+}
+
+// escapeD2 escapes characters in a string so it can safely appear inside
+// a double-quoted D2 label.
+func escapeD2(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
 }
 
 // collectSymbolInfo collects stereotype information from all symbols in a file group.

@@ -117,6 +117,12 @@ func (r *reader) convertPackage(pkg *packages.Package) (domain.PackageModel, err
 	// Extract type definitions
 	model.TypeDefs = r.extractTypeDefs(pkg, astFiles, constantsByType)
 
+	// Extract standalone constants (those not captured as TypeDef enum values).
+	model.Constants = r.extractConstants(pkg, astFiles)
+
+	// Extract package-level variables and sentinel errors.
+	model.Variables, model.Errors = r.extractVarsAndErrors(pkg, astFiles)
+
 	// Collect dependencies
 	model.Dependencies = r.collectDependencies(pkg, &model)
 
@@ -390,6 +396,210 @@ func (r *reader) extractTypeDefs(
 	}
 
 	return typeDefs
+}
+
+// extractConstants extracts standalone package-level constants.
+// Constants whose type is a named user-defined type are considered part of
+// a TypeDef (enum pattern) and are skipped here — they remain accessible
+// through TypeDef.Constants.
+func (r *reader) extractConstants(pkg *packages.Package, astFiles map[string]*ast.File) []domain.ConstDef {
+	var constants []domain.ConstDef
+
+	scope := pkg.Types.Scope()
+	for _, name := range scope.Names() {
+		obj := scope.Lookup(name)
+		cnst, ok := obj.(*types.Const)
+		if !ok {
+			continue
+		}
+
+		// Skip enum constants — those whose type is a named user-defined type
+		// and are captured via TypeDef.Constants.
+		if _, isNamed := cnst.Type().(*types.Named); isNamed {
+			continue
+		}
+
+		sourceFile := r.getSourceFile(pkg.Fset, cnst.Pos())
+		doc := r.getDocComment(astFiles, sourceFile, name)
+		value := r.getConstValueText(astFiles, sourceFile, name)
+		if value == "" {
+			value = cnst.Val().ExactString()
+		}
+
+		constants = append(constants, domain.ConstDef{
+			Name:       name,
+			Type:       r.convertTypeRef(cnst.Type()),
+			Value:      value,
+			IsExported: isExported(name),
+			SourceFile: sourceFile,
+			Doc:        doc,
+		})
+	}
+
+	return constants
+}
+
+// extractVarsAndErrors extracts package-level variables, separating sentinel
+// errors (errors.New(...) / fmt.Errorf(...)) into a dedicated slice.
+func (r *reader) extractVarsAndErrors(
+	pkg *packages.Package,
+	astFiles map[string]*ast.File,
+) ([]domain.VarDef, []domain.ErrorDef) {
+	var vars []domain.VarDef
+	var errs []domain.ErrorDef
+
+	scope := pkg.Types.Scope()
+	for _, name := range scope.Names() {
+		obj := scope.Lookup(name)
+		v, ok := obj.(*types.Var)
+		if !ok {
+			continue
+		}
+
+		// Skip fields and function params — only package-level vars.
+		if v.IsField() {
+			continue
+		}
+
+		sourceFile := r.getSourceFile(pkg.Fset, v.Pos())
+		doc := r.getDocComment(astFiles, sourceFile, name)
+
+		if msg, isErr := r.extractErrorMessage(astFiles, sourceFile, name); isErr {
+			errs = append(errs, domain.ErrorDef{
+				Name:       name,
+				Message:    msg,
+				IsExported: isExported(name),
+				SourceFile: sourceFile,
+				Doc:        doc,
+			})
+			continue
+		}
+
+		vars = append(vars, domain.VarDef{
+			Name:       name,
+			Type:       r.convertTypeRef(v.Type()),
+			IsExported: isExported(name),
+			SourceFile: sourceFile,
+			Doc:        doc,
+		})
+	}
+
+	return vars, errs
+}
+
+// getConstValueText returns the literal value source text for a constant.
+// Returns an empty string if the declaration cannot be located or the
+// value is not a basic literal.
+func (r *reader) getConstValueText(astFiles map[string]*ast.File, filename, name string) string {
+	for path, f := range astFiles {
+		if filepath.Base(path) != filename {
+			continue
+		}
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, n := range vs.Names {
+					if n.Name != name {
+						continue
+					}
+					if i < len(vs.Values) {
+						return exprText(vs.Values[i])
+					}
+					// No explicit value (e.g. grouped iota) — fall back later.
+					return ""
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// extractErrorMessage inspects the var declaration for `name` in the given
+// source file and, if it is initialised with errors.New(...) or fmt.Errorf(...)
+// where the first argument is a string literal, returns the unquoted message.
+// The second return value reports whether the variable looked like a sentinel
+// error at all (even when we couldn't extract a literal message).
+func (r *reader) extractErrorMessage(astFiles map[string]*ast.File, filename, name string) (string, bool) {
+	for path, f := range astFiles {
+		if filepath.Base(path) != filename {
+			continue
+		}
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, n := range vs.Names {
+					if n.Name != name {
+						continue
+					}
+					if i >= len(vs.Values) {
+						return "", false
+					}
+					call, ok := vs.Values[i].(*ast.CallExpr)
+					if !ok {
+						return "", false
+					}
+					sel, ok := call.Fun.(*ast.SelectorExpr)
+					if !ok {
+						return "", false
+					}
+					pkgIdent, ok := sel.X.(*ast.Ident)
+					if !ok {
+						return "", false
+					}
+					isErrorCtor := (pkgIdent.Name == "errors" && sel.Sel.Name == "New") ||
+						(pkgIdent.Name == "fmt" && sel.Sel.Name == "Errorf")
+					if !isErrorCtor {
+						return "", false
+					}
+					if len(call.Args) == 0 {
+						return "", true
+					}
+					lit, ok := call.Args[0].(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						return "", true
+					}
+					// Strip quotes from the string literal.
+					unquoted := lit.Value
+					if len(unquoted) >= 2 {
+						unquoted = unquoted[1 : len(unquoted)-1]
+					}
+					return unquoted, true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// exprText returns a best-effort textual representation of a simple expression.
+// Only basic literals and identifiers (for `iota` and similar) are supported;
+// more complex expressions yield an empty string.
+func exprText(e ast.Expr) string {
+	switch v := e.(type) {
+	case *ast.BasicLit:
+		return v.Value
+	case *ast.Ident:
+		return v.Name
+	case *ast.UnaryExpr:
+		if lit, ok := v.X.(*ast.BasicLit); ok {
+			return v.Op.String() + lit.Value
+		}
+	}
+	return ""
 }
 
 // convertMethod converts a types.Func to a domain.MethodDef.

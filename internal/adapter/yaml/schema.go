@@ -13,7 +13,38 @@ type PackageSpec struct {
 	Structs      []StructSpec    `yaml:"structs,omitempty"`
 	Functions    []FunctionSpec  `yaml:"functions,omitempty"`
 	TypeDefs     []TypeDefSpec   `yaml:"typedefs,omitempty"`
+	Constants    []ConstSpec     `yaml:"constants,omitempty"`
+	Variables    []VarSpec       `yaml:"variables,omitempty"`
+	Errors       []ErrorSpec     `yaml:"errors,omitempty"`
 	Dependencies []DependencySpec `yaml:"dependencies,omitempty"`
+}
+
+// ConstSpec represents a package-level constant declaration.
+type ConstSpec struct {
+	Name       string      `yaml:"name"`
+	Type       TypeRefSpec `yaml:"type,omitempty"`
+	Value      string      `yaml:"value,omitempty"`
+	Exported   bool        `yaml:"exported"`
+	SourceFile string      `yaml:"source_file,omitempty"`
+	Doc        string      `yaml:"doc,omitempty"`
+}
+
+// VarSpec represents a package-level variable declaration.
+type VarSpec struct {
+	Name       string      `yaml:"name"`
+	Type       TypeRefSpec `yaml:"type,omitempty"`
+	Exported   bool        `yaml:"exported"`
+	SourceFile string      `yaml:"source_file,omitempty"`
+	Doc        string      `yaml:"doc,omitempty"`
+}
+
+// ErrorSpec represents a sentinel error declaration.
+type ErrorSpec struct {
+	Name       string `yaml:"name"`
+	Message    string `yaml:"message,omitempty"`
+	Exported   bool   `yaml:"exported"`
+	SourceFile string `yaml:"source_file,omitempty"`
+	Doc        string `yaml:"doc,omitempty"`
 }
 
 // InterfaceSpec represents an interface definition.

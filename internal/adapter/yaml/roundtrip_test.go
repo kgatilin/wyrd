@@ -89,6 +89,34 @@ func testPackageModel() domain.PackageModel {
 				Stereotype:     domain.StereotypeEnum,
 			},
 		},
+		Constants: []domain.ConstDef{
+			{
+				Name:       "MaxRetries",
+				Type:       domain.TypeRef{Name: "int"},
+				Value:      "5",
+				IsExported: true,
+				SourceFile: "config.go",
+				Doc:        "MaxRetries caps retries.",
+			},
+		},
+		Variables: []domain.VarDef{
+			{
+				Name:       "Version",
+				Type:       domain.TypeRef{Name: "string"},
+				IsExported: true,
+				SourceFile: "version.go",
+				Doc:        "Version is the build version.",
+			},
+		},
+		Errors: []domain.ErrorDef{
+			{
+				Name:       "ErrNotFound",
+				Message:    "not found",
+				IsExported: true,
+				SourceFile: "errors.go",
+				Doc:        "ErrNotFound is returned when a lookup fails.",
+			},
+		},
 		Dependencies: []domain.Dependency{
 			{
 				From: domain.SymbolRef{
@@ -206,6 +234,33 @@ func TestRoundtrip_SinglePackage(t *testing.T) {
 	td := got.TypeDefs[0]
 	if td.Name != "Status" || len(td.Constants) != 3 {
 		t.Errorf("TypeDef mismatch: name=%s constants=%v", td.Name, td.Constants)
+	}
+
+	// Verify constants
+	if len(got.Constants) != len(original.Constants) {
+		t.Fatalf("Constants count: got %d, want %d", len(got.Constants), len(original.Constants))
+	}
+	c := got.Constants[0]
+	if c.Name != "MaxRetries" || c.Value != "5" || c.Type.Name != "int" || !c.IsExported {
+		t.Errorf("Constant mismatch: %+v", c)
+	}
+
+	// Verify variables
+	if len(got.Variables) != len(original.Variables) {
+		t.Fatalf("Variables count: got %d, want %d", len(got.Variables), len(original.Variables))
+	}
+	v := got.Variables[0]
+	if v.Name != "Version" || v.Type.Name != "string" {
+		t.Errorf("Variable mismatch: %+v", v)
+	}
+
+	// Verify errors
+	if len(got.Errors) != len(original.Errors) {
+		t.Fatalf("Errors count: got %d, want %d", len(got.Errors), len(original.Errors))
+	}
+	e := got.Errors[0]
+	if e.Name != "ErrNotFound" || e.Message != "not found" {
+		t.Errorf("Error mismatch: %+v", e)
 	}
 
 	// Verify dependencies

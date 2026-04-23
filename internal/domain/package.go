@@ -1,8 +1,9 @@
 package domain
 
 // PackageModel is the aggregate root representing a Go package's structure.
-// It contains all the symbols (interfaces, structs, functions, type definitions)
-// found in the package, along with their dependencies.
+// It contains all the symbols (interfaces, structs, functions, type definitions,
+// constants, variables, errors) found in the package, along with their
+// dependencies.
 type PackageModel struct {
 	// Path is the package path relative to the module root, e.g., "internal/service".
 	Path string
@@ -21,6 +22,18 @@ type PackageModel struct {
 
 	// TypeDefs is the list of type definitions (type aliases) in this package.
 	TypeDefs []TypeDef
+
+	// Constants is the list of standalone package-level constants. Constants
+	// that belong to an enum-like TypeDef are not duplicated here.
+	Constants []ConstDef
+
+	// Variables is the list of package-level variables (excluding sentinel
+	// errors, which are captured in Errors).
+	Variables []VarDef
+
+	// Errors is the list of sentinel error variables (e.g. declarations of
+	// the form `var ErrFoo = errors.New(...)`).
+	Errors []ErrorDef
 
 	// Dependencies is the list of dependencies between symbols.
 	Dependencies []Dependency
@@ -49,6 +62,15 @@ func (p PackageModel) SourceFiles() []string {
 	}
 	for _, td := range p.TypeDefs {
 		addFile(td.SourceFile)
+	}
+	for _, c := range p.Constants {
+		addFile(c.SourceFile)
+	}
+	for _, v := range p.Variables {
+		addFile(v.SourceFile)
+	}
+	for _, e := range p.Errors {
+		addFile(e.SourceFile)
 	}
 
 	return files
@@ -98,6 +120,39 @@ func (p PackageModel) ExportedTypeDefs() []TypeDef {
 	return result
 }
 
+// ExportedConstants returns only the exported constants.
+func (p PackageModel) ExportedConstants() []ConstDef {
+	var result []ConstDef
+	for _, c := range p.Constants {
+		if c.IsExported {
+			result = append(result, c)
+		}
+	}
+	return result
+}
+
+// ExportedVariables returns only the exported variables.
+func (p PackageModel) ExportedVariables() []VarDef {
+	var result []VarDef
+	for _, v := range p.Variables {
+		if v.IsExported {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
+// ExportedErrors returns only the exported sentinel errors.
+func (p PackageModel) ExportedErrors() []ErrorDef {
+	var result []ErrorDef
+	for _, e := range p.Errors {
+		if e.IsExported {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
 // HasExportedSymbols returns true if the package has any exported symbols.
 func (p PackageModel) HasExportedSymbols() bool {
 	for _, iface := range p.Interfaces {
@@ -117,6 +172,21 @@ func (p PackageModel) HasExportedSymbols() bool {
 	}
 	for _, td := range p.TypeDefs {
 		if td.IsExported {
+			return true
+		}
+	}
+	for _, c := range p.Constants {
+		if c.IsExported {
+			return true
+		}
+	}
+	for _, v := range p.Variables {
+		if v.IsExported {
+			return true
+		}
+	}
+	for _, e := range p.Errors {
+		if e.IsExported {
 			return true
 		}
 	}

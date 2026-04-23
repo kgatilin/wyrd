@@ -116,6 +116,20 @@ func (b *combinedBuilder) writePackageContainer(pkg domain.PackageModel, symbolI
 		b.writeLine("")
 	}
 
+	// Write exported constants, variables, and errors blocks
+	if exportedConsts := pkg.ExportedConstants(); len(exportedConsts) > 0 {
+		b.writeConstantsBlock(exportedConsts)
+		b.writeLine("")
+	}
+	if exportedVars := pkg.ExportedVariables(); len(exportedVars) > 0 {
+		b.writeVariablesBlock(exportedVars)
+		b.writeLine("")
+	}
+	if exportedErrs := pkg.ExportedErrors(); len(exportedErrs) > 0 {
+		b.writeErrorsBlock(exportedErrs)
+		b.writeLine("")
+	}
+
 	// Write intra-package dependencies
 	intraDeps := b.collectIntraPackageDeps(pkg, symbolIndex)
 	if len(intraDeps) > 0 {
@@ -258,6 +272,63 @@ func (b *combinedBuilder) writeTypeDef(td domain.TypeDef) {
 		}
 	}
 
+	b.indent--
+	b.writeLine("}")
+}
+
+// writeConstantsBlock renders exported constants as a grouped D2 class.
+func (b *combinedBuilder) writeConstantsBlock(consts []domain.ConstDef) {
+	b.writeLine("Constants: {")
+	b.indent++
+	b.writeLine("shape: class")
+	b.writeLine(`stereotype: "<<const>>"`)
+	b.writeLine("")
+	for _, c := range consts {
+		label := c.Type.String()
+		if label == "" {
+			label = "const"
+		}
+		if c.Value != "" {
+			label = fmt.Sprintf("%s = %s", label, c.Value)
+		}
+		b.writeLine(fmt.Sprintf(`"%s": "%s"`, c.Name, escapeD2(label)))
+	}
+	b.indent--
+	b.writeLine("}")
+}
+
+// writeVariablesBlock renders exported variables as a grouped D2 class.
+func (b *combinedBuilder) writeVariablesBlock(vars []domain.VarDef) {
+	b.writeLine("Variables: {")
+	b.indent++
+	b.writeLine("shape: class")
+	b.writeLine(`stereotype: "<<var>>"`)
+	b.writeLine("")
+	for _, v := range vars {
+		label := v.Type.String()
+		if label == "" {
+			label = "var"
+		}
+		b.writeLine(fmt.Sprintf(`"%s": "%s"`, v.Name, escapeD2(label)))
+	}
+	b.indent--
+	b.writeLine("}")
+}
+
+// writeErrorsBlock renders exported sentinel errors as a grouped D2 class.
+func (b *combinedBuilder) writeErrorsBlock(errs []domain.ErrorDef) {
+	b.writeLine("Errors: {")
+	b.indent++
+	b.writeLine("shape: class")
+	b.writeLine(`stereotype: "<<error>>"`)
+	b.writeLine("")
+	for _, e := range errs {
+		label := e.Message
+		if label == "" {
+			label = "error"
+		}
+		b.writeLine(fmt.Sprintf(`"%s": "%s"`, e.Name, escapeD2(label)))
+	}
 	b.indent--
 	b.writeLine("}")
 }

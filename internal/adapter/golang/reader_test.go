@@ -398,3 +398,178 @@ func privateFunc() {}
 		t.Errorf("Expected 1 PublicFunc, got %d", publicFuncCount)
 	}
 }
+
+// loadSingleModelFromSources writes the given files into a fresh Go module
+// under a temp directory and loads the resulting package. It returns the
+// single extracted PackageModel.
+func loadSingleModelFromSources(t *testing.T, sources map[string]string) domain.PackageModel {
+	t.Helper()
+	tmpDir := t.TempDir()
+
+	goMod := "module test.example/m2a\n\ngo 1.21\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	for name, content := range sources {
+		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer os.Chdir(oldDir)
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	r := NewReader()
+	models, err := r.Read(context.Background(), []string{"."})
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("want 1 model, got %d", len(models))
+	}
+	return models[0]
+}
+
+// TestReader_ExtractsStandaloneConstants verifies that plain package-level
+// constants surface in PackageModel.Constants and that enum constants are
+// left on their owning TypeDef rather than duplicated.
+func TestReader_ExtractsStandaloneConstants(t *testing.T) {
+	model := loadSingleModelFromSources(t, map[string]string{
+		"p.go": `package p
+
+// MaxRetries caps the number of retries.
+const MaxRetries = 5
+
+// DefaultName is the default name.
+const DefaultName = "bob"
+
+// Pi is an untyped float const.
+const Pi = 3.14
+
+// internalConst is unexported.
+const internalConst = 42
+
+// Status is an enum-like type.
+type Status string
+
+const (
+	StatusActive   Status = "active"
+	StatusInactive Status = "inactive"
+)
+`,
+	})
+
+	got := make(map[string]domain.ConstDef)
+	for _, c := range model.Constants {
+		got[c.Name] = c
+	}
+
+	for _, want := range []string{"MaxRetries", "DefaultName", "Pi", "internalConst"} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("expected const %q in Constants, have %v", want, keys(got))
+		}
+	}
+	for _, excl := range []string{"StatusActive", "StatusInactive"} {
+		if _, ok := got[excl]; ok {
+			t.Errorf("enum const %q must not appear in Constants", excl)
+		}
+	}
+
+	if c := got["MaxRetries"]; c.Value != "5" || !c.IsExported {
+		t.Errorf("MaxRetries: %+v", c)
+	}
+	if c := got["DefaultName"]; c.Value != `"bob"` {
+		t.Errorf("DefaultName value: got %q, want %q", c.Value, `"bob"`)
+	}
+	if c := got["internalConst"]; c.IsExported {
+		t.Errorf("internalConst should not be exported")
+	}
+
+	// TypeDef should still carry its enum constants.
+	var status *domain.TypeDef
+	for i := range model.TypeDefs {
+		if model.TypeDefs[i].Name == "Status" {
+			status = &model.TypeDefs[i]
+			break
+		}
+	}
+	if status == nil {
+		t.Fatalf("Status TypeDef missing")
+	}
+	if len(status.Constants) != 2 {
+		t.Errorf("Status enum constants: got %v, want 2", status.Constants)
+	}
+}
+
+// TestReader_SplitsVarsAndErrors verifies that sentinel-error variables land
+// in Errors while plain package-level vars land in Variables.
+func TestReader_SplitsVarsAndErrors(t *testing.T) {
+	model := loadSingleModelFromSources(t, map[string]string{
+		"p.go": `package p
+
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrNotFound indicates a missing record.
+var ErrNotFound = errors.New("not found")
+
+// ErrBadArg is another sentinel error.
+var ErrBadArg = fmt.Errorf("bad argument")
+
+// Version is a plain string variable.
+var Version = "1.2.3"
+
+// Counter is a zero-valued int var.
+var Counter int
+
+// errInternal is an unexported sentinel error.
+var errInternal = errors.New("internal")
+`,
+	})
+
+	errs := make(map[string]string)
+	for _, e := range model.Errors {
+		errs[e.Name] = e.Message
+	}
+	if errs["ErrNotFound"] != "not found" {
+		t.Errorf("ErrNotFound: got %q, want %q", errs["ErrNotFound"], "not found")
+	}
+	if errs["ErrBadArg"] != "bad argument" {
+		t.Errorf("ErrBadArg: got %q, want %q", errs["ErrBadArg"], "bad argument")
+	}
+	if _, ok := errs["errInternal"]; !ok {
+		t.Errorf("errInternal missing from Errors: %v", errs)
+	}
+
+	vars := make(map[string]bool)
+	for _, v := range model.Variables {
+		vars[v.Name] = true
+	}
+	for _, want := range []string{"Version", "Counter"} {
+		if !vars[want] {
+			t.Errorf("expected var %q in Variables, have %v", want, keys(vars))
+		}
+	}
+	for _, excl := range []string{"ErrNotFound", "ErrBadArg", "errInternal"} {
+		if vars[excl] {
+			t.Errorf("sentinel error %q must not appear in Variables", excl)
+		}
+	}
+}
+
+// keys returns the sorted key set of a map[string]X for diagnostic output.
+func keys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
