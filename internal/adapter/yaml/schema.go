@@ -87,6 +87,7 @@ type FunctionSpec struct {
 	SourceFile string       `yaml:"source_file,omitempty"`
 	Doc        string       `yaml:"doc,omitempty"`
 	Stereotype string       `yaml:"stereotype,omitempty"`
+	Calls      []CallEdgeSpec `yaml:"calls,omitempty"`
 }
 
 // TypeDefSpec represents a type definition (e.g., type Status string).
@@ -106,6 +107,14 @@ type MethodSpec struct {
 	Params   []ParamSpec  `yaml:"params,omitempty"`
 	Returns  []TypeRefSpec `yaml:"returns,omitempty"`
 	Exported bool         `yaml:"exported"`
+	Calls    []CallEdgeSpec `yaml:"calls,omitempty"`
+}
+
+// CallEdgeSpec represents a static call edge from a function/method body
+// to another function/method.
+type CallEdgeSpec struct {
+	To  SymbolRefSpec `yaml:"to"`
+	Via string        `yaml:"via,omitempty"`
 }
 
 // ParamSpec represents a function/method parameter.

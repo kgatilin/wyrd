@@ -87,6 +87,10 @@ func (r *reader) Read(ctx context.Context, paths []string) ([]domain.PackageMode
 	// may cross package boundaries.
 	r.computeImplementations(pkgs, models)
 
+	// Extract static call edges. Must run after implementations so that
+	// interface-dispatched calls can be fanned out to concrete targets.
+	r.extractCalls(pkgs, models)
+
 	return models, nil
 }
 

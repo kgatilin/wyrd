@@ -96,6 +96,11 @@ type MethodDef struct {
 
 	// IsExported indicates if this method is exported (starts with uppercase).
 	IsExported bool
+
+	// Calls is the list of static call edges from this method's body to
+	// other functions/methods within the loaded package set. Populated by
+	// the Go reader's call-extraction pass.
+	Calls []CallEdge
 }
 
 // Signature returns a formatted method signature string.

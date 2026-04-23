@@ -23,6 +23,11 @@ type FunctionDef struct {
 	// Stereotype is the DDD classification, either detected via heuristics
 	// or explicitly set via an archspec annotation.
 	Stereotype Stereotype
+
+	// Calls is the list of static call edges from this function's body to
+	// other functions/methods within the loaded package set. Populated by
+	// the Go reader's call-extraction pass.
+	Calls []CallEdge
 }
 
 // Signature returns a formatted function signature string.

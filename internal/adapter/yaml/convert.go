@@ -169,6 +169,9 @@ func toFunctionSpec(f domain.FunctionDef) FunctionSpec {
 	for _, r := range f.Returns {
 		spec.Returns = append(spec.Returns, toTypeRefSpec(r))
 	}
+	for _, c := range f.Calls {
+		spec.Calls = append(spec.Calls, toCallEdgeSpec(c))
+	}
 	return spec
 }
 
@@ -226,7 +229,24 @@ func toMethodSpec(m domain.MethodDef) MethodSpec {
 	for _, r := range m.Returns {
 		spec.Returns = append(spec.Returns, toTypeRefSpec(r))
 	}
+	for _, c := range m.Calls {
+		spec.Calls = append(spec.Calls, toCallEdgeSpec(c))
+	}
 	return spec
+}
+
+func toCallEdgeSpec(c domain.CallEdge) CallEdgeSpec {
+	return CallEdgeSpec{
+		To:  toSymbolRefSpec(c.To),
+		Via: c.Via,
+	}
+}
+
+func fromCallEdgeSpec(s CallEdgeSpec) domain.CallEdge {
+	return domain.CallEdge{
+		To:  fromSymbolRefSpec(s.To),
+		Via: s.Via,
+	}
 }
 
 func toParamSpec(p domain.ParamDef) ParamSpec {
@@ -345,6 +365,9 @@ func fromFunctionSpec(s FunctionSpec) domain.FunctionDef {
 	for _, r := range s.Returns {
 		fn.Returns = append(fn.Returns, fromTypeRefSpec(r))
 	}
+	for _, c := range s.Calls {
+		fn.Calls = append(fn.Calls, fromCallEdgeSpec(c))
+	}
 	return fn
 }
 
@@ -401,6 +424,9 @@ func fromMethodSpec(s MethodSpec) domain.MethodDef {
 	}
 	for _, r := range s.Returns {
 		m.Returns = append(m.Returns, fromTypeRefSpec(r))
+	}
+	for _, c := range s.Calls {
+		m.Calls = append(m.Calls, fromCallEdgeSpec(c))
 	}
 	return m
 }

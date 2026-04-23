@@ -61,6 +61,16 @@ func testPackageModel() domain.PackageModel {
 							{Name: "Response", IsPointer: true},
 							{Name: "error"},
 						},
+						Calls: []domain.CallEdge{
+							{
+								To: domain.SymbolRef{
+									Package: "github.com/example/project/internal/service",
+									File:    "repository.go",
+									Symbol:  "MemRepo.FindByID",
+								},
+								Via: "service.Repository",
+							},
+						},
 					},
 				},
 			},
@@ -77,6 +87,15 @@ func testPackageModel() domain.PackageModel {
 				},
 				Returns: []domain.TypeRef{
 					{Name: "Handler", IsPointer: true},
+				},
+				Calls: []domain.CallEdge{
+					{
+						To: domain.SymbolRef{
+							Package: "github.com/example/project/internal/service",
+							File:    "handler.go",
+							Symbol:  "validate",
+						},
+					},
 				},
 			},
 		},
@@ -297,6 +316,23 @@ func TestRoundtrip_SinglePackage(t *testing.T) {
 	dep2 := got.Dependencies[1]
 	if !dep2.To.External {
 		t.Errorf("Expected external dependency, got: %+v", dep2.To)
+	}
+
+	// Verify calls on function
+	if len(fn.Calls) != 1 {
+		t.Fatalf("Function Calls count: got %d, want 1", len(fn.Calls))
+	}
+	if fn.Calls[0].To.Symbol != "validate" || fn.Calls[0].Via != "" {
+		t.Errorf("Function call mismatch: %+v", fn.Calls[0])
+	}
+
+	// Verify calls on method
+	if len(s.Methods) != 1 || len(s.Methods[0].Calls) != 1 {
+		t.Fatalf("Method Calls count: got %d, want 1", len(s.Methods[0].Calls))
+	}
+	mc := s.Methods[0].Calls[0]
+	if mc.To.Symbol != "MemRepo.FindByID" || mc.Via != "service.Repository" {
+		t.Errorf("Method call mismatch: %+v", mc)
 	}
 
 	// Verify implementations
