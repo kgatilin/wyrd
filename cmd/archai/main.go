@@ -10,6 +10,7 @@ import (
 	"github.com/kgatilin/archai/internal/adapter/golang"
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
 	"github.com/kgatilin/archai/internal/service"
+	"github.com/kgatilin/archai/internal/target"
 	"github.com/spf13/cobra"
 )
 
@@ -117,6 +118,70 @@ Examples:
 	composeCmd.Flags().Bool("spec", false, "Use *-spec.d2 files instead of pub.d2")
 	_ = composeCmd.MarkFlagRequired("output")
 	diagramCmd.AddCommand(composeCmd)
+
+	// Target command group (M4a)
+	targetCmd := &cobra.Command{
+		Use:   "target",
+		Short: "Manage target architecture snapshots",
+		Long: `Lock, list, inspect, select and delete frozen target snapshots.
+
+A "target" is a frozen copy of the project's per-package .arch/*.yaml
+specifications plus the overlay (archai.yaml) at a point in time. Targets
+live under .arch/targets/<id>/ and the active target is tracked in
+.arch/targets/CURRENT.`,
+	}
+	rootCmd.AddCommand(targetCmd)
+
+	// target lock
+	targetLockCmd := &cobra.Command{
+		Use:   "lock <id>",
+		Short: "Freeze the current architecture as target <id>",
+		Long: `Regenerate per-package YAML specs (archai diagram generate --format yaml)
+and freeze them — along with archai.yaml — into .arch/targets/<id>/.`,
+		Args: cobra.ExactArgs(1),
+		RunE: runTargetLock,
+	}
+	targetLockCmd.Flags().String("description", "", "Optional description for this target")
+	targetLockCmd.Flags().Bool("skip-generate", false, "Skip regeneration; use existing .arch/*.yaml files")
+	targetLockCmd.Flags().StringSliceP("paths", "p", []string{"./..."}, "Package paths to regenerate (only used when generate is enabled)")
+	targetCmd.AddCommand(targetLockCmd)
+
+	// target list
+	targetListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List locked targets",
+		Args:  cobra.NoArgs,
+		RunE:  runTargetList,
+	}
+	targetCmd.AddCommand(targetListCmd)
+
+	// target show
+	targetShowCmd := &cobra.Command{
+		Use:   "show <id>",
+		Short: "Show target metadata and package summary",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runTargetShow,
+	}
+	targetCmd.AddCommand(targetShowCmd)
+
+	// target use
+	targetUseCmd := &cobra.Command{
+		Use:   "use <id>",
+		Short: "Mark <id> as the active (CURRENT) target",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runTargetUse,
+	}
+	targetCmd.AddCommand(targetUseCmd)
+
+	// target delete
+	targetDeleteCmd := &cobra.Command{
+		Use:   "delete <id>",
+		Short: "Delete a locked target",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runTargetDelete,
+	}
+	targetDeleteCmd.Flags().Bool("force", false, "Delete even if <id> is the current target")
+	targetCmd.AddCommand(targetDeleteCmd)
 
 	// Execute root command
 	if err := rootCmd.Execute(); err != nil {
@@ -338,5 +403,130 @@ func runCompose(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	return nil
+}
+
+// runTargetLock handles `archai target lock <id>`. It (optionally)
+// regenerates per-package YAML specs and then freezes them plus
+// archai.yaml into .arch/targets/<id>/.
+func runTargetLock(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	description, _ := cmd.Flags().GetString("description")
+	skipGenerate, _ := cmd.Flags().GetBool("skip-generate")
+	paths, _ := cmd.Flags().GetStringSlice("paths")
+
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+
+	if !skipGenerate {
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		goReader := golang.NewReader()
+		d2Reader := d2.NewReader()
+		yamlReader := yamlAdapter.NewReader()
+		yamlWriter := yamlAdapter.NewWriter()
+		svc := service.NewService(goReader, d2Reader, yamlWriter, service.WithYAML(yamlReader, yamlWriter))
+
+		opts := service.GenerateOptions{
+			Paths:         paths,
+			FileExtension: ".yaml",
+		}
+		results, err := svc.Generate(ctx, opts)
+		if err != nil {
+			return fmt.Errorf("regenerating specs: %w", err)
+		}
+		for _, r := range results {
+			if r.Error != nil {
+				fmt.Fprintf(os.Stderr, "WARN: %s: %v\n", r.PackagePath, r.Error)
+			}
+		}
+	}
+
+	if err := target.Lock(projectRoot, id, target.LockOptions{Description: description}); err != nil {
+		return err
+	}
+	fmt.Printf("Locked target %q\n", id)
+	return nil
+}
+
+// runTargetList handles `archai target list`.
+func runTargetList(cmd *cobra.Command, args []string) error {
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+	metas, err := target.List(projectRoot)
+	if err != nil {
+		return err
+	}
+	if len(metas) == 0 {
+		fmt.Println("No targets found.")
+		return nil
+	}
+	cur, _ := target.Current(projectRoot)
+	for _, m := range metas {
+		marker := "  "
+		if m.ID == cur {
+			marker = "* "
+		}
+		fmt.Printf("%s%s  %s  %s\n", marker, m.ID, m.CreatedAt, m.Description)
+	}
+	return nil
+}
+
+// runTargetShow handles `archai target show <id>`.
+func runTargetShow(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+	meta, pkgs, err := target.Show(projectRoot, id)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("id:          %s\n", meta.ID)
+	fmt.Printf("created_at:  %s\n", meta.CreatedAt)
+	fmt.Printf("base_commit: %s\n", meta.BaseCommit)
+	if meta.Description != "" {
+		fmt.Printf("description: %s\n", meta.Description)
+	}
+	fmt.Printf("packages:    %d\n", len(pkgs))
+	for _, p := range pkgs {
+		fmt.Printf("  - %s\n", p)
+	}
+	return nil
+}
+
+// runTargetUse handles `archai target use <id>`.
+func runTargetUse(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+	if err := target.Use(projectRoot, id); err != nil {
+		return err
+	}
+	fmt.Printf("Using target %q\n", id)
+	return nil
+}
+
+// runTargetDelete handles `archai target delete <id>`.
+func runTargetDelete(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	force, _ := cmd.Flags().GetBool("force")
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+	if err := target.Delete(projectRoot, id, force); err != nil {
+		return err
+	}
+	fmt.Printf("Deleted target %q\n", id)
 	return nil
 }
