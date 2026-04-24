@@ -321,6 +321,39 @@ func TestDiff_RendersChangesWithColorCoding(t *testing.T) {
 	}
 }
 
+// TestDiff_IncludesCytoscapeOverlay verifies the M8 (#46) refactor
+// kept the client-side overlay section on the Diff page: when an
+// active target is set the page must render a .cy-graph div pointing
+// at /api/diff plus the export links.
+func TestDiff_IncludesCytoscapeOverlay(t *testing.T) {
+	ts, root, state := newDiffTargetsServer(t)
+	seedTarget(t, root, "v1", "Alpha")
+	if err := target.Use(root, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SwitchTarget("v1"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := ts.Client().Get(ts.URL + "/diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body := readBody(t, resp.Body)
+	for _, want := range []string{
+		`class="cy-graph diff-overlay"`,
+		`data-api="/api/diff"`,
+		`href="/view/diff/d2"`,
+		`href="/view/diff/svg"`,
+		`data-cy-action="fit"`,
+		`data-cy-action="export-png"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("diff page missing %q", want)
+		}
+	}
+}
+
 func TestDiff_KindFilterLimitsRows(t *testing.T) {
 	ts, root, state := newDiffTargetsServer(t)
 	seedTarget(t, root, "v1", "Alpha")

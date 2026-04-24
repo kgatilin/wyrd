@@ -24,8 +24,6 @@ type layersData struct {
 	AllowedEdges    []edgeView  // allowed cross-layer edges observed in code
 	DeclaredEdges   []edgeView  // declared-but-unused edges from LayerRules
 	ViolationsCount int         // total package-pairs with violations
-
-	LayersSVG string // D2 diagram rendered as SVG (empty on render failure)
 }
 
 // layerView describes one layer on the Layers page.
@@ -78,11 +76,10 @@ func (s *Server) handleLayers(w nethttp.ResponseWriter, r *nethttp.Request) {
 		data.ViolationsCount += len(v.Details)
 	}
 
-	src := buildLayerMapD2(snap.Overlay, snap.Packages, true)
-	if svg, err := renderD2(r.Context(), src); err == nil {
-		data.LayersSVG = string(svg)
-	}
-
+	// M8 (#46): the Layer map is rendered client-side from /api/layers,
+	// so we no longer emit a server-side D2 → SVG render for the display
+	// diagram. The D2 source is still available via /view/layers/d2 for
+	// export and the `archai sequence` CLI path is unchanged.
 	s.renderPage(w, "layers.html", data)
 }
 

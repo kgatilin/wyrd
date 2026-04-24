@@ -974,3 +974,50 @@ table.config-fields th { color: var(--muted); font-weight: 600; }
 .cy-graph.cy-sequence {
     height: 280px;
 }
+
+/* ---- M8: cytoscape toolbar + view-specific sizing ------------------ */
+
+.cy-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.5rem 0;
+}
+
+.cy-toolbar-spacer {
+    flex: 1;
+}
+
+.cy-btn {
+    display: inline-block;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.85rem;
+    font-family: inherit;
+    background: var(--code-bg, #0f172a);
+    color: var(--text, #e2e8f0);
+    border: 1px solid var(--border, #334155);
+    border-radius: 0.3rem;
+    cursor: pointer;
+    text-decoration: none;
+    line-height: 1.2;
+}
+
+.cy-btn:hover {
+    background: var(--border, #334155);
+}
+
+.cy-graph.layer-map,
+.cy-graph.layer-map-mini,
+.cy-graph.package-overview,
+.cy-graph.diff-overlay {
+    height: 420px;
+}
+
+.cy-graph.layer-map-mini {
+    height: 220px;
+}
+
+.pill-orange {
+    background: #fed7aa;
+    color: #7c2d12;
+}

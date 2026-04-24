@@ -100,9 +100,14 @@ func TestHandleDashboard_WithFixture(t *testing.T) {
 	if !strings.Contains(s, "Go 1.21") {
 		t.Errorf("expected Go 1.21 in dashboard, body:\n%s", truncate(s, 400))
 	}
-	// Layer map SVG preview should be inlined (renderD2 always emits <svg).
-	if !strings.Contains(s, "<svg") {
-		t.Errorf("expected inline <svg for layer map preview, body:\n%s", truncate(s, 400))
+	// M8 (#46): the Layer map preview is rendered client-side; the
+	// dashboard now emits a .cy-graph div pointing at /api/layers/mini
+	// rather than an inline SVG.
+	if !strings.Contains(s, `data-api="/api/layers/mini"`) {
+		t.Errorf("expected client-side .cy-graph div for layer preview, body:\n%s", truncate(s, 400))
+	}
+	if !strings.Contains(s, `class="cy-graph layer-map-mini"`) {
+		t.Errorf("expected layer-map-mini styling on cy-graph, body:\n%s", truncate(s, 400))
 	}
 }
 

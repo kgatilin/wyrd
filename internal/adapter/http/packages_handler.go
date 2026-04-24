@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"html/template"
 	nethttp "net/http"
 	"sort"
 	"strings"
@@ -95,16 +94,12 @@ func (s *Server) handlePackageDetail(w nethttp.ResponseWriter, r *nethttp.Reques
 	}
 	data.Partial = isHTMX(r)
 
-	// Overview renders a D2 SVG. Failure is non-fatal — we show an
-	// error banner and keep the rest of the tab usable.
-	if active == tabOverview {
-		svg, err := renderPackageD2(r.Context(), pkg)
-		if err != nil {
-			data.SVGError = err.Error()
-		} else {
-			data.SVG = template.HTML(svg) // #nosec G203 — svg from trusted renderer
-		}
-	}
+	// M8 (#46): Overview no longer emits server-rendered D2→SVG.
+	// The tab-overview template includes a .cy-graph div that fetches
+	// /api/packages/<path>/graph; graph.js hydrates it client-side.
+	// The data.SVG / data.SVGError fields remain on the struct (unused
+	// here) so buildPackageDetail's type contract stays stable for
+	// other callers that may set them.
 
 	if data.Partial {
 		s.renderPartial(w, "package_detail.html", "package_detail_tab", data)
@@ -141,7 +136,6 @@ func findPackage(pkgs []domain.PackageModel, path string) (domain.PackageModel, 
 	}
 	return domain.PackageModel{}, false
 }
-
 
 // renderPageWith is the generic form of renderPage used by handlers
 // that pass a domain-specific data struct (packageListData /

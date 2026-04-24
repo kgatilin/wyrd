@@ -255,6 +255,19 @@ func TestHandleLayers_WithOverlay(t *testing.T) {
 			t.Errorf("/layers body missing %q: %s", want, truncate(s, 400))
 		}
 	}
+	// M8 (#46): the server-rendered SVG is gone — confirm the page now
+	// carries the client-side cytoscape div and export toolbar.
+	for _, want := range []string{
+		`class="cy-graph layer-map"`,
+		`data-api="/api/layers"`,
+		`href="/view/layers/d2"`,
+		`href="/view/layers/svg"`,
+		`data-cy-action="fit"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("/layers body missing %q", want)
+		}
+	}
 }
 
 // newFixtureServer builds a tiny Go fixture project with an overlay,

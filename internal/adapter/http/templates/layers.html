@@ -11,17 +11,33 @@
 
 <section class="card">
     <h2>Layer map</h2>
-    {{if .LayersSVG}}
-        <div class="diagram-frame">{{.LayersSVG | safeHTML}}</div>
-    {{else}}
-        <p class="muted">Diagram could not be rendered.</p>
-    {{end}}
+    <div class="cy-toolbar" role="toolbar" aria-label="Diagram controls">
+        <button type="button" class="cy-btn" data-cy-action="fit">Fit</button>
+        <button type="button" class="cy-btn" data-cy-action="zoom-in" aria-label="Zoom in">+</button>
+        <button type="button" class="cy-btn" data-cy-action="zoom-out" aria-label="Zoom out">-</button>
+        <span class="cy-toolbar-spacer"></span>
+        <a class="cy-btn" href="/view/layers/d2" download>Export D2</a>
+        <a class="cy-btn" href="/view/layers/svg" download>Export SVG</a>
+        <button type="button" class="cy-btn" data-cy-action="export-png">Export PNG</button>
+    </div>
+    <div class="cy-graph layer-map"
+         data-api="/api/layers"
+         data-view="layer-map"
+         data-layout="elk"
+         data-height="520"></div>
     <p class="legend">
         <span class="pill pill-green">allowed</span>
         <span class="pill pill-red">violation</span>
         <span class="pill pill-gray">declared, unused</span>
     </p>
 </section>
+
+<script src="/assets/vendor/dagre.min.js" defer></script>
+<script src="/assets/vendor/cytoscape.min.js" defer></script>
+<script src="/assets/vendor/cytoscape-dagre.js" defer></script>
+<script src="/assets/vendor/elk.bundled.js" defer></script>
+<script src="/assets/vendor/cytoscape-elk.js" defer></script>
+<script src="/assets/graph.js" defer></script>
 
 <section class="layer-grid">
     {{range .Layers}}

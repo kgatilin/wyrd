@@ -274,9 +274,15 @@ func TestPackageDetail_OverviewTab(t *testing.T) {
 			t.Errorf("tab missing: %q", want)
 		}
 	}
-	// SVG renders for Overview. d2 always emits `<svg`.
-	if !strings.Contains(body, "<svg") {
-		t.Errorf("overview: expected inline SVG, got: %s", body)
+	// M8 (#46): Overview is rendered client-side. The handler emits a
+	// .cy-graph div pointing at /api/packages/<path>/graph rather than
+	// an inline SVG.
+	wantAPI := `data-api="/api/packages/internal/foo/graph"`
+	if !strings.Contains(body, wantAPI) {
+		t.Errorf("overview: expected %s, got: %s", wantAPI, body)
+	}
+	if !strings.Contains(body, `class="cy-graph package-overview"`) {
+		t.Errorf("overview: expected package-overview class on cy-graph, got: %s", body)
 	}
 }
 
@@ -389,8 +395,9 @@ func TestPackageDetail_UnknownTabFallsBackToOverview(t *testing.T) {
 	if code != nethttp.StatusOK {
 		t.Fatalf("status = %d", code)
 	}
-	// Overview panel renders the SVG; unknown tab should fall back.
-	if !strings.Contains(body, "<svg") {
-		t.Errorf("bogus tab: expected fallback to overview with SVG")
+	// Overview panel renders a cy-graph div; unknown tab falls back to
+	// overview.
+	if !strings.Contains(body, `class="cy-graph package-overview"`) {
+		t.Errorf("bogus tab: expected fallback to overview with cy-graph div")
 	}
 }

@@ -105,17 +105,22 @@ type graphJSON struct {
 }
 
 type graphNode struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Kind  string `json:"kind"`
-	Root  bool   `json:"root,omitempty"`
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Kind   string `json:"kind"`
+	Root   bool   `json:"root,omitempty"`
+	Parent string `json:"parent,omitempty"`
+	// Op is the diff operation ("add" | "remove" | "change") for
+	// nodes produced by the diff overlay. Empty for non-diff graphs.
+	Op string `json:"op,omitempty"`
 }
 
 type graphEdge struct {
-	Source string `json:"source"`
-	Target string `json:"target"`
-	Label  string `json:"label,omitempty"`
-	Kind   string `json:"kind,omitempty"`
+	Source  string   `json:"source"`
+	Target  string   `json:"target"`
+	Label   string   `json:"label,omitempty"`
+	Kind    string   `json:"kind,omitempty"`
+	Details []string `json:"details,omitempty"`
 }
 
 // sequenceEntry is one public-method entry point for which a static

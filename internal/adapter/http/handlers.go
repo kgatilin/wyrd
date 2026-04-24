@@ -103,6 +103,10 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 	// for /diff and /targets and add sub-routes for target switching +
 	// cross-target comparison.
 	s.registerDiffTargetsRoutes(mux)
+	// M8: cytoscape JSON APIs + D2/SVG export endpoints for Layers,
+	// Packages, and Diff views (#46). Registered before the catch-all
+	// "/" dashboard route so prefix matches resolve correctly.
+	s.registerGraphRoutes(mux)
 	mux.HandleFunc("/", s.handleDashboard)
 }
 

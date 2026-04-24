@@ -13,7 +13,6 @@ import (
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
 )
 
 // dashboardData is the full data model for the dashboard page. Each
@@ -36,7 +35,11 @@ type dashboardData struct {
 	FunctionCount  int
 	InterfaceCount int
 
-	LayerMapSVG string // Small D2 layer-map render as inline SVG (empty if no overlay)
+	// HasLayerMap is true when the overlay declares at least one layer;
+	// the dashboard then renders a small client-side Cytoscape preview
+	// that fetches /api/layers/mini. Previously this was a server-side
+	// D2→SVG render; M8 (#46) moved it to the browser.
+	HasLayerMap bool
 }
 
 // handleDashboard renders the dashboard at "/". It composes a
@@ -90,12 +93,10 @@ func (s *Server) handleDashboard(w nethttp.ResponseWriter, r *nethttp.Request) {
 		data.DriftMessage = msg
 	}
 
-	// Layer map preview — render only when the overlay defines layers.
+	// Layer map preview — only render the <div> when the overlay
+	// defines layers; the browser fetches /api/layers/mini to hydrate it.
 	if snap.Overlay != nil && len(snap.Overlay.Layers) > 0 {
-		svg, err := renderLayerMapSVG(r.Context(), snap.Overlay, snap.Packages)
-		if err == nil {
-			data.LayerMapSVG = svg
-		}
+		data.HasLayerMap = true
 	}
 
 	s.renderPage(w, "index.html", data)
@@ -177,16 +178,4 @@ func collectTargetYAMLFiles(root string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
-}
-
-// renderLayerMapSVG produces a small D2 diagram showing the layer map
-// (one box per layer annotated with its package count) plus allowed
-// edges from LayerRules. Used as the dashboard's layer-map preview.
-func renderLayerMapSVG(ctx context.Context, cfg *overlay.Config, packages []domain.PackageModel) (string, error) {
-	src := buildLayerMapD2(cfg, packages, false)
-	svg, err := renderD2(ctx, src)
-	if err != nil {
-		return "", err
-	}
-	return string(svg), nil
 }

@@ -47,13 +47,20 @@
 
 {{define "tab-overview"}}
 <div class="tab-overview">
-    {{if .SVGError}}
-        <div class="error-banner">Diagram render failed: {{.SVGError}}</div>
-    {{else if .SVG}}
-        <div class="d2-frame">{{.SVG}}</div>
-    {{else}}
-        <p class="empty">No diagram available for this package.</p>
-    {{end}}
+    <div class="cy-toolbar" role="toolbar" aria-label="Diagram controls">
+        <button type="button" class="cy-btn" data-cy-action="fit">Fit</button>
+        <button type="button" class="cy-btn" data-cy-action="zoom-in" aria-label="Zoom in">+</button>
+        <button type="button" class="cy-btn" data-cy-action="zoom-out" aria-label="Zoom out">-</button>
+        <span class="cy-toolbar-spacer"></span>
+        <a class="cy-btn" href="/view/packages/{{.Pkg.Path}}/d2" download>Export D2</a>
+        <a class="cy-btn" href="/view/packages/{{.Pkg.Path}}/svg" download>Export SVG</a>
+        <button type="button" class="cy-btn" data-cy-action="export-png">Export PNG</button>
+    </div>
+    <div class="cy-graph package-overview"
+         data-api="/api/packages/{{.Pkg.Path}}/graph"
+         data-view="package-overview"
+         data-layout="dagre"
+         data-height="420"></div>
     <dl class="pkg-meta-list">
         <dt>Path</dt><dd><code>{{.Pkg.Path}}</code></dd>
         <dt>Name</dt><dd><code>{{.Pkg.Name}}</code></dd>
@@ -65,6 +72,10 @@
         </dd>
     </dl>
 </div>
+<script src="/assets/vendor/dagre.min.js" defer></script>
+<script src="/assets/vendor/cytoscape.min.js" defer></script>
+<script src="/assets/vendor/cytoscape-dagre.js" defer></script>
+<script src="/assets/graph.js" defer></script>
 {{end}}
 
 {{define "tab-symbols"}}
