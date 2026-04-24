@@ -142,6 +142,63 @@ a {
     margin-bottom: 0.5rem;
 }
 
+/* ---- Dashboard + Layers (M7b) ---- */
+
+.card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1rem 1.25rem;
+    background: var(--nav-bg);
+    margin-bottom: 1rem;
+}
+
+.card h2 {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.card h3 {
+    font-size: 0.95rem;
+    margin-bottom: 0.5rem;
+}
+
+.dash-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.stat-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.stat-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+}
+
+.stat-num {
+    font-weight: 600;
+    font-size: 1.15rem;
+    min-width: 2.5rem;
+    text-align: right;
+    color: var(--fg);
+}
+
+.mono {
+    font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    font-size: 0.95em;
+    word-break: break-all;
+}
+
 /* --- M7e: Diff + Targets views -------------------------------------- */
 
 /* Semantic diff colors. Defined as their own CSS variables so the dark
@@ -272,6 +329,82 @@ a {
 }
 
 .diff-filter ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.small {
+    font-size: 0.85em;
+}
+
+.pill {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    border: 1px solid transparent;
+}
+
+.pill-green {
+    background: rgba(22, 163, 74, 0.15);
+    color: #16a34a;
+    border-color: rgba(22, 163, 74, 0.4);
+}
+
+.pill-red {
+    background: rgba(220, 38, 38, 0.15);
+    color: #dc2626;
+    border-color: rgba(220, 38, 38, 0.4);
+}
+
+.pill-gray {
+    background: rgba(148, 163, 184, 0.15);
+    color: var(--muted);
+    border-color: rgba(148, 163, 184, 0.4);
+}
+
+.diagram-frame {
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    background: var(--bg);
+    overflow-x: auto;
+}
+
+.diagram-frame svg {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+.diagram-frame.small svg {
+    max-height: 240px;
+}
+
+.diagram-link {
+    display: block;
+    text-decoration: none;
+}
+
+.layer-preview {
+    margin-top: 0;
+}
+
+.layer-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.layer-card h3 {
+    margin: 0 0 0.5rem 0;
+    color: var(--fg);
+}
+
+.pkg-list {
     list-style: none;
     padding: 0;
     margin: 0;
@@ -503,4 +636,56 @@ a {
     border-radius: 0.3rem;
     font-family: inherit;
     font-size: 0.9rem;
+}
+
+.pkg-list li {
+    padding: 0.15rem 0;
+}
+
+.pkg-link {
+    text-decoration: none;
+    font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    font-size: 0.9em;
+}
+
+.pkg-link:hover {
+    text-decoration: underline;
+}
+
+.legend {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.edge-head {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
+
+.edge-head-red    { color: #dc2626; }
+.edge-head-green  { color: #16a34a; }
+.edge-head-gray   { color: var(--muted); }
+
+.edge-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 0.5rem 0;
+}
+
+.edge-list > li {
+    padding: 0.3rem 0;
+}
+
+.edge-detail {
+    list-style: disc;
+    padding-left: 1.25rem;
+    margin: 0.25rem 0 0 0;
+    color: var(--muted);
+}
+
+.edge-detail code {
+    background: transparent;
+    padding: 0;
 }

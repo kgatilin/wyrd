@@ -42,7 +42,7 @@ func NewServer(state *serve.State) (*Server, error) {
 		return nil, errors.New("http: nil state")
 	}
 
-	tmpls, err := template.ParseFS(embedded, "templates/*.html")
+	tmpls, err := template.New("").Funcs(templateFuncs()).ParseFS(embedded, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("http: parse templates: %w", err)
 	}

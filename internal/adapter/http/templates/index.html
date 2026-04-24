@@ -1,8 +1,59 @@
 {{define "content"}}
 <h1>Dashboard</h1>
-<p class="lede">High-level overview of the current architecture model.</p>
-<div class="coming-soon">
-    <div class="tag">M7b</div>
-    <p>Dashboard content is coming in M7b — summary counts, active target, overlay status, recent reloads.</p>
-</div>
+<p class="lede">Live overview of the project's architecture model.</p>
+
+<section class="dash-grid">
+    <div class="card">
+        <h2>Module</h2>
+        {{if .Module}}
+            <p class="mono">{{.Module}}</p>
+        {{else}}
+            <p class="muted">no module detected</p>
+        {{end}}
+        {{if .GoVersion}}
+            <p class="muted">Go {{.GoVersion}}</p>
+        {{end}}
+    </div>
+
+    <div class="card">
+        <h2>Target</h2>
+        {{if .HasTarget}}
+            <p class="mono">{{.CurrentTarget}}</p>
+            {{if eq .DriftStatus "matches"}}
+                <p><span class="pill pill-green">matches</span></p>
+            {{else if eq .DriftStatus "drifted"}}
+                <p><span class="pill pill-red">drifted</span> <span class="muted">{{.DriftCount}} change(s)</span></p>
+            {{else}}
+                <p><span class="pill pill-gray">{{.DriftStatus}}</span></p>
+            {{end}}
+            {{if .DriftMessage}}
+                <p class="muted small">{{.DriftMessage}}</p>
+            {{end}}
+        {{else}}
+            <p class="muted">no target selected</p>
+            <p class="muted small">{{.DriftMessage}}</p>
+        {{end}}
+    </div>
+
+    <div class="card">
+        <h2>Counts</h2>
+        <ul class="stat-list">
+            <li><span class="stat-num">{{.PackageCount}}</span> packages</li>
+            <li><span class="stat-num">{{.TypeCount}}</span> types</li>
+            <li><span class="stat-num">{{.FunctionCount}}</span> functions</li>
+            <li><span class="stat-num">{{.InterfaceCount}}</span> interfaces</li>
+        </ul>
+    </div>
+</section>
+
+<section class="card layer-preview">
+    <h2>Layer map</h2>
+    {{if .LayerMapSVG}}
+        <a href="/layers" class="diagram-link" aria-label="Open Layers view">
+            <div class="diagram-frame small">{{.LayerMapSVG | safeHTML}}</div>
+        </a>
+    {{else}}
+        <p class="muted">Layer map unavailable — no overlay (archai.yaml) loaded.</p>
+    {{end}}
+</section>
 {{end}}

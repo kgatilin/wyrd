@@ -3,9 +3,19 @@ package http
 import (
 	"bytes"
 	"fmt"
+	"html/template"
 	"io"
 	nethttp "net/http"
 )
+
+// templateFuncs returns the funcmap shared by every page template.
+// safeHTML lets a handler inline trusted HTML (e.g. a server-rendered
+// SVG diagram) without html/template escaping it.
+func templateFuncs() template.FuncMap {
+	return template.FuncMap{
+		"safeHTML": func(s string) template.HTML { return template.HTML(s) },
+	}
+}
 
 // navItem is one link in the top navigation bar. Active is set on the
 // link matching the current page so the base template can highlight
@@ -48,7 +58,7 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 
 	// Nav pages. The root handler must stay last so it doesn't shadow
 	// more-specific routes.
-	mux.HandleFunc("/layers", s.pageHandler("layers.html", "Layers", "/layers"))
+	mux.HandleFunc("/layers", s.handleLayers)
 	mux.HandleFunc("/packages", s.pageHandler("packages.html", "Packages", "/packages"))
 	mux.HandleFunc("/configs", s.pageHandler("configs.html", "Configs", "/configs"))
 	mux.HandleFunc("/search", s.pageHandler("search.html", "Search", "/search"))
@@ -56,18 +66,7 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 	// for /diff and /targets and add sub-routes for target switching +
 	// cross-target comparison.
 	s.registerDiffTargetsRoutes(mux)
-	mux.HandleFunc("/", s.handleIndex)
-}
-
-// handleIndex serves the dashboard at "/". net/http's ServeMux routes
-// every unmatched path to "/", so we reject anything that isn't the
-// root with a 404 to keep URLs predictable.
-func (s *Server) handleIndex(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if r.URL.Path != "/" {
-		nethttp.NotFound(w, r)
-		return
-	}
-	s.pageHandler("index.html", "Dashboard", "/")(w, r)
+	mux.HandleFunc("/", s.handleDashboard)
 }
 
 // pageHandler returns a handler that renders the named template inside

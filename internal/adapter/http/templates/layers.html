@@ -1,8 +1,88 @@
 {{define "content"}}
 <h1>Layers</h1>
-<p class="lede">Overlay layers and their package membership.</p>
+<p class="lede">Architectural layers declared in <code>archai.yaml</code> with cross-layer dependency edges.</p>
+
+{{if not .HasOverlay}}
 <div class="coming-soon">
-    <div class="tag">M7c</div>
-    <p>Layer browser is coming in M7c — hierarchy, rules, violations.</p>
+    <div class="tag">no overlay</div>
+    <p>No overlay (<code>archai.yaml</code>) was found for this project. Add one to declare layers and inter-layer rules.</p>
 </div>
+{{else}}
+
+<section class="card">
+    <h2>Layer map</h2>
+    {{if .LayersSVG}}
+        <div class="diagram-frame">{{.LayersSVG | safeHTML}}</div>
+    {{else}}
+        <p class="muted">Diagram could not be rendered.</p>
+    {{end}}
+    <p class="legend">
+        <span class="pill pill-green">allowed</span>
+        <span class="pill pill-red">violation</span>
+        <span class="pill pill-gray">declared, unused</span>
+    </p>
+</section>
+
+<section class="layer-grid">
+    {{range .Layers}}
+        <div class="card layer-card">
+            <h3>{{.Name}}</h3>
+            {{if .Packages}}
+                <ul class="pkg-list">
+                    {{range .Packages}}
+                        <li><a href="/packages#{{.Rel}}" class="pkg-link" title="{{.Rel}}">{{.Name}}</a></li>
+                    {{end}}
+                </ul>
+            {{else}}
+                <p class="muted small">no packages match this layer</p>
+            {{end}}
+        </div>
+    {{end}}
+</section>
+
+<section class="card">
+    <h2>Inter-layer edges</h2>
+    {{if .Violations}}
+        <h3 class="edge-head edge-head-red">Violations ({{.ViolationsCount}})</h3>
+        <ul class="edge-list">
+        {{range .Violations}}
+            <li>
+                <span class="pill pill-red">{{.From}} → {{.To}}</span>
+                <ul class="edge-detail">
+                    {{range .Details}}<li><code>{{.}}</code></li>{{end}}
+                </ul>
+            </li>
+        {{end}}
+        </ul>
+    {{end}}
+
+    {{if .AllowedEdges}}
+        <h3 class="edge-head edge-head-green">Allowed (observed in code)</h3>
+        <ul class="edge-list">
+        {{range .AllowedEdges}}
+            <li>
+                <span class="pill pill-green">{{.From}} → {{.To}}</span>
+                <ul class="edge-detail">
+                    {{range .Details}}<li><code>{{.}}</code></li>{{end}}
+                </ul>
+            </li>
+        {{end}}
+        </ul>
+    {{end}}
+
+    {{if .DeclaredEdges}}
+        <h3 class="edge-head edge-head-gray">Declared but unused</h3>
+        <ul class="edge-list">
+        {{range .DeclaredEdges}}
+            <li><span class="pill pill-gray">{{.From}} → {{.To}}</span></li>
+        {{end}}
+        </ul>
+    {{end}}
+
+    {{if and (not .Violations) (not .AllowedEdges) (not .DeclaredEdges)}}
+        <p class="muted">No inter-layer edges observed.</p>
+    {{end}}
+</section>
+
+{{end}}
 {{end}}
