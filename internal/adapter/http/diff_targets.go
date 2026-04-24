@@ -147,15 +147,16 @@ func (s *Server) registerDiffTargetsRoutes(mux *nethttp.ServeMux) {
 // fragment (no nav, no layout).
 func (s *Server) handleDiff(w nethttp.ResponseWriter, r *nethttp.Request) {
 	ctx := r.Context()
-	snap := s.state.Snapshot()
+	state := s.stateFor(r)
+	if state == nil {
+		nethttp.Error(w, "no state available", nethttp.StatusServiceUnavailable)
+		return
+	}
+	snap := state.Snapshot()
 	filter := r.URL.Query().Get("kind")
 
 	data := diffPageData{
-		pageData: pageData{
-			Title:      "Diff",
-			ActivePath: "/diff",
-			NavItems:   buildNav("/diff"),
-		},
+		pageData:     s.basePageData(r, "Diff", "/diff"),
 		ActiveTarget: snap.CurrentTarget,
 		HasActive:    snap.CurrentTarget != "",
 		Filter:       filter,
@@ -202,13 +203,14 @@ func (s *Server) renderDiff(w nethttp.ResponseWriter, r *nethttp.Request, data d
 
 // handleTargets renders the Targets list page.
 func (s *Server) handleTargets(w nethttp.ResponseWriter, r *nethttp.Request) {
-	snap := s.state.Snapshot()
+	state := s.stateFor(r)
+	if state == nil {
+		nethttp.Error(w, "no state available", nethttp.StatusServiceUnavailable)
+		return
+	}
+	snap := state.Snapshot()
 	data := targetsPageData{
-		pageData: pageData{
-			Title:      "Targets",
-			ActivePath: "/targets",
-			NavItems:   buildNav("/targets"),
-		},
+		pageData:     s.basePageData(r, "Targets", "/targets"),
 		ActiveTarget: snap.CurrentTarget,
 		HasActive:    snap.CurrentTarget != "",
 	}
@@ -250,12 +252,17 @@ func (s *Server) handleTargetsUse(w nethttp.ResponseWriter, r *nethttp.Request) 
 		return
 	}
 
-	root := s.state.Root()
+	state := s.stateFor(r)
+	if state == nil {
+		nethttp.Error(w, "no state available", nethttp.StatusServiceUnavailable)
+		return
+	}
+	root := state.Root()
 	if err := target.Use(root, id); err != nil {
 		nethttp.Error(w, err.Error(), nethttp.StatusBadRequest)
 		return
 	}
-	if err := s.state.SwitchTarget(id); err != nil {
+	if err := state.SwitchTarget(id); err != nil {
 		nethttp.Error(w, err.Error(), nethttp.StatusInternalServerError)
 		return
 	}
@@ -264,7 +271,7 @@ func (s *Server) handleTargetsUse(w nethttp.ResponseWriter, r *nethttp.Request) 
 	// the whole list (active indicator moves). Non-HTMX POSTs redirect
 	// back to the list.
 	if !isHTMX(r) {
-		nethttp.Redirect(w, r, "/targets", nethttp.StatusSeeOther)
+		nethttp.Redirect(w, r, s.navPrefix(r)+"/targets", nethttp.StatusSeeOther)
 		return
 	}
 	// Delegate to handleTargets so we don't duplicate snapshot logic.
@@ -297,7 +304,12 @@ func (s *Server) handleTargetsCompare(w nethttp.ResponseWriter, r *nethttp.Reque
 		return
 	}
 
-	root := s.state.Root()
+	state := s.stateFor(r)
+	if state == nil {
+		nethttp.Error(w, "no state available", nethttp.StatusServiceUnavailable)
+		return
+	}
+	root := state.Root()
 	aModel, err := loadTargetFromDisk(ctx, root, a)
 	if err != nil {
 		data.Error = fmt.Sprintf("loading %q: %v", a, err)

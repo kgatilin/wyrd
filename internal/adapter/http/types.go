@@ -170,17 +170,18 @@ func (s *Server) handleType(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
-	snap := s.state.Snapshot()
+	state := s.stateFor(r)
+	if state == nil {
+		nethttp.Error(w, "no state available", nethttp.StatusServiceUnavailable)
+		return
+	}
+	snap := state.Snapshot()
 	data, found := buildTypePage(snap.Packages, ref)
 	if !found {
 		nethttp.NotFound(w, r)
 		return
 	}
-	data.pageData = pageData{
-		Title:      ref.Name + " — Types",
-		ActivePath: "/packages",
-		NavItems:   buildNav("/packages"),
-	}
+	data.pageData = s.basePageData(r, ref.Name+" — Types", "/packages")
 
 	s.renderPage(w, "type_detail.html", data)
 }
@@ -198,7 +199,12 @@ func (s *Server) handleTypeGraph(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
-	snap := s.state.Snapshot()
+	state := s.stateFor(r)
+	if state == nil {
+		nethttp.Error(w, "no state available", nethttp.StatusServiceUnavailable)
+		return
+	}
+	snap := state.Snapshot()
 	data, found := buildTypePage(snap.Packages, ref)
 	if !found {
 		nethttp.NotFound(w, r)

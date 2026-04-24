@@ -54,13 +54,14 @@ type edgeView struct {
 // state and derives layer membership, allowed/violating edges, and a
 // D2 diagram from the overlay config.
 func (s *Server) handleLayers(w nethttp.ResponseWriter, r *nethttp.Request) {
-	snap := s.state.Snapshot()
+	state := s.stateFor(r)
+	if state == nil {
+		nethttp.Error(w, "no state available", nethttp.StatusServiceUnavailable)
+		return
+	}
+	snap := state.Snapshot()
 	data := layersData{
-		pageData: pageData{
-			Title:      "Layers",
-			ActivePath: "/layers",
-			NavItems:   buildNav("/layers"),
-		},
+		pageData: s.basePageData(r, "Layers", "/layers"),
 	}
 
 	if snap.Overlay == nil || len(snap.Overlay.Layers) == 0 {

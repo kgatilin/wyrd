@@ -51,13 +51,14 @@ func (s *Server) handleDashboard(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
-	snap := s.state.Snapshot()
+	state := s.stateFor(r)
+	if state == nil {
+		nethttp.Error(w, "no state available", nethttp.StatusServiceUnavailable)
+		return
+	}
+	snap := state.Snapshot()
 	data := dashboardData{
-		pageData: pageData{
-			Title:      "Dashboard",
-			ActivePath: "/",
-			NavItems:   buildNav("/"),
-		},
+		pageData: s.basePageData(r, "Dashboard", "/"),
 	}
 
 	// Module + Go version from go.mod (best-effort — empty on failure).

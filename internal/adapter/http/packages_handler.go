@@ -20,7 +20,12 @@ import (
 // the tree fragment so HTMX can swap it into the existing page without
 // reloading the filter bar or triggering scroll reset.
 func (s *Server) handlePackagesList(w nethttp.ResponseWriter, r *nethttp.Request) {
-	snap := s.state.Snapshot()
+	state := s.stateFor(r)
+	if state == nil {
+		nethttp.Error(w, "no state available", nethttp.StatusServiceUnavailable)
+		return
+	}
+	snap := state.Snapshot()
 	pkgs := applyOverlay(snap.Packages, snap.Overlay)
 
 	filter := packageFilter{
@@ -33,11 +38,7 @@ func (s *Server) handlePackagesList(w nethttp.ResponseWriter, r *nethttp.Request
 	tree := buildPackageTree(summaries)
 
 	data := packageListData{
-		pageData: pageData{
-			Title:      "Packages",
-			ActivePath: "/packages",
-			NavItems:   buildNav("/packages"),
-		},
+		pageData:       s.basePageData(r, "Packages", "/packages"),
 		Filter:         filter,
 		Packages:       summaries,
 		Tree:           tree,
@@ -71,7 +72,12 @@ func (s *Server) handlePackageDetail(w nethttp.ResponseWriter, r *nethttp.Reques
 		return
 	}
 
-	snap := s.state.Snapshot()
+	state := s.stateFor(r)
+	if state == nil {
+		nethttp.Error(w, "no state available", nethttp.StatusServiceUnavailable)
+		return
+	}
+	snap := state.Snapshot()
 	pkgs := applyOverlay(snap.Packages, snap.Overlay)
 
 	pkg, ok := findPackage(pkgs, pkgPath)
@@ -87,11 +93,7 @@ func (s *Server) handlePackageDetail(w nethttp.ResponseWriter, r *nethttp.Reques
 	}
 
 	data := buildPackageDetail(active, pkg, pkgs, snap.Overlay, modulePath)
-	data.pageData = pageData{
-		Title:      "Package " + pkg.Path,
-		ActivePath: "/packages",
-		NavItems:   buildNav("/packages"),
-	}
+	data.pageData = s.basePageData(r, "Package "+pkg.Path, "/packages")
 	data.Partial = isHTMX(r)
 
 	// M8 (#46): Overview no longer emits server-rendered D2→SVG.

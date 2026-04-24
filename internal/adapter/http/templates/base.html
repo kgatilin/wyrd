@@ -9,12 +9,24 @@
 </head>
 <body>
 <header class="site-nav">
-    <a href="/" class="brand">archai</a>
+    <a href="{{if .NavPrefix}}{{.NavPrefix}}/{{else}}/{{end}}" class="brand">archai</a>
     <nav>
         {{range .NavItems}}
             <a href="{{.Href}}"{{if .Active}} class="active"{{end}}>{{.Label}}</a>
         {{end}}
     </nav>
+    {{if .MultiMode}}
+    <form class="worktree-switcher" method="post" action="/worktree/select">
+        <label for="worktree-select">Worktree:</label>
+        <select id="worktree-select" name="name" onchange="this.form.submit()">
+            {{range .Worktrees}}
+                <option value="{{.Name}}"{{if .Current}} selected{{end}}>{{.Label}}</option>
+            {{end}}
+        </select>
+        <input type="hidden" name="redirect" value="{{.CurrentPath}}">
+        <noscript><button type="submit">Go</button></noscript>
+    </form>
+    {{end}}
 </header>
 <main class="content">
     {{template "content" .}}

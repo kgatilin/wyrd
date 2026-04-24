@@ -41,10 +41,21 @@ type navItem struct {
 // pageData is the model passed to every page template (which all wrap
 // templates/base.html). Handlers populate Title, ActivePath, and
 // (optionally) content-specific fields.
+//
+// NavPrefix is "/w/<name>" in multi-worktree mode and "" in
+// single-worktree mode; templates prepend it to internal links so the
+// current worktree stays selected when the user clicks around.
+// Worktrees is populated only in multi mode and drives the switcher
+// dropdown in base.html.
 type pageData struct {
-	Title      string
-	ActivePath string
-	NavItems   []navItem
+	Title       string
+	ActivePath  string
+	NavItems    []navItem
+	NavPrefix   string
+	Worktree    string
+	MultiMode   bool
+	Worktrees   []worktreeOption
+	CurrentPath string // original request path (used by the switcher form)
 }
 
 // searchPageData is the model for the full Search page template. It
@@ -72,9 +83,15 @@ var navTemplate = []navItem{
 	{Label: "Search", Href: "/search"},
 }
 
-// routes registers every handler on mux. Kept in one place so the
-// route table is easy to scan.
+// routes registers every handler on mux. In single-worktree mode it
+// installs the familiar top-level routes; in multi-worktree mode it
+// delegates to registerMultiRoutes which re-scopes content under
+// /w/{name}/* and adds legacy redirects.
 func (s *Server) routes(mux *nethttp.ServeMux) {
+	if s.multiMode() {
+		s.registerMultiRoutes(mux)
+		return
+	}
 	// Static assets (CSS, htmx.min.js). Served from the embedded FS.
 	mux.Handle("/assets/", nethttp.StripPrefix("/assets/", nethttp.FileServer(nethttp.FS(s.assets))))
 
@@ -82,8 +99,16 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 	// diagrams; accepts POST with a `d2` form field or raw text body.
 	mux.HandleFunc("/render", s.handleRender)
 
-	// Nav pages. The root handler must stay last so it doesn't shadow
-	// more-specific routes.
+	// Content routes at their historical top-level paths.
+	s.routesContent(mux)
+	mux.HandleFunc("/", s.handleDashboard)
+}
+
+// routesContent registers just the content pages onto mux without the
+// static-asset or /render handlers. Shared between single-mode (where
+// they live at the root) and multi-mode (where they live under
+// /w/{name}/* via dispatchWorktree).
+func (s *Server) routesContent(mux *nethttp.ServeMux) {
 	mux.HandleFunc("/layers", s.handleLayers)
 	mux.HandleFunc("/packages", s.handlePackagesList)
 	mux.HandleFunc("/packages/", s.handlePackageDetail)
@@ -107,19 +132,42 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 	// Packages, and Diff views (#46). Registered before the catch-all
 	// "/" dashboard route so prefix matches resolve correctly.
 	s.registerGraphRoutes(mux)
-	mux.HandleFunc("/", s.handleDashboard)
+	// In multi mode, the root of a worktree ("/w/{name}/") is served
+	// by the content mux at "/" after dispatchWorktree rewrites the
+	// URL. In single mode the root is registered directly by routes()
+	// so the handler precedence is identical (and duplicate
+	// registration would panic).
+	if s.multiMode() {
+		mux.HandleFunc("/", s.handleDashboard)
+	}
 }
 
 // pageHandler returns a handler that renders the named template inside
 // the base layout with the given title and active-path marker.
 func (s *Server) pageHandler(tmpl, title, activePath string) nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		s.renderPage(w, tmpl, pageData{
-			Title:      title,
-			ActivePath: activePath,
-			NavItems:   buildNav(activePath),
-		})
+		s.renderPage(w, tmpl, s.basePageData(r, title, activePath))
 	}
+}
+
+// basePageData fills the shared pageData fields (title, active nav,
+// worktree context) for a request. Handlers that build domain-specific
+// page models should embed its return value.
+func (s *Server) basePageData(r *nethttp.Request, title, activePath string) pageData {
+	prefix := s.navPrefix(r)
+	pd := pageData{
+		Title:       title,
+		ActivePath:  activePath,
+		NavItems:    buildNavWithPrefix(activePath, prefix),
+		NavPrefix:   prefix,
+		MultiMode:   s.multiMode(),
+		Worktree:    s.currentWorktree(r),
+		CurrentPath: r.URL.Path,
+	}
+	if s.multiMode() {
+		pd.Worktrees = s.buildWorktreeList(r)
+	}
+	return pd
 }
 
 // renderPage renders the given page template followed by the base
@@ -239,21 +287,20 @@ func (s *Server) handleSearch(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 	var results []searchResult
 	if q != "" {
-		snap := s.state.Snapshot()
-		results = runSearch(snap.Packages, q, kind)
+		state := s.stateFor(r)
+		if state != nil {
+			snap := state.Snapshot()
+			results = runSearch(snap.Packages, q, kind)
+		}
 	}
 
 	s.renderPage(w, "search.html", searchPageData{
-		pageData: pageData{
-			Title:      "Search",
-			ActivePath: "/search",
-			NavItems:   buildNav("/search"),
-		},
-		Query:   q,
-		Kind:    kind,
-		Kinds:   searchKinds,
-		Results: results,
-		Total:   len(results),
+		pageData: s.basePageData(r, "Search", "/search"),
+		Query:    q,
+		Kind:     kind,
+		Kinds:    searchKinds,
+		Results:  results,
+		Total:    len(results),
 	})
 }
 
@@ -268,8 +315,12 @@ func (s *Server) handleSearchResults(w nethttp.ResponseWriter, r *nethttp.Reques
 		kind = ""
 	}
 
-	snap := s.state.Snapshot()
-	results := runSearch(snap.Packages, q, kind)
+	state := s.stateFor(r)
+	var results []searchResult
+	if state != nil {
+		snap := state.Snapshot()
+		results = runSearch(snap.Packages, q, kind)
+	}
 
 	// Fragment templates don't extend base.html, so we parse them on
 	// their own with Clone() to avoid polluting the shared parsed set.
@@ -299,12 +350,28 @@ func (s *Server) handleSearchResults(w nethttp.ResponseWriter, r *nethttp.Reques
 	_, _ = w.Write(buf.Bytes())
 }
 
-// buildNav returns a fresh nav slice with Active set on the item whose
-// Href matches activePath. The source navTemplate is never mutated.
+// buildNav returns a fresh nav slice with Active set on the item
+// whose Href matches activePath. The source navTemplate is never
+// mutated. Single-mode callers use this wrapper; multi-mode callers
+// go through buildNavWithPrefix.
 func buildNav(activePath string) []navItem {
+	return buildNavWithPrefix(activePath, "")
+}
+
+// buildNavWithPrefix is like buildNav but rewrites each Href to
+// <prefix><original-href> so multi-mode nav links stay inside the
+// current worktree. "/" becomes "<prefix>/" rather than "<prefix>".
+func buildNavWithPrefix(activePath, prefix string) []navItem {
 	out := make([]navItem, len(navTemplate))
 	for i, n := range navTemplate {
 		n.Active = n.Href == activePath
+		if prefix != "" {
+			if n.Href == "/" {
+				n.Href = prefix + "/"
+			} else {
+				n.Href = prefix + n.Href
+			}
+		}
 		out[i] = n
 	}
 	return out

@@ -313,6 +313,10 @@ manual verification and as a base for future features.`,
 	// port; the bound address is recorded in .arch/.worktree/<name>/serve.json
 	// for `archai where` / `archai list-daemons` to discover.
 	serveCmd.Flags().String("http", ":0", "HTTP transport address (\"\" disables HTTP; default :0 picks a free port)")
+	// M10: --multi discovers every git worktree of the project and
+	// exposes each under /w/{name}/ so a single daemon can drive them
+	// all. Omit the flag to keep the classic single-worktree behaviour.
+	serveCmd.Flags().Bool("multi", false, "Serve every git worktree under /w/{name}/* (multi-worktree mode)")
 	serveCmd.Flags().Bool("debug", false, "Verbose per-event logging")
 	rootCmd.AddCommand(serveCmd)
 
@@ -386,6 +390,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mcpStdio, _ := cmd.Flags().GetBool("mcp-stdio")
 	httpAddr, _ := cmd.Flags().GetString("http")
 	debug, _ := cmd.Flags().GetBool("debug")
+	multi, _ := cmd.Flags().GetBool("multi")
 
 	parent := cmd.Context()
 	if parent == nil {
@@ -394,18 +399,42 @@ func runServe(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return serve.Serve(ctx, serve.Options{
+	opts := serve.Options{
 		Root:     root,
 		MCPStdio: mcpStdio,
 		MCPServe: func(ctx context.Context, state *serve.State) error {
 			return mcp.Serve(ctx, state)
 		},
 		HTTPAddr: httpAddr,
-		HTTPServerFactory: func(state *serve.State) (serve.HTTPTransport, error) {
+		Debug:    debug,
+	}
+
+	if multi {
+		if mcpStdio {
+			return fmt.Errorf("--multi is not compatible with --mcp-stdio")
+		}
+		// Discover worktrees up-front. The MultiState is shared with
+		// the HTTP server so lazy-loads of individual worktree models
+		// happen on first request.
+		absRoot := root
+		if absRoot == "" {
+			absRoot = "."
+		}
+		multiState := serve.NewMultiState(absRoot, serve.DefaultStateLoader)
+		if err := multiState.Refresh(); err != nil {
+			return fmt.Errorf("serve: refresh worktrees: %w", err)
+		}
+		opts.MultiState = multiState
+		opts.HTTPServerFactory = func(_ *serve.State) (serve.HTTPTransport, error) {
+			return httpAdapter.NewMultiServer(multiState)
+		}
+	} else {
+		opts.HTTPServerFactory = func(state *serve.State) (serve.HTTPTransport, error) {
 			return httpAdapter.NewServer(state)
-		},
-		Debug: debug,
-	})
+		}
+	}
+
+	return serve.Serve(ctx, opts)
 }
 
 // runSequence handles `archai sequence <target>`. It parses the target,

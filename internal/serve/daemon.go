@@ -40,6 +40,14 @@ type Options struct {
 	// back).
 	HTTPServerFactory func(*State) (HTTPTransport, error)
 
+	// MultiState, when non-nil, switches the daemon into multi-worktree
+	// mode: instead of a single State, the transport (typically the
+	// HTTP server constructed by HTTPServerFactory, which in this mode
+	// receives nil) manages one State per discovered worktree via
+	// MultiState. Per-worktree fsnotify watchers are installed lazily
+	// as each State is loaded (one watcher per loaded worktree).
+	MultiState *MultiState
+
 	// Debug enables verbose per-event logging.
 	Debug bool
 
@@ -85,14 +93,29 @@ func Serve(ctx context.Context, opts Options) error {
 		logOut = os.Stderr
 	}
 
-	fmt.Fprintf(logOut, "serve: loading model from %s\n", absRoot)
-	state := NewState(absRoot)
-	if err := state.Load(ctx); err != nil {
-		return err
+	// In multi-worktree mode we defer per-worktree loads to the
+	// MultiState; there is no shared State. The HTTP factory receives
+	// nil because the http.Server handles multi dispatch itself.
+	var state *State
+	if opts.MultiState == nil {
+		fmt.Fprintf(logOut, "serve: loading model from %s\n", absRoot)
+		state = NewState(absRoot)
+		if err := state.Load(ctx); err != nil {
+			return err
+		}
+		snap := state.Snapshot()
+		fmt.Fprintf(logOut, "serve: loaded %d package(s), overlay=%v, target=%q\n",
+			len(snap.Packages), snap.Overlay != nil, snap.CurrentTarget)
+	} else {
+		names := opts.MultiState.Names()
+		fmt.Fprintf(logOut, "serve: multi-worktree mode, %d worktree(s) discovered: %v\n",
+			len(names), names)
+		// Install a per-worktree fsnotify hook: each State gets its own
+		// watcher the first time it is loaded. The watchers are closed
+		// when Refresh drops a worktree or when the daemon shuts down.
+		opts.MultiState.SetWatcherHook(multiWatcherHook(ctx, opts.Debounce, logOut, opts.Debug))
+		defer func() { _ = opts.MultiState.Close() }()
 	}
-	snap := state.Snapshot()
-	fmt.Fprintf(logOut, "serve: loaded %d package(s), overlay=%v, target=%q\n",
-		len(snap.Packages), snap.Overlay != nil, snap.CurrentTarget)
 
 	// HTTP transport: start in a goroutine when both an address and a
 	// factory are provided. If the caller set the address but didn't
@@ -144,13 +167,20 @@ func Serve(ctx context.Context, opts Options) error {
 		}
 	}()
 
-	watcher, err := NewWatcher(absRoot, opts.Debounce)
-	if err != nil {
-		return err
+	// The fsnotify watcher is only meaningful against a single State;
+	// in multi mode we skip it and rely on manual refreshes (future:
+	// per-worktree watchers keyed by MultiState entries).
+	var handler EventHandler
+	var watcher *Watcher
+	if state != nil {
+		w, err := NewWatcher(absRoot, opts.Debounce)
+		if err != nil {
+			return err
+		}
+		watcher = w
+		defer func() { _ = watcher.Close() }()
+		handler = buildHandler(ctx, state, logOut, opts.Debug)
 	}
-	defer func() { _ = watcher.Close() }()
-
-	handler := buildHandler(ctx, state, logOut, opts.Debug)
 
 	// When the MCP stdio transport is requested, it owns the process's
 	// stdin/stdout and drives shutdown: we run the watcher loop in a
@@ -159,6 +189,9 @@ func Serve(ctx context.Context, opts Options) error {
 	if opts.MCPStdio {
 		if opts.MCPServe == nil {
 			return fmt.Errorf("serve: --mcp-stdio set but MCPServe is nil")
+		}
+		if watcher == nil {
+			return fmt.Errorf("serve: --mcp-stdio is not compatible with multi-worktree mode")
 		}
 
 		childCtx, cancel := context.WithCancel(ctx)
@@ -184,10 +217,19 @@ func Serve(ctx context.Context, opts Options) error {
 		return nil
 	}
 
-	fmt.Fprintln(logOut, "serve: watching for changes (Ctrl-C to stop)")
-	watchErr := watcher.Run(ctx, handler)
-	if watchErr != nil && !errors.Is(watchErr, context.Canceled) {
-		return watchErr
+	if watcher != nil {
+		fmt.Fprintln(logOut, "serve: watching for changes (Ctrl-C to stop)")
+		watchErr := watcher.Run(ctx, handler)
+		if watchErr != nil && !errors.Is(watchErr, context.Canceled) {
+			return watchErr
+		}
+	} else {
+		// Multi mode: per-worktree watchers are spun up lazily as each
+		// State is loaded (see multiWatcherHook). We just block on ctx
+		// here so HTTP stays alive until Ctrl-C; the deferred
+		// MultiState.Close stops every registered watcher on exit.
+		fmt.Fprintln(logOut, "serve: multi-worktree mode (Ctrl-C to stop)")
+		<-ctx.Done()
 	}
 
 	// Wait for the HTTP goroutine to unwind (if one was started) so we
@@ -199,6 +241,60 @@ func Serve(ctx context.Context, opts Options) error {
 	}
 
 	fmt.Fprintln(logOut, "serve: shutdown complete")
+	return nil
+}
+
+// multiWatcherHook returns a WatcherHook that installs one fsnotify
+// watcher per loaded worktree State, reusing buildHandler so the
+// event-dispatch logic matches single-mode exactly. The returned
+// io.Closer cancels the watcher goroutine and closes the underlying
+// fsnotify watcher; MultiState invokes it on Refresh-drop / Close.
+func multiWatcherHook(parent context.Context, debounce time.Duration, logOut io.Writer, debug bool) WatcherHook {
+	return func(_ context.Context, name string, state *State) (io.Closer, error) {
+		w, err := NewWatcher(state.Root(), debounce)
+		if err != nil {
+			return nil, err
+		}
+		childCtx, cancel := context.WithCancel(parent)
+		handler := buildHandler(childCtx, state, logOut, debug)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			if rerr := w.Run(childCtx, handler); rerr != nil && !errors.Is(rerr, context.Canceled) {
+				fmt.Fprintf(logOut, "serve: watcher for %q: %v\n", name, rerr)
+			}
+		}()
+		if debug {
+			fmt.Fprintf(logOut, "serve: watcher started for worktree %q at %s\n", name, state.Root())
+		}
+		return &watcherCloser{cancel: cancel, watcher: w, done: done}, nil
+	}
+}
+
+// watcherCloser bundles the goroutine cancellation and the fsnotify
+// watcher's own Close so MultiState can release both with a single
+// io.Closer handle.
+type watcherCloser struct {
+	cancel  context.CancelFunc
+	watcher *Watcher
+	done    chan struct{}
+}
+
+// Close cancels the watcher goroutine, waits for it to unwind, and
+// closes the underlying fsnotify watcher. Idempotent.
+func (c *watcherCloser) Close() error {
+	if c == nil {
+		return nil
+	}
+	if c.cancel != nil {
+		c.cancel()
+	}
+	if c.done != nil {
+		<-c.done
+	}
+	if c.watcher != nil {
+		return c.watcher.Close()
+	}
 	return nil
 }
 

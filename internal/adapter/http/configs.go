@@ -47,13 +47,14 @@ type configField struct {
 // overlay just shows the empty-state, missing overlay entries are
 // listed under "Unresolved" so the user knows what to fix.
 func (s *Server) handleConfigs(w nethttp.ResponseWriter, r *nethttp.Request) {
-	snap := s.state.Snapshot()
+	state := s.stateFor(r)
+	if state == nil {
+		nethttp.Error(w, "no state available", nethttp.StatusServiceUnavailable)
+		return
+	}
+	snap := state.Snapshot()
 	data := configPageData{
-		pageData: pageData{
-			Title:      "Configs",
-			ActivePath: "/configs",
-			NavItems:   buildNav("/configs"),
-		},
+		pageData: s.basePageData(r, "Configs", "/configs"),
 	}
 
 	if snap.Overlay != nil {
