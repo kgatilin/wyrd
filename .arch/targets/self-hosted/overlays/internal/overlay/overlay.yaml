@@ -1,0 +1,6 @@
+aggregates:
+  overlay_model:
+    root: Config
+
+configs:
+  - Config

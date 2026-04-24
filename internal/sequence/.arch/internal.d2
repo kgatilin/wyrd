@@ -1,0 +1,244 @@
+# sequence package
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Files
+build: {
+  label: "build.go"
+  class: value
+
+  index: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-calls map[string][]internal/domain.CallEdge": ""
+  }
+
+  Build: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "models": "[]internal/domain.PackageModel"
+    "start": "internal/domain.SymbolRef"
+    "maxDepth": "int"
+    "return": "*internal/sequence.Node"
+  }
+
+  ParseTarget: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "target": "string"
+    "return": "(internal/domain.SymbolRef, bool)"
+  }
+
+  buildIndex: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "models": "[]internal/domain.PackageModel"
+    "return": "*internal/sequence.index"
+  }
+
+  buildNode: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "idx": "*internal/sequence.index"
+    "ref": "internal/domain.SymbolRef"
+    "via": "string"
+    "depth": "int"
+    "visited": "map[string]bool"
+    "return": "*internal/sequence.Node"
+  }
+
+  copyVisited: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "src": "map[string]bool"
+    "return": "map[string]bool"
+  }
+
+  symbolKey: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ref": "internal/domain.SymbolRef"
+    "return": "string"
+  }
+
+
+}
+
+format_d2: {
+  label: "format_d2.go"
+  class: value
+
+  FormatD2: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "*internal/sequence.Node"
+    "return": "string"
+  }
+
+  actorName: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ref": "internal/domain.SymbolRef"
+    "return": "string"
+  }
+
+  d2Ident: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "s": "string"
+    "return": "string"
+  }
+
+  methodLabel: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ref": "internal/domain.SymbolRef"
+    "return": "string"
+  }
+
+  pkgLeaf: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "string"
+    "return": "string"
+  }
+
+  splitMethodSymbol: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "sym": "string"
+    "return": "(string, string)"
+  }
+
+  writeD2Edges: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "sb": "*strings.Builder"
+    "n": "*internal/sequence.Node"
+  }
+
+
+}
+
+format_text: {
+  label: "format_text.go"
+  class: value
+
+  FormatText: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "*internal/sequence.Node"
+    "return": "string"
+  }
+
+  writeAnnotations: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "sb": "*strings.Builder"
+    "n": "*internal/sequence.Node"
+  }
+
+  writeTextNode: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "sb": "*strings.Builder"
+    "n": "*internal/sequence.Node"
+    "indent": "string"
+    "isRoot": "bool"
+  }
+
+
+}
+
+sequence: {
+  label: "sequence.go"
+  class: value
+
+  Node: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Symbol internal/domain.SymbolRef": ""
+    "+Via string": ""
+    "+Children []*internal/sequence.Node": ""
+    "+Cycle bool": ""
+    "+DepthLimit bool": ""
+    "+NotFound bool": ""
+  }
+
+}
+
+# Dependencies
+build.Build -> sequence.Node: "returns"
+format_d2.FormatD2 -> sequence.Node: "uses"
+format_text.FormatText -> sequence.Node: "uses"
+build.buildIndex -> build.index: "returns"
+build.buildNode -> build.index: "uses"
+build.buildNode -> sequence.Node: "returns"
+format_text.writeAnnotations -> sequence.Node: "uses"
+format_d2.writeD2Edges -> sequence.Node: "uses"
+format_text.writeTextNode -> sequence.Node: "uses"

@@ -1,0 +1,383 @@
+# serve package
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Files
+autostart: {
+  label: "autostart.go"
+  class: value
+
+  AutoStartOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+ExePath string": ""
+    "+Root string": ""
+    "+HTTPAddr string": ""
+    "+WaitTimeout time.Duration": ""
+    "+PollInterval time.Duration": ""
+    "+Stderr io.Writer": ""
+    "+IdleTimeout time.Duration": ""
+  }
+
+  AutoStartDaemon: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "opts": "internal/serve.AutoStartOptions"
+    "return": "(*internal/worktree.ServeRecord, error)"
+  }
+
+  DiscoverDaemon: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "(*internal/worktree.ServeRecord, string, error)"
+  }
+
+
+}
+
+autostart_unix: {
+  label: "autostart_unix.go"
+  class: value
+
+  acquireAutoStartLock: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "lockPath": "string"
+    "waitTimeout": "time.Duration"
+    "return": "(func(), error)"
+  }
+
+  detachProcess: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*os/exec.Cmd"
+  }
+
+
+}
+
+daemon: {
+  label: "daemon.go"
+  class: value
+
+  ActivityAware: {
+    shape: class
+    stereotype: "<<interface>>"
+
+    "+SetActivityObserver(func())": ""
+  }
+
+  HTTPTransport: {
+    shape: class
+    stereotype: "<<interface>>"
+
+    "+Serve(ctx context.Context, addr string, ready func(boundAddr string))": "error"
+  }
+
+  Options: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Root string": ""
+    "+MCPStdio bool": ""
+    "+MCPServe func(ctx context.Context, state *internal/serve.State) error": ""
+    "+HTTPAddr string": ""
+    "+HTTPServerFactory func(*internal/serve.State) (internal/serve.HTTPTransport, error)": ""
+    "+MultiState *internal/serve.MultiState": ""
+    "+Debug bool": ""
+    "+LogOut io.Writer": ""
+    "+Debounce time.Duration": ""
+    "+IdleTimeout time.Duration": ""
+  }
+
+  watcherCloser: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-cancel context.CancelFunc": ""
+    "-watcher *internal/serve.Watcher": ""
+    "-done chan struct{}": ""
+
+    "+Close()": "error"
+  }
+
+  Serve: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "opts": "internal/serve.Options"
+    "return": "error"
+  }
+
+  buildHandler: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "state": "*internal/serve.State"
+    "logOut": "io.Writer"
+    "debug": "bool"
+    "return": "internal/serve.EventHandler"
+  }
+
+  multiWatcherHook: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "parent": "context.Context"
+    "debounce": "time.Duration"
+    "logOut": "io.Writer"
+    "debug": "bool"
+    "return": "internal/serve.WatcherHook"
+  }
+
+  runIdleMonitor: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "idleTimeout": "time.Duration"
+    "lastActivity": "*sync/atomic.Int64"
+    "cancel": "context.CancelFunc"
+    "logOut": "io.Writer"
+  }
+
+
+}
+
+multistate: {
+  label: "multistate.go"
+  class: value
+
+  MultiState: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-mu sync.Mutex": ""
+    "-root string": ""
+    "-entries map[string]internal/worktree.Entry": ""
+    "-order []string": ""
+    "-states map[string]*internal/serve.State": ""
+    "-loader internal/serve.StateLoader": ""
+    "-watcherHook internal/serve.WatcherHook": ""
+    "-watchers map[string]io.Closer": ""
+
+    "+SetWatcherHook(hook internal/serve.WatcherHook)": ""
+    "+Refresh()": "error"
+    "+Close()": "error"
+    "+Worktrees()": "[]internal/worktree.Entry"
+    "+Names()": "[]string"
+    "+Has(name string)": "bool"
+    "+Default()": "string"
+    "+Get(ctx context.Context, name string)": "(*internal/serve.State, error)"
+    "+Entry(name string)": "(internal/worktree.Entry, bool)"
+  }
+
+  DefaultStateLoader: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "_": "string"
+    "path": "string"
+    "return": "(*internal/serve.State, error)"
+  }
+
+  NewMultiState: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "projectRoot": "string"
+    "loader": "internal/serve.StateLoader"
+    "return": "*internal/serve.MultiState"
+  }
+
+
+  StateLoader: {
+    shape: class
+
+    "type": "func(ctx context.Context, name string, path string) (*internal/serve.State, error)"
+  }
+
+  WatcherHook: {
+    shape: class
+
+    "type": "func(ctx context.Context, name string, state *internal/serve.State) (io.Closer, error)"
+  }
+
+}
+
+state: {
+  label: "state.go"
+  class: value
+
+  Snapshot: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Root string": ""
+    "+Packages []internal/domain.PackageModel": ""
+    "+Overlay *internal/overlay.Config": ""
+    "+CurrentTarget string": ""
+  }
+
+  State: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-mu sync.RWMutex": ""
+    "-root string": ""
+    "-reader internal/service.ModelReader": ""
+    "-packages map[string]internal/domain.PackageModel": ""
+    "-overlayCfg *internal/overlay.Config": ""
+    "-overlayPath string": ""
+    "-goModPath string": ""
+    "-currentTarget string": ""
+
+    "+Snapshot()": "internal/serve.Snapshot"
+    "+Root()": "string"
+    "+Load(ctx context.Context)": "error"
+    "+ReloadPackage(ctx context.Context, pkgPath string)": "error"
+    "+ReloadOverlay(ctx context.Context)": "error"
+    "+SwitchTarget(id string)": "error"
+    "-readAll(ctx context.Context)": "([]internal/domain.PackageModel, error)"
+    "-reloadOverlayLocked()": "error"
+    "+FindOwningPackage(path string)": "string"
+  }
+
+  NewState: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "root": "string"
+    "return": "*internal/serve.State"
+  }
+
+  hasGoFiles: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "dir": "string"
+    "return": "bool"
+  }
+
+
+}
+
+watcher: {
+  label: "watcher.go"
+  class: value
+
+  Watcher: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-inner *github.com/fsnotify/fsnotify.Watcher": ""
+    "-root string": ""
+    "-debounce time.Duration": ""
+    "-skipDir func(name string) bool": ""
+
+    "+Close()": "error"
+    "+Run(ctx context.Context, handler internal/serve.EventHandler)": "error"
+    "-addTree(root string)": "error"
+    "-shouldIgnore(path string)": "bool"
+  }
+
+  NewWatcher: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "root": "string"
+    "debounce": "time.Duration"
+    "return": "(*internal/serve.Watcher, error)"
+  }
+
+  defaultSkipDir: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "name": "string"
+    "return": "bool"
+  }
+
+
+  EventHandler: {
+    shape: class
+
+    "type": "func(paths []string)"
+  }
+
+}
+
+# Dependencies
+multistate.MultiState -> multistate.StateLoader: "uses"
+multistate.MultiState -> multistate.WatcherHook: "uses"
+multistate.MultiState -> state.State: "returns"
+daemon.Options -> multistate.MultiState: "uses"
+state.State -> state.Snapshot: "returns"
+watcher.Watcher -> watcher.EventHandler: "uses"
+daemon.watcherCloser -> watcher.Watcher: "uses"
+autostart.AutoStartDaemon -> autostart.AutoStartOptions: "uses"
+multistate.DefaultStateLoader -> state.State: "returns"
+multistate.NewMultiState -> multistate.StateLoader: "uses"
+multistate.NewMultiState -> multistate.MultiState: "returns"
+state.NewState -> state.State: "returns"
+watcher.NewWatcher -> watcher.Watcher: "returns"
+daemon.Serve -> daemon.Options: "uses"
+daemon.buildHandler -> state.State: "uses"
+daemon.buildHandler -> watcher.EventHandler: "returns"
+daemon.multiWatcherHook -> multistate.WatcherHook: "returns"

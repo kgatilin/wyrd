@@ -1,0 +1,60 @@
+# Self-hosted archai overlay.
+#
+# This file is intentionally a real project config for archai itself. The
+# generated per-package `.arch/` files in this repository are produced from
+# this overlay, so the project demonstrates the tool on its own codebase.
+#
+# Architecture shape:
+#   - `domain` is the extracted package model and shared value vocabulary.
+#   - `model_ops` contains operations over that model: overlay, diff, apply,
+#     and sequence analysis.
+#   - `service` owns the generation/composition use cases and ports.
+#   - `source_adapter` reads/writes external model formats and Go source.
+#   - `runtime` keeps live in-memory state and file watchers.
+#   - `transport` exposes the model to browser and MCP clients.
+#   - `storage` owns target/worktree filesystem state.
+#   - `cli` wires the public command surface.
+
+module: github.com/kgatilin/archai
+
+layers:
+  cli:
+    - cmd/...
+  transport:
+    - internal/adapter/http/...
+    - internal/adapter/mcp/...
+  runtime:
+    - internal/serve/...
+  source_adapter:
+    - internal/adapter/d2/...
+    - internal/adapter/golang/...
+    - internal/adapter/yaml/...
+  service:
+    - internal/service/...
+  model_ops:
+    - internal/overlay/...
+    - internal/diff/...
+    - internal/apply/...
+    - internal/sequence/...
+  storage:
+    - internal/target/...
+    - internal/worktree/...
+  domain:
+    - internal/domain/...
+  tests:
+    - tests/...
+
+layer_rules:
+  cli:            [transport, runtime, source_adapter, service, model_ops, storage, domain]
+  transport:      [runtime, source_adapter, model_ops, storage, domain]
+  runtime:        [source_adapter, service, model_ops, storage, domain]
+  source_adapter: [service, domain]
+  service:        [model_ops, domain]
+  model_ops:      [domain]
+  storage:        []
+  domain:         []
+  tests:          [cli, transport, runtime, source_adapter, service, model_ops, storage, domain]
+
+aggregates: {}
+
+configs: []

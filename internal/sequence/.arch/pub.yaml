@@ -1,0 +1,251 @@
+schema: archai/v1
+package: internal/sequence
+name: sequence
+layer: model_ops
+structs:
+    - name: Node
+      fields:
+        - name: Symbol
+          type:
+            name: SymbolRef
+            package: internal/domain
+          exported: true
+        - name: Via
+          type:
+            name: string
+          exported: true
+        - name: Children
+          type:
+            name: Node
+            package: internal/sequence
+            pointer: true
+            slice: true
+          exported: true
+        - name: Cycle
+          type:
+            name: bool
+          exported: true
+        - name: DepthLimit
+          type:
+            name: bool
+          exported: true
+        - name: NotFound
+          type:
+            name: bool
+          exported: true
+      exported: true
+      source_file: sequence.go
+      doc: |
+        Node is a single step in a rendered call chain. Root nodes represent the
+        starting symbol; Children are the callees resolved from Symbol's Calls.
+        Nodes flagged with Cycle are leaves — the caller should not recurse
+        further, but the node is kept so renderers can show "(cycle)" markers.
+        Nodes flagged with DepthLimit are leaves that were cut off because the
+        --depth budget was exhausted; they indicate the sequence may have more
+        structure that simply wasn't expanded.
+      stereotype: value
+functions:
+    - name: Build
+      params:
+        - name: models
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+        - name: start
+          type:
+            name: SymbolRef
+            package: internal/domain
+        - name: maxDepth
+          type:
+            name: int
+      returns:
+        - name: Node
+          package: internal/sequence
+          pointer: true
+      exported: true
+      source_file: build.go
+      doc: |
+        Build walks the static call graph rooted at start and returns a Node tree
+        capped at maxDepth. Depth 0 means "root only, no children". Calls that
+        revisit a symbol already on the current path are marked Cycle and not
+        recursed into. When a CallEdge points at a symbol that cannot be
+        resolved in models (e.g., stdlib filter already dropped it, or the
+        package is not loaded), a NotFound leaf is emitted so renderers can
+        still show the edge.
+
+        models must be the full set of PackageModels for the analyzed module.
+        The builder indexes them by (Package, Symbol) on first call.
+      calls:
+        - to:
+            package: internal/sequence
+            file: build.go
+            symbol: buildIndex
+        - to:
+            package: internal/sequence
+            file: build.go
+            symbol: buildNode
+    - name: FormatD2
+      params:
+        - name: root
+          type:
+            name: Node
+            package: internal/sequence
+            pointer: true
+      returns:
+        - name: string
+      exported: true
+      source_file: format_d2.go
+      doc: |
+        FormatD2 renders the Node tree as a D2 sequence diagram. Each unique
+        actor (package leaf plus optional type for methods) becomes an
+        implicit participant; every call becomes an arrow from caller to
+        callee labeled with the method (or function) name. Interface
+        dispatch edges are annotated with "[via pkg.Iface]".
+
+        Example output:
+
+        	shape: sequence_diagram
+        	service.Service -> golang.reader: Read
+        	golang.reader -> service.Service: validate
+
+        Cycle, unresolved, and depth-limit leaves are emitted as labeled
+        arrows so the diagram still communicates why a branch terminated.
+      calls:
+        - to:
+            package: internal/sequence
+            file: format_d2.go
+            symbol: writeD2Edges
+    - name: FormatText
+      params:
+        - name: root
+          type:
+            name: Node
+            package: internal/sequence
+            pointer: true
+      returns:
+        - name: string
+      exported: true
+      source_file: format_text.go
+      doc: |
+        FormatText renders a Node tree as an indented outline. Example:
+
+        	internal/service.Service.Generate
+        	  └─ internal/adapter/golang.reader.Read
+        	     └─ internal/service.Service.validate
+        	  └─ internal/service.Service.Generate (cycle)
+        	  └─ ... (depth limit)
+
+        The root is printed at column 0; each level of children is indented
+        two spaces and prefixed with "└─ ". Via annotations are shown inline
+        when non-empty.
+      calls:
+        - to:
+            package: internal/sequence
+            file: format_text.go
+            symbol: writeTextNode
+    - name: ParseTarget
+      params:
+        - name: target
+          type:
+            name: string
+      returns:
+        - name: SymbolRef
+          package: internal/domain
+        - name: bool
+      exported: true
+      source_file: build.go
+      doc: |
+        ParseTarget converts a CLI target like
+
+        	internal/service.Service.Generate    (method)
+        	internal/service.NewService          (function)
+        	cmd/archai.main                      (function)
+
+        into a SymbolRef. Heuristic: the last dot separates Symbol from
+        Package ONLY if the token before it starts lower-case (function) OR
+        the token before it is uppercase and the token before that is also
+        uppercase-looking (method — "Type.Method"). We keep it simple:
+        - Count the dots in the final path segment.
+        - If the segment has one dot, treat it as "pkg.Func".
+        - If the segment has two dots, treat it as "pkg.Type.Method".
+        - More dots: everything after the first dot is the Symbol.
+
+        The package portion may contain slashes (e.g. "internal/service").
+dependencies:
+    - from:
+        package: internal/sequence
+        file: sequence.go
+        symbol: Node
+      to:
+        package: internal/domain
+        symbol: SymbolRef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/sequence
+        file: sequence.go
+        symbol: Node
+      to:
+        package: internal/sequence
+        file: sequence.go
+        symbol: Node
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/sequence
+        file: build.go
+        symbol: Build
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/sequence
+        file: build.go
+        symbol: Build
+      to:
+        package: internal/domain
+        symbol: SymbolRef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/sequence
+        file: build.go
+        symbol: Build
+      to:
+        package: internal/sequence
+        file: sequence.go
+        symbol: Node
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/sequence
+        file: format_d2.go
+        symbol: FormatD2
+      to:
+        package: internal/sequence
+        file: sequence.go
+        symbol: Node
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/sequence
+        file: format_text.go
+        symbol: FormatText
+      to:
+        package: internal/sequence
+        file: sequence.go
+        symbol: Node
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/sequence
+        file: build.go
+        symbol: ParseTarget
+      to:
+        package: internal/domain
+        symbol: SymbolRef
+      kind: returns
+      through_exported: true

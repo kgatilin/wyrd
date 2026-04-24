@@ -96,6 +96,16 @@ func runGit(t *testing.T, repo string, args ...string) {
 	}
 }
 
+func samePath(a, b string) bool {
+	if resolved, err := filepath.EvalSymlinks(a); err == nil {
+		a = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(b); err == nil {
+		b = resolved
+	}
+	return a == b
+}
+
 // TestMultiState_RefreshDropsRemoved exercises the full Refresh → Get
 // → Refresh-drop → Get cycle against a real git repo with an added and
 // then removed worktree. It goes through the exported MultiState API
@@ -129,7 +139,7 @@ func TestMultiState_RefreshDropsRemoved(t *testing.T) {
 	var extraName string
 	for _, n := range names {
 		e, _ := m.Entry(n)
-		if e.Path == extraPath {
+		if samePath(e.Path, extraPath) {
 			extraName = n
 			break
 		}

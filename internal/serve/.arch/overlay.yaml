@@ -1,0 +1,7 @@
+aggregates:
+  daemon_state:
+    root: State
+
+configs:
+  - AutoStartOptions
+  - Options

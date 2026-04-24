@@ -1,0 +1,790 @@
+schema: archai/v1
+package: internal/diff
+name: diff
+layer: model_ops
+structs:
+    - name: Change
+      fields:
+        - name: Op
+          type:
+            name: Op
+            package: internal/diff
+          exported: true
+          tag: yaml:"op" json:"op"
+        - name: Kind
+          type:
+            name: Kind
+            package: internal/diff
+          exported: true
+          tag: yaml:"kind" json:"kind"
+        - name: Path
+          type:
+            name: string
+          exported: true
+          tag: yaml:"path" json:"path"
+        - name: Before
+          type:
+            name: any
+          exported: true
+          tag: yaml:"before,omitempty" json:"before,omitempty"
+        - name: After
+          type:
+            name: any
+          exported: true
+          tag: yaml:"after,omitempty" json:"after,omitempty"
+      exported: true
+      source_file: diff.go
+      doc: |
+        Change describes a single difference between two models.
+
+        Path is a dotted identifier that locates the element inside the model,
+        e.g. "internal/service" for a package, "internal/service.Service" for a
+        struct or interface, or "internal/service.Service.Handle" for a method.
+        Before/After are populated for OpChange; for OpAdd only After is set, for
+        OpRemove only Before is set.
+      stereotype: value
+    - name: Diff
+      fields:
+        - name: Changes
+          type:
+            name: Change
+            package: internal/diff
+            slice: true
+          exported: true
+          tag: yaml:"changes" json:"changes"
+      methods:
+        - name: IsEmpty
+          returns:
+            - name: bool
+          exported: true
+      exported: true
+      source_file: diff.go
+      doc: |
+        Diff is the ordered list of Changes produced by Compute.
+functions:
+    - name: Compute
+      params:
+        - name: current
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+        - name: target
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+      returns:
+        - name: Diff
+          package: internal/diff
+          pointer: true
+      exported: true
+      source_file: compute.go
+      doc: |
+        Compute produces a structured Diff describing how the current model must
+        change to match the target model.
+
+          - OpAdd    — symbol exists in target but not in current (After populated).
+          - OpRemove — symbol exists in current but not in target (Before populated).
+          - OpChange — symbol exists on both sides but differs (Before+After).
+
+        Matching is strictly name-based: packages by Path, symbols by Name within
+        a package, methods by (receiver, Name). Rename detection is intentionally
+        left out — a rename surfaces as OpRemove + OpAdd.
+      calls:
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: diffPackage
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: indexPackages
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: packageSummary
+    - name: FormatJSON
+      params:
+        - name: d
+          type:
+            name: Diff
+            package: internal/diff
+            pointer: true
+      returns:
+        - name: string
+        - name: error
+      exported: true
+      source_file: format.go
+      doc: |
+        FormatJSON marshals the Diff to indented JSON.
+    - name: FormatText
+      params:
+        - name: d
+          type:
+            name: Diff
+            package: internal/diff
+            pointer: true
+      returns:
+        - name: string
+      exported: true
+      source_file: format.go
+      doc: |
+        FormatText renders a Diff as a plain, human-readable listing. Each change
+        is a single line prefixed with "+" for add, "-" for remove, "~" for change.
+        A trailing summary line counts per-op totals.
+    - name: FormatYAML
+      params:
+        - name: d
+          type:
+            name: Diff
+            package: internal/diff
+            pointer: true
+      returns:
+        - name: string
+        - name: error
+      exported: true
+      source_file: format.go
+      doc: |
+        FormatYAML marshals the Diff to a YAML document.
+    - name: diffConsts
+      params:
+        - name: pkg
+          type:
+            name: string
+        - name: cur
+          type:
+            name: ConstDef
+            package: internal/domain
+            slice: true
+        - name: tgt
+          type:
+            name: ConstDef
+            package: internal/domain
+            slice: true
+      returns:
+        - name: Change
+          package: internal/diff
+          slice: true
+      exported: false
+      source_file: compute.go
+      calls:
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: unionNames
+    - name: diffDependencies
+      params:
+        - name: pkg
+          type:
+            name: string
+        - name: cur
+          type:
+            name: Dependency
+            package: internal/domain
+            slice: true
+        - name: tgt
+          type:
+            name: Dependency
+            package: internal/domain
+            slice: true
+      returns:
+        - name: Change
+          package: internal/diff
+          slice: true
+      exported: false
+      source_file: compute.go
+      doc: |
+        diffDependencies compares dependency lists. Since Dependency does not have
+        a natural name, we use a string key built from From/To/Kind.
+      calls:
+        - to:
+            package: internal/domain
+            file: dependency.go
+            symbol: SymbolRef.String
+    - name: diffErrors
+      params:
+        - name: pkg
+          type:
+            name: string
+        - name: cur
+          type:
+            name: ErrorDef
+            package: internal/domain
+            slice: true
+        - name: tgt
+          type:
+            name: ErrorDef
+            package: internal/domain
+            slice: true
+      returns:
+        - name: Change
+          package: internal/diff
+          slice: true
+      exported: false
+      source_file: compute.go
+      calls:
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: unionNames
+    - name: diffFunctions
+      params:
+        - name: pkg
+          type:
+            name: string
+        - name: cur
+          type:
+            name: FunctionDef
+            package: internal/domain
+            slice: true
+        - name: tgt
+          type:
+            name: FunctionDef
+            package: internal/domain
+            slice: true
+      returns:
+        - name: Change
+          package: internal/diff
+          slice: true
+      exported: false
+      source_file: compute.go
+      calls:
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: unionNames
+    - name: diffInterfaces
+      params:
+        - name: pkg
+          type:
+            name: string
+        - name: cur
+          type:
+            name: InterfaceDef
+            package: internal/domain
+            slice: true
+        - name: tgt
+          type:
+            name: InterfaceDef
+            package: internal/domain
+            slice: true
+      returns:
+        - name: Change
+          package: internal/diff
+          slice: true
+      exported: false
+      source_file: compute.go
+      calls:
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: unionNames
+    - name: diffPackage
+      params:
+        - name: cur
+          type:
+            name: PackageModel
+            package: internal/domain
+        - name: tgt
+          type:
+            name: PackageModel
+            package: internal/domain
+      returns:
+        - name: Change
+          package: internal/diff
+          slice: true
+      exported: false
+      source_file: compute.go
+      doc: |
+        diffPackage compares two matched packages and emits Changes for each
+        differing child symbol.
+      calls:
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: diffConsts
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: diffDependencies
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: diffErrors
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: diffFunctions
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: diffInterfaces
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: diffStructs
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: diffTypeDefs
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: diffVars
+    - name: diffStructs
+      params:
+        - name: pkg
+          type:
+            name: string
+        - name: cur
+          type:
+            name: StructDef
+            package: internal/domain
+            slice: true
+        - name: tgt
+          type:
+            name: StructDef
+            package: internal/domain
+            slice: true
+      returns:
+        - name: Change
+          package: internal/diff
+          slice: true
+      exported: false
+      source_file: compute.go
+      calls:
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: unionNames
+    - name: diffTypeDefs
+      params:
+        - name: pkg
+          type:
+            name: string
+        - name: cur
+          type:
+            name: TypeDef
+            package: internal/domain
+            slice: true
+        - name: tgt
+          type:
+            name: TypeDef
+            package: internal/domain
+            slice: true
+      returns:
+        - name: Change
+          package: internal/diff
+          slice: true
+      exported: false
+      source_file: compute.go
+      calls:
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: unionNames
+    - name: diffVars
+      params:
+        - name: pkg
+          type:
+            name: string
+        - name: cur
+          type:
+            name: VarDef
+            package: internal/domain
+            slice: true
+        - name: tgt
+          type:
+            name: VarDef
+            package: internal/domain
+            slice: true
+      returns:
+        - name: Change
+          package: internal/diff
+          slice: true
+      exported: false
+      source_file: compute.go
+      calls:
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: unionNames
+    - name: indexPackages
+      params:
+        - name: pkgs
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+      returns:
+        - name: ""
+          map: true
+          key_type:
+            name: string
+          value_type:
+            name: PackageModel
+            package: internal/domain
+      exported: false
+      source_file: compute.go
+    - name: packageSummary
+      params:
+        - name: p
+          type:
+            name: PackageModel
+            package: internal/domain
+      returns:
+        - name: ""
+          map: true
+          key_type:
+            name: string
+          value_type:
+            name: any
+      exported: false
+      source_file: compute.go
+      doc: |
+        packageSummary produces a compact, marshal-friendly snapshot of a package
+        used for the Before/After payload on add/remove-of-whole-package changes.
+      calls:
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: symbolNames
+    - name: symbolNames
+      params:
+        - name: xs
+          type:
+            name: T
+            slice: true
+        - name: name
+          type:
+            name: func(T) string
+      returns:
+        - name: string
+          slice: true
+      exported: false
+      source_file: compute.go
+    - name: unionNames
+      params:
+        - name: a
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: V
+        - name: b
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: V
+      returns:
+        - name: string
+          slice: true
+      exported: false
+      source_file: compute.go
+      doc: |
+        unionNames returns the sorted union of keys from two maps.
+typedefs:
+    - name: Kind
+      underlying_type:
+        name: string
+      constants:
+        - KindConst
+        - KindDep
+        - KindError
+        - KindField
+        - KindFunction
+        - KindInterface
+        - KindLayerRule
+        - KindMethod
+        - KindPackage
+        - KindStruct
+        - KindTypeDef
+        - KindVar
+      exported: true
+      source_file: diff.go
+      doc: |
+        Kind identifies the architectural element a Change entry refers to.
+      stereotype: enum
+    - name: Op
+      underlying_type:
+        name: string
+      constants:
+        - OpAdd
+        - OpChange
+        - OpRemove
+      exported: true
+      source_file: diff.go
+      doc: |
+        Op identifies the kind of change a Change entry describes.
+      stereotype: enum
+dependencies:
+    - from:
+        package: internal/diff
+        file: diff.go
+        symbol: Change
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Op
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/diff
+        file: diff.go
+        symbol: Change
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Kind
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/diff
+        file: diff.go
+        symbol: Diff
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Change
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: Compute
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: Compute
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Diff
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/diff
+        file: format.go
+        symbol: FormatJSON
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Diff
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/diff
+        file: format.go
+        symbol: FormatText
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Diff
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/diff
+        file: format.go
+        symbol: FormatYAML
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Diff
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffConsts
+      to:
+        package: internal/domain
+        symbol: ConstDef
+      kind: uses
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffConsts
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Change
+      kind: returns
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffDependencies
+      to:
+        package: internal/domain
+        symbol: Dependency
+      kind: uses
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffDependencies
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Change
+      kind: returns
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffErrors
+      to:
+        package: internal/domain
+        symbol: ErrorDef
+      kind: uses
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffErrors
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Change
+      kind: returns
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffFunctions
+      to:
+        package: internal/domain
+        symbol: FunctionDef
+      kind: uses
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffFunctions
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Change
+      kind: returns
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffInterfaces
+      to:
+        package: internal/domain
+        symbol: InterfaceDef
+      kind: uses
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffInterfaces
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Change
+      kind: returns
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffPackage
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffPackage
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Change
+      kind: returns
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffStructs
+      to:
+        package: internal/domain
+        symbol: StructDef
+      kind: uses
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffStructs
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Change
+      kind: returns
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffTypeDefs
+      to:
+        package: internal/domain
+        symbol: TypeDef
+      kind: uses
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffTypeDefs
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Change
+      kind: returns
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffVars
+      to:
+        package: internal/domain
+        symbol: VarDef
+      kind: uses
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: diffVars
+      to:
+        package: internal/diff
+        file: diff.go
+        symbol: Change
+      kind: returns
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: indexPackages
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: packageSummary
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: symbolNames
+      to:
+        package: internal/diff
+        symbol: T
+      kind: uses
+    - from:
+        package: internal/diff
+        file: compute.go
+        symbol: symbolNames
+      to:
+        package: internal/diff
+        symbol: func(T) string
+      kind: uses

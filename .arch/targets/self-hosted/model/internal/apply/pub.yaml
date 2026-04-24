@@ -1,0 +1,93 @@
+schema: archai/v1
+package: internal/apply
+name: apply
+layer: model_ops
+functions:
+    - name: Apply
+      params:
+        - name: d
+          type:
+            name: Diff
+            package: internal/diff
+            pointer: true
+        - name: currentModels
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+        - name: targetModels
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+      returns:
+        - name: PackageModel
+          package: internal/domain
+          slice: true
+        - name: error
+      exported: true
+      source_file: apply.go
+      doc: |
+        Apply replays diff d against targetModels, using currentModels as the
+        authoritative source for any symbol payload required when growing the
+        target. It returns a new slice of PackageModels; inputs are not mutated.
+
+        The diff is interpreted per diff.Compute's semantics — namely it describes
+        how the CURRENT code must change to match the target — and Apply reverses
+        each change against the target so that, after apply, the target snapshot
+        matches the current code.
+
+          - OpAdd    — symbol exists in target but not in current; REMOVE it from
+            the target snapshot.
+          - OpRemove — symbol exists in current but not in target; ADD it to the
+            target snapshot (copied from currentModels).
+          - OpChange — symbol exists on both sides but differs; REPLACE the target
+            version with the current version.
+
+        Unknown Op or Kind values are reported as errors. Dependencies are keyed
+        by the same "<from>-><to>:<kind>" string diff.Compute emits.
+      calls:
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: applyChange
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: cloneModels
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: indexMutableModels
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: indexPackages
+dependencies:
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: Apply
+      to:
+        package: internal/diff
+        symbol: Diff
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: Apply
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: Apply
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+      through_exported: true

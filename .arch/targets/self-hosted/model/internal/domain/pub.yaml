@@ -1,0 +1,1205 @@
+schema: archai/v1
+package: internal/domain
+name: domain
+layer: domain
+aggregate: package_model
+structs:
+    - name: CallEdge
+      fields:
+        - name: To
+          type:
+            name: SymbolRef
+            package: internal/domain
+          exported: true
+        - name: Via
+          type:
+            name: string
+          exported: true
+      exported: true
+      source_file: call.go
+      doc: |
+        CallEdge represents a behavioral edge from one function/method to another,
+        captured via static analysis of call expressions in the source AST.
+
+        Direct calls (concrete function or method targets) have an empty Via.
+        Calls dispatched through an interface value have Via set to the
+        fully-qualified interface name (e.g., "io.Reader") and one edge per
+        known implementation of that interface.
+      stereotype: entity
+    - name: ConstDef
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+        - name: Type
+          type:
+            name: TypeRef
+            package: internal/domain
+          exported: true
+        - name: Value
+          type:
+            name: string
+          exported: true
+        - name: IsExported
+          type:
+            name: bool
+          exported: true
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+        - name: Doc
+          type:
+            name: string
+          exported: true
+      exported: true
+      source_file: const.go
+      doc: |
+        ConstDef represents a package-level constant declaration.
+        This captures standalone constants that are not associated with an
+        enum-like TypeDef. Enum constants continue to live on their owning
+        TypeDef.Constants slice.
+      stereotype: entity
+    - name: Dependency
+      fields:
+        - name: From
+          type:
+            name: SymbolRef
+            package: internal/domain
+          exported: true
+        - name: To
+          type:
+            name: SymbolRef
+            package: internal/domain
+          exported: true
+        - name: Kind
+          type:
+            name: DependencyKind
+            package: internal/domain
+          exported: true
+        - name: ThroughExported
+          type:
+            name: bool
+          exported: true
+      methods:
+        - name: String
+          returns:
+            - name: string
+          exported: true
+          calls:
+            - to:
+                package: internal/domain
+                file: dependency.go
+                symbol: DependencyKind.String
+            - to:
+                package: internal/domain
+                file: dependency.go
+                symbol: SymbolRef.String
+      exported: true
+      source_file: dependency.go
+      doc: |
+        Dependency tracks a reference from one symbol to another.
+      stereotype: aggregate
+    - name: ErrorDef
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+        - name: Message
+          type:
+            name: string
+          exported: true
+        - name: IsExported
+          type:
+            name: bool
+          exported: true
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+        - name: Doc
+          type:
+            name: string
+          exported: true
+      exported: true
+      source_file: error.go
+      doc: |
+        ErrorDef represents a sentinel error declaration such as
+        `var ErrNotFound = errors.New("not found")` or
+        `var ErrBadArg = fmt.Errorf("bad argument: %w", ErrInput)`.
+      stereotype: entity
+    - name: FieldDef
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+        - name: Type
+          type:
+            name: TypeRef
+            package: internal/domain
+          exported: true
+        - name: IsExported
+          type:
+            name: bool
+          exported: true
+        - name: Tag
+          type:
+            name: string
+          exported: true
+      methods:
+        - name: String
+          returns:
+            - name: string
+          exported: true
+          calls:
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+        - name: StringWithVisibility
+          returns:
+            - name: string
+          exported: true
+          calls:
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+      exported: true
+      source_file: field.go
+      doc: |
+        FieldDef represents a struct field definition.
+      stereotype: aggregate
+    - name: FunctionDef
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+        - name: Params
+          type:
+            name: ParamDef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: Returns
+          type:
+            name: TypeRef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: IsExported
+          type:
+            name: bool
+          exported: true
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+        - name: Doc
+          type:
+            name: string
+          exported: true
+        - name: Stereotype
+          type:
+            name: Stereotype
+            package: internal/domain
+          exported: true
+        - name: Calls
+          type:
+            name: CallEdge
+            package: internal/domain
+            slice: true
+          exported: true
+      methods:
+        - name: Signature
+          returns:
+            - name: string
+          exported: true
+          calls:
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: MethodDef.Signature
+        - name: SignatureWithVisibility
+          returns:
+            - name: string
+          exported: true
+          calls:
+            - to:
+                package: internal/domain
+                file: function.go
+                symbol: FunctionDef.Signature
+      exported: true
+      source_file: function.go
+      doc: |
+        FunctionDef represents a Go function definition (package-level, no receiver).
+      stereotype: aggregate
+    - name: Implementation
+      fields:
+        - name: Concrete
+          type:
+            name: SymbolRef
+            package: internal/domain
+          exported: true
+        - name: Interface
+          type:
+            name: SymbolRef
+            package: internal/domain
+          exported: true
+        - name: IsPointer
+          type:
+            name: bool
+          exported: true
+      exported: true
+      source_file: implementation.go
+      doc: |
+        Implementation represents a concrete type implementing an interface.
+        It records that a named concrete type (possibly via its pointer) satisfies
+        the interface's method set.
+      stereotype: entity
+    - name: InterfaceDef
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+        - name: Methods
+          type:
+            name: MethodDef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: IsExported
+          type:
+            name: bool
+          exported: true
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+        - name: Doc
+          type:
+            name: string
+          exported: true
+        - name: Stereotype
+          type:
+            name: Stereotype
+            package: internal/domain
+          exported: true
+      exported: true
+      source_file: interface.go
+      doc: |
+        InterfaceDef represents a Go interface definition.
+      stereotype: entity
+    - name: MethodDef
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+        - name: Params
+          type:
+            name: ParamDef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: Returns
+          type:
+            name: TypeRef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: IsExported
+          type:
+            name: bool
+          exported: true
+        - name: Calls
+          type:
+            name: CallEdge
+            package: internal/domain
+            slice: true
+          exported: true
+      methods:
+        - name: Signature
+          returns:
+            - name: string
+          exported: true
+          calls:
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: ParamDef.String
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+        - name: SignatureWithVisibility
+          returns:
+            - name: string
+          exported: true
+          calls:
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: MethodDef.Signature
+      exported: true
+      source_file: method.go
+      doc: |
+        MethodDef represents a method signature (for interfaces or structs).
+      stereotype: aggregate
+    - name: Module
+      fields:
+        - name: Path
+          type:
+            name: string
+          exported: true
+        - name: Packages
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+          exported: true
+      methods:
+        - name: FindPackage
+          params:
+            - name: path
+              type:
+                name: string
+          returns:
+            - name: PackageModel
+              package: internal/domain
+              pointer: true
+          exported: true
+        - name: PackageCount
+          returns:
+            - name: int
+          exported: true
+      exported: true
+      source_file: module.go
+      doc: |
+        Module represents the root context for a Go module.
+        It provides the module path from go.mod and contains all parsed packages.
+      stereotype: aggregate
+    - name: PackageModel
+      fields:
+        - name: Path
+          type:
+            name: string
+          exported: true
+        - name: Name
+          type:
+            name: string
+          exported: true
+        - name: Interfaces
+          type:
+            name: InterfaceDef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: Structs
+          type:
+            name: StructDef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: Functions
+          type:
+            name: FunctionDef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: TypeDefs
+          type:
+            name: TypeDef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: Constants
+          type:
+            name: ConstDef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: Variables
+          type:
+            name: VarDef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: Errors
+          type:
+            name: ErrorDef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: Dependencies
+          type:
+            name: Dependency
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: Layer
+          type:
+            name: string
+          exported: true
+        - name: Aggregate
+          type:
+            name: string
+          exported: true
+        - name: Implementations
+          type:
+            name: Implementation
+            package: internal/domain
+            slice: true
+          exported: true
+      methods:
+        - name: SourceFiles
+          returns:
+            - name: string
+              slice: true
+          exported: true
+        - name: ExportedInterfaces
+          returns:
+            - name: InterfaceDef
+              package: internal/domain
+              slice: true
+          exported: true
+        - name: ExportedStructs
+          returns:
+            - name: StructDef
+              package: internal/domain
+              slice: true
+          exported: true
+        - name: ExportedFunctions
+          returns:
+            - name: FunctionDef
+              package: internal/domain
+              slice: true
+          exported: true
+        - name: ExportedTypeDefs
+          returns:
+            - name: TypeDef
+              package: internal/domain
+              slice: true
+          exported: true
+        - name: ExportedConstants
+          returns:
+            - name: ConstDef
+              package: internal/domain
+              slice: true
+          exported: true
+        - name: ExportedVariables
+          returns:
+            - name: VarDef
+              package: internal/domain
+              slice: true
+          exported: true
+        - name: ExportedErrors
+          returns:
+            - name: ErrorDef
+              package: internal/domain
+              slice: true
+          exported: true
+        - name: HasExportedSymbols
+          returns:
+            - name: bool
+          exported: true
+      exported: true
+      source_file: package.go
+      doc: |
+        PackageModel is the aggregate root representing a Go package's structure.
+        It contains all the symbols (interfaces, structs, functions, type definitions,
+        constants, variables, errors) found in the package, along with their
+        dependencies.
+      stereotype: aggregate
+    - name: ParamDef
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+        - name: Type
+          type:
+            name: TypeRef
+            package: internal/domain
+          exported: true
+      methods:
+        - name: String
+          returns:
+            - name: string
+          exported: true
+          calls:
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+      exported: true
+      source_file: method.go
+      doc: |
+        ParamDef represents a function or method parameter.
+      stereotype: aggregate
+    - name: StructDef
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+        - name: Fields
+          type:
+            name: FieldDef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: Methods
+          type:
+            name: MethodDef
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: IsExported
+          type:
+            name: bool
+          exported: true
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+        - name: Doc
+          type:
+            name: string
+          exported: true
+        - name: Stereotype
+          type:
+            name: Stereotype
+            package: internal/domain
+          exported: true
+      exported: true
+      source_file: struct.go
+      doc: |
+        StructDef represents a Go struct definition.
+      stereotype: entity
+    - name: SymbolRef
+      fields:
+        - name: Package
+          type:
+            name: string
+          exported: true
+        - name: File
+          type:
+            name: string
+          exported: true
+        - name: Symbol
+          type:
+            name: string
+          exported: true
+        - name: External
+          type:
+            name: bool
+          exported: true
+      methods:
+        - name: String
+          returns:
+            - name: string
+          exported: true
+        - name: QualifiedName
+          returns:
+            - name: string
+          exported: true
+      exported: true
+      source_file: dependency.go
+      doc: |
+        SymbolRef is a fully qualified reference to a symbol in the codebase.
+      stereotype: value
+    - name: TypeDef
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+        - name: UnderlyingType
+          type:
+            name: TypeRef
+            package: internal/domain
+          exported: true
+        - name: Constants
+          type:
+            name: string
+            slice: true
+          exported: true
+        - name: IsExported
+          type:
+            name: bool
+          exported: true
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+        - name: Doc
+          type:
+            name: string
+          exported: true
+        - name: Stereotype
+          type:
+            name: Stereotype
+            package: internal/domain
+          exported: true
+      methods:
+        - name: IsEnum
+          returns:
+            - name: bool
+          exported: true
+      exported: true
+      source_file: typedef.go
+      doc: |
+        TypeDef represents a type alias or type definition.
+        This is used primarily for detecting enum patterns where a type
+        is defined with associated constants.
+      stereotype: aggregate
+    - name: TypeRef
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+        - name: Package
+          type:
+            name: string
+          exported: true
+        - name: IsPointer
+          type:
+            name: bool
+          exported: true
+        - name: IsSlice
+          type:
+            name: bool
+          exported: true
+        - name: IsMap
+          type:
+            name: bool
+          exported: true
+        - name: KeyType
+          type:
+            name: TypeRef
+            package: internal/domain
+            pointer: true
+          exported: true
+        - name: ValueType
+          type:
+            name: TypeRef
+            package: internal/domain
+            pointer: true
+          exported: true
+      methods:
+        - name: String
+          returns:
+            - name: string
+          exported: true
+          calls:
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+      exported: true
+      source_file: method.go
+      doc: |
+        TypeRef represents a reference to a type, capturing whether it's
+        a pointer, slice, map, and which package it belongs to.
+      stereotype: value
+    - name: VarDef
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+        - name: Type
+          type:
+            name: TypeRef
+            package: internal/domain
+          exported: true
+        - name: IsExported
+          type:
+            name: bool
+          exported: true
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+        - name: Doc
+          type:
+            name: string
+          exported: true
+      exported: true
+      source_file: variable.go
+      doc: |
+        VarDef represents a package-level variable declaration.
+        Sentinel error variables (e.g. `var ErrNotFound = errors.New(...)`) are
+        captured separately as ErrorDef rather than as VarDef.
+      stereotype: entity
+    - name: WriteOptions
+      fields:
+        - name: OutputPath
+          type:
+            name: string
+          exported: true
+        - name: PublicOnly
+          type:
+            name: bool
+          exported: true
+        - name: ToStdout
+          type:
+            name: bool
+          exported: true
+      exported: true
+      source_file: write_options.go
+      doc: |
+        WriteOptions configures how models are written to output.
+      stereotype: value
+typedefs:
+    - name: DependencyKind
+      underlying_type:
+        name: string
+      constants:
+        - DependencyImplements
+        - DependencyReturns
+        - DependencyUses
+      exported: true
+      source_file: dependency.go
+      doc: |
+        DependencyKind represents the type of dependency between symbols.
+      stereotype: enum
+    - name: Stereotype
+      underlying_type:
+        name: string
+      constants:
+        - StereotypeAggregate
+        - StereotypeEntity
+        - StereotypeEnum
+        - StereotypeFactory
+        - StereotypeInterface
+        - StereotypeNone
+        - StereotypePort
+        - StereotypeRepository
+        - StereotypeService
+        - StereotypeValue
+      exported: true
+      source_file: stereotype.go
+      doc: |
+        Stereotype represents a DDD classification for a code element.
+        Stereotypes determine visual styling (color, label) in D2 diagrams
+        and help convey architectural intent.
+      stereotype: enum
+dependencies:
+    - from:
+        package: internal/domain
+        file: call.go
+        symbol: CallEdge
+      to:
+        package: internal/domain
+        file: dependency.go
+        symbol: SymbolRef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: const.go
+        symbol: ConstDef
+      to:
+        package: internal/domain
+        file: method.go
+        symbol: TypeRef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: dependency.go
+        symbol: Dependency
+      to:
+        package: internal/domain
+        file: dependency.go
+        symbol: SymbolRef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: dependency.go
+        symbol: Dependency
+      to:
+        package: internal/domain
+        file: dependency.go
+        symbol: DependencyKind
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: field.go
+        symbol: FieldDef
+      to:
+        package: internal/domain
+        file: method.go
+        symbol: TypeRef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: function.go
+        symbol: FunctionDef
+      to:
+        package: internal/domain
+        file: method.go
+        symbol: ParamDef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: function.go
+        symbol: FunctionDef
+      to:
+        package: internal/domain
+        file: method.go
+        symbol: TypeRef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: function.go
+        symbol: FunctionDef
+      to:
+        package: internal/domain
+        file: stereotype.go
+        symbol: Stereotype
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: function.go
+        symbol: FunctionDef
+      to:
+        package: internal/domain
+        file: call.go
+        symbol: CallEdge
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: implementation.go
+        symbol: Implementation
+      to:
+        package: internal/domain
+        file: dependency.go
+        symbol: SymbolRef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: interface.go
+        symbol: InterfaceDef
+      to:
+        package: internal/domain
+        file: method.go
+        symbol: MethodDef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: interface.go
+        symbol: InterfaceDef
+      to:
+        package: internal/domain
+        file: stereotype.go
+        symbol: Stereotype
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: method.go
+        symbol: MethodDef
+      to:
+        package: internal/domain
+        file: method.go
+        symbol: ParamDef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: method.go
+        symbol: MethodDef
+      to:
+        package: internal/domain
+        file: method.go
+        symbol: TypeRef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: method.go
+        symbol: MethodDef
+      to:
+        package: internal/domain
+        file: call.go
+        symbol: CallEdge
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: module.go
+        symbol: Module
+      to:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: module.go
+        symbol: Module
+      to:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: interface.go
+        symbol: InterfaceDef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: struct.go
+        symbol: StructDef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: function.go
+        symbol: FunctionDef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: typedef.go
+        symbol: TypeDef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: const.go
+        symbol: ConstDef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: variable.go
+        symbol: VarDef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: error.go
+        symbol: ErrorDef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: dependency.go
+        symbol: Dependency
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: implementation.go
+        symbol: Implementation
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: interface.go
+        symbol: InterfaceDef
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: struct.go
+        symbol: StructDef
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: function.go
+        symbol: FunctionDef
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: typedef.go
+        symbol: TypeDef
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: const.go
+        symbol: ConstDef
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: variable.go
+        symbol: VarDef
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: package.go
+        symbol: PackageModel
+      to:
+        package: internal/domain
+        file: error.go
+        symbol: ErrorDef
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: method.go
+        symbol: ParamDef
+      to:
+        package: internal/domain
+        file: method.go
+        symbol: TypeRef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: struct.go
+        symbol: StructDef
+      to:
+        package: internal/domain
+        file: field.go
+        symbol: FieldDef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: struct.go
+        symbol: StructDef
+      to:
+        package: internal/domain
+        file: method.go
+        symbol: MethodDef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: struct.go
+        symbol: StructDef
+      to:
+        package: internal/domain
+        file: stereotype.go
+        symbol: Stereotype
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: typedef.go
+        symbol: TypeDef
+      to:
+        package: internal/domain
+        file: method.go
+        symbol: TypeRef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: typedef.go
+        symbol: TypeDef
+      to:
+        package: internal/domain
+        file: stereotype.go
+        symbol: Stereotype
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: method.go
+        symbol: TypeRef
+      to:
+        package: internal/domain
+        file: method.go
+        symbol: TypeRef
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/domain
+        file: variable.go
+        symbol: VarDef
+      to:
+        package: internal/domain
+        file: method.go
+        symbol: TypeRef
+      kind: uses
+      through_exported: true

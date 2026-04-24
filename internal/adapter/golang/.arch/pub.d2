@@ -1,5 +1,25 @@
 # golang package
 
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
 # Legend
 legend: {
   label: "Color Legend (DDD)"
@@ -10,33 +30,29 @@ legend: {
   aggregate: {
     label: "Domain Model"
     shape: class
-    style.fill: "#e8f4fc"
-    style.font-color: "#000"
+    class: domain
   }
   service: {
     label: "Service"
     shape: class
-    style.fill: "#f0e8fc"
-    style.font-color: "#000"
+    class: service
   }
   factory: {
     label: "Factory"
     shape: class
-    style.fill: "#e8fce8"
-    style.font-color: "#000"
+    class: factory
   }
   options: {
     label: "Value Object"
     shape: class
-    style.fill: "#f8f8f8"
-    style.font-color: "#000"
+    class: value
   }
 }
 
 # Files
 reader: {
   label: "reader.go"
-  style.fill: "#e8fce8"
+  class: factory
 
   NewReader: {
     shape: class

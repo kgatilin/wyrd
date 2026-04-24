@@ -260,8 +260,8 @@ the CURRENT target.`,
 	overlayCmd := &cobra.Command{
 		Use:   "overlay",
 		Short: "Commands for working with archai.yaml overlays",
-		Long: `Commands for validating and inspecting the archai.yaml overlay
-(layers, layer rules, aggregates) against the current Go code.`,
+		Long: `Commands for validating and inspecting the composed overlay:
+root archai.yaml plus package-local .arch/overlay.yaml fragments.`,
 	}
 	rootCmd.AddCommand(overlayCmd)
 
@@ -269,8 +269,9 @@ the CURRENT target.`,
 	overlayCheckCmd := &cobra.Command{
 		Use:   "check",
 		Short: "Validate overlay and report layer-rule violations",
-		Long: `Load the archai.yaml overlay, validate it against go.mod, extract the
-current Go model, and report any layer-rule violations.
+		Long: `Load the composed overlay (archai.yaml plus package-local
+.arch/overlay.yaml fragments), validate it against go.mod, extract the current
+Go model, and report any layer-rule violations.
 
 Exits 0 when the overlay is valid and there are no violations; exits 1
 when the overlay fails validation or when any violations are reported.
@@ -595,7 +596,7 @@ func runOverlayCheck(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no overlay found: pass --overlay or create archai.yaml in the current directory")
 	}
 
-	cfg, err := overlay.Load(overlayPath)
+	cfg, err := overlay.LoadComposed(overlayPath)
 	if err != nil {
 		return fmt.Errorf("loading overlay %s: %w", overlayPath, err)
 	}
@@ -973,6 +974,10 @@ func runTargetLock(cmd *cobra.Command, args []string) error {
 		opts := service.GenerateOptions{
 			Paths:         paths,
 			FileExtension: ".yaml",
+		}
+		if overlayPath, goModPath := resolveOverlay(""); overlayPath != "" {
+			opts.OverlayPath = overlayPath
+			opts.GoModPath = goModPath
 		}
 		results, err := svc.Generate(ctx, opts)
 		if err != nil {

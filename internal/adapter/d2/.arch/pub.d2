@@ -1,5 +1,25 @@
 # d2 package
 
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
 # Legend
 legend: {
   label: "Color Legend (DDD)"
@@ -10,33 +30,29 @@ legend: {
   aggregate: {
     label: "Domain Model"
     shape: class
-    style.fill: "#e8f4fc"
-    style.font-color: "#000"
+    class: domain
   }
   service: {
     label: "Service"
     shape: class
-    style.fill: "#f0e8fc"
-    style.font-color: "#000"
+    class: service
   }
   factory: {
     label: "Factory"
     shape: class
-    style.fill: "#e8fce8"
-    style.font-color: "#000"
+    class: factory
   }
   options: {
     label: "Value Object"
     shape: class
-    style.fill: "#f8f8f8"
-    style.font-color: "#000"
+    class: value
   }
 }
 
 # Files
 reader: {
   label: "reader.go"
-  style.fill: "#e8fce8"
+  class: factory
 
   NewReader: {
     shape: class
@@ -46,11 +62,42 @@ reader: {
   }
 
 
+  Errors: {
+    shape: class
+    stereotype: "<<error>>"
+
+    "ErrEmptyDiagram": "D2 file is empty or contains no meaningful content"
+    "ErrInvalidLabel": "package container has invalid or missing label"
+    "ErrNoPackages": "no package containers found in D2 file"
+  }
+
+}
+
+styles: {
+  label: "styles.go"
+  class: value
+
+  Constants: {
+    shape: class
+    stereotype: "<<const>>"
+
+    "ClassDomain": "untyped string = \"domain\""
+    "ClassFactory": "untyped string = \"factory\""
+    "ClassService": "untyped string = \"service\""
+    "ClassValue": "untyped string = \"value\""
+    "ColorBlue": "untyped string = \"#e8f4fc\""
+    "ColorGray": "untyped string = \"#f8f8f8\""
+    "ColorGreen": "untyped string = \"#e8fce8\""
+    "ColorLegendBorder": "untyped string = \"#999\""
+    "ColorLegendFill": "untyped string = \"#fafafa\""
+    "ColorPurple": "untyped string = \"#f0e8fc\""
+  }
+
 }
 
 writer: {
   label: "writer.go"
-  style.fill: "#e8fce8"
+  class: factory
 
   NewWriter: {
     shape: class

@@ -50,6 +50,19 @@ legend: {
 }
 
 # Packages
+cmd.archai: {
+  label: "cmd/archai"
+  class: value
+
+  Variables: {
+    shape: class
+    stereotype: "<<var>>"
+
+    "Version": "string"
+  }
+
+}
+
 internal.adapter.d2: {
   label: "internal/adapter/d2"
   class: factory
@@ -68,6 +81,31 @@ internal.adapter.d2: {
     "return": "internal/service.ModelWriter"
   }
 
+  Constants: {
+    shape: class
+    stereotype: "<<const>>"
+
+    "ClassDomain": "untyped string = \"domain\""
+    "ClassFactory": "untyped string = \"factory\""
+    "ClassService": "untyped string = \"service\""
+    "ClassValue": "untyped string = \"value\""
+    "ColorBlue": "untyped string = \"#e8f4fc\""
+    "ColorGray": "untyped string = \"#f8f8f8\""
+    "ColorGreen": "untyped string = \"#e8fce8\""
+    "ColorLegendBorder": "untyped string = \"#999\""
+    "ColorLegendFill": "untyped string = \"#fafafa\""
+    "ColorPurple": "untyped string = \"#f0e8fc\""
+  }
+
+  Errors: {
+    shape: class
+    stereotype: "<<error>>"
+
+    "ErrEmptyDiagram": "D2 file is empty or contains no meaningful content"
+    "ErrInvalidLabel": "package container has invalid or missing label"
+    "ErrNoPackages": "no package containers found in D2 file"
+  }
+
 }
 
 internal.adapter.golang: {
@@ -83,9 +121,563 @@ internal.adapter.golang: {
 
 }
 
+internal.adapter.http: {
+  label: "internal/adapter/http"
+  class: factory
+
+  Server: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+SetActivityObserver(fn func())": ""
+    "+Serve(ctx context.Context, addr string, ready func(boundAddr string))": "error"
+  }
+
+  NewMultiServer: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "multi": "*internal/serve.MultiState"
+    "return": "(*internal/adapter/http.Server, error)"
+  }
+
+  NewServer: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "state": "*internal/serve.State"
+    "return": "(*internal/adapter/http.Server, error)"
+  }
+
+  # Dependencies
+  NewMultiServer -> Server: "returns"
+  NewServer -> Server: "returns"
+
+}
+
+internal.adapter.mcp: {
+  label: "internal/adapter/mcp"
+  class: value
+
+  ClientOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Endpoint string": ""
+    "+HTTPClient *net/http.Client": ""
+  }
+
+  PackageSummary: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Path string": ""
+    "+Name string": ""
+    "+Layer string": ""
+    "+InterfaceCount int": ""
+    "+StructCount int": ""
+    "+FunctionCount int": ""
+  }
+
+  RPCError: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Code int": ""
+    "+Message string": ""
+    "+Data any": ""
+  }
+
+  Request: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+JSONRPC string": ""
+    "+ID encoding/json.RawMessage": ""
+    "+Method string": ""
+    "+Params encoding/json.RawMessage": ""
+  }
+
+  Response: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+JSONRPC string": ""
+    "+ID encoding/json.RawMessage": ""
+    "+Result interface{}": ""
+    "+Error *internal/adapter/mcp.RPCError": ""
+  }
+
+  ToolDefinition: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Description string": ""
+    "+InputSchema any": ""
+  }
+
+  ToolResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Content []internal/adapter/mcp.ToolResultContent": ""
+    "+IsError bool": ""
+  }
+
+  ToolResultContent: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Type string": ""
+    "+Text string": ""
+  }
+
+  ValidateResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+OK bool": ""
+    "+Target string": ""
+    "+Violations []internal/diff.Change": ""
+  }
+
+  Dispatch: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "name": "string"
+    "rawArgs": "encoding/json.RawMessage"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  Serve: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "state": "*internal/serve.State"
+    "return": "error"
+  }
+
+  ServeClient: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "opts": "internal/adapter/mcp.ClientOptions"
+    "return": "error"
+  }
+
+  ToolDefinitions: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "return": "[]internal/adapter/mcp.ToolDefinition"
+  }
+
+  Constants: {
+    shape: class
+    stereotype: "<<const>>"
+
+    "ErrInternal": "untyped int = -32603"
+    "ErrInvalidParams": "untyped int = -32602"
+    "ErrInvalidRequest": "untyped int = -32600"
+    "ErrMethodNotFound": "untyped int = -32601"
+    "ErrParseError": "untyped int = -32700"
+  }
+
+  # Dependencies
+  Dispatch -> RPCError: "returns"
+  Dispatch -> ToolResult: "returns"
+  Response -> RPCError: "uses"
+  ServeClient -> ClientOptions: "uses"
+  ToolDefinitions -> ToolDefinition: "returns"
+  ToolResult -> ToolResultContent: "uses"
+
+}
+
+internal.adapter.yaml: {
+  label: "internal/adapter/yaml"
+  class: value
+
+  CallEdgeSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+To internal/adapter/yaml.SymbolRefSpec": ""
+    "+Via string": ""
+  }
+
+  ConstSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/adapter/yaml.TypeRefSpec": ""
+    "+Value string": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+  }
+
+  DependencySpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+From internal/adapter/yaml.SymbolRefSpec": ""
+    "+To internal/adapter/yaml.SymbolRefSpec": ""
+    "+Kind string": ""
+    "+ThroughExported bool": ""
+  }
+
+  ErrorSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Message string": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+  }
+
+  FieldSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/adapter/yaml.TypeRefSpec": ""
+    "+Exported bool": ""
+    "+Tag string": ""
+  }
+
+  FunctionSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Params []internal/adapter/yaml.ParamSpec": ""
+    "+Returns []internal/adapter/yaml.TypeRefSpec": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype string": ""
+    "+Calls []internal/adapter/yaml.CallEdgeSpec": ""
+  }
+
+  ImplementationSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Concrete internal/adapter/yaml.SymbolRefSpec": ""
+    "+Interface internal/adapter/yaml.SymbolRefSpec": ""
+    "+Pointer bool": ""
+  }
+
+  InterfaceSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Methods []internal/adapter/yaml.MethodSpec": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype string": ""
+  }
+
+  MethodSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Params []internal/adapter/yaml.ParamSpec": ""
+    "+Returns []internal/adapter/yaml.TypeRefSpec": ""
+    "+Exported bool": ""
+    "+Calls []internal/adapter/yaml.CallEdgeSpec": ""
+  }
+
+  PackageSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Schema string": ""
+    "+Package string": ""
+    "+Name string": ""
+    "+Layer string": ""
+    "+Aggregate string": ""
+    "+Interfaces []internal/adapter/yaml.InterfaceSpec": ""
+    "+Structs []internal/adapter/yaml.StructSpec": ""
+    "+Functions []internal/adapter/yaml.FunctionSpec": ""
+    "+TypeDefs []internal/adapter/yaml.TypeDefSpec": ""
+    "+Constants []internal/adapter/yaml.ConstSpec": ""
+    "+Variables []internal/adapter/yaml.VarSpec": ""
+    "+Errors []internal/adapter/yaml.ErrorSpec": ""
+    "+Dependencies []internal/adapter/yaml.DependencySpec": ""
+    "+Implementations []internal/adapter/yaml.ImplementationSpec": ""
+  }
+
+  ParamSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/adapter/yaml.TypeRefSpec": ""
+  }
+
+  StructSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Fields []internal/adapter/yaml.FieldSpec": ""
+    "+Methods []internal/adapter/yaml.MethodSpec": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype string": ""
+  }
+
+  SymbolRefSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Package string": ""
+    "+File string": ""
+    "+Symbol string": ""
+    "+External bool": ""
+  }
+
+  TypeDefSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+UnderlyingType internal/adapter/yaml.TypeRefSpec": ""
+    "+Constants []string": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype string": ""
+  }
+
+  TypeRefSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Package string": ""
+    "+Pointer bool": ""
+    "+Slice bool": ""
+    "+Map bool": ""
+    "+KeyType *internal/adapter/yaml.TypeRefSpec": ""
+    "+ValueType *internal/adapter/yaml.TypeRefSpec": ""
+  }
+
+  VarSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/adapter/yaml.TypeRefSpec": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+  }
+
+  MarshalPackage: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "model": "internal/domain.PackageModel"
+    "format": "string"
+    "return": "([]byte, error)"
+  }
+
+  NewReader: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "return": "internal/service.ModelReader"
+  }
+
+  NewWriter: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "return": "internal/service.ModelWriter"
+  }
+
+  # Dependencies
+  CallEdgeSpec -> SymbolRefSpec: "uses"
+  ConstSpec -> TypeRefSpec: "uses"
+  DependencySpec -> SymbolRefSpec: "uses"
+  FieldSpec -> TypeRefSpec: "uses"
+  FunctionSpec -> CallEdgeSpec: "uses"
+  FunctionSpec -> ParamSpec: "uses"
+  FunctionSpec -> TypeRefSpec: "uses"
+  ImplementationSpec -> SymbolRefSpec: "uses"
+  InterfaceSpec -> MethodSpec: "uses"
+  MethodSpec -> CallEdgeSpec: "uses"
+  MethodSpec -> ParamSpec: "uses"
+  MethodSpec -> TypeRefSpec: "uses"
+  PackageSpec -> ConstSpec: "uses"
+  PackageSpec -> DependencySpec: "uses"
+  PackageSpec -> ErrorSpec: "uses"
+  PackageSpec -> FunctionSpec: "uses"
+  PackageSpec -> ImplementationSpec: "uses"
+  PackageSpec -> InterfaceSpec: "uses"
+  PackageSpec -> StructSpec: "uses"
+  PackageSpec -> TypeDefSpec: "uses"
+  PackageSpec -> VarSpec: "uses"
+  ParamSpec -> TypeRefSpec: "uses"
+  StructSpec -> FieldSpec: "uses"
+  StructSpec -> MethodSpec: "uses"
+  TypeDefSpec -> TypeRefSpec: "uses"
+  VarSpec -> TypeRefSpec: "uses"
+
+}
+
+internal.apply: {
+  label: "internal/apply"
+  class: value
+
+  Apply: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "currentModels": "[]internal/domain.PackageModel"
+    "targetModels": "[]internal/domain.PackageModel"
+    "return": "([]internal/domain.PackageModel, error)"
+  }
+
+}
+
+internal.diff: {
+  label: "internal/diff"
+  class: value
+
+  Change: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Op internal/diff.Op": ""
+    "+Kind internal/diff.Kind": ""
+    "+Path string": ""
+    "+Before any": ""
+    "+After any": ""
+  }
+
+  Diff: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Changes []internal/diff.Change": ""
+
+    "+IsEmpty()": "bool"
+  }
+
+  Compute: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "current": "[]internal/domain.PackageModel"
+    "target": "[]internal/domain.PackageModel"
+    "return": "*internal/diff.Diff"
+  }
+
+  FormatJSON: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "return": "(string, error)"
+  }
+
+  FormatText: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "return": "string"
+  }
+
+  FormatYAML: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "return": "(string, error)"
+  }
+
+  Kind: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "string"
+
+    "KindConst": "const"
+    "KindDep": "const"
+    "KindError": "const"
+    "KindField": "const"
+    "KindFunction": "const"
+    "KindInterface": "const"
+    "KindLayerRule": "const"
+    "KindMethod": "const"
+    "KindPackage": "const"
+    "KindStruct": "const"
+    "KindTypeDef": "const"
+    "KindVar": "const"
+  }
+
+  Op: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "string"
+
+    "OpAdd": "const"
+    "OpChange": "const"
+    "OpRemove": "const"
+  }
+
+  # Dependencies
+  Change -> Kind: "uses"
+  Change -> Op: "uses"
+  Compute -> Diff: "returns"
+  Diff -> Change: "uses"
+  FormatJSON -> Diff: "uses"
+  FormatText -> Diff: "uses"
+  FormatYAML -> Diff: "uses"
+
+}
+
 internal.domain: {
   label: "internal/domain"
   class: domain
+
+  CallEdge: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+To internal/domain.SymbolRef": ""
+    "+Via string": ""
+  }
+
+  ConstDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/domain.TypeRef": ""
+    "+Value string": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+  }
 
   Dependency: {
     shape: class
@@ -97,6 +689,17 @@ internal.domain: {
     "+ThroughExported bool": ""
 
     "+String()": "string"
+  }
+
+  ErrorDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Message string": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
   }
 
   FieldDef: {
@@ -123,9 +726,19 @@ internal.domain: {
     "+SourceFile string": ""
     "+Doc string": ""
     "+Stereotype internal/domain.Stereotype": ""
+    "+Calls []internal/domain.CallEdge": ""
 
     "+Signature()": "string"
     "+SignatureWithVisibility()": "string"
+  }
+
+  Implementation: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Concrete internal/domain.SymbolRef": ""
+    "+Interface internal/domain.SymbolRef": ""
+    "+IsPointer bool": ""
   }
 
   InterfaceDef: {
@@ -148,6 +761,7 @@ internal.domain: {
     "+Params []internal/domain.ParamDef": ""
     "+Returns []internal/domain.TypeRef": ""
     "+IsExported bool": ""
+    "+Calls []internal/domain.CallEdge": ""
 
     "+Signature()": "string"
     "+SignatureWithVisibility()": "string"
@@ -174,13 +788,22 @@ internal.domain: {
     "+Structs []internal/domain.StructDef": ""
     "+Functions []internal/domain.FunctionDef": ""
     "+TypeDefs []internal/domain.TypeDef": ""
+    "+Constants []internal/domain.ConstDef": ""
+    "+Variables []internal/domain.VarDef": ""
+    "+Errors []internal/domain.ErrorDef": ""
     "+Dependencies []internal/domain.Dependency": ""
+    "+Layer string": ""
+    "+Aggregate string": ""
+    "+Implementations []internal/domain.Implementation": ""
 
     "+SourceFiles()": "[]string"
     "+ExportedInterfaces()": "[]internal/domain.InterfaceDef"
     "+ExportedStructs()": "[]internal/domain.StructDef"
     "+ExportedFunctions()": "[]internal/domain.FunctionDef"
     "+ExportedTypeDefs()": "[]internal/domain.TypeDef"
+    "+ExportedConstants()": "[]internal/domain.ConstDef"
+    "+ExportedVariables()": "[]internal/domain.VarDef"
+    "+ExportedErrors()": "[]internal/domain.ErrorDef"
     "+HasExportedSymbols()": "bool"
   }
 
@@ -250,6 +873,17 @@ internal.domain: {
     "+String()": "string"
   }
 
+  VarDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/domain.TypeRef": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+  }
+
   WriteOptions: {
     shape: class
     stereotype: "<<struct>>"
@@ -289,33 +923,364 @@ internal.domain: {
   }
 
   # Dependencies
+  CallEdge -> SymbolRef: "uses"
+  ConstDef -> TypeRef: "uses"
   Dependency -> DependencyKind: "uses"
   Dependency -> SymbolRef: "uses"
   FieldDef -> TypeRef: "uses"
+  FunctionDef -> CallEdge: "uses"
   FunctionDef -> ParamDef: "uses"
   FunctionDef -> Stereotype: "uses"
   FunctionDef -> TypeRef: "uses"
+  Implementation -> SymbolRef: "uses"
   InterfaceDef -> MethodDef: "uses"
   InterfaceDef -> Stereotype: "uses"
+  MethodDef -> CallEdge: "uses"
   MethodDef -> ParamDef: "uses"
   MethodDef -> TypeRef: "uses"
   Module -> PackageModel: "uses"
   Module -> PackageModel: "returns"
+  PackageModel -> ConstDef: "returns"
+  PackageModel -> ConstDef: "uses"
   PackageModel -> Dependency: "uses"
+  PackageModel -> ErrorDef: "uses"
+  PackageModel -> ErrorDef: "returns"
   PackageModel -> FunctionDef: "returns"
   PackageModel -> FunctionDef: "uses"
-  PackageModel -> InterfaceDef: "uses"
+  PackageModel -> Implementation: "uses"
   PackageModel -> InterfaceDef: "returns"
+  PackageModel -> InterfaceDef: "uses"
   PackageModel -> StructDef: "returns"
   PackageModel -> StructDef: "uses"
   PackageModel -> TypeDef: "uses"
   PackageModel -> TypeDef: "returns"
+  PackageModel -> VarDef: "returns"
+  PackageModel -> VarDef: "uses"
   ParamDef -> TypeRef: "uses"
   StructDef -> FieldDef: "uses"
   StructDef -> MethodDef: "uses"
   StructDef -> Stereotype: "uses"
   TypeDef -> Stereotype: "uses"
   TypeDef -> TypeRef: "uses"
+  VarDef -> TypeRef: "uses"
+
+}
+
+internal.overlay: {
+  label: "internal/overlay"
+  class: value
+
+  Aggregate: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Root string": ""
+  }
+
+  Config: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Module string": ""
+    "+Layers map[string][]string": ""
+    "+LayerRules map[string][]string": ""
+    "+Aggregates map[string]internal/overlay.Aggregate": ""
+    "+Configs []string": ""
+  }
+
+  Violation: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Package string": ""
+    "+Layer string": ""
+    "+Imports []string": ""
+  }
+
+  Load: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "return": "(*internal/overlay.Config, error)"
+  }
+
+  LoadComposed: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "return": "(*internal/overlay.Config, error)"
+  }
+
+  Merge: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "models": "[]internal/domain.PackageModel"
+    "cfg": "*internal/overlay.Config"
+    "return": "([]internal/domain.PackageModel, []internal/overlay.Violation, error)"
+  }
+
+  Validate: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cfg": "*internal/overlay.Config"
+    "goModPath": "string"
+    "return": "error"
+  }
+
+  # Dependencies
+  Load -> Config: "returns"
+  LoadComposed -> Config: "returns"
+  Merge -> Config: "uses"
+  Merge -> Violation: "returns"
+  Validate -> Config: "uses"
+
+}
+
+internal.sequence: {
+  label: "internal/sequence"
+  class: value
+
+  Node: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Symbol internal/domain.SymbolRef": ""
+    "+Via string": ""
+    "+Children []*internal/sequence.Node": ""
+    "+Cycle bool": ""
+    "+DepthLimit bool": ""
+    "+NotFound bool": ""
+  }
+
+  Build: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "models": "[]internal/domain.PackageModel"
+    "start": "internal/domain.SymbolRef"
+    "maxDepth": "int"
+    "return": "*internal/sequence.Node"
+  }
+
+  FormatD2: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "*internal/sequence.Node"
+    "return": "string"
+  }
+
+  FormatText: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "*internal/sequence.Node"
+    "return": "string"
+  }
+
+  ParseTarget: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "target": "string"
+    "return": "(internal/domain.SymbolRef, bool)"
+  }
+
+  # Dependencies
+  Build -> Node: "returns"
+  FormatD2 -> Node: "uses"
+  FormatText -> Node: "uses"
+
+}
+
+internal.serve: {
+  label: "internal/serve"
+  class: value
+
+  ActivityAware: {
+    shape: class
+    stereotype: "<<interface>>"
+
+    "+SetActivityObserver(func())": ""
+  }
+
+  HTTPTransport: {
+    shape: class
+    stereotype: "<<interface>>"
+
+    "+Serve(ctx context.Context, addr string, ready func(boundAddr string))": "error"
+  }
+
+  AutoStartOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+ExePath string": ""
+    "+Root string": ""
+    "+HTTPAddr string": ""
+    "+WaitTimeout time.Duration": ""
+    "+PollInterval time.Duration": ""
+    "+Stderr io.Writer": ""
+    "+IdleTimeout time.Duration": ""
+  }
+
+  MultiState: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+SetWatcherHook(hook internal/serve.WatcherHook)": ""
+    "+Refresh()": "error"
+    "+Close()": "error"
+    "+Worktrees()": "[]internal/worktree.Entry"
+    "+Names()": "[]string"
+    "+Has(name string)": "bool"
+    "+Default()": "string"
+    "+Get(ctx context.Context, name string)": "(*internal/serve.State, error)"
+    "+Entry(name string)": "(internal/worktree.Entry, bool)"
+  }
+
+  Options: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Root string": ""
+    "+MCPStdio bool": ""
+    "+MCPServe func(ctx context.Context, state *internal/serve.State) error": ""
+    "+HTTPAddr string": ""
+    "+HTTPServerFactory func(*internal/serve.State) (internal/serve.HTTPTransport, error)": ""
+    "+MultiState *internal/serve.MultiState": ""
+    "+Debug bool": ""
+    "+LogOut io.Writer": ""
+    "+Debounce time.Duration": ""
+    "+IdleTimeout time.Duration": ""
+  }
+
+  Snapshot: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Root string": ""
+    "+Packages []internal/domain.PackageModel": ""
+    "+Overlay *internal/overlay.Config": ""
+    "+CurrentTarget string": ""
+  }
+
+  State: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Snapshot()": "internal/serve.Snapshot"
+    "+Root()": "string"
+    "+Load(ctx context.Context)": "error"
+    "+ReloadPackage(ctx context.Context, pkgPath string)": "error"
+    "+ReloadOverlay(ctx context.Context)": "error"
+    "+SwitchTarget(id string)": "error"
+    "+FindOwningPackage(path string)": "string"
+  }
+
+  Watcher: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Close()": "error"
+    "+Run(ctx context.Context, handler internal/serve.EventHandler)": "error"
+  }
+
+  AutoStartDaemon: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "opts": "internal/serve.AutoStartOptions"
+    "return": "(*internal/worktree.ServeRecord, error)"
+  }
+
+  DefaultStateLoader: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "_": "string"
+    "path": "string"
+    "return": "(*internal/serve.State, error)"
+  }
+
+  DiscoverDaemon: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "(*internal/worktree.ServeRecord, string, error)"
+  }
+
+  NewMultiState: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "projectRoot": "string"
+    "loader": "internal/serve.StateLoader"
+    "return": "*internal/serve.MultiState"
+  }
+
+  NewState: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "root": "string"
+    "return": "*internal/serve.State"
+  }
+
+  NewWatcher: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "root": "string"
+    "debounce": "time.Duration"
+    "return": "(*internal/serve.Watcher, error)"
+  }
+
+  Serve: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "opts": "internal/serve.Options"
+    "return": "error"
+  }
+
+  EventHandler: {
+    shape: class
+
+    "type": "func(paths []string)"
+  }
+
+  StateLoader: {
+    shape: class
+
+    "type": "func(ctx context.Context, name string, path string) (*internal/serve.State, error)"
+  }
+
+  WatcherHook: {
+    shape: class
+
+    "type": "func(ctx context.Context, name string, state *internal/serve.State) (io.Closer, error)"
+  }
+
+  # Dependencies
+  AutoStartDaemon -> AutoStartOptions: "uses"
+  DefaultStateLoader -> State: "returns"
+  MultiState -> State: "returns"
+  NewMultiState -> MultiState: "returns"
+  NewMultiState -> StateLoader: "uses"
+  NewState -> State: "returns"
+  NewWatcher -> Watcher: "returns"
+  Options -> MultiState: "uses"
+  Serve -> Options: "uses"
+  State -> Snapshot: "returns"
+  Watcher -> EventHandler: "uses"
 
 }
 
@@ -336,6 +1301,24 @@ internal.service: {
 
     "+Write(ctx context.Context, model internal/domain.PackageModel, opts internal/domain.WriteOptions)": "error"
     "+WriteCombined(ctx context.Context, models []internal/domain.PackageModel, outputPath string)": "error"
+  }
+
+  ComposeOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Paths []string": ""
+    "+OutputPath string": ""
+    "+Mode internal/service.ComposeMode": ""
+  }
+
+  ComposeResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+OutputPath string": ""
+    "+PackageCount int": ""
+    "+SkippedPaths []string": ""
   }
 
   GenerateCombinedOptions: {
@@ -363,8 +1346,11 @@ internal.service: {
     "+Paths []string": ""
     "+PublicOnly bool": ""
     "+InternalOnly bool": ""
+    "+FileExtension string": ""
     "+Debug bool": ""
     "+DebugPrintf func(format string, args ...any)": ""
+    "+OverlayPath string": ""
+    "+GoModPath string": ""
   }
 
   GenerateResult: {
@@ -381,7 +1367,9 @@ internal.service: {
     shape: class
     stereotype: "<<struct>>"
 
+    "+Compose(ctx context.Context, opts internal/service.ComposeOptions)": "(*internal/service.ComposeResult, error)"
     "+Generate(ctx context.Context, opts internal/service.GenerateOptions)": "([]internal/service.GenerateResult, error)"
+    "+GenerateWithOverlay(ctx context.Context, opts internal/service.GenerateOptions)": "([]internal/service.GenerateResult, []internal/overlay.Violation, error)"
     "+GenerateCombined(ctx context.Context, opts internal/service.GenerateCombinedOptions)": "(*internal/service.GenerateCombinedResult, error)"
     "+Split(ctx context.Context, opts internal/service.SplitOptions)": "(*internal/service.SplitResult, error)"
   }
@@ -419,13 +1407,43 @@ internal.service: {
     "goReader": "internal/service.ModelReader"
     "d2Reader": "internal/service.ModelReader"
     "d2Writer": "internal/service.ModelWriter"
+    "opts": "[]internal/service.Option"
     "return": "*internal/service.Service"
   }
 
+  WithYAML: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "reader": "internal/service.ModelReader"
+    "writer": "internal/service.ModelWriter"
+    "return": "internal/service.Option"
+  }
+
+  ComposeMode: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "int"
+
+    "ComposeModeAuto": "const"
+    "ComposeModeSpec": "const"
+  }
+
+  Option: {
+    shape: class
+
+    "type": "func(*internal/service.Service)"
+  }
+
   # Dependencies
+  ComposeOptions -> ComposeMode: "uses"
   NewService -> ModelReader: "uses"
   NewService -> ModelWriter: "uses"
+  NewService -> Option: "uses"
   NewService -> Service: "returns"
+  Service -> ComposeOptions: "uses"
+  Service -> ComposeResult: "returns"
   Service -> GenerateCombinedOptions: "uses"
   Service -> GenerateCombinedResult: "returns"
   Service -> GenerateOptions: "uses"
@@ -433,6 +1451,265 @@ internal.service: {
   Service -> SplitOptions: "uses"
   Service -> SplitResult: "returns"
   SplitResult -> SplitFileResult: "uses"
+  WithYAML -> ModelReader: "uses"
+  WithYAML -> ModelWriter: "uses"
+  WithYAML -> Option: "returns"
+
+}
+
+internal.target: {
+  label: "internal/target"
+  class: value
+
+  LockOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Description string": ""
+  }
+
+  TargetMeta: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+ID string": ""
+    "+BaseCommit string": ""
+    "+CreatedAt string": ""
+    "+Description string": ""
+  }
+
+  Current: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "(string, error)"
+  }
+
+  Delete: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "id": "string"
+    "force": "bool"
+    "return": "error"
+  }
+
+  List: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "([]internal/target.TargetMeta, error)"
+  }
+
+  Lock: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "id": "string"
+    "opts": "internal/target.LockOptions"
+    "return": "error"
+  }
+
+  Show: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "id": "string"
+    "return": "(*internal/target.TargetMeta, []string, error)"
+  }
+
+  Use: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "id": "string"
+    "return": "error"
+  }
+
+  # Dependencies
+  List -> TargetMeta: "returns"
+  Lock -> LockOptions: "uses"
+  Show -> TargetMeta: "returns"
+
+}
+
+internal.worktree: {
+  label: "internal/worktree"
+  class: value
+
+  Entry: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Path string": ""
+    "+Name string": ""
+    "+Branch string": ""
+    "+Head string": ""
+    "+Bare bool": ""
+  }
+
+  LiveDaemon: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Worktree string": ""
+    "+Record internal/worktree.ServeRecord": ""
+    "+StartedAt time.Time": ""
+  }
+
+  ServeRecord: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+PID int": ""
+    "+HTTPAddr string": ""
+    "+StartedAt string": ""
+  }
+
+  CurrentPath: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "string"
+  }
+
+  Dir: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "string"
+  }
+
+  Discover: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "([]internal/worktree.Entry, error)"
+  }
+
+  LegacyCurrentPath: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "string"
+  }
+
+  ListDaemons: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "([]internal/worktree.LiveDaemon, error)"
+  }
+
+  Name: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "string"
+  }
+
+  PIDAlive: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pid": "int"
+    "return": "bool"
+  }
+
+  ParseWorktreeList: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "output": "string"
+    "return": "([]internal/worktree.Entry, error)"
+  }
+
+  ReadCurrent: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "(string, bool, error)"
+  }
+
+  ReadServe: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "(*internal/worktree.ServeRecord, error)"
+  }
+
+  RemoveCurrent: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "error"
+  }
+
+  RemoveServe: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "error"
+  }
+
+  ServePath: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "string"
+  }
+
+  WriteCurrent: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "id": "string"
+    "return": "error"
+  }
+
+  WriteServe: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "rec": "internal/worktree.ServeRecord"
+    "return": "error"
+  }
+
+  # Dependencies
+  Discover -> Entry: "returns"
+  ListDaemons -> LiveDaemon: "returns"
+  LiveDaemon -> ServeRecord: "uses"
+  ParseWorktreeList -> Entry: "returns"
+  ReadServe -> ServeRecord: "returns"
+  WriteServe -> ServeRecord: "uses"
 
 }
 
@@ -440,6 +1717,30 @@ internal.service: {
 internal.adapter.d2.NewReader -> internal.service.ModelReader: "returns"
 internal.adapter.d2.NewWriter -> internal.service.ModelWriter: "returns"
 internal.adapter.golang.NewReader -> internal.service.ModelReader: "returns"
+internal.adapter.http.NewMultiServer -> internal.serve.MultiState: "uses"
+internal.adapter.http.NewServer -> internal.serve.State: "uses"
+internal.adapter.mcp.Dispatch -> internal.serve.State: "uses"
+internal.adapter.mcp.Serve -> internal.serve.State: "uses"
+internal.adapter.mcp.ValidateResult -> internal.diff.Change: "uses"
+internal.adapter.yaml.MarshalPackage -> internal.domain.PackageModel: "uses"
+internal.adapter.yaml.NewReader -> internal.service.ModelReader: "returns"
+internal.adapter.yaml.NewWriter -> internal.service.ModelWriter: "returns"
+internal.apply.Apply -> internal.diff.Diff: "uses"
+internal.apply.Apply -> internal.domain.PackageModel: "uses"
+internal.apply.Apply -> internal.domain.PackageModel: "returns"
+internal.diff.Compute -> internal.domain.PackageModel: "uses"
+internal.overlay.Merge -> internal.domain.PackageModel: "uses"
+internal.overlay.Merge -> internal.domain.PackageModel: "returns"
+internal.sequence.Build -> internal.domain.PackageModel: "uses"
+internal.sequence.Build -> internal.domain.SymbolRef: "uses"
+internal.sequence.Node -> internal.domain.SymbolRef: "uses"
+internal.sequence.ParseTarget -> internal.domain.SymbolRef: "returns"
+internal.serve.AutoStartDaemon -> internal.worktree.ServeRecord: "returns"
+internal.serve.DiscoverDaemon -> internal.worktree.ServeRecord: "returns"
+internal.serve.MultiState -> internal.worktree.Entry: "returns"
+internal.serve.Snapshot -> internal.domain.PackageModel: "uses"
+internal.serve.Snapshot -> internal.overlay.Config: "uses"
 internal.service.ModelReader -> internal.domain.PackageModel: "returns"
 internal.service.ModelWriter -> internal.domain.PackageModel: "uses"
 internal.service.ModelWriter -> internal.domain.WriteOptions: "uses"
+internal.service.Service -> internal.overlay.Violation: "returns"

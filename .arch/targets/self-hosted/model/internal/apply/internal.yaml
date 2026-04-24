@@ -1,0 +1,939 @@
+schema: archai/v1
+package: internal/apply
+name: apply
+layer: model_ops
+functions:
+    - name: Apply
+      params:
+        - name: d
+          type:
+            name: Diff
+            package: internal/diff
+            pointer: true
+        - name: currentModels
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+        - name: targetModels
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+      returns:
+        - name: PackageModel
+          package: internal/domain
+          slice: true
+        - name: error
+      exported: true
+      source_file: apply.go
+      doc: |
+        Apply replays diff d against targetModels, using currentModels as the
+        authoritative source for any symbol payload required when growing the
+        target. It returns a new slice of PackageModels; inputs are not mutated.
+
+        The diff is interpreted per diff.Compute's semantics — namely it describes
+        how the CURRENT code must change to match the target — and Apply reverses
+        each change against the target so that, after apply, the target snapshot
+        matches the current code.
+
+          - OpAdd    — symbol exists in target but not in current; REMOVE it from
+            the target snapshot.
+          - OpRemove — symbol exists in current but not in target; ADD it to the
+            target snapshot (copied from currentModels).
+          - OpChange — symbol exists on both sides but differs; REPLACE the target
+            version with the current version.
+
+        Unknown Op or Kind values are reported as errors. Dependencies are keyed
+        by the same "<from>-><to>:<kind>" string diff.Compute emits.
+      calls:
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: applyChange
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: cloneModels
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: indexMutableModels
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: indexPackages
+    - name: applyChange
+      params:
+        - name: c
+          type:
+            name: Change
+            package: internal/diff
+        - name: curIdx
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: PackageModel
+                package: internal/domain
+        - name: tgtIdx
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: PackageModel
+                package: internal/domain
+                pointer: true
+      returns:
+        - name: error
+      exported: false
+      source_file: apply.go
+      doc: |
+        applyChange dispatches a single Change to the right mutator. It looks up
+        the package-level target PackageModel (creating one on OpAdd/OpChange when
+        needed) and delegates to a kind-specific helper.
+      calls:
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: applyConst
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: applyDep
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: applyError
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: applyFunction
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: applyInterface
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: applyPackage
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: applyStruct
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: applyTypeDef
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: applyVar
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: splitPath
+    - name: applyConst
+      params:
+        - name: op
+          type:
+            name: Op
+            package: internal/diff
+        - name: tgt
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: cur
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: false
+      source_file: apply.go
+    - name: applyDep
+      params:
+        - name: op
+          type:
+            name: Op
+            package: internal/diff
+        - name: tgt
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: cur
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: key
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: false
+      source_file: apply.go
+      doc: |
+        applyDep looks up the dependency by the Compute key "<from>-><to>:<kind>".
+      calls:
+        - to:
+            package: internal/domain
+            file: dependency.go
+            symbol: SymbolRef.String
+    - name: applyError
+      params:
+        - name: op
+          type:
+            name: Op
+            package: internal/diff
+        - name: tgt
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: cur
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: false
+      source_file: apply.go
+    - name: applyFunction
+      params:
+        - name: op
+          type:
+            name: Op
+            package: internal/diff
+        - name: tgt
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: cur
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: false
+      source_file: apply.go
+      calls:
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: findFunction
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: indexFunction
+    - name: applyInterface
+      params:
+        - name: op
+          type:
+            name: Op
+            package: internal/diff
+        - name: tgt
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: cur
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: false
+      source_file: apply.go
+      calls:
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: findInterface
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: indexInterface
+    - name: applyPackage
+      params:
+        - name: c
+          type:
+            name: Change
+            package: internal/diff
+        - name: curIdx
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: PackageModel
+                package: internal/domain
+        - name: tgtIdx
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: PackageModel
+                package: internal/domain
+                pointer: true
+      returns:
+        - name: error
+      exported: false
+      source_file: apply.go
+      doc: |
+        applyPackage handles OpAdd / OpRemove / OpChange on an entire package.
+        OpAdd (target has it, current doesn't) => drop from target.
+        OpRemove (current has it, target doesn't) => copy current package into target.
+    - name: applyStruct
+      params:
+        - name: op
+          type:
+            name: Op
+            package: internal/diff
+        - name: tgt
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: cur
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: false
+      source_file: apply.go
+      calls:
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: findStruct
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: indexStruct
+    - name: applyTypeDef
+      params:
+        - name: op
+          type:
+            name: Op
+            package: internal/diff
+        - name: tgt
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: cur
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: false
+      source_file: apply.go
+      calls:
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: findTypeDef
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: indexTypeDef
+    - name: applyVar
+      params:
+        - name: op
+          type:
+            name: Op
+            package: internal/diff
+        - name: tgt
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: cur
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: false
+      source_file: apply.go
+    - name: cloneModels
+      params:
+        - name: pkgs
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+      returns:
+        - name: PackageModel
+          package: internal/domain
+          slice: true
+      exported: false
+      source_file: apply.go
+      calls:
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: clonePackage
+    - name: clonePackage
+      params:
+        - name: p
+          type:
+            name: PackageModel
+            package: internal/domain
+      returns:
+        - name: PackageModel
+          package: internal/domain
+      exported: false
+      source_file: apply.go
+      doc: |
+        clonePackage returns a shallow-deep copy of p: slices are reallocated so
+        element mutations don't leak, but the elements themselves are copied by
+        value (their nested slices are not deep-copied because Apply replaces
+        elements whole rather than mutating their interiors).
+    - name: findFunction
+      params:
+        - name: p
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: FunctionDef
+          package: internal/domain
+          pointer: true
+      exported: false
+      source_file: apply.go
+    - name: findInterface
+      params:
+        - name: p
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: InterfaceDef
+          package: internal/domain
+          pointer: true
+      exported: false
+      source_file: apply.go
+    - name: findStruct
+      params:
+        - name: p
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: StructDef
+          package: internal/domain
+          pointer: true
+      exported: false
+      source_file: apply.go
+    - name: findTypeDef
+      params:
+        - name: p
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: TypeDef
+          package: internal/domain
+          pointer: true
+      exported: false
+      source_file: apply.go
+    - name: indexFunction
+      params:
+        - name: p
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: int
+      exported: false
+      source_file: apply.go
+    - name: indexInterface
+      params:
+        - name: p
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: int
+      exported: false
+      source_file: apply.go
+    - name: indexMutableModels
+      params:
+        - name: pkgs
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+      returns:
+        - name: ""
+          map: true
+          key_type:
+            name: string
+          value_type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+      exported: false
+      source_file: apply.go
+      doc: |
+        indexMutableModels returns a map of path -> *PackageModel containing deep-
+        copied models so mutations don't leak back into the caller's slice.
+      calls:
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: clonePackage
+    - name: indexPackages
+      params:
+        - name: pkgs
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+      returns:
+        - name: ""
+          map: true
+          key_type:
+            name: string
+          value_type:
+            name: PackageModel
+            package: internal/domain
+      exported: false
+      source_file: apply.go
+    - name: indexStruct
+      params:
+        - name: p
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: int
+      exported: false
+      source_file: apply.go
+    - name: indexTypeDef
+      params:
+        - name: p
+          type:
+            name: PackageModel
+            package: internal/domain
+            pointer: true
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: int
+      exported: false
+      source_file: apply.go
+    - name: splitPath
+      params:
+        - name: kind
+          type:
+            name: Kind
+            package: internal/diff
+        - name: path
+          type:
+            name: string
+      returns:
+        - name: string
+        - name: string
+        - name: error
+      exported: false
+      source_file: apply.go
+      doc: |
+        splitPath splits a diff.Change.Path into (package path, symbol-or-dep key).
+        For dependency changes the separator is '#'; for everything else the last
+        '.' after the package path is the separator.
+dependencies:
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: Apply
+      to:
+        package: internal/diff
+        symbol: Diff
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: Apply
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: Apply
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyChange
+      to:
+        package: internal/diff
+        symbol: Change
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyConst
+      to:
+        package: internal/diff
+        symbol: Op
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyConst
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyDep
+      to:
+        package: internal/diff
+        symbol: Op
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyDep
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyError
+      to:
+        package: internal/diff
+        symbol: Op
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyError
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyFunction
+      to:
+        package: internal/diff
+        symbol: Op
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyFunction
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyInterface
+      to:
+        package: internal/diff
+        symbol: Op
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyInterface
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyPackage
+      to:
+        package: internal/diff
+        symbol: Change
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyStruct
+      to:
+        package: internal/diff
+        symbol: Op
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyStruct
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyTypeDef
+      to:
+        package: internal/diff
+        symbol: Op
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyTypeDef
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyVar
+      to:
+        package: internal/diff
+        symbol: Op
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: applyVar
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: cloneModels
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: cloneModels
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: clonePackage
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: clonePackage
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: findFunction
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: findFunction
+      to:
+        package: internal/domain
+        symbol: FunctionDef
+      kind: returns
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: findInterface
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: findInterface
+      to:
+        package: internal/domain
+        symbol: InterfaceDef
+      kind: returns
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: findStruct
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: findStruct
+      to:
+        package: internal/domain
+        symbol: StructDef
+      kind: returns
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: findTypeDef
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: findTypeDef
+      to:
+        package: internal/domain
+        symbol: TypeDef
+      kind: returns
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: indexFunction
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: indexInterface
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: indexMutableModels
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: indexPackages
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: indexStruct
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: indexTypeDef
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/apply
+        file: apply.go
+        symbol: splitPath
+      to:
+        package: internal/diff
+        symbol: Kind
+      kind: uses

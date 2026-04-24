@@ -225,7 +225,7 @@ func (s *State) reloadOverlayLocked() error {
 		s.goModPath = ""
 		return nil
 	}
-	cfg, err := overlay.Load(overlayPath)
+	cfg, err := overlay.LoadComposed(overlayPath)
 	if err != nil {
 		return err
 	}

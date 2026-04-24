@@ -20,6 +20,7 @@ import (
 const (
 	archDirName     = ".arch"
 	targetsDirName  = "targets"
+	overlaysDirName = "overlays"
 	currentFileName = "CURRENT"
 	metaFileName    = "meta.yaml"
 	overlayFileName = "overlay.yaml"
@@ -46,6 +47,7 @@ type LockOptions struct {
 //
 //	.arch/targets/<id>/meta.yaml
 //	.arch/targets/<id>/overlay.yaml              (copy of archai.yaml, optional)
+//	.arch/targets/<id>/overlays/<pkg>/overlay.yaml (copy of package-local overlay fragments, optional)
 //	.arch/targets/<id>/model/<pkg>/pub.yaml
 //	.arch/targets/<id>/model/<pkg>/internal.yaml
 //
@@ -109,6 +111,26 @@ func Lock(projectRoot, id string, opts LockOptions) error {
 		return fmt.Errorf("target: stat %s: %w", overlaySrc, err)
 	}
 
+	// Freeze package-local overlay fragments. These are declarative
+	// config/aggregate additions that compose with archai.yaml at load
+	// time, so target snapshots should preserve them alongside the root
+	// overlay file.
+	fragments, err := findPackageOverlayFiles(projectRoot)
+	if err != nil {
+		return err
+	}
+	for _, rel := range fragments {
+		src := filepath.Join(projectRoot, rel)
+		pkg := filepath.Dir(filepath.Dir(rel))
+		dst := filepath.Join(targetDir, overlaysDirName, pkg, overlayFileName)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("target: create %s: %w", filepath.Dir(dst), err)
+		}
+		if err := copyFile(src, dst); err != nil {
+			return err
+		}
+	}
+
 	meta := TargetMeta{
 		ID:          id,
 		BaseCommit:  gitHead(projectRoot),
@@ -119,6 +141,45 @@ func Lock(projectRoot, id string, opts LockOptions) error {
 		return err
 	}
 	return nil
+}
+
+func findPackageOverlayFiles(projectRoot string) ([]string, error) {
+	var out []string
+	err := filepath.WalkDir(projectRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		switch d.Name() {
+		case ".git", ".worktrees", "bin", "vendor":
+			return filepath.SkipDir
+		case archDirName:
+			relDir, relErr := filepath.Rel(projectRoot, path)
+			if relErr != nil {
+				return relErr
+			}
+			relDir = filepath.ToSlash(relDir)
+			if relDir == archDirName || strings.HasPrefix(relDir, archDirName+"/"+targetsDirName) || strings.HasPrefix(relDir, archDirName+"/.worktree") {
+				return filepath.SkipDir
+			}
+			overlayPath := filepath.Join(path, overlayFileName)
+			if _, statErr := os.Stat(overlayPath); statErr == nil {
+				rel, relErr := filepath.Rel(projectRoot, overlayPath)
+				if relErr != nil {
+					return relErr
+				}
+				out = append(out, filepath.ToSlash(rel))
+			} else if !errors.Is(statErr, os.ErrNotExist) {
+				return fmt.Errorf("target: stat %s: %w", overlayPath, statErr)
+			}
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	sort.Strings(out)
+	return out, err
 }
 
 // List returns metadata for every locked target under .arch/targets/,

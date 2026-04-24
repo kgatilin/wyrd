@@ -1,0 +1,1485 @@
+schema: archai/v1
+package: cmd/archai
+name: main
+layer: cli
+functions:
+    - name: collectYAMLFiles
+      params:
+        - name: root
+          type:
+            name: string
+      returns:
+        - name: string
+          slice: true
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        collectYAMLFiles returns every *.yaml / *.yml file under root.
+    - name: dumpExtract
+      params:
+        - name: w
+          type:
+            name: Writer
+            package: io
+        - name: models
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+        - name: format
+          type:
+            name: string
+        - name: outDir
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: false
+      source_file: extract.go
+      doc: |
+        dumpExtract writes one file per package under outDir and prints a
+        short summary to w. The on-disk layout mirrors the convention used by
+        per-package .arch/internal.yaml specs so the dump can be consumed by
+        the YAML reader directly.
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: marshal.go
+            symbol: MarshalPackage
+    - name: extractModels
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: path
+          type:
+            name: string
+      returns:
+        - name: PackageModel
+          package: internal/domain
+          slice: true
+        - name: error
+      exported: false
+      source_file: extract.go
+      doc: |
+        extractModels runs the Go adapter against a single project path.
+
+        The Go reader drives golang.org/x/tools/go/packages.Load, which
+        resolves `./...` relative to the current working directory. To keep
+        this command usable from anywhere we temporarily chdir into the
+        target directory, load, then restore. Non-directory paths are passed
+        through to packages.Load verbatim.
+      calls:
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+        - to:
+            package: internal/adapter/yaml
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+    - name: findCurrentYAMLSpecs
+      params:
+        - name: projectRoot
+          type:
+            name: string
+      returns:
+        - name: string
+          slice: true
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        findCurrentYAMLSpecs walks projectRoot for package-level .arch/*.yaml
+        files. The .arch/targets tree is skipped so locked targets don't leak
+        into the "current" model.
+    - name: formatUptime
+      params:
+        - name: d
+          type:
+            name: Duration
+            package: time
+      returns:
+        - name: string
+      exported: false
+      source_file: main.go
+      doc: |
+        formatUptime renders a duration as a short human-readable string
+        (e.g. "3m", "2h14m", "5d3h"). Precision is intentionally coarse.
+    - name: loadCurrentModel
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: projectRoot
+          type:
+            name: string
+      returns:
+        - name: PackageModel
+          package: internal/domain
+          slice: true
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        loadCurrentModel builds the "current" package model for diff. Preference
+        order:
+         1. Per-package .arch/*.yaml specs found under projectRoot (excluding
+            .arch/targets/).
+         2. Fallback: parse Go sources under ./... via the Go reader.
+      calls:
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: findCurrentYAMLSpecs
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+        - to:
+            package: internal/adapter/yaml
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/yaml
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+    - name: loadTargetModel
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: projectRoot
+          type:
+            name: string
+        - name: id
+          type:
+            name: string
+      returns:
+        - name: PackageModel
+          package: internal/domain
+          slice: true
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        loadTargetModel loads the frozen model from .arch/targets/<id>/model/.
+      calls:
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: collectYAMLFiles
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+        - to:
+            package: internal/adapter/yaml
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/yaml
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+    - name: main
+      exported: false
+      source_file: main.go
+      calls:
+        - to:
+            package: cmd/archai
+            file: extract.go
+            symbol: newExtractCmd
+        - to:
+            package: cmd/archai
+            file: version.go
+            symbol: newVersionCmd
+    - name: newExtractCmd
+      returns:
+        - name: Command
+          package: github.com/spf13/cobra
+          pointer: true
+      exported: false
+      source_file: extract.go
+      doc: |
+        newExtractCmd returns the `archai extract <path>` command.
+
+        extract mirrors the MCP `extract` tool but from the CLI: it loads the
+        Go packages rooted at <path> (default ".") via the same adapter the
+        MCP daemon uses, and emits one serialized document per package.
+
+        With no --out flag every package is streamed to stdout separated by
+        `---\n` (yaml) or as a JSON array (json). When --out is set each
+        package is written to <out>/<relative-pkg-path>/internal.yaml (or
+        .json) and a one-line summary is printed.
+    - name: newVersionCmd
+      returns:
+        - name: Command
+          package: github.com/spf13/cobra
+          pointer: true
+      exported: false
+      source_file: version.go
+      doc: |
+        newVersionCmd returns the `archai version` command. Output is a
+        single line: `archai <version>`.
+      calls:
+        - to:
+            package: cmd/archai
+            file: version.go
+            symbol: resolveVersion
+    - name: printOverlayViolations
+      params:
+        - name: w
+          type:
+            name: Writer
+            package: io
+        - name: violations
+          type:
+            name: Violation
+            package: internal/overlay
+            slice: true
+        - name: pkgLayer
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: string
+      exported: false
+      source_file: main.go
+      doc: |
+        printOverlayViolations renders a human-readable report of the given
+        violations to w. pkgLayer maps module-relative package paths to their
+        assigned layer so the "layer B" half of each line is accurate.
+      calls:
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: violationCount
+    - name: resolveOverlay
+      params:
+        - name: explicitPath
+          type:
+            name: string
+      returns:
+        - name: string
+        - name: string
+      exported: false
+      source_file: main.go
+      doc: |
+        resolveOverlay determines the overlay path and accompanying go.mod
+        path used by the generate command. When explicitPath is non-empty
+        it is used verbatim (and the adjacent go.mod is looked up); when
+        empty we auto-detect ./archai.yaml in the working directory.
+        Returns empty strings when no overlay is found.
+    - name: resolveVersion
+      returns:
+        - name: string
+      exported: false
+      source_file: version.go
+      doc: |
+        resolveVersion returns the effective version string used by
+        `archai version`. It prefers the linker-injected Version; if that
+        hasn't been set it tries debug.ReadBuildInfo so module-managed
+        installs report their module version instead of the literal "dev".
+    - name: runCompose
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runCompose executes the diagram compose command.
+      calls:
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/d2
+            file: writer.go
+            symbol: NewWriter
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/yaml
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/yaml
+            file: writer.go
+            symbol: NewWriter
+        - to:
+            package: internal/service
+            file: factory.go
+            symbol: NewService
+        - to:
+            package: internal/service
+            file: service.go
+            symbol: Service.Compose
+        - to:
+            package: internal/service
+            file: factory.go
+            symbol: WithYAML
+    - name: runDiff
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runDiff handles `archai diff`. It loads the current model from the
+        project's per-package .arch/*.yaml files (falling back to parsing Go
+        sources if no specs are present) and the target model from
+        .arch/targets/<id>/model/, computes a structured diff and prints it in
+        the requested format.
+      calls:
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: loadCurrentModel
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: loadTargetModel
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: Compute
+        - to:
+            package: internal/diff
+            file: format.go
+            symbol: FormatJSON
+        - to:
+            package: internal/diff
+            file: format.go
+            symbol: FormatText
+        - to:
+            package: internal/diff
+            file: format.go
+            symbol: FormatYAML
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: Current
+    - name: runDiffApply
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runDiffApply handles `archai diff apply <patch.yaml>`. It loads the patch,
+        resolves the active target, rebuilds the current + target models, invokes
+        apply.Apply, and overwrites the target snapshot's model/ tree with the
+        result.
+      calls:
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: loadCurrentModel
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: loadTargetModel
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: validatePatch
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: writeTargetModels
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: Apply
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: Current
+    - name: runExtract
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: extract.go
+      doc: |
+        runExtract implements `archai extract`. It reuses the same golang
+        reader wired into `serve` and the MCP `extract` tool.
+      calls:
+        - to:
+            package: cmd/archai
+            file: extract.go
+            symbol: dumpExtract
+        - to:
+            package: cmd/archai
+            file: extract.go
+            symbol: extractModels
+        - to:
+            package: cmd/archai
+            file: extract.go
+            symbol: streamExtract
+    - name: runGenerate
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runGenerate executes the diagram generation command.
+      calls:
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: resolveOverlay
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/d2
+            file: writer.go
+            symbol: NewWriter
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/yaml
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/yaml
+            file: writer.go
+            symbol: NewWriter
+        - to:
+            package: internal/service
+            file: factory.go
+            symbol: NewService
+        - to:
+            package: internal/service
+            file: service.go
+            symbol: Service.GenerateCombined
+        - to:
+            package: internal/service
+            file: service.go
+            symbol: Service.GenerateWithOverlay
+        - to:
+            package: internal/service
+            file: factory.go
+            symbol: WithYAML
+    - name: runListDaemons
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runListDaemons handles `archai list-daemons`. It prints a small
+        table of live daemons keyed by worktree name.
+      calls:
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: formatUptime
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: ListDaemons
+    - name: runMCPThinClient
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: root
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runMCPThinClient implements the `archai serve --mcp-stdio` thin
+        client. It resolves the worktree's running HTTP daemon (auto-starting
+        one if necessary) and runs the MCP stdio transport in client mode.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: client.go
+            symbol: ServeClient
+        - to:
+            package: internal/serve
+            file: autostart.go
+            symbol: AutoStartDaemon
+        - to:
+            package: internal/serve
+            file: autostart.go
+            symbol: DiscoverDaemon
+    - name: runOverlayCheck
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runOverlayCheck executes `archai overlay check`. It loads the overlay,
+        validates it against the adjacent go.mod, extracts the current Go
+        model, merges the overlay to detect layer-rule violations, and prints
+        a human-readable report. Returns a non-nil error (which Cobra turns
+        into a non-zero exit code) when validation fails or violations exist.
+      calls:
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: printOverlayViolations
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: resolveOverlay
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: trimModulePrefix
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: violationCount
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+        - to:
+            package: internal/adapter/yaml
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+        - to:
+            package: internal/overlay
+            file: load.go
+            symbol: LoadComposed
+        - to:
+            package: internal/overlay
+            file: merge.go
+            symbol: Merge
+        - to:
+            package: internal/overlay
+            file: validate.go
+            symbol: Validate
+    - name: runSequence
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runSequence handles `archai sequence <target>`. It parses the target,
+        loads the current model (YAML specs preferred, Go reader fallback),
+        builds the call-sequence tree and emits it in the requested format.
+      calls:
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: loadCurrentModel
+        - to:
+            package: internal/sequence
+            file: build.go
+            symbol: Build
+        - to:
+            package: internal/sequence
+            file: format_d2.go
+            symbol: FormatD2
+        - to:
+            package: internal/sequence
+            file: format_text.go
+            symbol: FormatText
+        - to:
+            package: internal/sequence
+            file: build.go
+            symbol: ParseTarget
+    - name: runServe
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runServe handles `archai serve`. It wires SIGINT/SIGTERM into a
+        cancellable context and dispatches between three operational modes:
+
+         1. Default: long-running HTTP daemon (no --mcp-stdio).
+         2. Thin-client MCP: --mcp-stdio without --no-daemon. Discovers (or
+            auto-starts) an HTTP daemon on this worktree and proxies every
+            tools/call to it over HTTP.
+         3. One-shot MCP: --mcp-stdio --no-daemon. Runs the full in-process
+            daemon (model + MCP stdio) in the current process with no HTTP
+            transport and no watcher-driven auto-reload; every tool call
+            sees whatever was loaded at startup.
+      calls:
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: runMCPThinClient
+        - to:
+            package: internal/adapter/http
+            file: server.go
+            symbol: NewMultiServer
+        - to:
+            package: internal/adapter/http
+            file: server.go
+            symbol: NewServer
+        - to:
+            package: internal/adapter/mcp
+            file: stdio.go
+            symbol: Serve
+        - to:
+            package: internal/serve
+            file: multistate.go
+            symbol: MultiState.Refresh
+        - to:
+            package: internal/serve
+            file: multistate.go
+            symbol: NewMultiState
+        - to:
+            package: internal/serve
+            file: daemon.go
+            symbol: Serve
+    - name: runSplit
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runSplit executes the diagram split command.
+      calls:
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/d2
+            file: writer.go
+            symbol: NewWriter
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/yaml
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/yaml
+            file: writer.go
+            symbol: NewWriter
+        - to:
+            package: internal/service
+            file: factory.go
+            symbol: NewService
+        - to:
+            package: internal/service
+            file: service.go
+            symbol: Service.Split
+        - to:
+            package: internal/service
+            file: factory.go
+            symbol: WithYAML
+    - name: runTargetDelete
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runTargetDelete handles `archai target delete <id>`.
+      calls:
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: Delete
+    - name: runTargetList
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runTargetList handles `archai target list`.
+      calls:
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: Current
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: List
+    - name: runTargetLock
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runTargetLock handles `archai target lock <id>`. It (optionally)
+        regenerates per-package YAML specs and then freezes them plus
+        archai.yaml into .arch/targets/<id>/.
+      calls:
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: resolveOverlay
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/yaml
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/yaml
+            file: writer.go
+            symbol: NewWriter
+        - to:
+            package: internal/service
+            file: factory.go
+            symbol: NewService
+        - to:
+            package: internal/service
+            file: service.go
+            symbol: Service.Generate
+        - to:
+            package: internal/service
+            file: factory.go
+            symbol: WithYAML
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: Lock
+    - name: runTargetShow
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runTargetShow handles `archai target show <id>`.
+      calls:
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: Show
+    - name: runTargetUse
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runTargetUse handles `archai target use <id>`.
+      calls:
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: Use
+    - name: runValidate
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runValidate handles `archai validate`. It exits 0 when current matches
+        target, non-zero otherwise. Output format is controlled by --format.
+      calls:
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: loadCurrentModel
+        - to:
+            package: cmd/archai
+            file: main.go
+            symbol: loadTargetModel
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: Compute
+        - to:
+            package: internal/diff
+            file: diff.go
+            symbol: Diff.IsEmpty
+        - to:
+            package: internal/diff
+            file: format.go
+            symbol: FormatJSON
+        - to:
+            package: internal/diff
+            file: format.go
+            symbol: FormatYAML
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: Current
+    - name: runWhere
+      params:
+        - name: cmd
+          type:
+            name: Command
+            package: github.com/spf13/cobra
+            pointer: true
+        - name: args
+          type:
+            name: string
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        runWhere handles `archai where`. It prints the URL of the daemon
+        currently serving this worktree (if any) and exits non-zero when no
+        daemon is recorded or the record is stale.
+      calls:
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: Name
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: PIDAlive
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: ReadServe
+    - name: streamExtract
+      params:
+        - name: w
+          type:
+            name: Writer
+            package: io
+        - name: models
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+        - name: format
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: false
+      source_file: extract.go
+      doc: |
+        streamExtract writes every package document to w.
+
+        YAML: one document per package, separated by the standard "---\n"
+        delimiter.
+
+        JSON: a single JSON array containing every package document (so the
+        whole stream is still valid JSON).
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: marshal.go
+            symbol: MarshalPackage
+    - name: trimModulePrefix
+      params:
+        - name: module
+          type:
+            name: string
+        - name: pkgPath
+          type:
+            name: string
+      returns:
+        - name: string
+      exported: false
+      source_file: main.go
+      doc: |
+        trimModulePrefix returns pkgPath with the module prefix stripped, or
+        pkgPath unchanged if the prefix does not apply.
+    - name: validatePatch
+      params:
+        - name: d
+          type:
+            name: Diff
+            package: internal/diff
+            pointer: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        validatePatch ensures every Change in d carries a recognized Op and Kind
+        so we fail fast on malformed patches before any on-disk writes.
+    - name: violationCount
+      params:
+        - name: violations
+          type:
+            name: Violation
+            package: internal/overlay
+            slice: true
+      returns:
+        - name: int
+      exported: false
+      source_file: main.go
+      doc: |
+        violationCount sums the forbidden-import entries across all Violation records.
+    - name: writeTargetModels
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: projectRoot
+          type:
+            name: string
+        - name: id
+          type:
+            name: string
+        - name: models
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: main.go
+      doc: |
+        writeTargetModels overwrites the target snapshot's model/ tree with the
+        given per-package models. Existing package YAML files are replaced; the
+        internal.yaml per package is regenerated (pub.yaml is redundant with
+        internal.yaml for the full model and is left absent to avoid drift
+        between the two on subsequent diffs — the YAML reader accepts either).
+      calls:
+        - to:
+            package: internal/adapter/d2
+            file: writer.go
+            symbol: writer.Write
+          via: internal/service.ModelWriter
+        - to:
+            package: internal/adapter/yaml
+            file: writer.go
+            symbol: NewWriter
+        - to:
+            package: internal/adapter/yaml
+            file: writer.go
+            symbol: writer.Write
+          via: internal/service.ModelWriter
+variables:
+    - name: Version
+      type:
+        name: string
+      exported: true
+      source_file: version.go
+      doc: |
+        Version is the archai binary version. Defaults to "dev" for
+        unversioned builds and is overridden at build time via ldflags:
+
+        	go build -ldflags "-X main.Version=v0.1.0" ./cmd/archai
+
+        When Version is still "dev" at runtime we fall back to debug.ReadBuildInfo
+        so `go install` / `go run` users get a meaningful version when available.
+dependencies:
+    - from:
+        package: cmd/archai
+        file: extract.go
+        symbol: dumpExtract
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: extract.go
+        symbol: dumpExtract
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: extract.go
+        symbol: extractModels
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: extract.go
+        symbol: extractModels
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: formatUptime
+      to:
+        package: time
+        symbol: Duration
+        external: true
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: loadCurrentModel
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: loadCurrentModel
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: loadTargetModel
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: loadTargetModel
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+    - from:
+        package: cmd/archai
+        file: extract.go
+        symbol: newExtractCmd
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: returns
+    - from:
+        package: cmd/archai
+        file: version.go
+        symbol: newVersionCmd
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: returns
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: printOverlayViolations
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: printOverlayViolations
+      to:
+        package: internal/overlay
+        symbol: Violation
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runCompose
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runDiff
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runDiffApply
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: extract.go
+        symbol: runExtract
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runGenerate
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runListDaemons
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runMCPThinClient
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runOverlayCheck
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runSequence
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runServe
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runSplit
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runTargetDelete
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runTargetList
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runTargetLock
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runTargetShow
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runTargetUse
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runValidate
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: runWhere
+      to:
+        package: github.com/spf13/cobra
+        symbol: Command
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: extract.go
+        symbol: streamExtract
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: extract.go
+        symbol: streamExtract
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: validatePatch
+      to:
+        package: internal/diff
+        symbol: Diff
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: violationCount
+      to:
+        package: internal/overlay
+        symbol: Violation
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: writeTargetModels
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: cmd/archai
+        file: main.go
+        symbol: writeTargetModels
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses

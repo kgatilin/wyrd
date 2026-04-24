@@ -1,0 +1,989 @@
+schema: archai/v1
+package: internal/service
+name: service
+layer: service
+aggregate: generation_service
+interfaces:
+    - name: ModelReader
+      methods:
+        - name: Read
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: paths
+              type:
+                name: string
+                slice: true
+          returns:
+            - name: PackageModel
+              package: internal/domain
+              slice: true
+            - name: error
+          exported: true
+      exported: true
+      source_file: options.go
+      doc: |
+        ModelReader reads package models from a source (code or diagrams).
+        This interface is implemented by:
+        - adapter/golang.Reader (reads Go source code)
+        - adapter/d2.Reader (reads D2 files, planned for US-3)
+      stereotype: port
+    - name: ModelWriter
+      methods:
+        - name: Write
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: model
+              type:
+                name: PackageModel
+                package: internal/domain
+            - name: opts
+              type:
+                name: WriteOptions
+                package: internal/domain
+          returns:
+            - name: error
+          exported: true
+        - name: WriteCombined
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: models
+              type:
+                name: PackageModel
+                package: internal/domain
+                slice: true
+            - name: outputPath
+              type:
+                name: string
+          returns:
+            - name: error
+          exported: true
+      exported: true
+      source_file: options.go
+      doc: |
+        ModelWriter writes package models to a destination.
+        This interface is implemented by:
+        - adapter/d2.Writer (writes D2 diagram files)
+      stereotype: port
+structs:
+    - name: ComposeOptions
+      fields:
+        - name: Paths
+          type:
+            name: string
+            slice: true
+          exported: true
+        - name: OutputPath
+          type:
+            name: string
+          exported: true
+        - name: Mode
+          type:
+            name: ComposeMode
+            package: internal/service
+          exported: true
+      exported: true
+      source_file: options.go
+      doc: |
+        ComposeOptions configures the compose operation.
+      stereotype: value
+    - name: ComposeResult
+      fields:
+        - name: OutputPath
+          type:
+            name: string
+          exported: true
+        - name: PackageCount
+          type:
+            name: int
+          exported: true
+        - name: SkippedPaths
+          type:
+            name: string
+            slice: true
+          exported: true
+      exported: true
+      source_file: options.go
+      doc: |
+        ComposeResult contains the result of a compose operation.
+      stereotype: value
+    - name: GenerateCombinedOptions
+      fields:
+        - name: Paths
+          type:
+            name: string
+            slice: true
+          exported: true
+        - name: OutputPath
+          type:
+            name: string
+          exported: true
+        - name: Debug
+          type:
+            name: bool
+          exported: true
+        - name: DebugPrintf
+          type:
+            name: func(format string, args ...any)
+          exported: true
+      exported: true
+      source_file: generate_combined.go
+      doc: |
+        GenerateCombinedOptions configures combined diagram generation.
+        Combined mode always generates public API only into a single file.
+      stereotype: value
+    - name: GenerateCombinedResult
+      fields:
+        - name: OutputPath
+          type:
+            name: string
+          exported: true
+        - name: PackageCount
+          type:
+            name: int
+          exported: true
+      exported: true
+      source_file: generate_combined.go
+      doc: |
+        GenerateCombinedResult contains the result of combined diagram generation.
+      stereotype: value
+    - name: GenerateOptions
+      fields:
+        - name: Paths
+          type:
+            name: string
+            slice: true
+          exported: true
+        - name: PublicOnly
+          type:
+            name: bool
+          exported: true
+        - name: InternalOnly
+          type:
+            name: bool
+          exported: true
+        - name: FileExtension
+          type:
+            name: string
+          exported: true
+        - name: Debug
+          type:
+            name: bool
+          exported: true
+        - name: DebugPrintf
+          type:
+            name: func(format string, args ...any)
+          exported: true
+        - name: OverlayPath
+          type:
+            name: string
+          exported: true
+        - name: GoModPath
+          type:
+            name: string
+          exported: true
+      exported: true
+      source_file: generate.go
+      doc: |
+        GenerateOptions configures the generate operation (split mode).
+        For combined mode, use GenerateCombinedOptions with GenerateCombined method.
+      stereotype: value
+    - name: GenerateResult
+      fields:
+        - name: PackagePath
+          type:
+            name: string
+          exported: true
+        - name: PubFile
+          type:
+            name: string
+          exported: true
+        - name: InternalFile
+          type:
+            name: string
+          exported: true
+        - name: Error
+          type:
+            name: error
+          exported: true
+      exported: true
+      source_file: generate.go
+      doc: |
+        GenerateResult contains the result of generating diagrams for a package.
+      stereotype: value
+    - name: Service
+      fields:
+        - name: goReader
+          type:
+            name: ModelReader
+            package: internal/service
+          exported: false
+        - name: d2Reader
+          type:
+            name: ModelReader
+            package: internal/service
+          exported: false
+        - name: d2Writer
+          type:
+            name: ModelWriter
+            package: internal/service
+          exported: false
+        - name: yamlReader
+          type:
+            name: ModelReader
+            package: internal/service
+          exported: false
+        - name: yamlWriter
+          type:
+            name: ModelWriter
+            package: internal/service
+          exported: false
+      methods:
+        - name: Compose
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: opts
+              type:
+                name: ComposeOptions
+                package: internal/service
+          returns:
+            - name: ComposeResult
+              package: internal/service
+              pointer: true
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/d2
+                file: writer.go
+                symbol: writer.WriteCombined
+              via: internal/service.ModelWriter
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/yaml
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/yaml
+                file: writer.go
+                symbol: writer.WriteCombined
+              via: internal/service.ModelWriter
+            - to:
+                package: internal/service
+                file: compose.go
+                symbol: findSpecFiles
+        - name: Generate
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: opts
+              type:
+                name: GenerateOptions
+                package: internal/service
+          returns:
+            - name: GenerateResult
+              package: internal/service
+              slice: true
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/service
+                file: service.go
+                symbol: Service.generateInternal
+        - name: GenerateWithOverlay
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: opts
+              type:
+                name: GenerateOptions
+                package: internal/service
+          returns:
+            - name: GenerateResult
+              package: internal/service
+              slice: true
+            - name: Violation
+              package: internal/overlay
+              slice: true
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/service
+                file: service.go
+                symbol: Service.generateInternal
+        - name: generateInternal
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: opts
+              type:
+                name: GenerateOptions
+                package: internal/service
+          returns:
+            - name: GenerateResult
+              package: internal/service
+              slice: true
+            - name: Violation
+              package: internal/overlay
+              slice: true
+            - name: error
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/yaml
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/overlay
+                file: load.go
+                symbol: LoadComposed
+            - to:
+                package: internal/overlay
+                file: merge.go
+                symbol: Merge
+            - to:
+                package: internal/overlay
+                file: validate.go
+                symbol: Validate
+            - to:
+                package: internal/service
+                file: service.go
+                symbol: Service.generatePackageDiagrams
+        - name: generatePackageDiagrams
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: pkg
+              type:
+                name: PackageModel
+                package: internal/domain
+            - name: opts
+              type:
+                name: GenerateOptions
+                package: internal/service
+          returns:
+            - name: GenerateResult
+              package: internal/service
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: writer.go
+                symbol: writer.Write
+              via: internal/service.ModelWriter
+            - to:
+                package: internal/adapter/yaml
+                file: writer.go
+                symbol: writer.Write
+              via: internal/service.ModelWriter
+            - to:
+                package: internal/service
+                file: service.go
+                symbol: Service.resolveArchDir
+        - name: resolveArchDir
+          params:
+            - name: pkgPath
+              type:
+                name: string
+          returns:
+            - name: string
+          exported: false
+        - name: GenerateCombined
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: opts
+              type:
+                name: GenerateCombinedOptions
+                package: internal/service
+          returns:
+            - name: GenerateCombinedResult
+              package: internal/service
+              pointer: true
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/d2
+                file: writer.go
+                symbol: writer.WriteCombined
+              via: internal/service.ModelWriter
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/yaml
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/yaml
+                file: writer.go
+                symbol: writer.WriteCombined
+              via: internal/service.ModelWriter
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedFunctions
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedInterfaces
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedStructs
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedTypeDefs
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.HasExportedSymbols
+        - name: Split
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: opts
+              type:
+                name: SplitOptions
+                package: internal/service
+          returns:
+            - name: SplitResult
+              package: internal/service
+              pointer: true
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/yaml
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/service
+                file: service.go
+                symbol: Service.splitPackage
+        - name: splitPackage
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: pkg
+              type:
+                name: PackageModel
+                package: internal/domain
+            - name: dryRun
+              type:
+                name: bool
+          returns:
+            - name: SplitFileResult
+              package: internal/service
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: writer.go
+                symbol: writer.Write
+              via: internal/service.ModelWriter
+            - to:
+                package: internal/adapter/yaml
+                file: writer.go
+                symbol: writer.Write
+              via: internal/service.ModelWriter
+      exported: true
+      source_file: service.go
+      doc: |
+        Service orchestrates diagram generation operations.
+        It uses adapters to read from various sources (Go code, D2 files, YAML files)
+        and write to various destinations (D2 files, YAML files, stdout).
+    - name: SplitFileResult
+      fields:
+        - name: PackagePath
+          type:
+            name: string
+          exported: true
+        - name: FilePath
+          type:
+            name: string
+          exported: true
+        - name: Created
+          type:
+            name: bool
+          exported: true
+        - name: Error
+          type:
+            name: error
+          exported: true
+      exported: true
+      source_file: split.go
+      doc: |
+        SplitFileResult contains the result for a single package file.
+      stereotype: value
+    - name: SplitOptions
+      fields:
+        - name: DiagramPath
+          type:
+            name: string
+          exported: true
+        - name: DryRun
+          type:
+            name: bool
+          exported: true
+      exported: true
+      source_file: split.go
+      doc: |
+        SplitOptions configures the split operation.
+      stereotype: value
+    - name: SplitResult
+      fields:
+        - name: Files
+          type:
+            name: SplitFileResult
+            package: internal/service
+            slice: true
+          exported: true
+        - name: DryRun
+          type:
+            name: bool
+          exported: true
+      exported: true
+      source_file: split.go
+      doc: |
+        SplitResult contains the result of splitting a combined diagram.
+      stereotype: value
+functions:
+    - name: NewService
+      params:
+        - name: goReader
+          type:
+            name: ModelReader
+            package: internal/service
+        - name: d2Reader
+          type:
+            name: ModelReader
+            package: internal/service
+        - name: d2Writer
+          type:
+            name: ModelWriter
+            package: internal/service
+        - name: opts
+          type:
+            name: Option
+            package: internal/service
+            slice: true
+      returns:
+        - name: Service
+          package: internal/service
+          pointer: true
+      exported: true
+      source_file: factory.go
+      doc: |
+        NewService creates a new diagram service with the given adapters.
+        Parameters:
+          - goReader: reads package models from Go source code
+          - d2Reader: reads package models from D2 diagram files (for split operation)
+          - d2Writer: writes package models as D2 diagram files
+      stereotype: factory
+    - name: WithYAML
+      params:
+        - name: reader
+          type:
+            name: ModelReader
+            package: internal/service
+        - name: writer
+          type:
+            name: ModelWriter
+            package: internal/service
+      returns:
+        - name: Option
+          package: internal/service
+      exported: true
+      source_file: factory.go
+      doc: |
+        WithYAML adds YAML reader/writer support to the service.
+typedefs:
+    - name: ComposeMode
+      underlying_type:
+        name: int
+      constants:
+        - ComposeModeAuto
+        - ComposeModeSpec
+      exported: true
+      source_file: options.go
+      doc: |
+        ComposeMode specifies which diagram files to compose from.
+      stereotype: enum
+    - name: Option
+      underlying_type:
+        name: func(*internal/service.Service)
+      exported: true
+      source_file: factory.go
+      doc: |
+        Option configures the Service with optional adapters.
+dependencies:
+    - from:
+        package: internal/service
+        file: options.go
+        symbol: ModelReader
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: options.go
+        symbol: ModelReader
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/service
+        file: options.go
+        symbol: ModelWriter
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: options.go
+        symbol: ModelWriter
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: options.go
+        symbol: ModelWriter
+      to:
+        package: internal/domain
+        symbol: WriteOptions
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: options.go
+        symbol: ComposeOptions
+      to:
+        package: internal/service
+        file: options.go
+        symbol: ComposeMode
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: generate_combined.go
+        symbol: GenerateCombinedOptions
+      to:
+        package: internal/service
+        symbol: func(format string, args ...any)
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: generate.go
+        symbol: GenerateOptions
+      to:
+        package: internal/service
+        symbol: func(format string, args ...any)
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: service.go
+        symbol: Service
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: service.go
+        symbol: Service
+      to:
+        package: internal/service
+        file: options.go
+        symbol: ComposeOptions
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: service.go
+        symbol: Service
+      to:
+        package: internal/service
+        file: options.go
+        symbol: ComposeResult
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/service
+        file: service.go
+        symbol: Service
+      to:
+        package: internal/service
+        file: generate.go
+        symbol: GenerateOptions
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: service.go
+        symbol: Service
+      to:
+        package: internal/service
+        file: generate.go
+        symbol: GenerateResult
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/service
+        file: service.go
+        symbol: Service
+      to:
+        package: internal/overlay
+        symbol: Violation
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/service
+        file: service.go
+        symbol: Service
+      to:
+        package: internal/service
+        file: generate_combined.go
+        symbol: GenerateCombinedOptions
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: service.go
+        symbol: Service
+      to:
+        package: internal/service
+        file: generate_combined.go
+        symbol: GenerateCombinedResult
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/service
+        file: service.go
+        symbol: Service
+      to:
+        package: internal/service
+        file: split.go
+        symbol: SplitOptions
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: service.go
+        symbol: Service
+      to:
+        package: internal/service
+        file: split.go
+        symbol: SplitResult
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/service
+        file: split.go
+        symbol: SplitResult
+      to:
+        package: internal/service
+        file: split.go
+        symbol: SplitFileResult
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: factory.go
+        symbol: NewService
+      to:
+        package: internal/service
+        file: options.go
+        symbol: ModelReader
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: factory.go
+        symbol: NewService
+      to:
+        package: internal/service
+        file: options.go
+        symbol: ModelWriter
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: factory.go
+        symbol: NewService
+      to:
+        package: internal/service
+        file: factory.go
+        symbol: Option
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: factory.go
+        symbol: NewService
+      to:
+        package: internal/service
+        file: service.go
+        symbol: Service
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/service
+        file: factory.go
+        symbol: WithYAML
+      to:
+        package: internal/service
+        file: options.go
+        symbol: ModelReader
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: factory.go
+        symbol: WithYAML
+      to:
+        package: internal/service
+        file: options.go
+        symbol: ModelWriter
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/service
+        file: factory.go
+        symbol: WithYAML
+      to:
+        package: internal/service
+        file: factory.go
+        symbol: Option
+      kind: returns
+      through_exported: true
+implementations:
+    - concrete:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      interface:
+        package: internal/service
+        file: options.go
+        symbol: ModelReader
+      pointer: true
+    - concrete:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      interface:
+        package: internal/service
+        file: options.go
+        symbol: ModelReader
+      pointer: true
+    - concrete:
+        package: internal/adapter/yaml
+        file: reader.go
+        symbol: reader
+      interface:
+        package: internal/service
+        file: options.go
+        symbol: ModelReader
+      pointer: true
+    - concrete:
+        package: internal/adapter/d2
+        file: writer.go
+        symbol: writer
+      interface:
+        package: internal/service
+        file: options.go
+        symbol: ModelWriter
+      pointer: true
+    - concrete:
+        package: internal/adapter/yaml
+        file: writer.go
+        symbol: writer
+      interface:
+        package: internal/service
+        file: options.go
+        symbol: ModelWriter
+      pointer: true

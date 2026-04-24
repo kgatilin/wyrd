@@ -1,0 +1,1656 @@
+schema: archai/v1
+package: internal/adapter/http
+name: http
+layer: transport
+aggregate: browser_ui
+structs:
+    - name: Server
+      fields:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+          exported: false
+        - name: multi
+          type:
+            name: MultiState
+            package: internal/serve
+            pointer: true
+          exported: false
+        - name: templates
+          type:
+            name: Template
+            package: html/template
+            pointer: true
+          exported: false
+        - name: assets
+          type:
+            name: FS
+            package: io/fs
+          exported: false
+        - name: onActivity
+          type:
+            name: func()
+          exported: false
+      methods:
+        - name: registerAPIRoutes
+          params:
+            - name: mux
+              type:
+                name: ServeMux
+                package: net/http
+                pointer: true
+          exported: false
+        - name: handleAPIToolsCall
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeJSONError
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeJSONErrorText
+            - to:
+                package: internal/adapter/mcp
+                file: tools.go
+                symbol: Dispatch
+        - name: handleAPIExtract
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeAPIToolResult
+            - to:
+                package: internal/adapter/mcp
+                file: tools.go
+                symbol: Dispatch
+        - name: handleAPIPackages
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeAPIToolResult
+            - to:
+                package: internal/adapter/mcp
+                file: tools.go
+                symbol: Dispatch
+        - name: handleAPIPackageGet
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.handleAPIPackages
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeAPIToolResult
+            - to:
+                package: internal/adapter/mcp
+                file: tools.go
+                symbol: Dispatch
+        - name: handleAPITargets
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeAPIToolResult
+            - to:
+                package: internal/adapter/mcp
+                file: tools.go
+                symbol: Dispatch
+        - name: handleAPITargetsLock
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: readJSONBody
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeAPIToolResult
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeJSONErrorText
+            - to:
+                package: internal/adapter/mcp
+                file: tools.go
+                symbol: Dispatch
+        - name: handleAPITargetsCurrent
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: readJSONBody
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeAPIToolResult
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeJSONErrorText
+            - to:
+                package: internal/adapter/mcp
+                file: tools.go
+                symbol: Dispatch
+        - name: handleAPIDiff
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeAPIToolResult
+            - to:
+                package: internal/adapter/mcp
+                file: tools.go
+                symbol: Dispatch
+        - name: handleAPIDiffApply
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: readJSONBody
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeAPIToolResult
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeJSONErrorText
+            - to:
+                package: internal/adapter/mcp
+                file: tools.go
+                symbol: Dispatch
+        - name: handleAPIValidate
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: readJSONBody
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeAPIToolResult
+            - to:
+                package: internal/adapter/http
+                file: api.go
+                symbol: writeJSONErrorText
+            - to:
+                package: internal/adapter/mcp
+                file: tools.go
+                symbol: Dispatch
+        - name: handleConfigs
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.basePageData
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderPage
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: configs.go
+                symbol: collectConfigs
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: handleDashboard
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.basePageData
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderPage
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: dashboard.go
+                symbol: computeDrift
+            - to:
+                package: internal/adapter/http
+                file: dashboard.go
+                symbol: readGoModInfo
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: registerDiffTargetsRoutes
+          params:
+            - name: mux
+              type:
+                name: ServeMux
+                package: net/http
+                pointer: true
+          exported: false
+        - name: handleDiff
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.basePageData
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderDiff
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: buildGroups
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: buildKindFilters
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: loadDiffSides
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: summarize
+            - to:
+                package: internal/diff
+                file: compute.go
+                symbol: Compute
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+            - to:
+                package: internal/target
+                file: storage.go
+                symbol: List
+        - name: renderDiff
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+            - name: data
+              type:
+                name: diffPageData
+                package: internal/adapter/http
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderFragment
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderPage
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: isHTMX
+        - name: handleTargets
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.basePageData
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderFragment
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderPage
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: isHTMX
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+            - to:
+                package: internal/target
+                file: storage.go
+                symbol: List
+        - name: handleTargetsUse
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.handleTargets
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.navPrefix
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: isHTMX
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Root
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.SwitchTarget
+            - to:
+                package: internal/target
+                file: storage.go
+                symbol: Use
+        - name: handleTargetsCompare
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderFragment
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: buildGroups
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: buildKindFilters
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: loadTargetFromDisk
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: summarize
+            - to:
+                package: internal/diff
+                file: compute.go
+                symbol: Compute
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Root
+        - name: registerGraphRoutes
+          params:
+            - name: mux
+              type:
+                name: ServeMux
+                package: net/http
+                pointer: true
+          exported: false
+        - name: handleLayersGraphJSON
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: graphs.go
+                symbol: buildLayerGraph
+            - to:
+                package: internal/adapter/http
+                file: types.go
+                symbol: writeJSON
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: handleLayersGraphMiniJSON
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: graphs.go
+                symbol: buildLayerGraph
+            - to:
+                package: internal/adapter/http
+                file: types.go
+                symbol: writeJSON
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: handlePackageGraphJSON
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: packages_handler.go
+                symbol: applyOverlay
+            - to:
+                package: internal/adapter/http
+                file: graphs.go
+                symbol: buildPackageOverviewGraph
+            - to:
+                package: internal/adapter/http
+                file: packages_handler.go
+                symbol: findPackage
+            - to:
+                package: internal/adapter/http
+                file: types.go
+                symbol: writeJSON
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: handleDiffGraphJSON
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: graphs.go
+                symbol: buildDiffGraph
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: loadDiffSides
+            - to:
+                package: internal/adapter/http
+                file: types.go
+                symbol: writeJSON
+            - to:
+                package: internal/diff
+                file: compute.go
+                symbol: Compute
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: handleLayersExportD2
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: layers.go
+                symbol: buildLayerMapD2
+            - to:
+                package: internal/adapter/http
+                file: graphs.go
+                symbol: writeText
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: handleLayersExportSVG
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: layers.go
+                symbol: buildLayerMapD2
+            - to:
+                package: internal/adapter/http
+                file: graphs.go
+                symbol: writeSVG
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: handlePackageExport
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: packages_handler.go
+                symbol: applyOverlay
+            - to:
+                package: internal/adapter/http
+                file: packages_handler.go
+                symbol: d2SourceForPackage
+            - to:
+                package: internal/adapter/http
+                file: packages_handler.go
+                symbol: findPackage
+            - to:
+                package: internal/adapter/http
+                file: graphs.go
+                symbol: safeFilename
+            - to:
+                package: internal/adapter/http
+                file: graphs.go
+                symbol: writeSVG
+            - to:
+                package: internal/adapter/http
+                file: graphs.go
+                symbol: writeText
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: handleDiffExportD2
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.diffD2Source
+            - to:
+                package: internal/adapter/http
+                file: graphs.go
+                symbol: writeText
+        - name: handleDiffExportSVG
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.diffD2Source
+            - to:
+                package: internal/adapter/http
+                file: graphs.go
+                symbol: writeSVG
+        - name: diffD2Source
+          params:
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          returns:
+            - name: string
+            - name: error
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: loadDiffSides
+            - to:
+                package: internal/adapter/http
+                file: graphs.go
+                symbol: renderDiffD2
+            - to:
+                package: internal/diff
+                file: compute.go
+                symbol: Compute
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: routes
+          params:
+            - name: mux
+              type:
+                name: ServeMux
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.multiMode
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.registerMultiRoutes
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.routesContent
+        - name: routesContent
+          params:
+            - name: mux
+              type:
+                name: ServeMux
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.multiMode
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.registerAPIRoutes
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.registerDiffTargetsRoutes
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.registerGraphRoutes
+        - name: pageHandler
+          params:
+            - name: tmpl
+              type:
+                name: string
+            - name: title
+              type:
+                name: string
+            - name: activePath
+              type:
+                name: string
+          returns:
+            - name: HandlerFunc
+              package: net/http
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.basePageData
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderPage
+        - name: basePageData
+          params:
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+            - name: title
+              type:
+                name: string
+            - name: activePath
+              type:
+                name: string
+          returns:
+            - name: pageData
+              package: internal/adapter/http
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.buildWorktreeList
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.currentWorktree
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.multiMode
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.navPrefix
+            - to:
+                package: internal/adapter/http
+                file: handlers.go
+                symbol: buildNavWithPrefix
+        - name: renderPage
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: tmpl
+              type:
+                name: string
+            - name: data
+              type:
+                name: any
+          exported: false
+        - name: renderFragment
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: tmpl
+              type:
+                name: string
+            - name: fragment
+              type:
+                name: string
+            - name: data
+              type:
+                name: any
+          exported: false
+        - name: handleRender
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: render.go
+                symbol: renderD2
+        - name: handleSearch
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.basePageData
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderPage
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: search.go
+                symbol: isKnownKind
+            - to:
+                package: internal/adapter/http
+                file: search.go
+                symbol: runSearch
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: handleSearchResults
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: search.go
+                symbol: isKnownKind
+            - to:
+                package: internal/adapter/http
+                file: search.go
+                symbol: runSearch
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: handleLayers
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.basePageData
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderPage
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: layers.go
+                symbol: buildLayerEdges
+            - to:
+                package: internal/adapter/http
+                file: layers.go
+                symbol: buildLayerViews
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: registerMultiRoutes
+          params:
+            - name: mux
+              type:
+                name: ServeMux
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.dispatchWorktree
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.redirectToWorktree
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.routesContent
+        - name: redirectToWorktree
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.selectedWorktree
+        - name: dispatchWorktree
+          params:
+            - name: next
+              type:
+                name: Handler
+                package: net/http
+          returns:
+            - name: Handler
+              package: net/http
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: stripWorktreePrefix
+            - to:
+                package: internal/serve
+                file: multistate.go
+                symbol: MultiState.Get
+            - to:
+                package: internal/serve
+                file: multistate.go
+                symbol: MultiState.Has
+        - name: handleWorktreeSelect
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: multi.go
+                symbol: rewriteForWorktree
+            - to:
+                package: internal/serve
+                file: multistate.go
+                symbol: MultiState.Has
+        - name: buildWorktreeList
+          params:
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          returns:
+            - name: worktreeOption
+              package: internal/adapter/http
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.currentWorktree
+            - to:
+                package: internal/serve
+                file: multistate.go
+                symbol: MultiState.Worktrees
+        - name: handlePackagesList
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.basePageData
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderPageWith
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderPartial
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: packages_handler.go
+                symbol: applyOverlay
+            - to:
+                package: internal/adapter/http
+                file: packages_data.go
+                symbol: buildPackageSummaries
+            - to:
+                package: internal/adapter/http
+                file: packages_data.go
+                symbol: buildPackageTree
+            - to:
+                package: internal/adapter/http
+                file: packages_data.go
+                symbol: collectLayerOptions
+            - to:
+                package: internal/adapter/http
+                file: packages_data.go
+                symbol: collectStereotypeOptions
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: isHTMX
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: handlePackageDetail
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.basePageData
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.handlePackagesList
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderPageWith
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderPartial
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: packages_handler.go
+                symbol: applyOverlay
+            - to:
+                package: internal/adapter/http
+                file: package_detail_data.go
+                symbol: buildPackageDetail
+            - to:
+                package: internal/adapter/http
+                file: packages_handler.go
+                symbol: findPackage
+            - to:
+                package: internal/adapter/http
+                file: diff_targets.go
+                symbol: isHTMX
+            - to:
+                package: internal/adapter/http
+                file: package_detail_data.go
+                symbol: parseTab
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: renderPageWith
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: tmpl
+              type:
+                name: string
+            - name: data
+              type:
+                name: interface{}
+          exported: false
+        - name: renderPartial
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: tmpl
+              type:
+                name: string
+            - name: defineName
+              type:
+                name: string
+            - name: data
+              type:
+                name: interface{}
+          exported: false
+        - name: SetActivityObserver
+          params:
+            - name: fn
+              type:
+                name: func()
+          exported: true
+        - name: Serve
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: addr
+              type:
+                name: string
+            - name: ready
+              type:
+                name: func(boundAddr string)
+          returns:
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.routes
+        - name: multiMode
+          returns:
+            - name: bool
+          exported: false
+        - name: stateFor
+          params:
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          returns:
+            - name: State
+              package: internal/serve
+              pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/serve
+                file: multistate.go
+                symbol: MultiState.Default
+            - to:
+                package: internal/serve
+                file: multistate.go
+                symbol: MultiState.Get
+        - name: currentWorktree
+          params:
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          returns:
+            - name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.selectedWorktree
+        - name: selectedWorktree
+          params:
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          returns:
+            - name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/serve
+                file: multistate.go
+                symbol: MultiState.Default
+            - to:
+                package: internal/serve
+                file: multistate.go
+                symbol: MultiState.Has
+        - name: navPrefix
+          params:
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          returns:
+            - name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.currentWorktree
+        - name: handleType
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.basePageData
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.renderPage
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: types.go
+                symbol: buildTypePage
+            - to:
+                package: internal/adapter/http
+                file: types.go
+                symbol: parseTypeID
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+        - name: handleTypeGraph
+          params:
+            - name: w
+              type:
+                name: ResponseWriter
+                package: net/http
+            - name: r
+              type:
+                name: Request
+                package: net/http
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/http
+                file: server.go
+                symbol: Server.stateFor
+            - to:
+                package: internal/adapter/http
+                file: types.go
+                symbol: buildTypePage
+            - to:
+                package: internal/adapter/http
+                file: types.go
+                symbol: parseTypeID
+            - to:
+                package: internal/adapter/http
+                file: types.go
+                symbol: writeJSON
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.Snapshot
+      exported: true
+      source_file: server.go
+      doc: |
+        Server is the HTTP transport. It wraps a net/http.Server and holds
+        a reference to the shared serve.State (single mode) or a
+        serve.MultiState (multi mode) so handlers can render snapshots
+        without reloading the model.
+functions:
+    - name: NewMultiServer
+      params:
+        - name: multi
+          type:
+            name: MultiState
+            package: internal/serve
+            pointer: true
+      returns:
+        - name: Server
+          package: internal/adapter/http
+          pointer: true
+        - name: error
+      exported: true
+      source_file: server.go
+      doc: |
+        NewMultiServer constructs a multi-worktree Server backed by the
+        given MultiState. All content routes are served under /w/{name}/*;
+        legacy roots redirect to the cookie-selected (or first alphabetical)
+        worktree so existing bookmarks still resolve.
+      stereotype: factory
+      calls:
+        - to:
+            package: internal/adapter/http
+            file: server.go
+            symbol: parseEmbedded
+    - name: NewServer
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+      returns:
+        - name: Server
+          package: internal/adapter/http
+          pointer: true
+        - name: error
+      exported: true
+      source_file: server.go
+      doc: |
+        NewServer constructs a single-worktree Server backed by the given
+        state. Templates are parsed eagerly so malformed templates fail at
+        construction time rather than on the first request. This is the
+        Mode A constructor: routes stay at their historical paths (/,
+        /layers, …).
+      stereotype: factory
+      calls:
+        - to:
+            package: internal/adapter/http
+            file: server.go
+            symbol: parseEmbedded
+dependencies:
+    - from:
+        package: internal/adapter/http
+        file: server.go
+        symbol: Server
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/http
+        file: server.go
+        symbol: Server
+      to:
+        package: internal/adapter/http
+        symbol: func(boundAddr string)
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/http
+        file: server.go
+        symbol: NewMultiServer
+      to:
+        package: internal/serve
+        symbol: MultiState
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/http
+        file: server.go
+        symbol: NewMultiServer
+      to:
+        package: internal/adapter/http
+        file: server.go
+        symbol: Server
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/adapter/http
+        file: server.go
+        symbol: NewServer
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/http
+        file: server.go
+        symbol: NewServer
+      to:
+        package: internal/adapter/http
+        file: server.go
+        symbol: Server
+      kind: returns
+      through_exported: true

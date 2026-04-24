@@ -1,5 +1,25 @@
 # service package
 
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
 # Legend
 legend: {
   label: "Color Legend (DDD)"
@@ -10,33 +30,69 @@ legend: {
   aggregate: {
     label: "Domain Model"
     shape: class
-    style.fill: "#e8f4fc"
-    style.font-color: "#000"
+    class: domain
   }
   service: {
     label: "Service"
     shape: class
-    style.fill: "#f0e8fc"
-    style.font-color: "#000"
+    class: service
   }
   factory: {
     label: "Factory"
     shape: class
-    style.fill: "#e8fce8"
-    style.font-color: "#000"
+    class: factory
   }
   options: {
     label: "Value Object"
     shape: class
-    style.fill: "#f8f8f8"
-    style.font-color: "#000"
+    class: value
   }
 }
 
 # Files
+compose: {
+  label: "compose.go"
+  class: value
+
+  expandGlobPatterns: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "patterns": "[]string"
+    "return": "([]string, error)"
+  }
+
+  findSpecFiles: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "paths": "[]string"
+    "mode": "internal/service.ComposeMode"
+    "return": "([]string, []string, error)"
+  }
+
+  hasArchFolder: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "dir": "string"
+    "return": "bool"
+  }
+
+  hasGoFiles: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "dir": "string"
+    "return": "bool"
+  }
+
+
+}
+
 factory: {
   label: "factory.go"
-  style.fill: "#e8fce8"
+  class: value
 
   NewService: {
     shape: class
@@ -45,15 +101,31 @@ factory: {
     "goReader": "internal/service.ModelReader"
     "d2Reader": "internal/service.ModelReader"
     "d2Writer": "internal/service.ModelWriter"
+    "opts": "[]internal/service.Option"
     "return": "*internal/service.Service"
   }
 
+  WithYAML: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "reader": "internal/service.ModelReader"
+    "writer": "internal/service.ModelWriter"
+    "return": "internal/service.Option"
+  }
+
+
+  Option: {
+    shape: class
+
+    "type": "func(*internal/service.Service)"
+  }
 
 }
 
 generate: {
   label: "generate.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   GenerateOptions: {
     shape: class
@@ -62,8 +134,11 @@ generate: {
     "+Paths []string": ""
     "+PublicOnly bool": ""
     "+InternalOnly bool": ""
+    "+FileExtension string": ""
     "+Debug bool": ""
     "+DebugPrintf func(format string, args ...any)": ""
+    "+OverlayPath string": ""
+    "+GoModPath string": ""
   }
 
   GenerateResult: {
@@ -80,7 +155,7 @@ generate: {
 
 generate_combined: {
   label: "generate_combined.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   GenerateCombinedOptions: {
     shape: class
@@ -104,7 +179,7 @@ generate_combined: {
 
 options: {
   label: "options.go"
-  style.fill: "#f0e8fc"
+  class: service
 
   ModelReader: {
     shape: class
@@ -121,11 +196,39 @@ options: {
     "+WriteCombined(ctx context.Context, models []internal/domain.PackageModel, outputPath string)": "error"
   }
 
+  ComposeOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Paths []string": ""
+    "+OutputPath string": ""
+    "+Mode internal/service.ComposeMode": ""
+  }
+
+  ComposeResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+OutputPath string": ""
+    "+PackageCount int": ""
+    "+SkippedPaths []string": ""
+  }
+
+  ComposeMode: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "int"
+
+    "ComposeModeAuto": "const"
+    "ComposeModeSpec": "const"
+  }
+
 }
 
 service: {
   label: "service.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   Service: {
     shape: class
@@ -134,8 +237,13 @@ service: {
     "-goReader internal/service.ModelReader": ""
     "-d2Reader internal/service.ModelReader": ""
     "-d2Writer internal/service.ModelWriter": ""
+    "-yamlReader internal/service.ModelReader": ""
+    "-yamlWriter internal/service.ModelWriter": ""
 
+    "+Compose(ctx context.Context, opts internal/service.ComposeOptions)": "(*internal/service.ComposeResult, error)"
     "+Generate(ctx context.Context, opts internal/service.GenerateOptions)": "([]internal/service.GenerateResult, error)"
+    "+GenerateWithOverlay(ctx context.Context, opts internal/service.GenerateOptions)": "([]internal/service.GenerateResult, []internal/overlay.Violation, error)"
+    "-generateInternal(ctx context.Context, opts internal/service.GenerateOptions)": "([]internal/service.GenerateResult, []internal/overlay.Violation, error)"
     "-generatePackageDiagrams(ctx context.Context, pkg internal/domain.PackageModel, opts internal/service.GenerateOptions)": "internal/service.GenerateResult"
     "-resolveArchDir(pkgPath string)": "string"
     "+GenerateCombined(ctx context.Context, opts internal/service.GenerateCombinedOptions)": "(*internal/service.GenerateCombinedResult, error)"
@@ -147,7 +255,7 @@ service: {
 
 split: {
   label: "split.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   SplitFileResult: {
     shape: class
@@ -178,8 +286,11 @@ split: {
 }
 
 # Dependencies
+options.ComposeOptions -> options.ComposeMode: "uses"
 service.Service -> options.ModelReader: "uses"
 service.Service -> options.ModelWriter: "uses"
+service.Service -> options.ComposeOptions: "uses"
+service.Service -> options.ComposeResult: "returns"
 service.Service -> generate.GenerateOptions: "uses"
 service.Service -> generate.GenerateResult: "returns"
 service.Service -> generate_combined.GenerateCombinedOptions: "uses"
@@ -190,4 +301,9 @@ service.Service -> split.SplitFileResult: "returns"
 split.SplitResult -> split.SplitFileResult: "uses"
 factory.NewService -> options.ModelReader: "uses"
 factory.NewService -> options.ModelWriter: "uses"
+factory.NewService -> factory.Option: "uses"
 factory.NewService -> service.Service: "returns"
+factory.WithYAML -> options.ModelReader: "uses"
+factory.WithYAML -> options.ModelWriter: "uses"
+factory.WithYAML -> factory.Option: "returns"
+compose.findSpecFiles -> options.ComposeMode: "uses"

@@ -1,0 +1,148 @@
+schema: archai/v1
+package: internal/adapter/d2
+name: d2
+layer: source_adapter
+functions:
+    - name: NewReader
+      returns:
+        - name: ModelReader
+          package: internal/service
+      exported: true
+      source_file: reader.go
+      doc: |
+        NewReader creates a new D2 diagram reader that implements service.ModelReader.
+      stereotype: factory
+    - name: NewWriter
+      returns:
+        - name: ModelWriter
+          package: internal/service
+      exported: true
+      source_file: writer.go
+      doc: |
+        NewWriter creates a new D2 diagram writer that implements service.ModelWriter.
+      stereotype: factory
+constants:
+    - name: ClassDomain
+      type:
+        name: untyped string
+      value: '"domain"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 class names for different stereotype categories.
+    - name: ClassFactory
+      type:
+        name: untyped string
+      value: '"factory"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 class names for different stereotype categories.
+    - name: ClassService
+      type:
+        name: untyped string
+      value: '"service"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 class names for different stereotype categories.
+    - name: ClassValue
+      type:
+        name: untyped string
+      value: '"value"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 class names for different stereotype categories.
+    - name: ColorBlue
+      type:
+        name: untyped string
+      value: '"#e8f4fc"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 color constants for different stereotypes.
+        Colors follow the DDD color scheme defined in the plan.
+    - name: ColorGray
+      type:
+        name: untyped string
+      value: '"#f8f8f8"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 color constants for different stereotypes.
+        Colors follow the DDD color scheme defined in the plan.
+    - name: ColorGreen
+      type:
+        name: untyped string
+      value: '"#e8fce8"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 color constants for different stereotypes.
+        Colors follow the DDD color scheme defined in the plan.
+    - name: ColorLegendBorder
+      type:
+        name: untyped string
+      value: '"#999"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 color constants for different stereotypes.
+        Colors follow the DDD color scheme defined in the plan.
+    - name: ColorLegendFill
+      type:
+        name: untyped string
+      value: '"#fafafa"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 color constants for different stereotypes.
+        Colors follow the DDD color scheme defined in the plan.
+    - name: ColorPurple
+      type:
+        name: untyped string
+      value: '"#f0e8fc"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 color constants for different stereotypes.
+        Colors follow the DDD color scheme defined in the plan.
+errors:
+    - name: ErrEmptyDiagram
+      message: D2 file is empty or contains no meaningful content
+      exported: true
+      source_file: reader.go
+      doc: |
+        Error definitions for the D2 reader.
+    - name: ErrInvalidLabel
+      message: package container has invalid or missing label
+      exported: true
+      source_file: reader.go
+      doc: |
+        Error definitions for the D2 reader.
+    - name: ErrNoPackages
+      message: no package containers found in D2 file
+      exported: true
+      source_file: reader.go
+      doc: |
+        Error definitions for the D2 reader.
+dependencies:
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: NewReader
+      to:
+        package: internal/service
+        symbol: ModelReader
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/adapter/d2
+        file: writer.go
+        symbol: NewWriter
+      to:
+        package: internal/service
+        symbol: ModelWriter
+      kind: returns
+      through_exported: true

@@ -1,0 +1,2382 @@
+schema: archai/v1
+package: internal/adapter/mcp
+name: mcp
+layer: transport
+aggregate: mcp_tool_api
+structs:
+    - name: ClientOptions
+      fields:
+        - name: Endpoint
+          type:
+            name: string
+          exported: true
+        - name: HTTPClient
+          type:
+            name: Client
+            package: net/http
+            pointer: true
+          exported: true
+      exported: true
+      source_file: client.go
+      doc: |
+        ClientOptions configures the thin-client MCP stdio wrapper. Endpoint
+        is the base URL of the HTTP daemon (e.g. "http://127.0.0.1:47123").
+
+        HTTPClient is optional; when nil a package-default with a 30s
+        per-request timeout is used.
+      stereotype: value
+    - name: PackageSummary
+      fields:
+        - name: Path
+          type:
+            name: string
+          exported: true
+          tag: json:"path"
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: json:"name"
+        - name: Layer
+          type:
+            name: string
+          exported: true
+          tag: json:"layer,omitempty"
+        - name: InterfaceCount
+          type:
+            name: int
+          exported: true
+          tag: json:"interface_count"
+        - name: StructCount
+          type:
+            name: int
+          exported: true
+          tag: json:"struct_count"
+        - name: FunctionCount
+          type:
+            name: int
+          exported: true
+          tag: json:"function_count"
+      exported: true
+      source_file: tools.go
+      doc: |
+        PackageSummary is the minimal record returned by list_packages. The
+        summary is intentionally small so agents can decide which package to
+        drill into via get_package without paying for the full payload.
+      stereotype: value
+    - name: RPCError
+      fields:
+        - name: Code
+          type:
+            name: int
+          exported: true
+          tag: json:"code"
+        - name: Message
+          type:
+            name: string
+          exported: true
+          tag: json:"message"
+        - name: Data
+          type:
+            name: any
+          exported: true
+          tag: json:"data,omitempty"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        RPCError is the error object defined by JSON-RPC 2.0.
+      stereotype: value
+    - name: Request
+      fields:
+        - name: JSONRPC
+          type:
+            name: string
+          exported: true
+          tag: json:"jsonrpc"
+        - name: ID
+          type:
+            name: RawMessage
+            package: encoding/json
+          exported: true
+          tag: json:"id,omitempty"
+        - name: Method
+          type:
+            name: string
+          exported: true
+          tag: json:"method"
+        - name: Params
+          type:
+            name: RawMessage
+            package: encoding/json
+          exported: true
+          tag: json:"params,omitempty"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Request is an incoming JSON-RPC 2.0 request or notification. ID is
+        kept as a RawMessage so we can echo it back verbatim (clients may use
+        numbers or strings interchangeably).
+      stereotype: value
+    - name: Response
+      fields:
+        - name: JSONRPC
+          type:
+            name: string
+          exported: true
+          tag: json:"jsonrpc"
+        - name: ID
+          type:
+            name: RawMessage
+            package: encoding/json
+          exported: true
+          tag: json:"id,omitempty"
+        - name: Result
+          type:
+            name: interface{}
+          exported: true
+          tag: json:"result,omitempty"
+        - name: Error
+          type:
+            name: RPCError
+            package: internal/adapter/mcp
+            pointer: true
+          exported: true
+          tag: json:"error,omitempty"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Response is a JSON-RPC 2.0 response. Exactly one of Result / Error is
+        set on the wire; Response uses pointers so omitempty elides the other.
+      stereotype: value
+    - name: ToolDefinition
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: json:"name"
+        - name: Description
+          type:
+            name: string
+          exported: true
+          tag: json:"description"
+        - name: InputSchema
+          type:
+            name: any
+          exported: true
+          tag: json:"inputSchema"
+      exported: true
+      source_file: tools.go
+      doc: |
+        ToolDefinition describes a single MCP tool exposed via tools/list.
+        InputSchema is a JSON Schema object; we keep it as an any so each
+        tool can define its own shape without a shared struct.
+      stereotype: value
+    - name: ToolResult
+      fields:
+        - name: Content
+          type:
+            name: ToolResultContent
+            package: internal/adapter/mcp
+            slice: true
+          exported: true
+          tag: json:"content"
+        - name: IsError
+          type:
+            name: bool
+          exported: true
+          tag: json:"isError,omitempty"
+      exported: true
+      source_file: tools.go
+      doc: |
+        ToolResult is the payload returned by tools/call. IsError is a hint
+        for clients — JSON-RPC errors are used for protocol-level failures
+        (unknown tool etc.) while tool-level errors (package not found) are
+        reported via IsError + a text message so the model can see them.
+      stereotype: value
+    - name: ToolResultContent
+      fields:
+        - name: Type
+          type:
+            name: string
+          exported: true
+          tag: json:"type"
+        - name: Text
+          type:
+            name: string
+          exported: true
+          tag: json:"text"
+      exported: true
+      source_file: tools.go
+      doc: |
+        ToolResultContent is one "content" item returned by tools/call. We
+        only emit text blocks; binary/resource blocks are out of scope for
+        the current tool surface.
+      stereotype: value
+    - name: ValidateResult
+      fields:
+        - name: OK
+          type:
+            name: bool
+          exported: true
+          tag: json:"ok"
+        - name: Target
+          type:
+            name: string
+          exported: true
+          tag: json:"target"
+        - name: Violations
+          type:
+            name: Change
+            package: internal/diff
+            slice: true
+          exported: true
+          tag: json:"violations"
+      exported: true
+      source_file: tools.go
+      doc: |
+        ValidateResult is the structured payload returned by the `validate`
+        tool: ok=true when no drift, otherwise the list of Change entries
+        describing violations.
+      stereotype: value
+    - name: applyDiffArgs
+      fields:
+        - name: PatchYAML
+          type:
+            name: string
+          exported: true
+          tag: json:"patch_yaml"
+        - name: Target
+          type:
+            name: string
+          exported: true
+          tag: json:"target"
+      exported: false
+      source_file: tools.go
+      doc: |
+        applyDiffArgs is the input schema for the apply_diff tool.
+      stereotype: value
+    - name: diffArgs
+      fields:
+        - name: Target
+          type:
+            name: string
+          exported: true
+          tag: json:"target"
+      exported: false
+      source_file: tools.go
+      doc: |
+        diffArgs is the input schema for the diff tool.
+      stereotype: value
+    - name: extractArgs
+      fields:
+        - name: Paths
+          type:
+            name: string
+            slice: true
+          exported: true
+          tag: json:"paths"
+      exported: false
+      source_file: tools.go
+      doc: |
+        extractArgs is the input schema for the extract tool.
+      stereotype: value
+    - name: getPackageArgs
+      fields:
+        - name: Path
+          type:
+            name: string
+          exported: true
+          tag: json:"path"
+      exported: false
+      source_file: tools.go
+      doc: |
+        getPackageArgs is the input schema for the get_package tool.
+      stereotype: value
+    - name: initializeResult
+      fields:
+        - name: ProtocolVersion
+          type:
+            name: string
+          exported: true
+          tag: json:"protocolVersion"
+        - name: Capabilities
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: any
+          exported: true
+          tag: json:"capabilities"
+        - name: ServerInfo
+          type:
+            name: serverInfo
+            package: internal/adapter/mcp
+          exported: true
+          tag: json:"serverInfo"
+      exported: false
+      source_file: protocol.go
+      doc: |
+        initializeResult is the payload returned for the initialize request.
+        We advertise the tools capability (the bag is empty — MCP defines no
+        required fields inside it yet).
+      stereotype: value
+    - name: lockTargetArgs
+      fields:
+        - name: ID
+          type:
+            name: string
+          exported: true
+          tag: json:"id"
+        - name: Description
+          type:
+            name: string
+          exported: true
+          tag: json:"description"
+      exported: false
+      source_file: tools.go
+      doc: |
+        lockTargetArgs is the input schema for the lock_target tool.
+      stereotype: value
+    - name: serverInfo
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: json:"name"
+        - name: Version
+          type:
+            name: string
+          exported: true
+          tag: json:"version"
+      exported: false
+      source_file: protocol.go
+      doc: |
+        serverInfo is returned from initialize so clients know who they're
+        talking to.
+      stereotype: value
+    - name: setCurrentTargetArgs
+      fields:
+        - name: ID
+          type:
+            name: string
+          exported: true
+          tag: json:"id"
+      exported: false
+      source_file: tools.go
+      doc: |
+        setCurrentTargetArgs is the input schema for the set_current_target tool.
+      stereotype: value
+    - name: toolsCallParams
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: json:"name"
+        - name: Arguments
+          type:
+            name: RawMessage
+            package: encoding/json
+          exported: true
+          tag: json:"arguments"
+      exported: false
+      source_file: stdio.go
+      doc: |
+        toolsCallParams is the shape of tools/call params per the MCP spec.
+      stereotype: value
+    - name: validateArgs
+      fields:
+        - name: Target
+          type:
+            name: string
+          exported: true
+          tag: json:"target"
+      exported: false
+      source_file: tools.go
+      doc: |
+        validateArgs is the input schema for the validate tool.
+      stereotype: value
+functions:
+    - name: Dispatch
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: name
+          type:
+            name: string
+        - name: rawArgs
+          type:
+            name: RawMessage
+            package: encoding/json
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: true
+      source_file: tools.go
+      doc: |
+        Dispatch routes a tools/call invocation to the matching handler.
+        Unknown tool names surface as JSON-RPC method-not-found errors; known
+        tools all return ToolResult (possibly with IsError=true when inputs
+        are invalid or on-disk operations fail).
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleApplyDiff
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleDiff
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleExtract
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleGetPackage
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleListPackages
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleListTargets
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleLockTarget
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleSetCurrentTarget
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleValidate
+    - name: Serve
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+      returns:
+        - name: error
+      exported: true
+      source_file: stdio.go
+      doc: |
+        Serve runs the MCP stdio transport: it reads line-delimited JSON-RPC
+        2.0 messages from stdin, dispatches them against state, and writes
+        responses back to stdout. Diagnostic logs go to stderr.
+
+        Serve returns when stdin is closed (io.EOF) or ctx is cancelled.
+        It is safe to call concurrently with state mutations — all reads go
+        through serve.State.Snapshot().
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: stdio.go
+            symbol: serveIO
+    - name: ServeClient
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: opts
+          type:
+            name: ClientOptions
+            package: internal/adapter/mcp
+      returns:
+        - name: error
+      exported: true
+      source_file: client.go
+      doc: |
+        ServeClient runs the MCP stdio transport in thin-client mode. It
+        reads JSON-RPC messages from stdin, forwards tools/call invocations
+        to the HTTP daemon at opts.Endpoint, and writes responses back to
+        stdout. initialize, notifications/initialized and tools/list are
+        handled locally (ToolDefinitions matches the daemon's set by
+        construction).
+
+        ServeClient returns when stdin is closed (io.EOF) or ctx is
+        cancelled.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: client.go
+            symbol: serveClientIO
+    - name: ToolDefinitions
+      returns:
+        - name: ToolDefinition
+          package: internal/adapter/mcp
+          slice: true
+      exported: true
+      source_file: tools.go
+      doc: |
+        ToolDefinitions returns the nine tools we advertise. Kept as a
+        function rather than a var so the JSON-Schema maps don't become
+        mutable package state.
+    - name: collectYAMLFiles
+      params:
+        - name: root
+          type:
+            name: string
+      returns:
+        - name: string
+          slice: true
+        - name: error
+      exported: false
+      source_file: tools.go
+      doc: |
+        collectYAMLFiles returns every *.yaml / *.yml file under root.
+    - name: dispatchToolsCall
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: req
+          type:
+            name: Request
+            package: internal/adapter/mcp
+        - name: writeLine
+          type:
+            name: func(internal/adapter/mcp.Response) error
+        - name: errOut
+          type:
+            name: Writer
+            package: io
+      returns:
+        - name: error
+      exported: false
+      source_file: stdio.go
+      doc: |
+        dispatchToolsCall extracts name+arguments from the request, invokes
+        the tool, and writes the response.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: Dispatch
+        - to:
+            package: internal/adapter/mcp
+            file: protocol.go
+            symbol: newErrorResponse
+        - to:
+            package: internal/adapter/mcp
+            file: protocol.go
+            symbol: newResponse
+    - name: errorResult
+      params:
+        - name: msg
+          type:
+            name: string
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+      exported: false
+      source_file: tools.go
+      doc: |
+        errorResult wraps a human-readable message as an IsError=true tool
+        result. Used for input validation failures the agent can surface.
+    - name: forwardToolsCall
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: httpClient
+          type:
+            name: Client
+            package: net/http
+            pointer: true
+        - name: endpoint
+          type:
+            name: string
+        - name: req
+          type:
+            name: Request
+            package: internal/adapter/mcp
+        - name: writeLine
+          type:
+            name: func(internal/adapter/mcp.Response) error
+        - name: errOut
+          type:
+            name: Writer
+            package: io
+      returns:
+        - name: error
+      exported: false
+      source_file: client.go
+      doc: |
+        forwardToolsCall POSTs the raw params to /api/mcp/tools/call and
+        writes the daemon's response (a ToolResult) back to the MCP client.
+        Daemon-side RPC errors are surfaced as JSON-RPC errors; transport
+        failures (connection refused, timeout) are reported as internal
+        errors so the MCP client can retry.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: protocol.go
+            symbol: newErrorResponse
+        - to:
+            package: internal/adapter/mcp
+            file: protocol.go
+            symbol: newResponse
+    - name: handleApplyDiff
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: rawArgs
+          type:
+            name: RawMessage
+            package: encoding/json
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: false
+      source_file: tools.go
+      doc: |
+        handleApplyDiff parses the patch YAML, loads current+target models,
+        runs apply.Apply and rewrites the target's model/ tree on disk.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: errorResult
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: loadTargetModelsFromDisk
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: requireRoot
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: resolveTargetID
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: textResult
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: unmarshalArgs
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: validatePatch
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: writeTargetModelsToDisk
+        - to:
+            package: internal/apply
+            file: apply.go
+            symbol: Apply
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.Snapshot
+    - name: handleClientLine
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: httpClient
+          type:
+            name: Client
+            package: net/http
+            pointer: true
+        - name: endpoint
+          type:
+            name: string
+        - name: line
+          type:
+            name: byte
+            slice: true
+        - name: writeLine
+          type:
+            name: func(internal/adapter/mcp.Response) error
+        - name: errOut
+          type:
+            name: Writer
+            package: io
+      returns:
+        - name: error
+      exported: false
+      source_file: client.go
+      doc: |
+        handleClientLine dispatches a single incoming line. initialize,
+        tools/list and ping are answered locally; tools/call is forwarded
+        via forwardToolsCall.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: ToolDefinitions
+        - to:
+            package: internal/adapter/mcp
+            file: client.go
+            symbol: forwardToolsCall
+        - to:
+            package: internal/adapter/mcp
+            file: protocol.go
+            symbol: newErrorResponse
+        - to:
+            package: internal/adapter/mcp
+            file: protocol.go
+            symbol: newInitializeResult
+        - to:
+            package: internal/adapter/mcp
+            file: protocol.go
+            symbol: newResponse
+    - name: handleDiff
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: rawArgs
+          type:
+            name: RawMessage
+            package: encoding/json
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: false
+      source_file: tools.go
+      doc: |
+        handleDiff loads current (from snapshot) and target (from disk) and
+        returns the structured Diff as JSON.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: errorResult
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: loadTargetModelsFromDisk
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: requireRoot
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: resolveTargetID
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: textResult
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: unmarshalArgs
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: Compute
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.Snapshot
+    - name: handleExtract
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: rawArgs
+          type:
+            name: RawMessage
+            package: encoding/json
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: false
+      source_file: tools.go
+      doc: |
+        handleExtract returns the (optionally filtered) package list. An
+        empty Paths slice means "return everything"; an unknown path is not
+        an error — it just contributes nothing.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: snapshotOrEmpty
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: textResult
+    - name: handleGetPackage
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: rawArgs
+          type:
+            name: RawMessage
+            package: encoding/json
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: false
+      source_file: tools.go
+      doc: |
+        handleGetPackage returns a single PackageModel. Missing/empty paths
+        and unknown packages come back as IsError=true tool results (not
+        JSON-RPC errors) so the model can see the message and recover.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: errorResult
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: snapshotOrEmpty
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: textResult
+    - name: handleLine
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: line
+          type:
+            name: byte
+            slice: true
+        - name: writeLine
+          type:
+            name: func(internal/adapter/mcp.Response) error
+        - name: errOut
+          type:
+            name: Writer
+            package: io
+      returns:
+        - name: error
+      exported: false
+      source_file: stdio.go
+      doc: |
+        handleLine parses a single incoming line and emits exactly one
+        response (unless the message is a notification — has no id — in
+        which case nothing is written).
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: ToolDefinitions
+        - to:
+            package: internal/adapter/mcp
+            file: stdio.go
+            symbol: dispatchToolsCall
+        - to:
+            package: internal/adapter/mcp
+            file: protocol.go
+            symbol: newErrorResponse
+        - to:
+            package: internal/adapter/mcp
+            file: protocol.go
+            symbol: newInitializeResult
+        - to:
+            package: internal/adapter/mcp
+            file: protocol.go
+            symbol: newResponse
+    - name: handleListPackages
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: false
+      source_file: tools.go
+      doc: |
+        handleListPackages returns the minimal per-package summary.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: snapshotOrEmpty
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: textResult
+    - name: handleListTargets
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: false
+      source_file: tools.go
+      doc: |
+        handleListTargets returns []TargetMeta for every target under
+        .arch/targets/, sorted by id.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: errorResult
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: requireRoot
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: textResult
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: List
+    - name: handleLockTarget
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: rawArgs
+          type:
+            name: RawMessage
+            package: encoding/json
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: false
+      source_file: tools.go
+      doc: |
+        handleLockTarget freezes the current snapshot into .arch/targets/<id>/.
+        The daemon's in-memory packages are first materialized as .arch/*.yaml
+        under the project tree so target.Lock has something to copy — this
+        mirrors what `archai target lock` does via `archai diagram generate`
+        but avoids re-parsing Go sources.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: errorResult
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: requireRoot
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: textResult
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: unmarshalArgs
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: writeCurrentArchYAML
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.Snapshot
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: List
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: Lock
+    - name: handleSetCurrentTarget
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: rawArgs
+          type:
+            name: RawMessage
+            package: encoding/json
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: false
+      source_file: tools.go
+      doc: |
+        handleSetCurrentTarget writes .arch/targets/CURRENT and syncs the
+        in-memory state's currentTarget so subsequent diff/validate calls see
+        the change without waiting for the watcher to pick up the file write.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: errorResult
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: requireRoot
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: textResult
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: unmarshalArgs
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.SwitchTarget
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: Use
+    - name: handleValidate
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: rawArgs
+          type:
+            name: RawMessage
+            package: encoding/json
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: false
+      source_file: tools.go
+      doc: |
+        handleValidate returns {ok, target, violations:[...]}. ok=true when
+        the current snapshot matches the target exactly.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: errorResult
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: loadTargetModelsFromDisk
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: requireRoot
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: resolveTargetID
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: textResult
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: unmarshalArgs
+        - to:
+            package: internal/diff
+            file: compute.go
+            symbol: Compute
+        - to:
+            package: internal/diff
+            file: diff.go
+            symbol: Diff.IsEmpty
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.Snapshot
+    - name: loadTargetModelsFromDisk
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: root
+          type:
+            name: string
+        - name: id
+          type:
+            name: string
+      returns:
+        - name: PackageModel
+          package: internal/domain
+          slice: true
+        - name: error
+      exported: false
+      source_file: tools.go
+      doc: |
+        loadTargetModelsFromDisk loads the frozen per-package models under
+        .arch/targets/<id>/model/.
+      calls:
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: collectYAMLFiles
+        - to:
+            package: internal/adapter/yaml
+            file: reader.go
+            symbol: NewReader
+        - to:
+            package: internal/adapter/yaml
+            file: reader.go
+            symbol: reader.Read
+          via: internal/service.ModelReader
+    - name: newErrorResponse
+      params:
+        - name: id
+          type:
+            name: RawMessage
+            package: encoding/json
+        - name: code
+          type:
+            name: int
+        - name: message
+          type:
+            name: string
+      returns:
+        - name: Response
+          package: internal/adapter/mcp
+      exported: false
+      source_file: protocol.go
+      doc: |
+        newErrorResponse builds an error response for id with code/message.
+    - name: newInitializeResult
+      returns:
+        - name: initializeResult
+          package: internal/adapter/mcp
+      exported: false
+      source_file: protocol.go
+      doc: |
+        newInitializeResult builds the fixed response for initialize.
+    - name: newResponse
+      params:
+        - name: id
+          type:
+            name: RawMessage
+            package: encoding/json
+        - name: result
+          type:
+            name: interface{}
+      returns:
+        - name: Response
+          package: internal/adapter/mcp
+      exported: false
+      source_file: protocol.go
+      doc: |
+        newResponse builds a successful response for id with result.
+    - name: requireRoot
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+      returns:
+        - name: string
+        - name: bool
+      exported: false
+      source_file: tools.go
+      doc: |
+        requireRoot returns the project root from state, or ("", false) when
+        state is nil / has an empty root. Tools that touch disk need a root.
+      calls:
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.Root
+    - name: resolveTargetID
+      params:
+        - name: explicit
+          type:
+            name: string
+        - name: snapshotCurrent
+          type:
+            name: string
+        - name: root
+          type:
+            name: string
+      returns:
+        - name: string
+        - name: string
+      exported: false
+      source_file: tools.go
+      doc: |
+        resolveTargetID picks the explicit arg if non-empty, otherwise falls
+        back to the snapshot's current target, then to .arch/targets/CURRENT.
+        Returns a non-empty error message string when no target can be resolved.
+      calls:
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: Current
+    - name: serveClientIO
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: opts
+          type:
+            name: ClientOptions
+            package: internal/adapter/mcp
+        - name: in
+          type:
+            name: Reader
+            package: io
+        - name: out
+          type:
+            name: Writer
+            package: io
+        - name: errOut
+          type:
+            name: Writer
+            package: io
+      returns:
+        - name: error
+      exported: false
+      source_file: client.go
+      doc: |
+        serveClientIO is the testable form of ServeClient with explicit
+        streams. All reads are serialized against a goroutine reading from in
+        so ctx cancellation exits promptly even on a blocked stdin.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: client.go
+            symbol: handleClientLine
+    - name: serveIO
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: in
+          type:
+            name: Reader
+            package: io
+        - name: out
+          type:
+            name: Writer
+            package: io
+        - name: errOut
+          type:
+            name: Writer
+            package: io
+      returns:
+        - name: error
+      exported: false
+      source_file: stdio.go
+      doc: |
+        serveIO is the testable form of Serve with explicit streams.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: stdio.go
+            symbol: handleLine
+    - name: snapshotOrEmpty
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+      returns:
+        - name: Snapshot
+          package: internal/serve
+      exported: false
+      source_file: tools.go
+      doc: |
+        snapshotOrEmpty returns a Snapshot even when state is nil, so the
+        tools can be unit-tested in isolation and the daemon can answer
+        requests before Load completes.
+      calls:
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.Snapshot
+    - name: textResult
+      params:
+        - name: payload
+          type:
+            name: any
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: false
+      source_file: tools.go
+      doc: |
+        textResult marshals payload as indented JSON and wraps it in a
+        single text content block.
+    - name: unmarshalArgs
+      params:
+        - name: rawArgs
+          type:
+            name: RawMessage
+            package: encoding/json
+        - name: dst
+          type:
+            name: any
+      returns:
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: false
+      source_file: tools.go
+      doc: |
+        unmarshalArgs decodes rawArgs into dst. Empty input leaves dst at its
+        zero value; malformed JSON becomes an invalid-params RPC error.
+    - name: validatePatch
+      params:
+        - name: d
+          type:
+            name: Diff
+            package: internal/diff
+            pointer: true
+      returns:
+        - name: error
+      exported: false
+      source_file: tools.go
+      doc: |
+        validatePatch ensures every Change in d carries a recognized Op and
+        Kind so we fail fast on malformed patches before any on-disk writes.
+        Duplicated from cmd/archai to avoid exporting validation from the CLI.
+    - name: writeCurrentArchYAML
+      params:
+        - name: packages
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+        - name: root
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: false
+      source_file: tools.go
+      doc: |
+        writeCurrentArchYAML materializes each in-memory package as
+        <pkg>/.arch/internal.yaml under root so target.Lock has per-package
+        snapshots to freeze. Packages with an empty Path are written at
+        <root>/.arch/internal.yaml (project-root package).
+      calls:
+        - to:
+            package: internal/adapter/d2
+            file: writer.go
+            symbol: writer.Write
+          via: internal/service.ModelWriter
+        - to:
+            package: internal/adapter/yaml
+            file: writer.go
+            symbol: NewWriter
+        - to:
+            package: internal/adapter/yaml
+            file: writer.go
+            symbol: writer.Write
+          via: internal/service.ModelWriter
+    - name: writeTargetModelsToDisk
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: root
+          type:
+            name: string
+        - name: id
+          type:
+            name: string
+        - name: models
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+      returns:
+        - name: error
+      exported: false
+      source_file: tools.go
+      doc: |
+        writeTargetModelsToDisk overwrites .arch/targets/<id>/model/ with the
+        per-package models. Mirrors cmd/archai's writeTargetModels so the
+        apply_diff tool produces the same on-disk layout as `archai diff apply`.
+      calls:
+        - to:
+            package: internal/adapter/d2
+            file: writer.go
+            symbol: writer.Write
+          via: internal/service.ModelWriter
+        - to:
+            package: internal/adapter/yaml
+            file: writer.go
+            symbol: NewWriter
+        - to:
+            package: internal/adapter/yaml
+            file: writer.go
+            symbol: writer.Write
+          via: internal/service.ModelWriter
+constants:
+    - name: ErrInternal
+      type:
+        name: untyped int
+      value: "-32603"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Standard JSON-RPC 2.0 error codes we surface.
+    - name: ErrInvalidParams
+      type:
+        name: untyped int
+      value: "-32602"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Standard JSON-RPC 2.0 error codes we surface.
+    - name: ErrInvalidRequest
+      type:
+        name: untyped int
+      value: "-32600"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Standard JSON-RPC 2.0 error codes we surface.
+    - name: ErrMethodNotFound
+      type:
+        name: untyped int
+      value: "-32601"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Standard JSON-RPC 2.0 error codes we surface.
+    - name: ErrParseError
+      type:
+        name: untyped int
+      value: "-32700"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Standard JSON-RPC 2.0 error codes we surface.
+    - name: jsonRPCVersion
+      type:
+        name: untyped string
+      value: '"2.0"'
+      exported: false
+      source_file: protocol.go
+      doc: |
+        jsonRPCVersion is the protocol version string required on every
+        JSON-RPC 2.0 message.
+    - name: protocolVersion
+      type:
+        name: untyped string
+      value: '"2024-11-05"'
+      exported: false
+      source_file: protocol.go
+      doc: |
+        protocolVersion is the MCP protocol version we advertise during
+        initialize. Clients that don't recognize the exact string typically
+        negotiate down — for the current read-only tool set this is fine.
+dependencies:
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: ClientOptions
+      to:
+        package: net/http
+        symbol: Client
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: Request
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: Response
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: Response
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResultContent
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ValidateResult
+      to:
+        package: internal/diff
+        symbol: Change
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: initializeResult
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: serverInfo
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: toolsCallParams
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: Dispatch
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: Dispatch
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: Dispatch
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: Dispatch
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: Serve
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: Serve
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: ServeClient
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: ServeClient
+      to:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: ClientOptions
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolDefinitions
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolDefinition
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: dispatchToolsCall
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: dispatchToolsCall
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: Request
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: dispatchToolsCall
+      to:
+        package: internal/adapter/mcp
+        symbol: func(internal/adapter/mcp.Response) error
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: dispatchToolsCall
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: errorResult
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: forwardToolsCall
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: forwardToolsCall
+      to:
+        package: net/http
+        symbol: Client
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: forwardToolsCall
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: Request
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: forwardToolsCall
+      to:
+        package: internal/adapter/mcp
+        symbol: func(internal/adapter/mcp.Response) error
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: forwardToolsCall
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleApplyDiff
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleApplyDiff
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleApplyDiff
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleApplyDiff
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: handleClientLine
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: handleClientLine
+      to:
+        package: net/http
+        symbol: Client
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: handleClientLine
+      to:
+        package: internal/adapter/mcp
+        symbol: func(internal/adapter/mcp.Response) error
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: handleClientLine
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleDiff
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleDiff
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleDiff
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleDiff
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleExtract
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleExtract
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleExtract
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleExtract
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleGetPackage
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleGetPackage
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleGetPackage
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleGetPackage
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: handleLine
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: handleLine
+      to:
+        package: internal/adapter/mcp
+        symbol: func(internal/adapter/mcp.Response) error
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: handleLine
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleListPackages
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleListPackages
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleListPackages
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleListTargets
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleListTargets
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleListTargets
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleLockTarget
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleLockTarget
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleLockTarget
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleLockTarget
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleSetCurrentTarget
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleSetCurrentTarget
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleSetCurrentTarget
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleSetCurrentTarget
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleValidate
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleValidate
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleValidate
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: handleValidate
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: loadTargetModelsFromDisk
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: loadTargetModelsFromDisk
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: newErrorResponse
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: newErrorResponse
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: Response
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: newInitializeResult
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: initializeResult
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: newResponse
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: newResponse
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: Response
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: requireRoot
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: serveClientIO
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: serveClientIO
+      to:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: ClientOptions
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: serveClientIO
+      to:
+        package: io
+        symbol: Reader
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: serveClientIO
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: serveIO
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: serveIO
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: serveIO
+      to:
+        package: io
+        symbol: Reader
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: serveIO
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: snapshotOrEmpty
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: snapshotOrEmpty
+      to:
+        package: internal/serve
+        symbol: Snapshot
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: textResult
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: textResult
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: unmarshalArgs
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: unmarshalArgs
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: validatePatch
+      to:
+        package: internal/diff
+        symbol: Diff
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: writeCurrentArchYAML
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: writeTargetModelsToDisk
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: writeTargetModelsToDisk
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses

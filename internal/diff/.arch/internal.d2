@@ -1,0 +1,296 @@
+# diff package
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Files
+compute: {
+  label: "compute.go"
+  class: value
+
+  Compute: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "current": "[]internal/domain.PackageModel"
+    "target": "[]internal/domain.PackageModel"
+    "return": "*internal/diff.Diff"
+  }
+
+  diffConsts: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "string"
+    "cur": "[]internal/domain.ConstDef"
+    "tgt": "[]internal/domain.ConstDef"
+    "return": "[]internal/diff.Change"
+  }
+
+  diffDependencies: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "string"
+    "cur": "[]internal/domain.Dependency"
+    "tgt": "[]internal/domain.Dependency"
+    "return": "[]internal/diff.Change"
+  }
+
+  diffErrors: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "string"
+    "cur": "[]internal/domain.ErrorDef"
+    "tgt": "[]internal/domain.ErrorDef"
+    "return": "[]internal/diff.Change"
+  }
+
+  diffFunctions: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "string"
+    "cur": "[]internal/domain.FunctionDef"
+    "tgt": "[]internal/domain.FunctionDef"
+    "return": "[]internal/diff.Change"
+  }
+
+  diffInterfaces: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "string"
+    "cur": "[]internal/domain.InterfaceDef"
+    "tgt": "[]internal/domain.InterfaceDef"
+    "return": "[]internal/diff.Change"
+  }
+
+  diffPackage: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cur": "internal/domain.PackageModel"
+    "tgt": "internal/domain.PackageModel"
+    "return": "[]internal/diff.Change"
+  }
+
+  diffStructs: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "string"
+    "cur": "[]internal/domain.StructDef"
+    "tgt": "[]internal/domain.StructDef"
+    "return": "[]internal/diff.Change"
+  }
+
+  diffTypeDefs: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "string"
+    "cur": "[]internal/domain.TypeDef"
+    "tgt": "[]internal/domain.TypeDef"
+    "return": "[]internal/diff.Change"
+  }
+
+  diffVars: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "string"
+    "cur": "[]internal/domain.VarDef"
+    "tgt": "[]internal/domain.VarDef"
+    "return": "[]internal/diff.Change"
+  }
+
+  indexPackages: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgs": "[]internal/domain.PackageModel"
+    "return": "map[string]internal/domain.PackageModel"
+  }
+
+  packageSummary: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "internal/domain.PackageModel"
+    "return": "map[string]any"
+  }
+
+  symbolNames: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "xs": "[]T"
+    "name": "func(T) string"
+    "return": "[]string"
+  }
+
+  unionNames: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "a": "map[string]V"
+    "b": "map[string]V"
+    "return": "[]string"
+  }
+
+
+}
+
+diff: {
+  label: "diff.go"
+  class: value
+
+  Change: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Op internal/diff.Op": ""
+    "+Kind internal/diff.Kind": ""
+    "+Path string": ""
+    "+Before any": ""
+    "+After any": ""
+  }
+
+  Diff: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Changes []internal/diff.Change": ""
+
+    "+IsEmpty()": "bool"
+  }
+
+  Kind: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "string"
+
+    "KindConst": "const"
+    "KindDep": "const"
+    "KindError": "const"
+    "KindField": "const"
+    "KindFunction": "const"
+    "KindInterface": "const"
+    "KindLayerRule": "const"
+    "KindMethod": "const"
+    "KindPackage": "const"
+    "KindStruct": "const"
+    "KindTypeDef": "const"
+    "KindVar": "const"
+  }
+
+  Op: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "string"
+
+    "OpAdd": "const"
+    "OpChange": "const"
+    "OpRemove": "const"
+  }
+
+}
+
+format: {
+  label: "format.go"
+  class: value
+
+  FormatJSON: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "return": "(string, error)"
+  }
+
+  FormatText: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "return": "string"
+  }
+
+  FormatYAML: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "return": "(string, error)"
+  }
+
+
+}
+
+# Dependencies
+diff.Change -> diff.Op: "uses"
+diff.Change -> diff.Kind: "uses"
+diff.Diff -> diff.Change: "uses"
+compute.Compute -> diff.Diff: "returns"
+format.FormatJSON -> diff.Diff: "uses"
+format.FormatText -> diff.Diff: "uses"
+format.FormatYAML -> diff.Diff: "uses"
+compute.diffConsts -> diff.Change: "returns"
+compute.diffDependencies -> diff.Change: "returns"
+compute.diffErrors -> diff.Change: "returns"
+compute.diffFunctions -> diff.Change: "returns"
+compute.diffInterfaces -> diff.Change: "returns"
+compute.diffPackage -> diff.Change: "returns"
+compute.diffStructs -> diff.Change: "returns"
+compute.diffTypeDefs -> diff.Change: "returns"
+compute.diffVars -> diff.Change: "returns"

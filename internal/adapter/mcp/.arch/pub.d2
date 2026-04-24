@@ -1,0 +1,215 @@
+# mcp package
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Files
+client: {
+  label: "client.go"
+  class: value
+
+  ClientOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Endpoint string": ""
+    "+HTTPClient *net/http.Client": ""
+  }
+
+  ServeClient: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "opts": "internal/adapter/mcp.ClientOptions"
+    "return": "error"
+  }
+
+
+}
+
+protocol: {
+  label: "protocol.go"
+  class: value
+
+  RPCError: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Code int": ""
+    "+Message string": ""
+    "+Data any": ""
+  }
+
+  Request: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+JSONRPC string": ""
+    "+ID encoding/json.RawMessage": ""
+    "+Method string": ""
+    "+Params encoding/json.RawMessage": ""
+  }
+
+  Response: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+JSONRPC string": ""
+    "+ID encoding/json.RawMessage": ""
+    "+Result interface{}": ""
+    "+Error *internal/adapter/mcp.RPCError": ""
+  }
+
+  Constants: {
+    shape: class
+    stereotype: "<<const>>"
+
+    "ErrInternal": "untyped int = -32603"
+    "ErrInvalidParams": "untyped int = -32602"
+    "ErrInvalidRequest": "untyped int = -32600"
+    "ErrMethodNotFound": "untyped int = -32601"
+    "ErrParseError": "untyped int = -32700"
+  }
+
+}
+
+stdio: {
+  label: "stdio.go"
+  class: value
+
+  Serve: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "state": "*internal/serve.State"
+    "return": "error"
+  }
+
+
+}
+
+tools: {
+  label: "tools.go"
+  class: value
+
+  PackageSummary: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Path string": ""
+    "+Name string": ""
+    "+Layer string": ""
+    "+InterfaceCount int": ""
+    "+StructCount int": ""
+    "+FunctionCount int": ""
+  }
+
+  ToolDefinition: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Description string": ""
+    "+InputSchema any": ""
+  }
+
+  ToolResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Content []internal/adapter/mcp.ToolResultContent": ""
+    "+IsError bool": ""
+  }
+
+  ToolResultContent: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Type string": ""
+    "+Text string": ""
+  }
+
+  ValidateResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+OK bool": ""
+    "+Target string": ""
+    "+Violations []internal/diff.Change": ""
+  }
+
+  Dispatch: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "name": "string"
+    "rawArgs": "encoding/json.RawMessage"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  ToolDefinitions: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "return": "[]internal/adapter/mcp.ToolDefinition"
+  }
+
+
+}
+
+# Dependencies
+protocol.Response -> protocol.RPCError: "uses"
+tools.ToolResult -> tools.ToolResultContent: "uses"
+tools.Dispatch -> tools.ToolResult: "returns"
+tools.Dispatch -> protocol.RPCError: "returns"
+client.ServeClient -> client.ClientOptions: "uses"
+tools.ToolDefinitions -> tools.ToolDefinition: "returns"

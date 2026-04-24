@@ -1,0 +1,233 @@
+# worktree package
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Files
+discover: {
+  label: "discover.go"
+  class: value
+
+  Entry: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Path string": ""
+    "+Name string": ""
+    "+Branch string": ""
+    "+Head string": ""
+    "+Bare bool": ""
+  }
+
+  Discover: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "([]internal/worktree.Entry, error)"
+  }
+
+  ParseWorktreeList: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "output": "string"
+    "return": "([]internal/worktree.Entry, error)"
+  }
+
+
+}
+
+worktree: {
+  label: "worktree.go"
+  class: value
+
+  LiveDaemon: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Worktree string": ""
+    "+Record internal/worktree.ServeRecord": ""
+    "+StartedAt time.Time": ""
+  }
+
+  ServeRecord: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+PID int": ""
+    "+HTTPAddr string": ""
+    "+StartedAt string": ""
+  }
+
+  CurrentPath: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "string"
+  }
+
+  Dir: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "string"
+  }
+
+  LegacyCurrentPath: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "string"
+  }
+
+  ListDaemons: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "([]internal/worktree.LiveDaemon, error)"
+  }
+
+  Name: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "string"
+  }
+
+  PIDAlive: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pid": "int"
+    "return": "bool"
+  }
+
+  ReadCurrent: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "(string, bool, error)"
+  }
+
+  ReadServe: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "(*internal/worktree.ServeRecord, error)"
+  }
+
+  RemoveCurrent: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "error"
+  }
+
+  RemoveServe: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "error"
+  }
+
+  ServePath: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "return": "string"
+  }
+
+  WriteCurrent: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "id": "string"
+    "return": "error"
+  }
+
+  WriteServe: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "name": "string"
+    "rec": "internal/worktree.ServeRecord"
+    "return": "error"
+  }
+
+
+}
+
+# Dependencies
+worktree.LiveDaemon -> worktree.ServeRecord: "uses"
+discover.Discover -> discover.Entry: "returns"
+worktree.ListDaemons -> worktree.LiveDaemon: "returns"
+discover.ParseWorktreeList -> discover.Entry: "returns"
+worktree.ReadServe -> worktree.ServeRecord: "returns"
+worktree.WriteServe -> worktree.ServeRecord: "uses"

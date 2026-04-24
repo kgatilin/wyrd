@@ -1,0 +1,24 @@
+schema: archai/v1
+package: internal/adapter/golang
+name: golang
+layer: source_adapter
+functions:
+    - name: NewReader
+      returns:
+        - name: ModelReader
+          package: internal/service
+      exported: true
+      source_file: reader.go
+      doc: |
+        NewReader creates a new Go code reader that implements service.ModelReader.
+      stereotype: factory
+dependencies:
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: NewReader
+      to:
+        package: internal/service
+        symbol: ModelReader
+      kind: returns
+      through_exported: true

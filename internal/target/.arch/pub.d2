@@ -1,0 +1,140 @@
+# target package
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Files
+meta: {
+  label: "meta.go"
+  class: value
+
+  TargetMeta: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+ID string": ""
+    "+BaseCommit string": ""
+    "+CreatedAt string": ""
+    "+Description string": ""
+  }
+
+}
+
+storage: {
+  label: "storage.go"
+  class: value
+
+  LockOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Description string": ""
+  }
+
+  Current: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "(string, error)"
+  }
+
+  Delete: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "id": "string"
+    "force": "bool"
+    "return": "error"
+  }
+
+  List: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "([]internal/target.TargetMeta, error)"
+  }
+
+  Lock: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "id": "string"
+    "opts": "internal/target.LockOptions"
+    "return": "error"
+  }
+
+  Show: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "id": "string"
+    "return": "(*internal/target.TargetMeta, []string, error)"
+  }
+
+  Use: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "id": "string"
+    "return": "error"
+  }
+
+
+}
+
+# Dependencies
+storage.List -> meta.TargetMeta: "returns"
+storage.Lock -> storage.LockOptions: "uses"
+storage.Show -> meta.TargetMeta: "returns"

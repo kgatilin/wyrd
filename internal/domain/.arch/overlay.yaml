@@ -1,0 +1,6 @@
+aggregates:
+  package_model:
+    root: PackageModel
+
+configs:
+  - WriteOptions

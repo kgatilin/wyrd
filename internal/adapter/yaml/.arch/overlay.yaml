@@ -1,0 +1,3 @@
+aggregates:
+  yaml_package_spec:
+    root: PackageSpec

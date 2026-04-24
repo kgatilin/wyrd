@@ -1,0 +1,1812 @@
+# http package
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Files
+api: {
+  label: "api.go"
+  class: value
+
+  firstTextContent: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "res": "internal/adapter/mcp.ToolResult"
+    "return": "string"
+  }
+
+  readJSONBody: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "r": "*net/http.Request"
+    "return": "(encoding/json.RawMessage, error)"
+  }
+
+  trimBOM: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "b": "[]byte"
+    "return": "[]byte"
+  }
+
+  writeAPIToolResult: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "w": "net/http.ResponseWriter"
+    "res": "internal/adapter/mcp.ToolResult"
+    "rpcErr": "*internal/adapter/mcp.RPCError"
+  }
+
+  writeJSONError: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "w": "net/http.ResponseWriter"
+    "code": "int"
+    "msg": "string"
+  }
+
+  writeJSONErrorText: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "w": "net/http.ResponseWriter"
+    "status": "int"
+    "msg": "string"
+  }
+
+
+}
+
+configs: {
+  label: "configs.go"
+  class: value
+
+  configField: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type string": ""
+    "+Tag string": ""
+    "+IsExported bool": ""
+    "+Default string": ""
+  }
+
+  configPageData: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-pageData internal/adapter/http.pageData": ""
+    "+HasOverlay bool": ""
+    "+Module string": ""
+    "+Configs []internal/adapter/http.configView": ""
+    "+Missing []string": ""
+  }
+
+  configView: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Package string": ""
+    "+Name string": ""
+    "+TypeHref string": ""
+    "+Doc string": ""
+    "+Fields []internal/adapter/http.configField": ""
+    "+Example string": ""
+    "+FromSource string": ""
+  }
+
+  buildConfigFields: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "fields": "[]internal/domain.FieldDef"
+    "return": "[]internal/adapter/http.configField"
+  }
+
+  buildFQN: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "module": "string"
+    "pkgPath": "string"
+    "name": "string"
+    "return": "string"
+  }
+
+  collectConfigs: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "packages": "[]internal/domain.PackageModel"
+    "cfg": "*internal/overlay.Config"
+    "return": "([]internal/adapter/http.configView, []string)"
+  }
+
+  defaultLiteral: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "t": "internal/domain.TypeRef"
+    "return": "string"
+  }
+
+  synthesizeExample: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "s": "internal/domain.StructDef"
+    "return": "string"
+  }
+
+
+}
+
+dashboard: {
+  label: "dashboard.go"
+  class: value
+
+  dashboardData: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-pageData internal/adapter/http.pageData": ""
+    "+Module string": ""
+    "+GoVersion string": ""
+    "+CurrentTarget string": ""
+    "+HasTarget bool": ""
+    "+DriftStatus string": ""
+    "+DriftCount int": ""
+    "+DriftMessage string": ""
+    "+PackageCount int": ""
+    "+TypeCount int": ""
+    "+FunctionCount int": ""
+    "+InterfaceCount int": ""
+    "+HasLayerMap bool": ""
+  }
+
+  collectTargetYAMLFiles: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "string"
+    "return": "([]string, error)"
+  }
+
+  computeDrift: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "root": "string"
+    "targetID": "string"
+    "current": "[]internal/domain.PackageModel"
+    "return": "(string, int, string)"
+  }
+
+  readGoModInfo: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "return": "(string, string, bool)"
+  }
+
+
+}
+
+diff_targets: {
+  label: "diff_targets.go"
+  class: value
+
+  comparePageData: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+A string": ""
+    "+B string": ""
+    "+Error string": ""
+    "+Summary internal/adapter/http.diffSummary": ""
+    "+Kinds []internal/adapter/http.kindFilter": ""
+    "+Groups []internal/adapter/http.diffGroup": ""
+    "+Filter string": ""
+  }
+
+  diffEntry: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Op string": ""
+    "+Kind string": ""
+    "+Path string": ""
+    "+Before string": ""
+    "+After string": ""
+  }
+
+  diffGroup: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Op string": ""
+    "+Label string": ""
+    "+CSSTag string": ""
+    "+Entries []internal/adapter/http.diffEntry": ""
+  }
+
+  diffPageData: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-pageData internal/adapter/http.pageData": ""
+    "+ActiveTarget string": ""
+    "+HasActive bool": ""
+    "+Targets []internal/target.TargetMeta": ""
+    "+Error string": ""
+    "+Summary internal/adapter/http.diffSummary": ""
+    "+Kinds []internal/adapter/http.kindFilter": ""
+    "+Groups []internal/adapter/http.diffGroup": ""
+    "+Filter string": ""
+  }
+
+  diffSummary: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Additions int": ""
+    "+Removals int": ""
+    "+Changes int": ""
+    "+Total int": ""
+  }
+
+  kindFilter: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Kind string": ""
+    "+Label string": ""
+    "+Count int": ""
+    "+Selected bool": ""
+  }
+
+  targetsPageData: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-pageData internal/adapter/http.pageData": ""
+    "+ActiveTarget string": ""
+    "+HasActive bool": ""
+    "+Targets []internal/target.TargetMeta": ""
+    "+Error string": ""
+  }
+
+  buildGroups: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "filter": "string"
+    "return": "[]internal/adapter/http.diffGroup"
+  }
+
+  buildKindFilters: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "selected": "string"
+    "return": "[]internal/adapter/http.kindFilter"
+  }
+
+  findProjectYAMLSpecs: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "string"
+    "return": "([]string, error)"
+  }
+
+  formatSide: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "v": "any"
+    "return": "string"
+  }
+
+  hasYAMLExt: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "string"
+    "return": "bool"
+  }
+
+  isHTMX: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "r": "*net/http.Request"
+    "return": "bool"
+  }
+
+  loadCurrentFromDisk: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "root": "string"
+    "return": "([]internal/domain.PackageModel, error)"
+  }
+
+  loadDiffSides: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "root": "string"
+    "targetID": "string"
+    "return": "([]internal/domain.PackageModel, []internal/domain.PackageModel, error)"
+  }
+
+  loadTargetFromDisk: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "root": "string"
+    "id": "string"
+    "return": "([]internal/domain.PackageModel, error)"
+  }
+
+  summarize: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "return": "internal/adapter/http.diffSummary"
+  }
+
+  walkYAML: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "string"
+    "return": "([]string, error)"
+  }
+
+
+  Variables: {
+    shape: class
+    stereotype: "<<var>>"
+
+    "kindOrder": "[]struct{...}"
+    "opOrder": "[]struct{...}"
+  }
+
+}
+
+graphs: {
+  label: "graphs.go"
+  class: value
+
+  graphMeta: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+View string": ""
+    "+Layout string": ""
+    "+Title string": ""
+  }
+
+  graphPayload: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Meta internal/adapter/http.graphMeta": ""
+    "+Nodes []internal/adapter/http.graphNode": ""
+    "+Edges []internal/adapter/http.graphEdge": ""
+  }
+
+  buildDiffGraph: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "filter": "string"
+    "return": "internal/adapter/http.graphPayload"
+  }
+
+  buildLayerGraph: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cfg": "*internal/overlay.Config"
+    "packages": "[]internal/domain.PackageModel"
+    "mini": "bool"
+    "return": "internal/adapter/http.graphPayload"
+  }
+
+  buildPackageOverviewGraph: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "internal/domain.PackageModel"
+    "allPkgs": "[]internal/domain.PackageModel"
+    "return": "internal/adapter/http.graphPayload"
+  }
+
+  diffOpColor: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "op": "string"
+    "return": "string"
+  }
+
+  diffParentID: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "return": "string"
+  }
+
+  renderDiffD2: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "filter": "string"
+    "return": "string"
+  }
+
+  safeFilename: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "s": "string"
+    "return": "string"
+  }
+
+  shortNameForDiff: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "return": "string"
+  }
+
+  sortedLayerNames: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cfg": "*internal/overlay.Config"
+    "return": "[]string"
+  }
+
+  writeSVG: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "w": "net/http.ResponseWriter"
+    "ctx": "context.Context"
+    "filename": "string"
+    "source": "string"
+  }
+
+  writeText: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "w": "net/http.ResponseWriter"
+    "filename": "string"
+    "body": "string"
+  }
+
+
+}
+
+handlers: {
+  label: "handlers.go"
+  class: value
+
+  navItem: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Label string": ""
+    "+Href string": ""
+    "+Active bool": ""
+  }
+
+  pageData: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Title string": ""
+    "+ActivePath string": ""
+    "+NavItems []internal/adapter/http.navItem": ""
+    "+NavPrefix string": ""
+    "+Worktree string": ""
+    "+MultiMode bool": ""
+    "+Worktrees []internal/adapter/http.worktreeOption": ""
+    "+CurrentPath string": ""
+  }
+
+  searchPageData: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-pageData internal/adapter/http.pageData": ""
+    "+Query string": ""
+    "+Kind string": ""
+    "+Kinds []string": ""
+    "+Results []internal/adapter/http.searchResult": ""
+    "+Total int": ""
+  }
+
+  buildNav: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "activePath": "string"
+    "return": "[]internal/adapter/http.navItem"
+  }
+
+  buildNavWithPrefix: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "activePath": "string"
+    "prefix": "string"
+    "return": "[]internal/adapter/http.navItem"
+  }
+
+  templateFuncs: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "return": "html/template.FuncMap"
+  }
+
+
+  Variables: {
+    shape: class
+    stereotype: "<<var>>"
+
+    "navTemplate": "[]internal/adapter/http.navItem"
+  }
+
+}
+
+layers: {
+  label: "layers.go"
+  class: value
+
+  edgeView: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+From string": ""
+    "+To string": ""
+    "+Color string": ""
+    "+Details []string": ""
+  }
+
+  layerPackage: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Rel string": ""
+    "+Name string": ""
+  }
+
+  layerView: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Packages []internal/adapter/http.layerPackage": ""
+  }
+
+  layersData: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-pageData internal/adapter/http.pageData": ""
+    "+HasOverlay bool": ""
+    "+Module string": ""
+    "+Layers []internal/adapter/http.layerView": ""
+    "+Violations []internal/adapter/http.edgeView": ""
+    "+AllowedEdges []internal/adapter/http.edgeView": ""
+    "+DeclaredEdges []internal/adapter/http.edgeView": ""
+    "+ViolationsCount int": ""
+  }
+
+  buildLayerEdges: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cfg": "*internal/overlay.Config"
+    "packages": "[]internal/domain.PackageModel"
+    "return": "([]internal/adapter/http.edgeView, []internal/adapter/http.edgeView, []internal/adapter/http.edgeView)"
+  }
+
+  buildLayerMapD2: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cfg": "*internal/overlay.Config"
+    "packages": "[]internal/domain.PackageModel"
+    "detailed": "bool"
+    "return": "string"
+  }
+
+  buildLayerViews: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cfg": "*internal/overlay.Config"
+    "packages": "[]internal/domain.PackageModel"
+    "return": "[]internal/adapter/http.layerView"
+  }
+
+  computePackageLayers: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cfg": "*internal/overlay.Config"
+    "packages": "[]internal/domain.PackageModel"
+    "return": "map[string]string"
+  }
+
+  d2ID: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "s": "string"
+    "return": "string"
+  }
+
+  matchLayerGlobs: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "globs": "[]string"
+    "pkgPath": "string"
+    "return": "bool"
+  }
+
+  moduleRel: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "module": "string"
+    "pkgPath": "string"
+    "return": "string"
+  }
+
+  shortName: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "rel": "string"
+    "return": "string"
+  }
+
+
+}
+
+multi: {
+  label: "multi.go"
+  class: value
+
+  worktreeOption: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Branch string": ""
+    "+Current bool": ""
+
+    "+Label()": "string"
+  }
+
+  rewriteForWorktree: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "redirect": "string"
+    "name": "string"
+    "return": "string"
+  }
+
+
+}
+
+package_detail_data: {
+  label: "package_detail_data.go"
+  class: value
+
+  configTypeView: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Doc string": ""
+    "+Fields []internal/domain.FieldDef": ""
+  }
+
+  depLink: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Package string": ""
+    "+Symbol string": ""
+    "+InternalPath string": ""
+    "+External bool": ""
+  }
+
+  inboundDep: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+SourcePkg string": ""
+    "+InternalPath string": ""
+    "+Symbols []string": ""
+  }
+
+  outboundDep: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+TargetPkg string": ""
+    "+InternalPath string": ""
+    "+External bool": ""
+    "+Symbols []string": ""
+  }
+
+  packageDetailData: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-pageData internal/adapter/http.pageData": ""
+    "+Pkg internal/domain.PackageModel": ""
+    "+Tabs []internal/adapter/http.packageTab": ""
+    "+Active internal/adapter/http.packageDetailTab": ""
+    "+SVG html/template.HTML": ""
+    "+SVGError string": ""
+    "+Stereotypes []string": ""
+    "+LayerBadge string": ""
+    "+Interfaces []internal/domain.InterfaceDef": ""
+    "+Structs []internal/domain.StructDef": ""
+    "+Functions []internal/domain.FunctionDef": ""
+    "+TypeDefs []internal/domain.TypeDef": ""
+    "+Constants []internal/domain.ConstDef": ""
+    "+Variables []internal/domain.VarDef": ""
+    "+Errors []internal/domain.ErrorDef": ""
+    "+Outbound []internal/adapter/http.outboundDep": ""
+    "+Inbound []internal/adapter/http.inboundDep": ""
+    "+ConfigTypes []internal/adapter/http.configTypeView": ""
+    "+Partial bool": ""
+  }
+
+  packageTab: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+ID string": ""
+    "+Label string": ""
+    "+Active bool": ""
+  }
+
+  buildConfigTypes: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "internal/domain.PackageModel"
+    "cfg": "*internal/overlay.Config"
+    "modulePath": "string"
+    "return": "[]internal/adapter/http.configTypeView"
+  }
+
+  buildInbound: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "internal/domain.PackageModel"
+    "allPkgs": "[]internal/domain.PackageModel"
+    "return": "[]internal/adapter/http.inboundDep"
+  }
+
+  buildOutbound: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "internal/domain.PackageModel"
+    "allPkgs": "[]internal/domain.PackageModel"
+    "return": "[]internal/adapter/http.outboundDep"
+  }
+
+  buildPackageDetail: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "active": "internal/adapter/http.packageDetailTab"
+    "pkg": "internal/domain.PackageModel"
+    "allPkgs": "[]internal/domain.PackageModel"
+    "cfg": "*internal/overlay.Config"
+    "modulePath": "string"
+    "return": "*internal/adapter/http.packageDetailData"
+  }
+
+  buildTabs: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "active": "internal/adapter/http.packageDetailTab"
+    "return": "[]internal/adapter/http.packageTab"
+  }
+
+  containsString: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "xs": "[]string"
+    "s": "string"
+    "return": "bool"
+  }
+
+  knownPackagePaths: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgs": "[]internal/domain.PackageModel"
+    "return": "map[string]struct{...}"
+  }
+
+  parseTab: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "s": "string"
+    "return": "internal/adapter/http.packageDetailTab"
+  }
+
+  relToModule: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgPath": "string"
+    "modulePath": "string"
+    "return": "string"
+  }
+
+  splitFQTypeName: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "fq": "string"
+    "return": "(string, string)"
+  }
+
+  tabLabel: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "t": "internal/adapter/http.packageDetailTab"
+    "return": "string"
+  }
+
+  unexportedConstants: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "in": "[]internal/domain.ConstDef"
+    "return": "[]internal/domain.ConstDef"
+  }
+
+  unexportedErrors: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "in": "[]internal/domain.ErrorDef"
+    "return": "[]internal/domain.ErrorDef"
+  }
+
+  unexportedFunctions: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "in": "[]internal/domain.FunctionDef"
+    "return": "[]internal/domain.FunctionDef"
+  }
+
+  unexportedInterfaces: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "in": "[]internal/domain.InterfaceDef"
+    "return": "[]internal/domain.InterfaceDef"
+  }
+
+  unexportedStructs: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "in": "[]internal/domain.StructDef"
+    "return": "[]internal/domain.StructDef"
+  }
+
+  unexportedTypeDefs: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "in": "[]internal/domain.TypeDef"
+    "return": "[]internal/domain.TypeDef"
+  }
+
+  unexportedVariables: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "in": "[]internal/domain.VarDef"
+    "return": "[]internal/domain.VarDef"
+  }
+
+
+  packageDetailTab: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "string"
+
+    "tabConfigs": "const"
+    "tabDependencies": "const"
+    "tabInternal": "const"
+    "tabOverview": "const"
+    "tabPublicAPI": "const"
+  }
+
+  Variables: {
+    shape: class
+    stereotype: "<<var>>"
+
+    "validTabs": "[]internal/adapter/http.packageDetailTab"
+  }
+
+}
+
+packages_data: {
+  label: "packages_data.go"
+  class: value
+
+  packageFilter: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Layer string": ""
+    "+Stereotype string": ""
+    "+Search string": ""
+  }
+
+  packageListData: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-pageData internal/adapter/http.pageData": ""
+    "+Filter internal/adapter/http.packageFilter": ""
+    "+Packages []internal/adapter/http.packageSummary": ""
+    "+Tree []*internal/adapter/http.packageNode": ""
+    "+LayerOptions []string": ""
+    "+StereotypeOpts []string": ""
+    "+TotalCount int": ""
+    "+Partial bool": ""
+  }
+
+  packageNode: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+FullPath string": ""
+    "+Package *internal/adapter/http.packageSummary": ""
+    "+Children []*internal/adapter/http.packageNode": ""
+  }
+
+  packageSummary: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Path string": ""
+    "+Name string": ""
+    "+Layer string": ""
+    "+SymbolCount int": ""
+    "+Interfaces int": ""
+    "+Structs int": ""
+    "+Functions int": ""
+    "+Constants int": ""
+    "+Variables int": ""
+    "+Errors int": ""
+    "+TypeDefs int": ""
+    "+Stereotypes []string": ""
+  }
+
+  buildPackageSummaries: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgs": "[]internal/domain.PackageModel"
+    "f": "internal/adapter/http.packageFilter"
+    "return": "[]internal/adapter/http.packageSummary"
+  }
+
+  buildPackageTree: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "summaries": "[]internal/adapter/http.packageSummary"
+    "return": "[]*internal/adapter/http.packageNode"
+  }
+
+  collectLayerOptions: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgs": "[]internal/domain.PackageModel"
+    "return": "[]string"
+  }
+
+  collectStereotypeOptions: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgs": "[]internal/domain.PackageModel"
+    "return": "[]string"
+  }
+
+  collectStereotypes: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "internal/domain.PackageModel"
+    "return": "[]string"
+  }
+
+  findChild: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "parent": "*internal/adapter/http.packageNode"
+    "name": "string"
+    "return": "*internal/adapter/http.packageNode"
+  }
+
+  hasStereotype: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "internal/domain.PackageModel"
+    "want": "string"
+    "return": "bool"
+  }
+
+  insertPackage: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "*internal/adapter/http.packageNode"
+    "segments": "[]string"
+    "pkg": "*internal/adapter/http.packageSummary"
+  }
+
+  joinSegments: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "segs": "[]string"
+    "return": "string"
+  }
+
+  matchesFilter: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "internal/domain.PackageModel"
+    "f": "internal/adapter/http.packageFilter"
+    "return": "bool"
+  }
+
+  packageMatchesSearch: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "internal/domain.PackageModel"
+    "needle": "string"
+    "return": "bool"
+  }
+
+  pkgSummarize: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "internal/domain.PackageModel"
+    "return": "internal/adapter/http.packageSummary"
+  }
+
+  sortTree: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "n": "*internal/adapter/http.packageNode"
+  }
+
+  splitPath: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "string"
+    "return": "[]string"
+  }
+
+
+}
+
+packages_handler: {
+  label: "packages_handler.go"
+  class: value
+
+  applyOverlay: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgs": "[]internal/domain.PackageModel"
+    "cfg": "*internal/overlay.Config"
+    "return": "[]internal/domain.PackageModel"
+  }
+
+  d2SourceForPackage: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkg": "internal/domain.PackageModel"
+    "return": "string"
+  }
+
+  findPackage: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgs": "[]internal/domain.PackageModel"
+    "path": "string"
+    "return": "(internal/domain.PackageModel, bool)"
+  }
+
+  quoteD2: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "s": "string"
+    "return": "string"
+  }
+
+  renderPackageD2: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "pkg": "internal/domain.PackageModel"
+    "return": "([]byte, error)"
+  }
+
+
+}
+
+render: {
+  label: "render.go"
+  class: value
+
+  renderD2: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "source": "string"
+    "return": "([]byte, error)"
+  }
+
+
+}
+
+search: {
+  label: "search.go"
+  class: value
+
+  searchResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Kind string": ""
+    "+Name string": ""
+    "+Package string": ""
+    "+File string": ""
+    "+Href string": ""
+    "-score int": ""
+  }
+
+  isKnownKind: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "k": "string"
+    "return": "bool"
+  }
+
+  matchScore: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "target": "string"
+    "qLower": "string"
+    "return": "(int, bool)"
+  }
+
+  runSearch: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgs": "[]internal/domain.PackageModel"
+    "query": "string"
+    "kind": "string"
+    "return": "[]internal/adapter/http.searchResult"
+  }
+
+  subsequenceGap: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "t": "string"
+    "q": "string"
+    "return": "(int, bool)"
+  }
+
+
+  Constants: {
+    shape: class
+    stereotype: "<<const>>"
+
+    "searchKindConst": "untyped string = \"const\""
+    "searchKindError": "untyped string = \"error\""
+    "searchKindFile": "untyped string = \"file\""
+    "searchKindFunction": "untyped string = \"function\""
+    "searchKindInterface": "untyped string = \"interface\""
+    "searchKindPackage": "untyped string = \"package\""
+    "searchKindStruct": "untyped string = \"struct\""
+    "searchKindType": "untyped string = \"type\""
+    "searchKindVar": "untyped string = \"var\""
+    "searchLimit": "untyped int = 50"
+  }
+
+  Variables: {
+    shape: class
+    stereotype: "<<var>>"
+
+    "searchKinds": "[]string"
+  }
+
+}
+
+server: {
+  label: "server.go"
+  class: value
+
+  Server: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-state *internal/serve.State": ""
+    "-multi *internal/serve.MultiState": ""
+    "-templates *html/template.Template": ""
+    "-assets io/fs.FS": ""
+    "-onActivity func()": ""
+
+    "-registerAPIRoutes(mux *net/http.ServeMux)": ""
+    "-handleAPIToolsCall(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleAPIExtract(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleAPIPackages(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleAPIPackageGet(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleAPITargets(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleAPITargetsLock(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleAPITargetsCurrent(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleAPIDiff(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleAPIDiffApply(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleAPIValidate(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleConfigs(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleDashboard(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-registerDiffTargetsRoutes(mux *net/http.ServeMux)": ""
+    "-handleDiff(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-renderDiff(w net/http.ResponseWriter, r *net/http.Request, data internal/adapter/http.diffPageData)": ""
+    "-handleTargets(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleTargetsUse(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleTargetsCompare(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-registerGraphRoutes(mux *net/http.ServeMux)": ""
+    "-handleLayersGraphJSON(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleLayersGraphMiniJSON(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handlePackageGraphJSON(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleDiffGraphJSON(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleLayersExportD2(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleLayersExportSVG(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handlePackageExport(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleDiffExportD2(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleDiffExportSVG(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-diffD2Source(r *net/http.Request)": "(string, error)"
+    "-routes(mux *net/http.ServeMux)": ""
+    "-routesContent(mux *net/http.ServeMux)": ""
+    "-pageHandler(tmpl string, title string, activePath string)": "net/http.HandlerFunc"
+    "-basePageData(r *net/http.Request, title string, activePath string)": "internal/adapter/http.pageData"
+    "-renderPage(w net/http.ResponseWriter, tmpl string, data any)": ""
+    "-renderFragment(w net/http.ResponseWriter, tmpl string, fragment string, data any)": ""
+    "-handleRender(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleSearch(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleSearchResults(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleLayers(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-registerMultiRoutes(mux *net/http.ServeMux)": ""
+    "-redirectToWorktree(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-dispatchWorktree(next net/http.Handler)": "net/http.Handler"
+    "-handleWorktreeSelect(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-buildWorktreeList(r *net/http.Request)": "[]internal/adapter/http.worktreeOption"
+    "-handlePackagesList(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handlePackageDetail(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-renderPageWith(w net/http.ResponseWriter, tmpl string, data interface{})": ""
+    "-renderPartial(w net/http.ResponseWriter, tmpl string, defineName string, data interface{})": ""
+    "+SetActivityObserver(fn func())": ""
+    "+Serve(ctx context.Context, addr string, ready func(boundAddr string))": "error"
+    "-multiMode()": "bool"
+    "-stateFor(r *net/http.Request)": "*internal/serve.State"
+    "-currentWorktree(r *net/http.Request)": "string"
+    "-selectedWorktree(r *net/http.Request)": "string"
+    "-navPrefix(r *net/http.Request)": "string"
+    "-handleType(w net/http.ResponseWriter, r *net/http.Request)": ""
+    "-handleTypeGraph(w net/http.ResponseWriter, r *net/http.Request)": ""
+  }
+
+  NewMultiServer: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "multi": "*internal/serve.MultiState"
+    "return": "(*internal/adapter/http.Server, error)"
+  }
+
+  NewServer: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "state": "*internal/serve.State"
+    "return": "(*internal/adapter/http.Server, error)"
+  }
+
+  parseEmbedded: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "return": "(*html/template.Template, io/fs.FS, error)"
+  }
+
+  stripWorktreePrefix: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "return": "(string, string)"
+  }
+
+
+  ctxKey: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "int"
+
+    "ctxWorktreeName": "const"
+    "ctxWorktreeState": "const"
+  }
+
+  Constants: {
+    shape: class
+    stereotype: "<<const>>"
+
+    "cookieName": "untyped string = \"archai_worktree\""
+  }
+
+  Variables: {
+    shape: class
+    stereotype: "<<var>>"
+
+    "embedded": "embed.FS"
+  }
+
+}
+
+types: {
+  label: "types.go"
+  class: value
+
+  fieldView: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type string": ""
+    "+Tag string": ""
+    "+IsExported bool": ""
+  }
+
+  graphEdge: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Source string": ""
+    "+Target string": ""
+    "+Label string": ""
+    "+Kind string": ""
+    "+Details []string": ""
+  }
+
+  graphJSON: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Nodes []internal/adapter/http.graphNode": ""
+    "+Edges []internal/adapter/http.graphEdge": ""
+  }
+
+  graphNode: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+ID string": ""
+    "+Label string": ""
+    "+Kind string": ""
+    "+Root bool": ""
+    "+Parent string": ""
+    "+Op string": ""
+  }
+
+  methodView: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Signature string": ""
+    "+IsExported bool": ""
+  }
+
+  relatedView: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Package string": ""
+    "+Name string": ""
+    "+Href string": ""
+  }
+
+  sequenceEntry: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Method string": ""
+    "+Label string": ""
+    "+Graph internal/adapter/http.graphJSON": ""
+    "+HasM6 bool": ""
+  }
+
+  typePageData: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "-pageData internal/adapter/http.pageData": ""
+    "+Kind internal/adapter/http.typeKind": ""
+    "+Package string": ""
+    "+Name string": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype string": ""
+    "+Underlying string": ""
+    "+Fields []internal/adapter/http.fieldView": ""
+    "+Methods []internal/adapter/http.methodView": ""
+    "+Implements []internal/adapter/http.relatedView": ""
+    "+ImplementedBy []internal/adapter/http.relatedView": ""
+    "+UsedBy []internal/adapter/http.usedByView": ""
+    "+PackageHref string": ""
+    "+RelGraph internal/adapter/http.graphJSON": ""
+    "+RelGraphJSON string": ""
+    "+RelGraphEmpty bool": ""
+    "+Sequences []internal/adapter/http.sequenceEntry": ""
+    "+HasSequences bool": ""
+  }
+
+  typeRef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Package string": ""
+    "+Name string": ""
+
+    "-id()": "string"
+  }
+
+  usedByView: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Package string": ""
+    "+Href string": ""
+    "+Count int": ""
+  }
+
+  buildRelationshipGraph: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ref": "internal/adapter/http.typeRef"
+    "impls": "[]internal/adapter/http.relatedView"
+    "implBy": "[]internal/adapter/http.relatedView"
+    "usedBy": "[]internal/adapter/http.usedByView"
+    "return": "internal/adapter/http.graphJSON"
+  }
+
+  buildSequenceEntries: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "packages": "[]internal/domain.PackageModel"
+    "ref": "internal/adapter/http.typeRef"
+    "meths": "[]internal/domain.MethodDef"
+    "return": "[]internal/adapter/http.sequenceEntry"
+  }
+
+  buildTypePage: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "packages": "[]internal/domain.PackageModel"
+    "ref": "internal/adapter/http.typeRef"
+    "return": "(internal/adapter/http.typePageData, bool)"
+  }
+
+  collectImplementedBy: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "packages": "[]internal/domain.PackageModel"
+    "ref": "internal/adapter/http.typeRef"
+    "return": "[]internal/adapter/http.relatedView"
+  }
+
+  collectImplements: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "packages": "[]internal/domain.PackageModel"
+    "ref": "internal/adapter/http.typeRef"
+    "return": "[]internal/adapter/http.relatedView"
+  }
+
+  collectUsedBy: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "packages": "[]internal/domain.PackageModel"
+    "ref": "internal/adapter/http.typeRef"
+    "return": "[]internal/adapter/http.usedByView"
+  }
+
+  parseTypeID: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "id": "string"
+    "return": "(internal/adapter/http.typeRef, bool)"
+  }
+
+  sequenceNodeToGraph: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "*internal/sequence.Node"
+    "return": "internal/adapter/http.graphJSON"
+  }
+
+  toFieldViews: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "fields": "[]internal/domain.FieldDef"
+    "return": "[]internal/adapter/http.fieldView"
+  }
+
+  toMethodViews: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "methods": "[]internal/domain.MethodDef"
+    "return": "[]internal/adapter/http.methodView"
+  }
+
+  writeJSON: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "w": "net/http.ResponseWriter"
+    "v": "any"
+  }
+
+
+  typeKind: {
+    shape: class
+    stereotype: "<<enum>>"
+
+    "type": "string"
+
+    "typeKindInterface": "const"
+    "typeKindStruct": "const"
+    "typeKindTypeDef": "const"
+  }
+
+}
+
+# Dependencies
+server.Server -> diff_targets.diffPageData: "uses"
+server.Server -> handlers.pageData: "returns"
+server.Server -> multi.worktreeOption: "returns"
+diff_targets.comparePageData -> diff_targets.diffSummary: "uses"
+diff_targets.comparePageData -> diff_targets.kindFilter: "uses"
+diff_targets.comparePageData -> diff_targets.diffGroup: "uses"
+configs.configPageData -> handlers.pageData: "uses"
+configs.configPageData -> configs.configView: "uses"
+configs.configView -> configs.configField: "uses"
+dashboard.dashboardData -> handlers.pageData: "uses"
+diff_targets.diffGroup -> diff_targets.diffEntry: "uses"
+diff_targets.diffPageData -> handlers.pageData: "uses"
+diff_targets.diffPageData -> diff_targets.diffSummary: "uses"
+diff_targets.diffPageData -> diff_targets.kindFilter: "uses"
+diff_targets.diffPageData -> diff_targets.diffGroup: "uses"
+types.graphJSON -> types.graphNode: "uses"
+types.graphJSON -> types.graphEdge: "uses"
+graphs.graphPayload -> graphs.graphMeta: "uses"
+graphs.graphPayload -> types.graphNode: "uses"
+graphs.graphPayload -> types.graphEdge: "uses"
+layers.layerView -> layers.layerPackage: "uses"
+layers.layersData -> handlers.pageData: "uses"
+layers.layersData -> layers.layerView: "uses"
+layers.layersData -> layers.edgeView: "uses"
+package_detail_data.packageDetailData -> handlers.pageData: "uses"
+package_detail_data.packageDetailData -> package_detail_data.packageTab: "uses"
+package_detail_data.packageDetailData -> package_detail_data.packageDetailTab: "uses"
+package_detail_data.packageDetailData -> package_detail_data.outboundDep: "uses"
+package_detail_data.packageDetailData -> package_detail_data.inboundDep: "uses"
+package_detail_data.packageDetailData -> package_detail_data.configTypeView: "uses"
+packages_data.packageListData -> handlers.pageData: "uses"
+packages_data.packageListData -> packages_data.packageFilter: "uses"
+packages_data.packageListData -> packages_data.packageSummary: "uses"
+packages_data.packageListData -> packages_data.packageNode: "uses"
+packages_data.packageNode -> packages_data.packageSummary: "uses"
+handlers.pageData -> handlers.navItem: "uses"
+handlers.pageData -> multi.worktreeOption: "uses"
+handlers.searchPageData -> handlers.pageData: "uses"
+handlers.searchPageData -> search.searchResult: "uses"
+types.sequenceEntry -> types.graphJSON: "uses"
+diff_targets.targetsPageData -> handlers.pageData: "uses"
+types.typePageData -> handlers.pageData: "uses"
+types.typePageData -> types.typeKind: "uses"
+types.typePageData -> types.fieldView: "uses"
+types.typePageData -> types.methodView: "uses"
+types.typePageData -> types.relatedView: "uses"
+types.typePageData -> types.usedByView: "uses"
+types.typePageData -> types.graphJSON: "uses"
+types.typePageData -> types.sequenceEntry: "uses"
+server.NewMultiServer -> server.Server: "returns"
+server.NewServer -> server.Server: "returns"
+configs.buildConfigFields -> configs.configField: "returns"
+package_detail_data.buildConfigTypes -> package_detail_data.configTypeView: "returns"
+graphs.buildDiffGraph -> graphs.graphPayload: "returns"
+diff_targets.buildGroups -> diff_targets.diffGroup: "returns"
+package_detail_data.buildInbound -> package_detail_data.inboundDep: "returns"
+diff_targets.buildKindFilters -> diff_targets.kindFilter: "returns"
+layers.buildLayerEdges -> layers.edgeView: "returns"
+graphs.buildLayerGraph -> graphs.graphPayload: "returns"
+layers.buildLayerViews -> layers.layerView: "returns"
+handlers.buildNav -> handlers.navItem: "returns"
+handlers.buildNavWithPrefix -> handlers.navItem: "returns"
+package_detail_data.buildOutbound -> package_detail_data.outboundDep: "returns"
+package_detail_data.buildPackageDetail -> package_detail_data.packageDetailTab: "uses"
+package_detail_data.buildPackageDetail -> package_detail_data.packageDetailData: "returns"
+graphs.buildPackageOverviewGraph -> graphs.graphPayload: "returns"
+packages_data.buildPackageSummaries -> packages_data.packageFilter: "uses"
+packages_data.buildPackageSummaries -> packages_data.packageSummary: "returns"
+packages_data.buildPackageTree -> packages_data.packageSummary: "uses"
+packages_data.buildPackageTree -> packages_data.packageNode: "returns"
+types.buildRelationshipGraph -> types.typeRef: "uses"
+types.buildRelationshipGraph -> types.relatedView: "uses"
+types.buildRelationshipGraph -> types.usedByView: "uses"
+types.buildRelationshipGraph -> types.graphJSON: "returns"
+types.buildSequenceEntries -> types.typeRef: "uses"
+types.buildSequenceEntries -> types.sequenceEntry: "returns"
+package_detail_data.buildTabs -> package_detail_data.packageDetailTab: "uses"
+package_detail_data.buildTabs -> package_detail_data.packageTab: "returns"
+types.buildTypePage -> types.typeRef: "uses"
+types.buildTypePage -> types.typePageData: "returns"
+configs.collectConfigs -> configs.configView: "returns"
+types.collectImplementedBy -> types.typeRef: "uses"
+types.collectImplementedBy -> types.relatedView: "returns"
+types.collectImplements -> types.typeRef: "uses"
+types.collectImplements -> types.relatedView: "returns"
+types.collectUsedBy -> types.typeRef: "uses"
+types.collectUsedBy -> types.usedByView: "returns"
+packages_data.findChild -> packages_data.packageNode: "uses"
+packages_data.insertPackage -> packages_data.packageNode: "uses"
+packages_data.insertPackage -> packages_data.packageSummary: "uses"
+packages_data.matchesFilter -> packages_data.packageFilter: "uses"
+package_detail_data.parseTab -> package_detail_data.packageDetailTab: "returns"
+types.parseTypeID -> types.typeRef: "returns"
+packages_data.pkgSummarize -> packages_data.packageSummary: "returns"
+search.runSearch -> search.searchResult: "returns"
+types.sequenceNodeToGraph -> types.graphJSON: "returns"
+packages_data.sortTree -> packages_data.packageNode: "uses"
+diff_targets.summarize -> diff_targets.diffSummary: "returns"
+package_detail_data.tabLabel -> package_detail_data.packageDetailTab: "uses"
+types.toFieldViews -> types.fieldView: "returns"
+types.toMethodViews -> types.methodView: "returns"

@@ -1,0 +1,231 @@
+# target package
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Files
+meta: {
+  label: "meta.go"
+  class: value
+
+  TargetMeta: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+ID string": ""
+    "+BaseCommit string": ""
+    "+CreatedAt string": ""
+    "+Description string": ""
+  }
+
+}
+
+storage: {
+  label: "storage.go"
+  class: value
+
+  LockOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Description string": ""
+  }
+
+  Current: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "(string, error)"
+  }
+
+  Delete: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "id": "string"
+    "force": "bool"
+    "return": "error"
+  }
+
+  List: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "([]internal/target.TargetMeta, error)"
+  }
+
+  Lock: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "id": "string"
+    "opts": "internal/target.LockOptions"
+    "return": "error"
+  }
+
+  Show: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "id": "string"
+    "return": "(*internal/target.TargetMeta, []string, error)"
+  }
+
+  Use: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "id": "string"
+    "return": "error"
+  }
+
+  collectModelPackages: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "modelDir": "string"
+    "return": "([]string, error)"
+  }
+
+  copyFile: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "src": "string"
+    "dst": "string"
+    "return": "error"
+  }
+
+  fileExists: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "return": "bool"
+  }
+
+  findPackageOverlayFiles: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "([]string, error)"
+  }
+
+  findPackagesWithArchYAML: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "([]string, error)"
+  }
+
+  gitHead: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "string"
+  }
+
+  readMeta: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "return": "(internal/target.TargetMeta, error)"
+  }
+
+  writeMeta: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "meta": "internal/target.TargetMeta"
+    "return": "error"
+  }
+
+
+  Constants: {
+    shape: class
+    stereotype: "<<const>>"
+
+    "archDirName": "untyped string = \".arch\""
+    "currentFileName": "untyped string = \"CURRENT\""
+    "intYAMLFileName": "untyped string = \"internal.yaml\""
+    "metaFileName": "untyped string = \"meta.yaml\""
+    "modelDirName": "untyped string = \"model\""
+    "overlayFileName": "untyped string = \"overlay.yaml\""
+    "overlaySource": "untyped string = \"archai.yaml\""
+    "overlaysDirName": "untyped string = \"overlays\""
+    "pubYAMLFileName": "untyped string = \"pub.yaml\""
+    "targetsDirName": "untyped string = \"targets\""
+  }
+
+  Variables: {
+    shape: class
+    stereotype: "<<var>>"
+
+    "legacyCurrentWarned": "sync.Once"
+  }
+
+}
+
+# Dependencies
+storage.List -> meta.TargetMeta: "returns"
+storage.Lock -> storage.LockOptions: "uses"
+storage.Show -> meta.TargetMeta: "returns"
+storage.readMeta -> meta.TargetMeta: "returns"
+storage.writeMeta -> meta.TargetMeta: "uses"

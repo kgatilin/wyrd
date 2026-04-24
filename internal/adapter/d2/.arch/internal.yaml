@@ -1,0 +1,2855 @@
+schema: archai/v1
+package: internal/adapter/d2
+name: d2
+layer: source_adapter
+structs:
+    - name: combinedBuilder
+      fields:
+        - name: buf
+          type:
+            name: Builder
+            package: strings
+          exported: false
+        - name: indent
+          type:
+            name: int
+          exported: false
+      methods:
+        - name: Build
+          params:
+            - name: packages
+              type:
+                name: PackageModel
+                package: internal/domain
+                slice: true
+          returns:
+            - name: string
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: templates.go
+                symbol: classesTemplate
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.buildSymbolIndex
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.collectCrossPackageDeps
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeComment
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeCrossPackageDep
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writePackageContainer
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeRaw
+            - to:
+                package: internal/adapter/d2
+                file: templates.go
+                symbol: legendTemplate
+        - name: writePackageContainer
+          params:
+            - name: pkg
+              type:
+                name: PackageModel
+                package: internal/domain
+            - name: symbolIndex
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: ""
+                    map: true
+                    key_type:
+                        name: string
+                    value_type:
+                        name: bool
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.collectIntraPackageDeps
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.collectSymbolInfo
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeComment
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeConstantsBlock
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeErrorsBlock
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeFunction
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeInterface
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeIntraPackageDep
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeStruct
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeTypeDef
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeVariablesBlock
+            - to:
+                package: internal/adapter/d2
+                file: styles.go
+                symbol: fileContainerClass
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: sanitizePackageID
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedConstants
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedErrors
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedFunctions
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedInterfaces
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedStructs
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedTypeDefs
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedVariables
+        - name: collectSymbolInfo
+          params:
+            - name: pkg
+              type:
+                name: PackageModel
+                package: internal/domain
+          returns:
+            - name: symbolInfo
+              package: internal/adapter/d2
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedFunctions
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedInterfaces
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedStructs
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedTypeDefs
+        - name: writeInterface
+          params:
+            - name: iface
+              type:
+                name: InterfaceDef
+                package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.filterExportedMethods
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeMethod
+        - name: writeStruct
+          params:
+            - name: s
+              type:
+                name: StructDef
+                package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.filterExportedFields
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.filterExportedMethods
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeField
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeMethod
+        - name: writeFunction
+          params:
+            - name: fn
+              type:
+                name: FunctionDef
+                package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.formatReturns
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+        - name: writeTypeDef
+          params:
+            - name: td
+              type:
+                name: TypeDef
+                package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: styles.go
+                symbol: stereotypeLabel
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+        - name: writeConstantsBlock
+          params:
+            - name: consts
+              type:
+                name: ConstDef
+                package: internal/domain
+                slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: escapeD2
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+        - name: writeVariablesBlock
+          params:
+            - name: vars
+              type:
+                name: VarDef
+                package: internal/domain
+                slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: escapeD2
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+        - name: writeErrorsBlock
+          params:
+            - name: errs
+              type:
+                name: ErrorDef
+                package: internal/domain
+                slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: escapeD2
+        - name: writeMethod
+          params:
+            - name: m
+              type:
+                name: MethodDef
+                package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.formatMethodSignature
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.formatReturns
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+        - name: writeField
+          params:
+            - name: f
+              type:
+                name: FieldDef
+                package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+            - to:
+                package: internal/domain
+                file: field.go
+                symbol: FieldDef.StringWithVisibility
+        - name: formatMethodSignature
+          params:
+            - name: m
+              type:
+                name: MethodDef
+                package: internal/domain
+          returns:
+            - name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.formatParams
+        - name: formatParams
+          params:
+            - name: params
+              type:
+                name: ParamDef
+                package: internal/domain
+                slice: true
+          returns:
+            - name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: ParamDef.String
+        - name: formatReturns
+          params:
+            - name: returns
+              type:
+                name: TypeRef
+                package: internal/domain
+                slice: true
+          returns:
+            - name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+        - name: filterExportedMethods
+          params:
+            - name: methods
+              type:
+                name: MethodDef
+                package: internal/domain
+                slice: true
+          returns:
+            - name: MethodDef
+              package: internal/domain
+              slice: true
+          exported: false
+        - name: filterExportedFields
+          params:
+            - name: fields
+              type:
+                name: FieldDef
+                package: internal/domain
+                slice: true
+          returns:
+            - name: FieldDef
+              package: internal/domain
+              slice: true
+          exported: false
+        - name: buildSymbolIndex
+          params:
+            - name: packages
+              type:
+                name: PackageModel
+                package: internal/domain
+                slice: true
+          returns:
+            - name: ""
+              map: true
+              key_type:
+                name: string
+              value_type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: bool
+          exported: false
+          calls:
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedFunctions
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedInterfaces
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedStructs
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.ExportedTypeDefs
+        - name: collectIntraPackageDeps
+          params:
+            - name: pkg
+              type:
+                name: PackageModel
+                package: internal/domain
+            - name: symbolIndex
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: ""
+                    map: true
+                    key_type:
+                        name: string
+                    value_type:
+                        name: bool
+          returns:
+            - name: depInfo
+              package: internal/adapter/d2
+              slice: true
+          exported: false
+        - name: collectCrossPackageDeps
+          params:
+            - name: packages
+              type:
+                name: PackageModel
+                package: internal/domain
+                slice: true
+            - name: symbolIndex
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: ""
+                    map: true
+                    key_type:
+                        name: string
+                    value_type:
+                        name: bool
+          returns:
+            - name: depInfo
+              package: internal/adapter/d2
+              slice: true
+          exported: false
+        - name: writeIntraPackageDep
+          params:
+            - name: dep
+              type:
+                name: depInfo
+                package: internal/adapter/d2
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+        - name: writeCrossPackageDep
+          params:
+            - name: dep
+              type:
+                name: depInfo
+                package: internal/adapter/d2
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: sanitizePackageID
+        - name: writeComment
+          params:
+            - name: text
+              type:
+                name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.writeLine
+        - name: writeLine
+          params:
+            - name: line
+              type:
+                name: string
+          exported: false
+        - name: writeRaw
+          params:
+            - name: text
+              type:
+                name: string
+          exported: false
+      exported: false
+      source_file: combined_builder.go
+      doc: |
+        combinedBuilder builds D2 diagram content from multiple packages.
+        Unlike d2TextBuilder (which groups by file within a single package),
+        combinedBuilder creates package-level containers and shows cross-package dependencies.
+    - name: d2TextBuilder
+      fields:
+        - name: buf
+          type:
+            name: Builder
+            package: strings
+          exported: false
+        - name: indent
+          type:
+            name: int
+          exported: false
+      methods:
+        - name: Build
+          params:
+            - name: pkg
+              type:
+                name: PackageModel
+                package: internal/domain
+            - name: publicOnly
+              type:
+                name: bool
+          returns:
+            - name: string
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: templates.go
+                symbol: classesTemplate
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.filterDependencies
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.filterImplementations
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.groupByFile
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeComment
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeDependency
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeFileContainer
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeImplementation
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeRaw
+            - to:
+                package: internal/adapter/d2
+                file: templates.go
+                symbol: legendTemplate
+        - name: groupByFile
+          params:
+            - name: pkg
+              type:
+                name: PackageModel
+                package: internal/domain
+            - name: publicOnly
+              type:
+                name: bool
+          returns:
+            - name: fileGroup
+              package: internal/adapter/d2
+              slice: true
+          exported: false
+        - name: writeFileContainer
+          params:
+            - name: fg
+              type:
+                name: fileGroup
+                package: internal/adapter/d2
+            - name: publicOnly
+              type:
+                name: bool
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.collectSymbolInfo
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.fileContainerID
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeConstantsBlock
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeErrorsBlock
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeFunctions
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeInterface
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeStruct
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeTypeDef
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeVariablesBlock
+            - to:
+                package: internal/adapter/d2
+                file: styles.go
+                symbol: fileContainerClass
+        - name: writeConstantsBlock
+          params:
+            - name: consts
+              type:
+                name: ConstDef
+                package: internal/domain
+                slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: escapeD2
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+        - name: writeVariablesBlock
+          params:
+            - name: vars
+              type:
+                name: VarDef
+                package: internal/domain
+                slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: escapeD2
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+        - name: writeErrorsBlock
+          params:
+            - name: errs
+              type:
+                name: ErrorDef
+                package: internal/domain
+                slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: escapeD2
+        - name: collectSymbolInfo
+          params:
+            - name: fg
+              type:
+                name: fileGroup
+                package: internal/adapter/d2
+          returns:
+            - name: symbolInfo
+              package: internal/adapter/d2
+              slice: true
+          exported: false
+        - name: fileContainerID
+          params:
+            - name: filename
+              type:
+                name: string
+          returns:
+            - name: string
+          exported: false
+        - name: writeInterface
+          params:
+            - name: iface
+              type:
+                name: InterfaceDef
+                package: internal/domain
+            - name: publicOnly
+              type:
+                name: bool
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeMethod
+        - name: writeStruct
+          params:
+            - name: s
+              type:
+                name: StructDef
+                package: internal/domain
+            - name: publicOnly
+              type:
+                name: bool
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeField
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeMethod
+        - name: writeFunctions
+          params:
+            - name: functions
+              type:
+                name: FunctionDef
+                package: internal/domain
+                slice: true
+            - name: publicOnly
+              type:
+                name: bool
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeFunctionAsClass
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+        - name: writeFunctionAsClass
+          params:
+            - name: fn
+              type:
+                name: FunctionDef
+                package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.formatReturns
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+        - name: writeTypeDef
+          params:
+            - name: td
+              type:
+                name: TypeDef
+                package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+            - to:
+                package: internal/adapter/d2
+                file: styles.go
+                symbol: stereotypeLabel
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+        - name: writeMethod
+          params:
+            - name: m
+              type:
+                name: MethodDef
+                package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.formatMethodSignature
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.formatReturns
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+        - name: writeField
+          params:
+            - name: f
+              type:
+                name: FieldDef
+                package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+            - to:
+                package: internal/domain
+                file: field.go
+                symbol: FieldDef.StringWithVisibility
+        - name: formatMethodSignature
+          params:
+            - name: m
+              type:
+                name: MethodDef
+                package: internal/domain
+          returns:
+            - name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.formatParams
+        - name: formatParams
+          params:
+            - name: params
+              type:
+                name: ParamDef
+                package: internal/domain
+                slice: true
+          returns:
+            - name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: ParamDef.String
+        - name: formatReturns
+          params:
+            - name: returns
+              type:
+                name: TypeRef
+                package: internal/domain
+                slice: true
+          returns:
+            - name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/domain
+                file: method.go
+                symbol: TypeRef.String
+        - name: filterDependencies
+          params:
+            - name: deps
+              type:
+                name: Dependency
+                package: internal/domain
+                slice: true
+            - name: publicOnly
+              type:
+                name: bool
+            - name: pkg
+              type:
+                name: PackageModel
+                package: internal/domain
+          returns:
+            - name: Dependency
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.fileContainerID
+        - name: writeDependency
+          params:
+            - name: dep
+              type:
+                name: Dependency
+                package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.toD2Path
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+        - name: filterImplementations
+          params:
+            - name: impls
+              type:
+                name: Implementation
+                package: internal/domain
+                slice: true
+            - name: publicOnly
+              type:
+                name: bool
+            - name: pkg
+              type:
+                name: PackageModel
+                package: internal/domain
+          returns:
+            - name: Implementation
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.fileContainerID
+        - name: writeImplementation
+          params:
+            - name: impl
+              type:
+                name: Implementation
+                package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.toD2Path
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+        - name: toD2Path
+          params:
+            - name: ref
+              type:
+                name: SymbolRef
+                package: internal/domain
+          returns:
+            - name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.fileContainerID
+        - name: writeComment
+          params:
+            - name: text
+              type:
+                name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.writeLine
+        - name: writeLine
+          params:
+            - name: line
+              type:
+                name: string
+          exported: false
+        - name: writeRaw
+          params:
+            - name: text
+              type:
+                name: string
+          exported: false
+      exported: false
+      source_file: builder.go
+      doc: |
+        d2TextBuilder builds D2 diagram text content from domain models.
+    - name: depInfo
+      fields:
+        - name: fromPkg
+          type:
+            name: string
+          exported: false
+        - name: fromSymbol
+          type:
+            name: string
+          exported: false
+        - name: toPkg
+          type:
+            name: string
+          exported: false
+        - name: toSymbol
+          type:
+            name: string
+          exported: false
+        - name: kind
+          type:
+            name: DependencyKind
+            package: internal/domain
+          exported: false
+      exported: false
+      source_file: combined_builder.go
+      doc: |
+        depInfo represents a dependency between symbols.
+      stereotype: value
+    - name: fileGroup
+      fields:
+        - name: filename
+          type:
+            name: string
+          exported: false
+        - name: interfaces
+          type:
+            name: InterfaceDef
+            package: internal/domain
+            slice: true
+          exported: false
+        - name: structs
+          type:
+            name: StructDef
+            package: internal/domain
+            slice: true
+          exported: false
+        - name: functions
+          type:
+            name: FunctionDef
+            package: internal/domain
+            slice: true
+          exported: false
+        - name: typeDefs
+          type:
+            name: TypeDef
+            package: internal/domain
+            slice: true
+          exported: false
+        - name: constants
+          type:
+            name: ConstDef
+            package: internal/domain
+            slice: true
+          exported: false
+        - name: variables
+          type:
+            name: VarDef
+            package: internal/domain
+            slice: true
+          exported: false
+        - name: errors
+          type:
+            name: ErrorDef
+            package: internal/domain
+            slice: true
+          exported: false
+      exported: false
+      source_file: builder.go
+      doc: |
+        fileGroup represents symbols grouped by source file.
+      stereotype: value
+    - name: reader
+      methods:
+        - name: Read
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: paths
+              type:
+                name: string
+                slice: true
+          returns:
+            - name: PackageModel
+              package: internal/domain
+              slice: true
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.readFile
+        - name: readFile
+          params:
+            - name: path
+              type:
+                name: string
+          returns:
+            - name: PackageModel
+              package: internal/domain
+              slice: true
+            - name: error
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.isSplitMode
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parseAST
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parseSplitModeAST
+        - name: isSplitMode
+          params:
+            - name: ast
+              type:
+                name: Map
+                package: oss.terrastruct.com/d2/d2ast
+                pointer: true
+          returns:
+            - name: bool
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getKeyPathString
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getScalarValue
+        - name: parseSplitModeAST
+          params:
+            - name: ast
+              type:
+                name: Map
+                package: oss.terrastruct.com/d2/d2ast
+                pointer: true
+            - name: filePath
+              type:
+                name: string
+          returns:
+            - name: PackageModel
+              package: internal/domain
+              slice: true
+            - name: error
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: derivePackagePath
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: extractPackageName
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getKeyPathString
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.extractDependencies
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.extractSymbolsFromFileGroup
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: stripFileGroupPrefix
+        - name: extractSymbolsFromFileGroup
+          params:
+            - name: m
+              type:
+                name: Map
+                package: oss.terrastruct.com/d2/d2ast
+                pointer: true
+            - name: pkg
+              type:
+                name: PackageModel
+                package: internal/domain
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getKeyPathString
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parseSymbol
+        - name: parseEdge
+          params:
+            - name: key
+              type:
+                name: Key
+                package: oss.terrastruct.com/d2/d2ast
+                pointer: true
+          returns:
+            - name: Dependency
+              package: internal/domain
+              pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getKeyPathString
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getScalarValue
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: parseSymbolRef
+        - name: extractDependencies
+          params:
+            - name: m
+              type:
+                name: Map
+                package: oss.terrastruct.com/d2/d2ast
+                pointer: true
+          returns:
+            - name: Dependency
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parseEdge
+        - name: parseAST
+          params:
+            - name: ast
+              type:
+                name: Map
+                package: oss.terrastruct.com/d2/d2ast
+                pointer: true
+          returns:
+            - name: PackageModel
+              package: internal/domain
+              slice: true
+            - name: error
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getKeyPathString
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.extractDependencies
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parsePackageContainer
+        - name: parsePackageContainer
+          params:
+            - name: m
+              type:
+                name: Map
+                package: oss.terrastruct.com/d2/d2ast
+                pointer: true
+          returns:
+            - name: PackageModel
+              package: internal/domain
+            - name: error
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getKeyPathString
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getScalarValue
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.extractDependencies
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parseSymbol
+        - name: parseSymbol
+          params:
+            - name: name
+              type:
+                name: string
+            - name: m
+              type:
+                name: Map
+                package: oss.terrastruct.com/d2/d2ast
+                pointer: true
+          returns:
+            - name: any
+            - name: symbolKind
+              package: internal/adapter/d2
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getKeyPathString
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getScalarValue
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parseFunction
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parseInterface
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parseStruct
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parseTypeDef
+        - name: parseInterface
+          params:
+            - name: name
+              type:
+                name: string
+            - name: m
+              type:
+                name: Map
+                package: oss.terrastruct.com/d2/d2ast
+                pointer: true
+          returns:
+            - name: InterfaceDef
+              package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getKeyPathString
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getScalarValue
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: isExported
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parseMethod
+        - name: parseStruct
+          params:
+            - name: name
+              type:
+                name: string
+            - name: m
+              type:
+                name: Map
+                package: oss.terrastruct.com/d2/d2ast
+                pointer: true
+          returns:
+            - name: StructDef
+              package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getKeyPathString
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getScalarValue
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: isExported
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parseField
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.parseMethod
+        - name: parseFunction
+          params:
+            - name: name
+              type:
+                name: string
+            - name: m
+              type:
+                name: Map
+                package: oss.terrastruct.com/d2/d2ast
+                pointer: true
+            - name: stereotype
+              type:
+                name: string
+          returns:
+            - name: FunctionDef
+              package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getKeyPathString
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getScalarValue
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: isExported
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: parseReturnTypes
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: parseTypeRef
+        - name: parseTypeDef
+          params:
+            - name: name
+              type:
+                name: string
+            - name: m
+              type:
+                name: Map
+                package: oss.terrastruct.com/d2/d2ast
+                pointer: true
+            - name: stereotype
+              type:
+                name: Stereotype
+                package: internal/domain
+          returns:
+            - name: TypeDef
+              package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getKeyPathString
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: getScalarValue
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: isExported
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: parseTypeRef
+        - name: parseMethod
+          params:
+            - name: signature
+              type:
+                name: string
+            - name: returnStr
+              type:
+                name: string
+          returns:
+            - name: MethodDef
+              package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: parseParams
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: parseReturnTypes
+        - name: parseField
+          params:
+            - name: fieldStr
+              type:
+                name: string
+          returns:
+            - name: FieldDef
+              package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: parseTypeRef
+      exported: false
+      source_file: reader.go
+      doc: |
+        reader reads D2 diagram files and converts them to domain.PackageModel structures.
+    - name: symbolInfo
+      fields:
+        - name: stereotype
+          type:
+            name: Stereotype
+            package: internal/domain
+          exported: false
+      exported: false
+      source_file: styles.go
+      doc: |
+        symbolInfo holds metadata about a symbol for color calculations.
+      stereotype: value
+    - name: writer
+      methods:
+        - name: Write
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: model
+              type:
+                name: PackageModel
+                package: internal/domain
+            - name: opts
+              type:
+                name: WriteOptions
+                package: internal/domain
+          returns:
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: d2TextBuilder.Build
+            - to:
+                package: internal/adapter/d2
+                file: builder.go
+                symbol: newD2TextBuilder
+        - name: WriteCombined
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: models
+              type:
+                name: PackageModel
+                package: internal/domain
+                slice: true
+            - name: outputPath
+              type:
+                name: string
+          returns:
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: combinedBuilder.Build
+            - to:
+                package: internal/adapter/d2
+                file: combined_builder.go
+                symbol: newCombinedBuilder
+      exported: false
+      source_file: writer.go
+      doc: |
+        writer writes domain.PackageModel structures as D2 diagram files.
+functions:
+    - name: NewReader
+      returns:
+        - name: ModelReader
+          package: internal/service
+      exported: true
+      source_file: reader.go
+      doc: |
+        NewReader creates a new D2 diagram reader that implements service.ModelReader.
+      stereotype: factory
+    - name: NewWriter
+      returns:
+        - name: ModelWriter
+          package: internal/service
+      exported: true
+      source_file: writer.go
+      doc: |
+        NewWriter creates a new D2 diagram writer that implements service.ModelWriter.
+      stereotype: factory
+    - name: classesTemplate
+      returns:
+        - name: string
+      exported: false
+      source_file: templates.go
+      doc: |
+        classesTemplate returns the D2 classes block for reusable styles.
+    - name: derivePackagePath
+      params:
+        - name: filePath
+          type:
+            name: string
+      returns:
+        - name: string
+      exported: false
+      source_file: reader.go
+      doc: |
+        derivePackagePath extracts the package path from a .arch/ file path.
+        Example: "/path/to/pkg/.arch/pub.d2" -> "/path/to/pkg"
+    - name: dominantStereotype
+      params:
+        - name: symbols
+          type:
+            name: symbolInfo
+            package: internal/adapter/d2
+            slice: true
+      returns:
+        - name: Stereotype
+          package: internal/domain
+      exported: false
+      source_file: styles.go
+      doc: |
+        dominantStereotype finds the most common stereotype in a list of symbols.
+    - name: escapeD2
+      params:
+        - name: s
+          type:
+            name: string
+      returns:
+        - name: string
+      exported: false
+      source_file: builder.go
+      doc: |
+        escapeD2 escapes characters in a string so it can safely appear inside
+        a double-quoted D2 label.
+    - name: extractPackageName
+      params:
+        - name: pkgPath
+          type:
+            name: string
+      returns:
+        - name: string
+      exported: false
+      source_file: reader.go
+      doc: |
+        extractPackageName extracts the package name from a path.
+    - name: fileContainerClass
+      params:
+        - name: symbols
+          type:
+            name: symbolInfo
+            package: internal/adapter/d2
+            slice: true
+      returns:
+        - name: string
+      exported: false
+      source_file: styles.go
+      doc: |
+        fileContainerClass determines the D2 class for a file container
+        based on the dominant stereotype of its contents.
+      calls:
+        - to:
+            package: internal/adapter/d2
+            file: styles.go
+            symbol: dominantStereotype
+        - to:
+            package: internal/adapter/d2
+            file: styles.go
+            symbol: stereotypeClass
+    - name: fileContainerColor
+      params:
+        - name: symbols
+          type:
+            name: symbolInfo
+            package: internal/adapter/d2
+            slice: true
+      returns:
+        - name: string
+      exported: false
+      source_file: styles.go
+      doc: |
+        fileContainerColor determines the fill color for a file container
+        based on the dominant stereotype of its contents.
+      calls:
+        - to:
+            package: internal/adapter/d2
+            file: styles.go
+            symbol: dominantStereotype
+        - to:
+            package: internal/adapter/d2
+            file: styles.go
+            symbol: stereotypeColor
+    - name: getKeyPathString
+      params:
+        - name: kp
+          type:
+            name: KeyPath
+            package: oss.terrastruct.com/d2/d2ast
+            pointer: true
+      returns:
+        - name: string
+      exported: false
+      source_file: reader.go
+      doc: |
+        getKeyPathString extracts the string representation of a KeyPath.
+    - name: getScalarValue
+      params:
+        - name: vb
+          type:
+            name: ValueBox
+            package: oss.terrastruct.com/d2/d2ast
+      returns:
+        - name: string
+      exported: false
+      source_file: reader.go
+      doc: |
+        getScalarValue extracts a string value from a ValueBox.
+    - name: isExported
+      params:
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: bool
+      exported: false
+      source_file: reader.go
+      doc: |
+        isExported returns true if the name starts with an uppercase letter.
+    - name: legendTemplate
+      returns:
+        - name: string
+      exported: false
+      source_file: templates.go
+      doc: |
+        legendTemplate returns the D2 legend block content.
+        The legend is positioned at top-right and shows the DDD color coding.
+    - name: newCombinedBuilder
+      returns:
+        - name: combinedBuilder
+          package: internal/adapter/d2
+          pointer: true
+      exported: false
+      source_file: combined_builder.go
+      doc: |
+        newCombinedBuilder creates a new combined builder.
+    - name: newD2TextBuilder
+      returns:
+        - name: d2TextBuilder
+          package: internal/adapter/d2
+          pointer: true
+      exported: false
+      source_file: builder.go
+      doc: |
+        newD2TextBuilder creates a new D2 text builder.
+    - name: parseParams
+      params:
+        - name: paramStr
+          type:
+            name: string
+      returns:
+        - name: ParamDef
+          package: internal/domain
+          slice: true
+      exported: false
+      source_file: reader.go
+      doc: |
+        parseParams parses a comma-separated parameter list.
+        Input: "param1 Type1, param2 Type2"
+      calls:
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: parseTypeRef
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: splitParams
+    - name: parseReturnTypes
+      params:
+        - name: returnStr
+          type:
+            name: string
+      returns:
+        - name: TypeRef
+          package: internal/domain
+          slice: true
+      exported: false
+      source_file: reader.go
+      doc: |
+        parseReturnTypes parses return type(s) from D2 format.
+        Input: "Type" or "(Type1, Type2)"
+      calls:
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: parseTypeRef
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: splitParams
+    - name: parseSymbolRef
+      params:
+        - name: s
+          type:
+            name: string
+      returns:
+        - name: SymbolRef
+          package: internal/domain
+      exported: false
+      source_file: reader.go
+      doc: |
+        parseSymbolRef parses a symbol reference string like "internal.service.Service" or "Service".
+    - name: parseTypeRef
+      params:
+        - name: typeStr
+          type:
+            name: string
+      returns:
+        - name: TypeRef
+          package: internal/domain
+      exported: false
+      source_file: reader.go
+      doc: |
+        parseTypeRef parses a type reference from string format.
+        Handles: Type, *Type, []Type, map[K]V, package.Type
+      calls:
+        - to:
+            package: internal/adapter/d2
+            file: reader.go
+            symbol: parseTypeRef
+    - name: sanitizePackageID
+      params:
+        - name: path
+          type:
+            name: string
+      returns:
+        - name: string
+      exported: false
+      source_file: combined_builder.go
+      doc: |
+        sanitizePackageID converts a package path to a valid D2 identifier.
+        It replaces "/" with "." so "internal/service" becomes "internal.service".
+    - name: splitParams
+      params:
+        - name: s
+          type:
+            name: string
+      returns:
+        - name: string
+          slice: true
+      exported: false
+      source_file: reader.go
+      doc: |
+        splitParams splits a parameter string by comma, respecting nested types.
+    - name: stereotypeClass
+      params:
+        - name: s
+          type:
+            name: Stereotype
+            package: internal/domain
+      returns:
+        - name: string
+      exported: false
+      source_file: styles.go
+      doc: |
+        stereotypeClass returns the D2 class name for a given stereotype.
+    - name: stereotypeColor
+      params:
+        - name: s
+          type:
+            name: Stereotype
+            package: internal/domain
+      returns:
+        - name: string
+      exported: false
+      source_file: styles.go
+      doc: |
+        stereotypeColor returns the D2 fill color for a given stereotype.
+    - name: stereotypeLabel
+      params:
+        - name: s
+          type:
+            name: Stereotype
+            package: internal/domain
+      returns:
+        - name: string
+      exported: false
+      source_file: styles.go
+      doc: |
+        stereotypeLabel returns the D2 stereotype label (e.g., "<<service>>").
+        Returns empty string for StereotypeNone.
+    - name: stripFileGroupPrefix
+      params:
+        - name: ref
+          type:
+            name: SymbolRef
+            package: internal/domain
+        - name: pkgPath
+          type:
+            name: string
+      returns:
+        - name: SymbolRef
+          package: internal/domain
+      exported: false
+      source_file: reader.go
+      doc: |
+        stripFileGroupPrefix converts a split-mode symbol ref like "dependency.Dependency"
+        to a proper SymbolRef with the actual package path.
+        In split-mode, the prefix (e.g., "dependency") is a file group, not a package.
+typedefs:
+    - name: symbolKind
+      underlying_type:
+        name: int
+      constants:
+        - symbolKindFunction
+        - symbolKindInterface
+        - symbolKindStruct
+        - symbolKindTypeDef
+        - symbolKindUnknown
+      exported: false
+      source_file: reader.go
+      doc: |
+        symbolKind identifies the type of symbol parsed from D2.
+      stereotype: enum
+constants:
+    - name: ClassDomain
+      type:
+        name: untyped string
+      value: '"domain"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 class names for different stereotype categories.
+    - name: ClassFactory
+      type:
+        name: untyped string
+      value: '"factory"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 class names for different stereotype categories.
+    - name: ClassService
+      type:
+        name: untyped string
+      value: '"service"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 class names for different stereotype categories.
+    - name: ClassValue
+      type:
+        name: untyped string
+      value: '"value"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 class names for different stereotype categories.
+    - name: ColorBlue
+      type:
+        name: untyped string
+      value: '"#e8f4fc"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 color constants for different stereotypes.
+        Colors follow the DDD color scheme defined in the plan.
+    - name: ColorGray
+      type:
+        name: untyped string
+      value: '"#f8f8f8"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 color constants for different stereotypes.
+        Colors follow the DDD color scheme defined in the plan.
+    - name: ColorGreen
+      type:
+        name: untyped string
+      value: '"#e8fce8"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 color constants for different stereotypes.
+        Colors follow the DDD color scheme defined in the plan.
+    - name: ColorLegendBorder
+      type:
+        name: untyped string
+      value: '"#999"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 color constants for different stereotypes.
+        Colors follow the DDD color scheme defined in the plan.
+    - name: ColorLegendFill
+      type:
+        name: untyped string
+      value: '"#fafafa"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 color constants for different stereotypes.
+        Colors follow the DDD color scheme defined in the plan.
+    - name: ColorPurple
+      type:
+        name: untyped string
+      value: '"#f0e8fc"'
+      exported: true
+      source_file: styles.go
+      doc: |
+        D2 color constants for different stereotypes.
+        Colors follow the DDD color scheme defined in the plan.
+errors:
+    - name: ErrEmptyDiagram
+      message: D2 file is empty or contains no meaningful content
+      exported: true
+      source_file: reader.go
+      doc: |
+        Error definitions for the D2 reader.
+    - name: ErrInvalidLabel
+      message: package container has invalid or missing label
+      exported: true
+      source_file: reader.go
+      doc: |
+        Error definitions for the D2 reader.
+    - name: ErrNoPackages
+      message: no package containers found in D2 file
+      exported: true
+      source_file: reader.go
+      doc: |
+        Error definitions for the D2 reader.
+dependencies:
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: strings
+        symbol: Builder
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: symbolInfo
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: InterfaceDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: StructDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: FunctionDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: TypeDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: ConstDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: VarDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: ErrorDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: MethodDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: FieldDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: ParamDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: TypeRef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: MethodDef
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/domain
+        symbol: FieldDef
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: depInfo
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      to:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: depInfo
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: strings
+        symbol: Builder
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: fileGroup
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: fileGroup
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: ConstDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: VarDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: ErrorDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: symbolInfo
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: InterfaceDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: StructDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: FunctionDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: TypeDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: MethodDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: FieldDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: ParamDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: TypeRef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: Dependency
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: Dependency
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: Implementation
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: Implementation
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      to:
+        package: internal/domain
+        symbol: SymbolRef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: depInfo
+      to:
+        package: internal/domain
+        symbol: DependencyKind
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: fileGroup
+      to:
+        package: internal/domain
+        symbol: InterfaceDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: fileGroup
+      to:
+        package: internal/domain
+        symbol: StructDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: fileGroup
+      to:
+        package: internal/domain
+        symbol: FunctionDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: fileGroup
+      to:
+        package: internal/domain
+        symbol: TypeDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: fileGroup
+      to:
+        package: internal/domain
+        symbol: ConstDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: fileGroup
+      to:
+        package: internal/domain
+        symbol: VarDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: fileGroup
+      to:
+        package: internal/domain
+        symbol: ErrorDef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: oss.terrastruct.com/d2/d2ast
+        symbol: Map
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: oss.terrastruct.com/d2/d2ast
+        symbol: Key
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: Dependency
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: symbolKind
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: InterfaceDef
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: StructDef
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: FunctionDef
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: Stereotype
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: TypeDef
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: MethodDef
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: FieldDef
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: symbolInfo
+      to:
+        package: internal/domain
+        symbol: Stereotype
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: writer.go
+        symbol: writer
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: writer.go
+        symbol: writer
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: writer.go
+        symbol: writer
+      to:
+        package: internal/domain
+        symbol: WriteOptions
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: NewReader
+      to:
+        package: internal/service
+        symbol: ModelReader
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/adapter/d2
+        file: writer.go
+        symbol: NewWriter
+      to:
+        package: internal/service
+        symbol: ModelWriter
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: dominantStereotype
+      to:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: symbolInfo
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: dominantStereotype
+      to:
+        package: internal/domain
+        symbol: Stereotype
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: fileContainerClass
+      to:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: symbolInfo
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: fileContainerColor
+      to:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: symbolInfo
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: getKeyPathString
+      to:
+        package: oss.terrastruct.com/d2/d2ast
+        symbol: KeyPath
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: getScalarValue
+      to:
+        package: oss.terrastruct.com/d2/d2ast
+        symbol: ValueBox
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: newCombinedBuilder
+      to:
+        package: internal/adapter/d2
+        file: combined_builder.go
+        symbol: combinedBuilder
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: newD2TextBuilder
+      to:
+        package: internal/adapter/d2
+        file: builder.go
+        symbol: d2TextBuilder
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: parseParams
+      to:
+        package: internal/domain
+        symbol: ParamDef
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: parseReturnTypes
+      to:
+        package: internal/domain
+        symbol: TypeRef
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: parseSymbolRef
+      to:
+        package: internal/domain
+        symbol: SymbolRef
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: parseTypeRef
+      to:
+        package: internal/domain
+        symbol: TypeRef
+      kind: returns
+    - from:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: stereotypeClass
+      to:
+        package: internal/domain
+        symbol: Stereotype
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: stereotypeColor
+      to:
+        package: internal/domain
+        symbol: Stereotype
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: styles.go
+        symbol: stereotypeLabel
+      to:
+        package: internal/domain
+        symbol: Stereotype
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: stripFileGroupPrefix
+      to:
+        package: internal/domain
+        symbol: SymbolRef
+      kind: uses
+    - from:
+        package: internal/adapter/d2
+        file: reader.go
+        symbol: stripFileGroupPrefix
+      to:
+        package: internal/domain
+        symbol: SymbolRef
+      kind: returns

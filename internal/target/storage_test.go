@@ -38,6 +38,10 @@ func setupProject(t *testing.T, withOverlay bool) string {
 		if err := os.WriteFile(filepath.Join(root, "archai.yaml"), []byte("module: example.com/foo\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		fragmentPath := filepath.Join(root, "internal/service", ".arch", "overlay.yaml")
+		if err := os.WriteFile(fragmentPath, []byte("configs:\n  - GenerateOptions\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return root
 }
@@ -78,6 +82,13 @@ func TestLock_CreatesLayout(t *testing.T) {
 	}
 	if !strings.Contains(string(overlayData), "module: example.com/foo") {
 		t.Errorf("overlay.yaml content unexpected: %q", string(overlayData))
+	}
+	fragmentData, err := os.ReadFile(filepath.Join(targetDir, "overlays", "internal/service", "overlay.yaml"))
+	if err != nil {
+		t.Fatalf("read package overlay fragment: %v", err)
+	}
+	if !strings.Contains(string(fragmentData), "GenerateOptions") {
+		t.Errorf("package overlay fragment content unexpected: %q", string(fragmentData))
 	}
 
 	// Per-package model files should be copied.

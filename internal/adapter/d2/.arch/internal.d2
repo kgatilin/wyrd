@@ -1,5 +1,25 @@
 # d2 package
 
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
 # Legend
 legend: {
   label: "Color Legend (DDD)"
@@ -10,33 +30,29 @@ legend: {
   aggregate: {
     label: "Domain Model"
     shape: class
-    style.fill: "#e8f4fc"
-    style.font-color: "#000"
+    class: domain
   }
   service: {
     label: "Service"
     shape: class
-    style.fill: "#f0e8fc"
-    style.font-color: "#000"
+    class: service
   }
   factory: {
     label: "Factory"
     shape: class
-    style.fill: "#e8fce8"
-    style.font-color: "#000"
+    class: factory
   }
   options: {
     label: "Value Object"
     shape: class
-    style.fill: "#f8f8f8"
-    style.font-color: "#000"
+    class: value
   }
 }
 
 # Files
 builder: {
   label: "builder.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   d2TextBuilder: {
     shape: class
@@ -48,6 +64,9 @@ builder: {
     "+Build(pkg internal/domain.PackageModel, publicOnly bool)": "string"
     "-groupByFile(pkg internal/domain.PackageModel, publicOnly bool)": "[]internal/adapter/d2.fileGroup"
     "-writeFileContainer(fg internal/adapter/d2.fileGroup, publicOnly bool)": ""
+    "-writeConstantsBlock(consts []internal/domain.ConstDef)": ""
+    "-writeVariablesBlock(vars []internal/domain.VarDef)": ""
+    "-writeErrorsBlock(errs []internal/domain.ErrorDef)": ""
     "-collectSymbolInfo(fg internal/adapter/d2.fileGroup)": "[]internal/adapter/d2.symbolInfo"
     "-fileContainerID(filename string)": "string"
     "-writeInterface(iface internal/domain.InterfaceDef, publicOnly bool)": ""
@@ -62,6 +81,8 @@ builder: {
     "-formatReturns(returns []internal/domain.TypeRef)": "string"
     "-filterDependencies(deps []internal/domain.Dependency, publicOnly bool, pkg internal/domain.PackageModel)": "[]internal/domain.Dependency"
     "-writeDependency(dep internal/domain.Dependency)": ""
+    "-filterImplementations(impls []internal/domain.Implementation, publicOnly bool, pkg internal/domain.PackageModel)": "[]internal/domain.Implementation"
+    "-writeImplementation(impl internal/domain.Implementation)": ""
     "-toD2Path(ref internal/domain.SymbolRef)": "string"
     "-writeComment(text string)": ""
     "-writeLine(line string)": ""
@@ -77,6 +98,17 @@ builder: {
     "-structs []internal/domain.StructDef": ""
     "-functions []internal/domain.FunctionDef": ""
     "-typeDefs []internal/domain.TypeDef": ""
+    "-constants []internal/domain.ConstDef": ""
+    "-variables []internal/domain.VarDef": ""
+    "-errors []internal/domain.ErrorDef": ""
+  }
+
+  escapeD2: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "s": "string"
+    "return": "string"
   }
 
   newD2TextBuilder: {
@@ -91,7 +123,7 @@ builder: {
 
 combined_builder: {
   label: "combined_builder.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   combinedBuilder: {
     shape: class
@@ -107,6 +139,9 @@ combined_builder: {
     "-writeStruct(s internal/domain.StructDef)": ""
     "-writeFunction(fn internal/domain.FunctionDef)": ""
     "-writeTypeDef(td internal/domain.TypeDef)": ""
+    "-writeConstantsBlock(consts []internal/domain.ConstDef)": ""
+    "-writeVariablesBlock(vars []internal/domain.VarDef)": ""
+    "-writeErrorsBlock(errs []internal/domain.ErrorDef)": ""
     "-writeMethod(m internal/domain.MethodDef)": ""
     "-writeField(f internal/domain.FieldDef)": ""
     "-formatMethodSignature(m internal/domain.MethodDef)": "string"
@@ -155,7 +190,7 @@ combined_builder: {
 
 reader: {
   label: "reader.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   reader: {
     shape: class
@@ -163,6 +198,11 @@ reader: {
 
     "+Read(ctx context.Context, paths []string)": "([]internal/domain.PackageModel, error)"
     "-readFile(path string)": "([]internal/domain.PackageModel, error)"
+    "-isSplitMode(ast *oss.terrastruct.com/d2/d2ast.Map)": "bool"
+    "-parseSplitModeAST(ast *oss.terrastruct.com/d2/d2ast.Map, filePath string)": "([]internal/domain.PackageModel, error)"
+    "-extractSymbolsFromFileGroup(m *oss.terrastruct.com/d2/d2ast.Map, pkg *internal/domain.PackageModel)": ""
+    "-parseEdge(key *oss.terrastruct.com/d2/d2ast.Key)": "*internal/domain.Dependency"
+    "-extractDependencies(m *oss.terrastruct.com/d2/d2ast.Map)": "[]internal/domain.Dependency"
     "-parseAST(ast *oss.terrastruct.com/d2/d2ast.Map)": "([]internal/domain.PackageModel, error)"
     "-parsePackageContainer(m *oss.terrastruct.com/d2/d2ast.Map)": "(internal/domain.PackageModel, error)"
     "-parseSymbol(name string, m *oss.terrastruct.com/d2/d2ast.Map)": "(any, internal/adapter/d2.symbolKind)"
@@ -179,6 +219,22 @@ reader: {
     stereotype: "<<factory>>"
 
     "return": "internal/service.ModelReader"
+  }
+
+  derivePackagePath: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "filePath": "string"
+    "return": "string"
+  }
+
+  extractPackageName: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgPath": "string"
+    "return": "string"
   }
 
   getKeyPathString: {
@@ -221,6 +277,14 @@ reader: {
     "return": "[]internal/domain.TypeRef"
   }
 
+  parseSymbolRef: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "s": "string"
+    "return": "internal/domain.SymbolRef"
+  }
+
   parseTypeRef: {
     shape: class
     stereotype: "<<function>>"
@@ -237,6 +301,15 @@ reader: {
     "return": "[]string"
   }
 
+  stripFileGroupPrefix: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ref": "internal/domain.SymbolRef"
+    "pkgPath": "string"
+    "return": "internal/domain.SymbolRef"
+  }
+
 
   symbolKind: {
     shape: class
@@ -251,11 +324,20 @@ reader: {
     "symbolKindUnknown": "const"
   }
 
+  Errors: {
+    shape: class
+    stereotype: "<<error>>"
+
+    "ErrEmptyDiagram": "D2 file is empty or contains no meaningful content"
+    "ErrInvalidLabel": "package container has invalid or missing label"
+    "ErrNoPackages": "no package containers found in D2 file"
+  }
+
 }
 
 styles: {
   label: "styles.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   symbolInfo: {
     shape: class
@@ -264,11 +346,35 @@ styles: {
     "-stereotype internal/domain.Stereotype": ""
   }
 
+  dominantStereotype: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "symbols": "[]internal/adapter/d2.symbolInfo"
+    "return": "internal/domain.Stereotype"
+  }
+
+  fileContainerClass: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "symbols": "[]internal/adapter/d2.symbolInfo"
+    "return": "string"
+  }
+
   fileContainerColor: {
     shape: class
     stereotype: "<<function>>"
 
     "symbols": "[]internal/adapter/d2.symbolInfo"
+    "return": "string"
+  }
+
+  stereotypeClass: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "s": "internal/domain.Stereotype"
     "return": "string"
   }
 
@@ -289,11 +395,34 @@ styles: {
   }
 
 
+  Constants: {
+    shape: class
+    stereotype: "<<const>>"
+
+    "ClassDomain": "untyped string = \"domain\""
+    "ClassFactory": "untyped string = \"factory\""
+    "ClassService": "untyped string = \"service\""
+    "ClassValue": "untyped string = \"value\""
+    "ColorBlue": "untyped string = \"#e8f4fc\""
+    "ColorGray": "untyped string = \"#f8f8f8\""
+    "ColorGreen": "untyped string = \"#e8fce8\""
+    "ColorLegendBorder": "untyped string = \"#999\""
+    "ColorLegendFill": "untyped string = \"#fafafa\""
+    "ColorPurple": "untyped string = \"#f0e8fc\""
+  }
+
 }
 
 templates: {
   label: "templates.go"
-  style.fill: "#f8f8f8"
+  class: value
+
+  classesTemplate: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "return": "string"
+  }
 
   legendTemplate: {
     shape: class
@@ -307,7 +436,7 @@ templates: {
 
 writer: {
   label: "writer.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   writer: {
     shape: class
@@ -333,6 +462,8 @@ combined_builder.combinedBuilder -> combined_builder.depInfo: "returns"
 builder.d2TextBuilder -> builder.fileGroup: "returns"
 builder.d2TextBuilder -> styles.symbolInfo: "returns"
 reader.reader -> reader.symbolKind: "returns"
+styles.dominantStereotype -> styles.symbolInfo: "uses"
+styles.fileContainerClass -> styles.symbolInfo: "uses"
 styles.fileContainerColor -> styles.symbolInfo: "uses"
 combined_builder.newCombinedBuilder -> combined_builder.combinedBuilder: "returns"
 builder.newD2TextBuilder -> builder.d2TextBuilder: "returns"

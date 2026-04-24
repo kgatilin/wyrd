@@ -1,0 +1,314 @@
+# yaml package
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Files
+marshal: {
+  label: "marshal.go"
+  class: value
+
+  MarshalPackage: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "model": "internal/domain.PackageModel"
+    "format": "string"
+    "return": "([]byte, error)"
+  }
+
+
+}
+
+reader: {
+  label: "reader.go"
+  class: factory
+
+  NewReader: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "return": "internal/service.ModelReader"
+  }
+
+
+}
+
+schema: {
+  label: "schema.go"
+  class: value
+
+  CallEdgeSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+To internal/adapter/yaml.SymbolRefSpec": ""
+    "+Via string": ""
+  }
+
+  ConstSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/adapter/yaml.TypeRefSpec": ""
+    "+Value string": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+  }
+
+  DependencySpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+From internal/adapter/yaml.SymbolRefSpec": ""
+    "+To internal/adapter/yaml.SymbolRefSpec": ""
+    "+Kind string": ""
+    "+ThroughExported bool": ""
+  }
+
+  ErrorSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Message string": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+  }
+
+  FieldSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/adapter/yaml.TypeRefSpec": ""
+    "+Exported bool": ""
+    "+Tag string": ""
+  }
+
+  FunctionSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Params []internal/adapter/yaml.ParamSpec": ""
+    "+Returns []internal/adapter/yaml.TypeRefSpec": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype string": ""
+    "+Calls []internal/adapter/yaml.CallEdgeSpec": ""
+  }
+
+  ImplementationSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Concrete internal/adapter/yaml.SymbolRefSpec": ""
+    "+Interface internal/adapter/yaml.SymbolRefSpec": ""
+    "+Pointer bool": ""
+  }
+
+  InterfaceSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Methods []internal/adapter/yaml.MethodSpec": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype string": ""
+  }
+
+  MethodSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Params []internal/adapter/yaml.ParamSpec": ""
+    "+Returns []internal/adapter/yaml.TypeRefSpec": ""
+    "+Exported bool": ""
+    "+Calls []internal/adapter/yaml.CallEdgeSpec": ""
+  }
+
+  PackageSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Schema string": ""
+    "+Package string": ""
+    "+Name string": ""
+    "+Layer string": ""
+    "+Aggregate string": ""
+    "+Interfaces []internal/adapter/yaml.InterfaceSpec": ""
+    "+Structs []internal/adapter/yaml.StructSpec": ""
+    "+Functions []internal/adapter/yaml.FunctionSpec": ""
+    "+TypeDefs []internal/adapter/yaml.TypeDefSpec": ""
+    "+Constants []internal/adapter/yaml.ConstSpec": ""
+    "+Variables []internal/adapter/yaml.VarSpec": ""
+    "+Errors []internal/adapter/yaml.ErrorSpec": ""
+    "+Dependencies []internal/adapter/yaml.DependencySpec": ""
+    "+Implementations []internal/adapter/yaml.ImplementationSpec": ""
+  }
+
+  ParamSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/adapter/yaml.TypeRefSpec": ""
+  }
+
+  StructSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Fields []internal/adapter/yaml.FieldSpec": ""
+    "+Methods []internal/adapter/yaml.MethodSpec": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype string": ""
+  }
+
+  SymbolRefSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Package string": ""
+    "+File string": ""
+    "+Symbol string": ""
+    "+External bool": ""
+  }
+
+  TypeDefSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+UnderlyingType internal/adapter/yaml.TypeRefSpec": ""
+    "+Constants []string": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+    "+Stereotype string": ""
+  }
+
+  TypeRefSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Package string": ""
+    "+Pointer bool": ""
+    "+Slice bool": ""
+    "+Map bool": ""
+    "+KeyType *internal/adapter/yaml.TypeRefSpec": ""
+    "+ValueType *internal/adapter/yaml.TypeRefSpec": ""
+  }
+
+  VarSpec: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/adapter/yaml.TypeRefSpec": ""
+    "+Exported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+  }
+
+}
+
+writer: {
+  label: "writer.go"
+  class: factory
+
+  NewWriter: {
+    shape: class
+    stereotype: "<<factory>>"
+
+    "return": "internal/service.ModelWriter"
+  }
+
+
+}
+
+# Dependencies
+schema.CallEdgeSpec -> schema.SymbolRefSpec: "uses"
+schema.ConstSpec -> schema.TypeRefSpec: "uses"
+schema.DependencySpec -> schema.SymbolRefSpec: "uses"
+schema.FieldSpec -> schema.TypeRefSpec: "uses"
+schema.FunctionSpec -> schema.ParamSpec: "uses"
+schema.FunctionSpec -> schema.TypeRefSpec: "uses"
+schema.FunctionSpec -> schema.CallEdgeSpec: "uses"
+schema.ImplementationSpec -> schema.SymbolRefSpec: "uses"
+schema.InterfaceSpec -> schema.MethodSpec: "uses"
+schema.MethodSpec -> schema.ParamSpec: "uses"
+schema.MethodSpec -> schema.TypeRefSpec: "uses"
+schema.MethodSpec -> schema.CallEdgeSpec: "uses"
+schema.PackageSpec -> schema.InterfaceSpec: "uses"
+schema.PackageSpec -> schema.StructSpec: "uses"
+schema.PackageSpec -> schema.FunctionSpec: "uses"
+schema.PackageSpec -> schema.TypeDefSpec: "uses"
+schema.PackageSpec -> schema.ConstSpec: "uses"
+schema.PackageSpec -> schema.VarSpec: "uses"
+schema.PackageSpec -> schema.ErrorSpec: "uses"
+schema.PackageSpec -> schema.DependencySpec: "uses"
+schema.PackageSpec -> schema.ImplementationSpec: "uses"
+schema.ParamSpec -> schema.TypeRefSpec: "uses"
+schema.StructSpec -> schema.FieldSpec: "uses"
+schema.StructSpec -> schema.MethodSpec: "uses"
+schema.TypeDefSpec -> schema.TypeRefSpec: "uses"
+schema.VarSpec -> schema.TypeRefSpec: "uses"

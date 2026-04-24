@@ -1,0 +1,1665 @@
+schema: archai/v1
+package: internal/serve
+name: serve
+layer: runtime
+aggregate: daemon_state
+interfaces:
+    - name: ActivityAware
+      methods:
+        - name: SetActivityObserver
+          params:
+            - type:
+                name: func()
+          exported: true
+      exported: true
+      source_file: daemon.go
+      doc: |
+        ActivityAware is implemented by HTTP transports that expose a hook
+        for observing each handled request. serve.Serve wires this to the
+        idle-timeout monitor so IdleTimeout only fires after a real period
+        of HTTP quiet. Transports that don't implement it simply won't
+        participate in idle shutdown (and IdleTimeout becomes a no-op).
+      stereotype: interface
+    - name: HTTPTransport
+      methods:
+        - name: Serve
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: addr
+              type:
+                name: string
+            - name: ready
+              type:
+                name: func(boundAddr string)
+          returns:
+            - name: error
+          exported: true
+      exported: true
+      source_file: daemon.go
+      doc: |
+        HTTPTransport is the minimal contract the serve daemon needs from an
+        HTTP transport: bind to addr, invoke ready(boundAddr) once the
+        listener is up, then serve until ctx is cancelled. Returns nil on a
+        graceful shutdown. The ready callback is how callers learn the real
+        bound address when addr uses port 0. Implemented by
+        internal/adapter/http.Server.
+      stereotype: interface
+structs:
+    - name: AutoStartOptions
+      fields:
+        - name: ExePath
+          type:
+            name: string
+          exported: true
+        - name: Root
+          type:
+            name: string
+          exported: true
+        - name: HTTPAddr
+          type:
+            name: string
+          exported: true
+        - name: WaitTimeout
+          type:
+            name: Duration
+            package: time
+          exported: true
+        - name: PollInterval
+          type:
+            name: Duration
+            package: time
+          exported: true
+        - name: Stderr
+          type:
+            name: Writer
+            package: io
+          exported: true
+        - name: IdleTimeout
+          type:
+            name: Duration
+            package: time
+          exported: true
+      exported: true
+      source_file: autostart.go
+      doc: |
+        AutoStartOptions configures how a background daemon is launched by
+        AutoStartDaemon.
+      stereotype: value
+    - name: MultiState
+      fields:
+        - name: mu
+          type:
+            name: Mutex
+            package: sync
+          exported: false
+        - name: root
+          type:
+            name: string
+          exported: false
+        - name: entries
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: Entry
+                package: internal/worktree
+          exported: false
+        - name: order
+          type:
+            name: string
+            slice: true
+          exported: false
+        - name: states
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: State
+                package: internal/serve
+                pointer: true
+          exported: false
+        - name: loader
+          type:
+            name: StateLoader
+            package: internal/serve
+          exported: false
+        - name: watcherHook
+          type:
+            name: WatcherHook
+            package: internal/serve
+          exported: false
+        - name: watchers
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: Closer
+                package: io
+          exported: false
+      methods:
+        - name: SetWatcherHook
+          params:
+            - name: hook
+              type:
+                name: WatcherHook
+                package: internal/serve
+          exported: true
+        - name: Refresh
+          returns:
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/worktree
+                file: discover.go
+                symbol: Discover
+        - name: Close
+          returns:
+            - name: error
+          exported: true
+        - name: Worktrees
+          returns:
+            - name: Entry
+              package: internal/worktree
+              slice: true
+          exported: true
+        - name: Names
+          returns:
+            - name: string
+              slice: true
+          exported: true
+        - name: Has
+          params:
+            - name: name
+              type:
+                name: string
+          returns:
+            - name: bool
+          exported: true
+        - name: Default
+          returns:
+            - name: string
+          exported: true
+        - name: Get
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: name
+              type:
+                name: string
+          returns:
+            - name: State
+              package: internal/serve
+              pointer: true
+            - name: error
+          exported: true
+        - name: Entry
+          params:
+            - name: name
+              type:
+                name: string
+          returns:
+            - name: Entry
+              package: internal/worktree
+            - name: bool
+          exported: true
+      exported: true
+      source_file: multistate.go
+      doc: |
+        MultiState holds one State per discovered worktree and lazy-loads
+        each State on first access. The set of worktrees is fixed at
+        construction but can be refreshed by calling Refresh() again — this
+        is intended for SIGHUP or a periodic poller.
+
+        MultiState is safe for concurrent use.
+    - name: Options
+      fields:
+        - name: Root
+          type:
+            name: string
+          exported: true
+        - name: MCPStdio
+          type:
+            name: bool
+          exported: true
+        - name: MCPServe
+          type:
+            name: func(ctx context.Context, state *internal/serve.State) error
+          exported: true
+        - name: HTTPAddr
+          type:
+            name: string
+          exported: true
+        - name: HTTPServerFactory
+          type:
+            name: func(*internal/serve.State) (internal/serve.HTTPTransport, error)
+          exported: true
+        - name: MultiState
+          type:
+            name: MultiState
+            package: internal/serve
+            pointer: true
+          exported: true
+        - name: Debug
+          type:
+            name: bool
+          exported: true
+        - name: LogOut
+          type:
+            name: Writer
+            package: io
+          exported: true
+        - name: Debounce
+          type:
+            name: Duration
+            package: time
+          exported: true
+        - name: IdleTimeout
+          type:
+            name: Duration
+            package: time
+          exported: true
+      exported: true
+      source_file: daemon.go
+      doc: |
+        Options configures the Serve entry point.
+      stereotype: value
+    - name: Snapshot
+      fields:
+        - name: Root
+          type:
+            name: string
+          exported: true
+        - name: Packages
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+          exported: true
+        - name: Overlay
+          type:
+            name: Config
+            package: internal/overlay
+            pointer: true
+          exported: true
+        - name: CurrentTarget
+          type:
+            name: string
+          exported: true
+      exported: true
+      source_file: state.go
+      doc: |
+        Snapshot is a read-only view of the State. All slices/maps are
+        independent of the live State and safe to retain.
+      stereotype: value
+    - name: State
+      fields:
+        - name: mu
+          type:
+            name: RWMutex
+            package: sync
+          exported: false
+        - name: root
+          type:
+            name: string
+          exported: false
+        - name: reader
+          type:
+            name: ModelReader
+            package: internal/service
+          exported: false
+        - name: packages
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: PackageModel
+                package: internal/domain
+          exported: false
+        - name: overlayCfg
+          type:
+            name: Config
+            package: internal/overlay
+            pointer: true
+          exported: false
+        - name: overlayPath
+          type:
+            name: string
+          exported: false
+        - name: goModPath
+          type:
+            name: string
+          exported: false
+        - name: currentTarget
+          type:
+            name: string
+          exported: false
+      methods:
+        - name: Snapshot
+          returns:
+            - name: Snapshot
+              package: internal/serve
+          exported: true
+        - name: Root
+          returns:
+            - name: string
+          exported: true
+        - name: Load
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+          returns:
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.readAll
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.reloadOverlayLocked
+            - to:
+                package: internal/target
+                file: storage.go
+                symbol: Current
+        - name: ReloadPackage
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: pkgPath
+              type:
+                name: string
+          returns:
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/yaml
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+        - name: ReloadOverlay
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+          returns:
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: State.reloadOverlayLocked
+        - name: SwitchTarget
+          params:
+            - name: id
+              type:
+                name: string
+          returns:
+            - name: error
+          exported: true
+        - name: readAll
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+          returns:
+            - name: PackageModel
+              package: internal/domain
+              slice: true
+            - name: error
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/d2
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+            - to:
+                package: internal/adapter/yaml
+                file: reader.go
+                symbol: reader.Read
+              via: internal/service.ModelReader
+        - name: reloadOverlayLocked
+          returns:
+            - name: error
+          exported: false
+          calls:
+            - to:
+                package: internal/overlay
+                file: load.go
+                symbol: LoadComposed
+        - name: FindOwningPackage
+          params:
+            - name: path
+              type:
+                name: string
+          returns:
+            - name: string
+          exported: true
+          calls:
+            - to:
+                package: internal/serve
+                file: state.go
+                symbol: hasGoFiles
+      exported: true
+      source_file: state.go
+      doc: |
+        State holds the in-memory model consumed by the daemon's transports.
+        All reads go through Snapshot(); mutations go through the Reload*/Switch
+        methods which take an exclusive lock. State is safe for concurrent use.
+    - name: Watcher
+      fields:
+        - name: inner
+          type:
+            name: Watcher
+            package: github.com/fsnotify/fsnotify
+            pointer: true
+          exported: false
+        - name: root
+          type:
+            name: string
+          exported: false
+        - name: debounce
+          type:
+            name: Duration
+            package: time
+          exported: false
+        - name: skipDir
+          type:
+            name: func(name string) bool
+          exported: false
+      methods:
+        - name: Close
+          returns:
+            - name: error
+          exported: true
+        - name: Run
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: handler
+              type:
+                name: EventHandler
+                package: internal/serve
+          returns:
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/serve
+                file: watcher.go
+                symbol: Watcher.addTree
+            - to:
+                package: internal/serve
+                file: watcher.go
+                symbol: Watcher.shouldIgnore
+        - name: addTree
+          params:
+            - name: root
+              type:
+                name: string
+          returns:
+            - name: error
+          exported: false
+        - name: shouldIgnore
+          params:
+            - name: path
+              type:
+                name: string
+          returns:
+            - name: bool
+          exported: false
+      exported: true
+      source_file: watcher.go
+      doc: |
+        Watcher wraps an fsnotify.Watcher with a debounced event channel.
+        Events arriving within Debounce of one another are coalesced into a
+        single batch and delivered to the handler.
+    - name: watcherCloser
+      fields:
+        - name: cancel
+          type:
+            name: CancelFunc
+            package: context
+          exported: false
+        - name: watcher
+          type:
+            name: Watcher
+            package: internal/serve
+            pointer: true
+          exported: false
+        - name: done
+          type:
+            name: chan struct{}
+          exported: false
+      methods:
+        - name: Close
+          returns:
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/serve
+                file: watcher.go
+                symbol: Watcher.Close
+      exported: false
+      source_file: daemon.go
+      doc: |
+        watcherCloser bundles the goroutine cancellation and the fsnotify
+        watcher's own Close so MultiState can release both with a single
+        io.Closer handle.
+functions:
+    - name: AutoStartDaemon
+      params:
+        - name: opts
+          type:
+            name: AutoStartOptions
+            package: internal/serve
+      returns:
+        - name: ServeRecord
+          package: internal/worktree
+          pointer: true
+        - name: error
+      exported: true
+      source_file: autostart.go
+      doc: |
+        AutoStartDaemon spawns `archai serve --http <addr>` as a detached
+        child process and waits until its serve.json record appears on disk
+        and the PID is alive. Returns the discovered record on success. The
+        child is intentionally NOT attached to the parent's process group so
+        it survives when the MCP stdio wrapper exits — callers who want to
+        tear the daemon down should signal it by PID.
+
+        A file lock at .arch/.worktree/<name>/autostart.lock serializes
+        concurrent callers. The sequence under the lock is:
+
+         1. re-check serve.json (another process may have won the race)
+         2. if still no live daemon, spawn one
+         3. poll for serve.json to confirm the child registered
+
+        This prevents two simultaneous MCP clients in the same worktree from
+        spawning two daemons where the second overwrites the first's
+        serve.json and leaves the first daemon as an orphaned listener.
+      calls:
+        - to:
+            package: internal/serve
+            file: autostart_unix.go
+            symbol: acquireAutoStartLock
+        - to:
+            package: internal/serve
+            file: autostart_unix.go
+            symbol: detachProcess
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: Name
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: PIDAlive
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: ReadServe
+    - name: DefaultStateLoader
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: _
+          type:
+            name: string
+        - name: path
+          type:
+            name: string
+      returns:
+        - name: State
+          package: internal/serve
+          pointer: true
+        - name: error
+      exported: true
+      source_file: multistate.go
+      doc: |
+        DefaultStateLoader is the production StateLoader used when
+        NewMultiState is called without one. It builds a fresh State
+        anchored at path and loads the full Go + overlay + target model.
+      calls:
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: NewState
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.Load
+    - name: DiscoverDaemon
+      params:
+        - name: projectRoot
+          type:
+            name: string
+      returns:
+        - name: ServeRecord
+          package: internal/worktree
+          pointer: true
+        - name: string
+        - name: error
+      exported: true
+      source_file: autostart.go
+      doc: |
+        DiscoverDaemon looks up the running daemon record for the worktree
+        containing projectRoot. Returns the parsed record (nil when no live
+        daemon is registered) and the worktree name used for disk lookups.
+        A stale record (process no longer alive) is treated the same as
+        "no record" — the caller can then auto-start a fresh daemon.
+      calls:
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: Name
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: PIDAlive
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: ReadServe
+    - name: NewMultiState
+      params:
+        - name: projectRoot
+          type:
+            name: string
+        - name: loader
+          type:
+            name: StateLoader
+            package: internal/serve
+      returns:
+        - name: MultiState
+          package: internal/serve
+          pointer: true
+      exported: true
+      source_file: multistate.go
+      doc: |
+        NewMultiState constructs a MultiState rooted at projectRoot, using
+        loader to materialize per-worktree States on first access. Pass
+        DefaultStateLoader for normal daemon use; lightweight alternatives
+        are useful for transport-level tests that want to assert lazy
+        behaviour without invoking the Go reader.
+
+        The initial worktree list is populated by Refresh(); callers are
+        expected to invoke Refresh() once before serving requests.
+      stereotype: factory
+    - name: NewState
+      params:
+        - name: root
+          type:
+            name: string
+      returns:
+        - name: State
+          package: internal/serve
+          pointer: true
+      exported: true
+      source_file: state.go
+      doc: |
+        NewState returns an empty State rooted at root. Callers must invoke
+        Load before querying the state.
+      stereotype: factory
+      calls:
+        - to:
+            package: internal/adapter/golang
+            file: reader.go
+            symbol: NewReader
+    - name: NewWatcher
+      params:
+        - name: root
+          type:
+            name: string
+        - name: debounce
+          type:
+            name: Duration
+            package: time
+      returns:
+        - name: Watcher
+          package: internal/serve
+          pointer: true
+        - name: error
+      exported: true
+      source_file: watcher.go
+      doc: |
+        NewWatcher creates a fsnotify-backed Watcher rooted at root. The
+        watcher recursively adds every directory under root that passes
+        skipDir. Debounce defaults to DefaultDebounce when zero.
+      stereotype: factory
+      calls:
+        - to:
+            package: internal/serve
+            file: watcher.go
+            symbol: Watcher.addTree
+    - name: Serve
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: opts
+          type:
+            name: Options
+            package: internal/serve
+      returns:
+        - name: error
+      exported: true
+      source_file: daemon.go
+      doc: |
+        Serve runs the daemon: it builds the in-memory model, starts the
+        fsnotify watcher, wires stub transports, and blocks until ctx is
+        cancelled. Callers are expected to bridge SIGINT/SIGTERM into ctx.
+      calls:
+        - to:
+            package: internal/adapter/http
+            file: server.go
+            symbol: Server.Serve
+          via: internal/serve.HTTPTransport
+        - to:
+            package: internal/adapter/http
+            file: server.go
+            symbol: Server.SetActivityObserver
+          via: internal/serve.ActivityAware
+        - to:
+            package: internal/serve
+            file: multistate.go
+            symbol: MultiState.Close
+        - to:
+            package: internal/serve
+            file: multistate.go
+            symbol: MultiState.Names
+        - to:
+            package: internal/serve
+            file: multistate.go
+            symbol: MultiState.SetWatcherHook
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: NewState
+        - to:
+            package: internal/serve
+            file: watcher.go
+            symbol: NewWatcher
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.Load
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.Snapshot
+        - to:
+            package: internal/serve
+            file: watcher.go
+            symbol: Watcher.Close
+        - to:
+            package: internal/serve
+            file: watcher.go
+            symbol: Watcher.Run
+        - to:
+            package: internal/serve
+            file: daemon.go
+            symbol: buildHandler
+        - to:
+            package: internal/serve
+            file: daemon.go
+            symbol: multiWatcherHook
+        - to:
+            package: internal/serve
+            file: daemon.go
+            symbol: runIdleMonitor
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: Name
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: RemoveServe
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: WriteServe
+    - name: acquireAutoStartLock
+      params:
+        - name: lockPath
+          type:
+            name: string
+        - name: waitTimeout
+          type:
+            name: Duration
+            package: time
+      returns:
+        - name: func()
+        - name: error
+      exported: false
+      source_file: autostart_unix.go
+      doc: |
+        acquireAutoStartLock takes an exclusive advisory lock on lockPath
+        using flock(2). It retries for up to waitTimeout before failing so
+        callers never block forever when another process has crashed while
+        holding the lock (stale locks are released automatically by the
+        kernel on fd close/process exit, but a ctrl-C'd shell may leave
+        one for a moment). Returns an unlock func that closes the file.
+    - name: buildHandler
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: logOut
+          type:
+            name: Writer
+            package: io
+        - name: debug
+          type:
+            name: bool
+      returns:
+        - name: EventHandler
+          package: internal/serve
+      exported: false
+      source_file: daemon.go
+      doc: |
+        buildHandler returns the EventHandler closure that dispatches a
+        debounced batch of file events into the appropriate state reloads.
+      calls:
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.FindOwningPackage
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.ReloadOverlay
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.ReloadPackage
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.Root
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.SwitchTarget
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: Name
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: ReadCurrent
+    - name: defaultSkipDir
+      params:
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: bool
+      exported: false
+      source_file: watcher.go
+      doc: |
+        defaultSkipDir returns true for directories the watcher should not
+        descend into when adding watches. Keeping this list tight is
+        important: each directory adds an inotify (or equivalent) watch.
+    - name: detachProcess
+      params:
+        - name: cmd
+          type:
+            name: Cmd
+            package: os/exec
+            pointer: true
+      exported: false
+      source_file: autostart_unix.go
+      doc: |
+        detachProcess configures the child to run in a new session/process
+        group so it survives when the parent exits. Without Setsid the child
+        would share the parent's controlling terminal and receive SIGHUP
+        when the MCP client closes its stdio.
+    - name: hasGoFiles
+      params:
+        - name: dir
+          type:
+            name: string
+      returns:
+        - name: bool
+      exported: false
+      source_file: state.go
+      doc: |
+        hasGoFiles reports whether dir contains at least one .go file
+        (excluding _test.go files is unnecessary here — we only need to know
+        the directory is a Go package for reload purposes).
+    - name: multiWatcherHook
+      params:
+        - name: parent
+          type:
+            name: Context
+            package: context
+        - name: debounce
+          type:
+            name: Duration
+            package: time
+        - name: logOut
+          type:
+            name: Writer
+            package: io
+        - name: debug
+          type:
+            name: bool
+      returns:
+        - name: WatcherHook
+          package: internal/serve
+      exported: false
+      source_file: daemon.go
+      doc: |
+        multiWatcherHook returns a WatcherHook that installs one fsnotify
+        watcher per loaded worktree State, reusing buildHandler so the
+        event-dispatch logic matches single-mode exactly. The returned
+        io.Closer cancels the watcher goroutine and closes the underlying
+        fsnotify watcher; MultiState invokes it on Refresh-drop / Close.
+      calls:
+        - to:
+            package: internal/serve
+            file: watcher.go
+            symbol: NewWatcher
+        - to:
+            package: internal/serve
+            file: state.go
+            symbol: State.Root
+        - to:
+            package: internal/serve
+            file: watcher.go
+            symbol: Watcher.Run
+        - to:
+            package: internal/serve
+            file: daemon.go
+            symbol: buildHandler
+    - name: runIdleMonitor
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: idleTimeout
+          type:
+            name: Duration
+            package: time
+        - name: lastActivity
+          type:
+            name: Int64
+            package: sync/atomic
+            pointer: true
+        - name: cancel
+          type:
+            name: CancelFunc
+            package: context
+        - name: logOut
+          type:
+            name: Writer
+            package: io
+      exported: false
+      source_file: daemon.go
+      doc: |
+        runIdleMonitor polls lastActivity and cancels the daemon (via cancel)
+        once idleTimeout has elapsed without any HTTP request. The poll
+        cadence is min(idleTimeout/4, 1s) so short timeouts react quickly in
+        tests while long production timeouts don't spin a tight loop.
+typedefs:
+    - name: EventHandler
+      underlying_type:
+        name: func(paths []string)
+      exported: true
+      source_file: watcher.go
+      doc: |
+        EventHandler is invoked for each flushed batch of file paths. The
+        Watcher calls it serially; the handler itself is responsible for any
+        further concurrency.
+    - name: StateLoader
+      underlying_type:
+        name: func(ctx context.Context, name string, path string) (*internal/serve.State, error)
+      exported: true
+      source_file: multistate.go
+      doc: |
+        StateLoader builds a fresh State for a newly-discovered worktree.
+        It is invoked the first time a worktree's State is requested from a
+        MultiState; subsequent requests hit the per-worktree cache. The
+        default production loader is DefaultStateLoader, which calls
+        NewState(path).Load(ctx).
+    - name: WatcherHook
+      underlying_type:
+        name: func(ctx context.Context, name string, state *internal/serve.State) (io.Closer, error)
+      exported: true
+      source_file: multistate.go
+      doc: |
+        WatcherHook is invoked by MultiState the first time a worktree's
+        State is loaded. Implementations typically spin up a per-worktree
+        fsnotify watcher whose handler re-extracts the loaded State on file
+        changes. The returned io.Closer is tracked by MultiState and closed
+        when the worktree is dropped from a Refresh or when Close is called.
+        A nil hook disables per-worktree watching (used by lightweight tests
+        and by callers that prefer manual refreshes).
+dependencies:
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: ActivityAware
+      to:
+        package: internal/serve
+        symbol: func()
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: HTTPTransport
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: HTTPTransport
+      to:
+        package: internal/serve
+        symbol: func(boundAddr string)
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: autostart.go
+        symbol: AutoStartOptions
+      to:
+        package: time
+        symbol: Duration
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: autostart.go
+        symbol: AutoStartOptions
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: multistate.go
+        symbol: MultiState
+      to:
+        package: sync
+        symbol: Mutex
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: multistate.go
+        symbol: MultiState
+      to:
+        package: internal/serve
+        file: multistate.go
+        symbol: StateLoader
+      kind: uses
+    - from:
+        package: internal/serve
+        file: multistate.go
+        symbol: MultiState
+      to:
+        package: internal/serve
+        file: multistate.go
+        symbol: WatcherHook
+      kind: uses
+    - from:
+        package: internal/serve
+        file: multistate.go
+        symbol: MultiState
+      to:
+        package: internal/worktree
+        symbol: Entry
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: multistate.go
+        symbol: MultiState
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: multistate.go
+        symbol: MultiState
+      to:
+        package: internal/serve
+        file: state.go
+        symbol: State
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: Options
+      to:
+        package: internal/serve
+        symbol: func(ctx context.Context, state *internal/serve.State) error
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: Options
+      to:
+        package: internal/serve
+        symbol: func(*internal/serve.State) (internal/serve.HTTPTransport, error)
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: Options
+      to:
+        package: internal/serve
+        file: multistate.go
+        symbol: MultiState
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: Options
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: Options
+      to:
+        package: time
+        symbol: Duration
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: state.go
+        symbol: Snapshot
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: state.go
+        symbol: Snapshot
+      to:
+        package: internal/overlay
+        symbol: Config
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: state.go
+        symbol: State
+      to:
+        package: sync
+        symbol: RWMutex
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: state.go
+        symbol: State
+      to:
+        package: internal/service
+        symbol: ModelReader
+      kind: uses
+    - from:
+        package: internal/serve
+        file: state.go
+        symbol: State
+      to:
+        package: internal/overlay
+        symbol: Config
+      kind: uses
+    - from:
+        package: internal/serve
+        file: state.go
+        symbol: State
+      to:
+        package: internal/serve
+        file: state.go
+        symbol: Snapshot
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: state.go
+        symbol: State
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: state.go
+        symbol: State
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+    - from:
+        package: internal/serve
+        file: watcher.go
+        symbol: Watcher
+      to:
+        package: github.com/fsnotify/fsnotify
+        symbol: Watcher
+      kind: uses
+    - from:
+        package: internal/serve
+        file: watcher.go
+        symbol: Watcher
+      to:
+        package: time
+        symbol: Duration
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: watcher.go
+        symbol: Watcher
+      to:
+        package: internal/serve
+        symbol: func(name string) bool
+      kind: uses
+    - from:
+        package: internal/serve
+        file: watcher.go
+        symbol: Watcher
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: watcher.go
+        symbol: Watcher
+      to:
+        package: internal/serve
+        file: watcher.go
+        symbol: EventHandler
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: watcherCloser
+      to:
+        package: context
+        symbol: CancelFunc
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: watcherCloser
+      to:
+        package: internal/serve
+        file: watcher.go
+        symbol: Watcher
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: watcherCloser
+      to:
+        package: internal/serve
+        symbol: chan struct{}
+      kind: uses
+    - from:
+        package: internal/serve
+        file: autostart.go
+        symbol: AutoStartDaemon
+      to:
+        package: internal/serve
+        file: autostart.go
+        symbol: AutoStartOptions
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: autostart.go
+        symbol: AutoStartDaemon
+      to:
+        package: internal/worktree
+        symbol: ServeRecord
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: multistate.go
+        symbol: DefaultStateLoader
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: multistate.go
+        symbol: DefaultStateLoader
+      to:
+        package: internal/serve
+        file: state.go
+        symbol: State
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: autostart.go
+        symbol: DiscoverDaemon
+      to:
+        package: internal/worktree
+        symbol: ServeRecord
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: multistate.go
+        symbol: NewMultiState
+      to:
+        package: internal/serve
+        file: multistate.go
+        symbol: StateLoader
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: multistate.go
+        symbol: NewMultiState
+      to:
+        package: internal/serve
+        file: multistate.go
+        symbol: MultiState
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: state.go
+        symbol: NewState
+      to:
+        package: internal/serve
+        file: state.go
+        symbol: State
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: watcher.go
+        symbol: NewWatcher
+      to:
+        package: time
+        symbol: Duration
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: watcher.go
+        symbol: NewWatcher
+      to:
+        package: internal/serve
+        file: watcher.go
+        symbol: Watcher
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: Serve
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: Serve
+      to:
+        package: internal/serve
+        file: daemon.go
+        symbol: Options
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/serve
+        file: autostart_unix.go
+        symbol: acquireAutoStartLock
+      to:
+        package: time
+        symbol: Duration
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: autostart_unix.go
+        symbol: acquireAutoStartLock
+      to:
+        package: internal/serve
+        symbol: func()
+      kind: returns
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: buildHandler
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: buildHandler
+      to:
+        package: internal/serve
+        file: state.go
+        symbol: State
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: buildHandler
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: buildHandler
+      to:
+        package: internal/serve
+        file: watcher.go
+        symbol: EventHandler
+      kind: returns
+    - from:
+        package: internal/serve
+        file: autostart_unix.go
+        symbol: detachProcess
+      to:
+        package: os/exec
+        symbol: Cmd
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: multiWatcherHook
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: multiWatcherHook
+      to:
+        package: time
+        symbol: Duration
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: multiWatcherHook
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: multiWatcherHook
+      to:
+        package: internal/serve
+        file: multistate.go
+        symbol: WatcherHook
+      kind: returns
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: runIdleMonitor
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: runIdleMonitor
+      to:
+        package: time
+        symbol: Duration
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: runIdleMonitor
+      to:
+        package: sync/atomic
+        symbol: Int64
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: runIdleMonitor
+      to:
+        package: context
+        symbol: CancelFunc
+        external: true
+      kind: uses
+    - from:
+        package: internal/serve
+        file: daemon.go
+        symbol: runIdleMonitor
+      to:
+        package: io
+        symbol: Writer
+        external: true
+      kind: uses
+implementations:
+    - concrete:
+        package: internal/adapter/http
+        file: server.go
+        symbol: Server
+      interface:
+        package: internal/serve
+        file: daemon.go
+        symbol: ActivityAware
+      pointer: true
+    - concrete:
+        package: internal/adapter/http
+        file: server.go
+        symbol: Server
+      interface:
+        package: internal/serve
+        file: daemon.go
+        symbol: HTTPTransport
+      pointer: true

@@ -1,0 +1,1556 @@
+schema: archai/v1
+package: internal/adapter/golang
+name: golang
+layer: source_adapter
+structs:
+    - name: reader
+      fields:
+        - name: modulePath
+          type:
+            name: string
+          exported: false
+      methods:
+        - name: extractCalls
+          params:
+            - name: pkgs
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+                slice: true
+            - name: models
+              type:
+                name: PackageModel
+                package: internal/domain
+                slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.buildImplementationIndex
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractCallsFromFuncBody
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.relativePath
+            - to:
+                package: internal/adapter/golang
+                file: calls.go
+                symbol: receiverTypeName
+        - name: extractCallsFromFuncBody
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+            - name: fd
+              type:
+                name: FuncDecl
+                package: go/ast
+                pointer: true
+            - name: loadedTypes
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: Package
+                    package: go/types
+                    pointer: true
+                value_type:
+                    name: Package
+                    package: golang.org/x/tools/go/packages
+                    pointer: true
+            - name: implIndex
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: SymbolRef
+                    package: internal/domain
+                    slice: true
+          returns:
+            - name: CallEdge
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.handleIdentCall
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.handleSelectorCall
+        - name: handleIdentCall
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+            - name: ident
+              type:
+                name: Ident
+                package: go/ast
+                pointer: true
+            - name: loadedTypes
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: Package
+                    package: go/types
+                    pointer: true
+                value_type:
+                    name: Package
+                    package: golang.org/x/tools/go/packages
+                    pointer: true
+            - name: addEdge
+              type:
+                name: func(internal/domain.CallEdge)
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.findSymbolFile
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.relativePath
+        - name: handleSelectorCall
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+            - name: sel
+              type:
+                name: SelectorExpr
+                package: go/ast
+                pointer: true
+            - name: loadedTypes
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: Package
+                    package: go/types
+                    pointer: true
+                value_type:
+                    name: Package
+                    package: golang.org/x/tools/go/packages
+                    pointer: true
+            - name: implIndex
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: SymbolRef
+                    package: internal/domain
+                    slice: true
+            - name: addEdge
+              type:
+                name: func(internal/domain.CallEdge)
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.findSymbolFile
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.relativePath
+            - to:
+                package: internal/adapter/golang
+                file: calls.go
+                symbol: recvTypeName
+        - name: buildImplementationIndex
+          params:
+            - name: pkgs
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+                slice: true
+            - name: models
+              type:
+                name: PackageModel
+                package: internal/domain
+                slice: true
+            - name: modelIdxByPath
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: int
+          returns:
+            - name: ""
+              map: true
+              key_type:
+                name: string
+              value_type:
+                name: SymbolRef
+                package: internal/domain
+                slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.relativePath
+        - name: Read
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: paths
+              type:
+                name: string
+                slice: true
+          returns:
+            - name: PackageModel
+              package: internal/domain
+              slice: true
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.computeImplementations
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.convertPackage
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractCalls
+        - name: convertPackage
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+          returns:
+            - name: PackageModel
+              package: internal/domain
+            - name: error
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.applyStereotypes
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.collectConstantsByType
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.collectDependencies
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.collectMethodsByReceiver
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractConstants
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractFunctions
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractInterfaces
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractStructs
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractTypeDefs
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractVarsAndErrors
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.relativePath
+        - name: relativePath
+          params:
+            - name: pkgPath
+              type:
+                name: string
+          returns:
+            - name: string
+          exported: false
+        - name: collectMethodsByReceiver
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+          returns:
+            - name: ""
+              map: true
+              key_type:
+                name: string
+              value_type:
+                name: MethodDef
+                package: internal/domain
+                slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.convertMethod
+        - name: collectConstantsByType
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+          returns:
+            - name: ""
+              map: true
+              key_type:
+                name: string
+              value_type:
+                name: string
+                slice: true
+          exported: false
+        - name: extractInterfaces
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+            - name: astFiles
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: File
+                    package: go/ast
+                    pointer: true
+          returns:
+            - name: InterfaceDef
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: isExported
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractInterfaceMethods
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getDocComment
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getSourceFile
+        - name: extractInterfaceMethods
+          params:
+            - name: iface
+              type:
+                name: Interface
+                package: go/types
+                pointer: true
+          returns:
+            - name: MethodDef
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.convertMethod
+        - name: extractStructs
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+            - name: astFiles
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: File
+                    package: go/ast
+                    pointer: true
+            - name: methodsByReceiver
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: MethodDef
+                    package: internal/domain
+                    slice: true
+          returns:
+            - name: StructDef
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: isExported
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractStructFields
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getDocComment
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getSourceFile
+        - name: extractStructFields
+          params:
+            - name: structType
+              type:
+                name: Struct
+                package: go/types
+                pointer: true
+          returns:
+            - name: FieldDef
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.convertTypeRef
+        - name: extractFunctions
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+            - name: astFiles
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: File
+                    package: go/ast
+                    pointer: true
+          returns:
+            - name: FunctionDef
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: isExported
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractParams
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractReturns
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getDocComment
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getSourceFile
+        - name: extractTypeDefs
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+            - name: astFiles
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: File
+                    package: go/ast
+                    pointer: true
+            - name: constantsByType
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: string
+                    slice: true
+          returns:
+            - name: TypeDef
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: isExported
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.convertTypeRef
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getDocComment
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getSourceFile
+        - name: extractConstants
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+            - name: astFiles
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: File
+                    package: go/ast
+                    pointer: true
+          returns:
+            - name: ConstDef
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: isExported
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.convertTypeRef
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getConstValueText
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getDocComment
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getSourceFile
+        - name: extractVarsAndErrors
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+            - name: astFiles
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: File
+                    package: go/ast
+                    pointer: true
+          returns:
+            - name: VarDef
+              package: internal/domain
+              slice: true
+            - name: ErrorDef
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: isExported
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.convertTypeRef
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractErrorMessage
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getDocComment
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getSourceFile
+        - name: getConstValueText
+          params:
+            - name: astFiles
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: File
+                    package: go/ast
+                    pointer: true
+            - name: filename
+              type:
+                name: string
+            - name: name
+              type:
+                name: string
+          returns:
+            - name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: exprText
+        - name: extractErrorMessage
+          params:
+            - name: astFiles
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: File
+                    package: go/ast
+                    pointer: true
+            - name: filename
+              type:
+                name: string
+            - name: name
+              type:
+                name: string
+          returns:
+            - name: string
+            - name: bool
+          exported: false
+        - name: convertMethod
+          params:
+            - name: fn
+              type:
+                name: Func
+                package: go/types
+                pointer: true
+            - name: sig
+              type:
+                name: Signature
+                package: go/types
+                pointer: true
+          returns:
+            - name: MethodDef
+              package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: isExported
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractParams
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.extractReturns
+        - name: extractParams
+          params:
+            - name: tuple
+              type:
+                name: Tuple
+                package: go/types
+                pointer: true
+          returns:
+            - name: ParamDef
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.convertTypeRef
+        - name: extractReturns
+          params:
+            - name: tuple
+              type:
+                name: Tuple
+                package: go/types
+                pointer: true
+          returns:
+            - name: TypeRef
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.convertTypeRef
+        - name: convertTypeRef
+          params:
+            - name: t
+              type:
+                name: Type
+                package: go/types
+          returns:
+            - name: TypeRef
+              package: internal/domain
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.convertTypeRef
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.relativePath
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.stripModulePath
+        - name: stripModulePath
+          params:
+            - name: s
+              type:
+                name: string
+          returns:
+            - name: string
+          exported: false
+        - name: getSourceFile
+          params:
+            - name: fset
+              type:
+                name: FileSet
+                package: go/token
+                pointer: true
+            - name: pos
+              type:
+                name: Pos
+                package: go/token
+          returns:
+            - name: string
+          exported: false
+        - name: getDocComment
+          params:
+            - name: astFiles
+              type:
+                name: ""
+                map: true
+                key_type:
+                    name: string
+                value_type:
+                    name: File
+                    package: go/ast
+                    pointer: true
+            - name: filename
+              type:
+                name: string
+            - name: name
+              type:
+                name: string
+          returns:
+            - name: string
+          exported: false
+        - name: collectDependencies
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+            - name: model
+              type:
+                name: PackageModel
+                package: internal/domain
+                pointer: true
+          returns:
+            - name: Dependency
+              package: internal/domain
+              slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.collectMethodDependenciesWithVisibility
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.typeRefToSymbolRef
+            - to:
+                package: internal/domain
+                file: dependency.go
+                symbol: SymbolRef.String
+        - name: collectMethodDependenciesWithVisibility
+          params:
+            - name: fromRef
+              type:
+                name: SymbolRef
+                package: internal/domain
+            - name: method
+              type:
+                name: MethodDef
+                package: internal/domain
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+            - name: throughExported
+              type:
+                name: bool
+            - name: addDep
+              type:
+                name: func(internal/domain.Dependency)
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.typeRefToSymbolRef
+        - name: typeRefToSymbolRef
+          params:
+            - name: ref
+              type:
+                name: TypeRef
+                package: internal/domain
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+          returns:
+            - name: SymbolRef
+              package: internal/domain
+              pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: isBasicType
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.findSymbolFile
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.relativePath
+        - name: findSymbolFile
+          params:
+            - name: pkg
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+            - name: symbolName
+              type:
+                name: string
+          returns:
+            - name: string
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getSourceFile
+        - name: applyStereotypes
+          params:
+            - name: model
+              type:
+                name: PackageModel
+                package: internal/domain
+                pointer: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: stereotype.go
+                symbol: detectFunctionStereotype
+            - to:
+                package: internal/adapter/golang
+                file: stereotype.go
+                symbol: detectInterfaceStereotype
+            - to:
+                package: internal/adapter/golang
+                file: stereotype.go
+                symbol: detectStructStereotype
+            - to:
+                package: internal/adapter/golang
+                file: stereotype.go
+                symbol: detectTypeDefStereotype
+        - name: computeImplementations
+          params:
+            - name: pkgs
+              type:
+                name: Package
+                package: golang.org/x/tools/go/packages
+                pointer: true
+                slice: true
+            - name: models
+              type:
+                name: PackageModel
+                package: internal/domain
+                slice: true
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.getSourceFile
+            - to:
+                package: internal/adapter/golang
+                file: reader.go
+                symbol: reader.relativePath
+      exported: false
+      source_file: reader.go
+      doc: |
+        reader reads Go source code and converts it to domain.PackageModel structures.
+functions:
+    - name: NewReader
+      returns:
+        - name: ModelReader
+          package: internal/service
+      exported: true
+      source_file: reader.go
+      doc: |
+        NewReader creates a new Go code reader that implements service.ModelReader.
+      stereotype: factory
+    - name: detectFunctionStereotype
+      params:
+        - name: fn
+          type:
+            name: FunctionDef
+            package: internal/domain
+      returns:
+        - name: Stereotype
+          package: internal/domain
+      exported: false
+      source_file: stereotype.go
+      doc: |
+        detectFunctionStereotype determines the stereotype for a package-level function.
+        Priority: explicit annotation > heuristic > default (StereotypeNone).
+      calls:
+        - to:
+            package: internal/adapter/golang
+            file: stereotype.go
+            symbol: parseAnnotation
+    - name: detectInterfaceStereotype
+      params:
+        - name: iface
+          type:
+            name: InterfaceDef
+            package: internal/domain
+        - name: pkgPath
+          type:
+            name: string
+      returns:
+        - name: Stereotype
+          package: internal/domain
+      exported: false
+      source_file: stereotype.go
+      doc: |
+        detectInterfaceStereotype determines the stereotype for an interface.
+        Priority: explicit annotation > heuristic > default (StereotypeInterface).
+      calls:
+        - to:
+            package: internal/adapter/golang
+            file: stereotype.go
+            symbol: parseAnnotation
+    - name: detectStructStereotype
+      params:
+        - name: s
+          type:
+            name: StructDef
+            package: internal/domain
+        - name: pkgPath
+          type:
+            name: string
+      returns:
+        - name: Stereotype
+          package: internal/domain
+      exported: false
+      source_file: stereotype.go
+      doc: |
+        detectStructStereotype determines the stereotype for a struct.
+        Priority: explicit annotation > heuristic > default (StereotypeNone).
+      calls:
+        - to:
+            package: internal/adapter/golang
+            file: stereotype.go
+            symbol: isDomainPath
+        - to:
+            package: internal/adapter/golang
+            file: stereotype.go
+            symbol: parseAnnotation
+    - name: detectTypeDefStereotype
+      params:
+        - name: td
+          type:
+            name: TypeDef
+            package: internal/domain
+      returns:
+        - name: Stereotype
+          package: internal/domain
+      exported: false
+      source_file: stereotype.go
+      doc: |
+        detectTypeDefStereotype determines the stereotype for a type definition.
+        Priority: explicit annotation > heuristic > default (StereotypeNone).
+      calls:
+        - to:
+            package: internal/adapter/golang
+            file: stereotype.go
+            symbol: parseAnnotation
+    - name: exprText
+      params:
+        - name: e
+          type:
+            name: Expr
+            package: go/ast
+      returns:
+        - name: string
+      exported: false
+      source_file: reader.go
+      doc: |
+        exprText returns a best-effort textual representation of a simple expression.
+        Only basic literals and identifiers (for `iota` and similar) are supported;
+        more complex expressions yield an empty string.
+    - name: isBasicType
+      params:
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: bool
+      exported: false
+      source_file: reader.go
+      doc: |
+        isBasicType returns true if the type name is a Go basic type.
+    - name: isDomainPath
+      params:
+        - name: pkgPath
+          type:
+            name: string
+      returns:
+        - name: bool
+      exported: false
+      source_file: stereotype.go
+      doc: |
+        isDomainPath checks if a package path indicates a domain/model/entity layer.
+        Matches paths like "internal/domain", "pkg/model/", "entity/user", etc.
+    - name: isExported
+      params:
+        - name: name
+          type:
+            name: string
+      returns:
+        - name: bool
+      exported: false
+      source_file: reader.go
+      doc: |
+        isExported returns true if the name starts with an uppercase letter.
+    - name: parseAnnotation
+      params:
+        - name: doc
+          type:
+            name: string
+      returns:
+        - name: Stereotype
+          package: internal/domain
+      exported: false
+      source_file: stereotype.go
+      doc: |
+        parseAnnotation extracts a stereotype from a doc comment's archspec annotation.
+        Returns StereotypeNone if no valid annotation is found.
+    - name: receiverTypeName
+      params:
+        - name: recv
+          type:
+            name: FieldList
+            package: go/ast
+            pointer: true
+      returns:
+        - name: string
+      exported: false
+      source_file: calls.go
+      doc: |
+        receiverTypeName extracts the named type from a FuncDecl receiver list,
+        stripping pointer prefix. Returns empty string when the receiver type
+        cannot be determined (e.g., generic type parameter lists).
+    - name: recvTypeName
+      params:
+        - name: t
+          type:
+            name: Type
+            package: go/types
+      returns:
+        - name: string
+      exported: false
+      source_file: calls.go
+      doc: |
+        recvTypeName returns the underlying named-type name for a concrete
+        receiver (after pointer unwrapping). Empty if not a named type.
+variables:
+    - name: annotationPattern
+      type:
+        name: Regexp
+        package: regexp
+        pointer: true
+      exported: false
+      source_file: stereotype.go
+      doc: |
+        annotationPattern matches archspec:<stereotype> annotations in doc comments.
+dependencies:
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: golang.org/x/tools/go/packages
+        symbol: Package
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: go/ast
+        symbol: FuncDecl
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: CallEdge
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: go/ast
+        symbol: Ident
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/adapter/golang
+        symbol: func(internal/domain.CallEdge)
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: go/ast
+        symbol: SelectorExpr
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: InterfaceDef
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: go/types
+        symbol: Interface
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: MethodDef
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: StructDef
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: go/types
+        symbol: Struct
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: FieldDef
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: FunctionDef
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: TypeDef
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: ConstDef
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: VarDef
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: ErrorDef
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: go/types
+        symbol: Func
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: go/types
+        symbol: Signature
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: go/types
+        symbol: Tuple
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: ParamDef
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: TypeRef
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: go/types
+        symbol: Type
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: go/token
+        symbol: FileSet
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: go/token
+        symbol: Pos
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: Dependency
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: SymbolRef
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: MethodDef
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/adapter/golang
+        symbol: func(internal/domain.Dependency)
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: TypeRef
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: SymbolRef
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: NewReader
+      to:
+        package: internal/service
+        symbol: ModelReader
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/adapter/golang
+        file: stereotype.go
+        symbol: detectFunctionStereotype
+      to:
+        package: internal/domain
+        symbol: FunctionDef
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: stereotype.go
+        symbol: detectFunctionStereotype
+      to:
+        package: internal/domain
+        symbol: Stereotype
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: stereotype.go
+        symbol: detectInterfaceStereotype
+      to:
+        package: internal/domain
+        symbol: InterfaceDef
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: stereotype.go
+        symbol: detectInterfaceStereotype
+      to:
+        package: internal/domain
+        symbol: Stereotype
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: stereotype.go
+        symbol: detectStructStereotype
+      to:
+        package: internal/domain
+        symbol: StructDef
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: stereotype.go
+        symbol: detectStructStereotype
+      to:
+        package: internal/domain
+        symbol: Stereotype
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: stereotype.go
+        symbol: detectTypeDefStereotype
+      to:
+        package: internal/domain
+        symbol: TypeDef
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: stereotype.go
+        symbol: detectTypeDefStereotype
+      to:
+        package: internal/domain
+        symbol: Stereotype
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: reader.go
+        symbol: exprText
+      to:
+        package: go/ast
+        symbol: Expr
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: stereotype.go
+        symbol: parseAnnotation
+      to:
+        package: internal/domain
+        symbol: Stereotype
+      kind: returns
+    - from:
+        package: internal/adapter/golang
+        file: calls.go
+        symbol: receiverTypeName
+      to:
+        package: go/ast
+        symbol: FieldList
+      kind: uses
+    - from:
+        package: internal/adapter/golang
+        file: calls.go
+        symbol: recvTypeName
+      to:
+        package: go/types
+        symbol: Type
+      kind: uses

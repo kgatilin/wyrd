@@ -1,0 +1,18 @@
+schema: archai/v1
+package: cmd/archai
+name: main
+layer: cli
+variables:
+    - name: Version
+      type:
+        name: string
+      exported: true
+      source_file: version.go
+      doc: |
+        Version is the archai binary version. Defaults to "dev" for
+        unversioned builds and is overridden at build time via ldflags:
+
+        	go build -ldflags "-X main.Version=v0.1.0" ./cmd/archai
+
+        When Version is still "dev" at runtime we fall back to debug.ReadBuildInfo
+        so `go install` / `go run` users get a meaningful version when available.

@@ -1,0 +1,6 @@
+aggregates:
+  mcp_tool_api:
+    root: ToolDefinition
+
+configs:
+  - ClientOptions

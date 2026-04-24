@@ -1,0 +1,559 @@
+schema: archai/v1
+package: internal/adapter/mcp
+name: mcp
+layer: transport
+aggregate: mcp_tool_api
+structs:
+    - name: ClientOptions
+      fields:
+        - name: Endpoint
+          type:
+            name: string
+          exported: true
+        - name: HTTPClient
+          type:
+            name: Client
+            package: net/http
+            pointer: true
+          exported: true
+      exported: true
+      source_file: client.go
+      doc: |
+        ClientOptions configures the thin-client MCP stdio wrapper. Endpoint
+        is the base URL of the HTTP daemon (e.g. "http://127.0.0.1:47123").
+
+        HTTPClient is optional; when nil a package-default with a 30s
+        per-request timeout is used.
+      stereotype: value
+    - name: PackageSummary
+      fields:
+        - name: Path
+          type:
+            name: string
+          exported: true
+          tag: json:"path"
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: json:"name"
+        - name: Layer
+          type:
+            name: string
+          exported: true
+          tag: json:"layer,omitempty"
+        - name: InterfaceCount
+          type:
+            name: int
+          exported: true
+          tag: json:"interface_count"
+        - name: StructCount
+          type:
+            name: int
+          exported: true
+          tag: json:"struct_count"
+        - name: FunctionCount
+          type:
+            name: int
+          exported: true
+          tag: json:"function_count"
+      exported: true
+      source_file: tools.go
+      doc: |
+        PackageSummary is the minimal record returned by list_packages. The
+        summary is intentionally small so agents can decide which package to
+        drill into via get_package without paying for the full payload.
+      stereotype: value
+    - name: RPCError
+      fields:
+        - name: Code
+          type:
+            name: int
+          exported: true
+          tag: json:"code"
+        - name: Message
+          type:
+            name: string
+          exported: true
+          tag: json:"message"
+        - name: Data
+          type:
+            name: any
+          exported: true
+          tag: json:"data,omitempty"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        RPCError is the error object defined by JSON-RPC 2.0.
+      stereotype: value
+    - name: Request
+      fields:
+        - name: JSONRPC
+          type:
+            name: string
+          exported: true
+          tag: json:"jsonrpc"
+        - name: ID
+          type:
+            name: RawMessage
+            package: encoding/json
+          exported: true
+          tag: json:"id,omitempty"
+        - name: Method
+          type:
+            name: string
+          exported: true
+          tag: json:"method"
+        - name: Params
+          type:
+            name: RawMessage
+            package: encoding/json
+          exported: true
+          tag: json:"params,omitempty"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Request is an incoming JSON-RPC 2.0 request or notification. ID is
+        kept as a RawMessage so we can echo it back verbatim (clients may use
+        numbers or strings interchangeably).
+      stereotype: value
+    - name: Response
+      fields:
+        - name: JSONRPC
+          type:
+            name: string
+          exported: true
+          tag: json:"jsonrpc"
+        - name: ID
+          type:
+            name: RawMessage
+            package: encoding/json
+          exported: true
+          tag: json:"id,omitempty"
+        - name: Result
+          type:
+            name: interface{}
+          exported: true
+          tag: json:"result,omitempty"
+        - name: Error
+          type:
+            name: RPCError
+            package: internal/adapter/mcp
+            pointer: true
+          exported: true
+          tag: json:"error,omitempty"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Response is a JSON-RPC 2.0 response. Exactly one of Result / Error is
+        set on the wire; Response uses pointers so omitempty elides the other.
+      stereotype: value
+    - name: ToolDefinition
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: json:"name"
+        - name: Description
+          type:
+            name: string
+          exported: true
+          tag: json:"description"
+        - name: InputSchema
+          type:
+            name: any
+          exported: true
+          tag: json:"inputSchema"
+      exported: true
+      source_file: tools.go
+      doc: |
+        ToolDefinition describes a single MCP tool exposed via tools/list.
+        InputSchema is a JSON Schema object; we keep it as an any so each
+        tool can define its own shape without a shared struct.
+      stereotype: value
+    - name: ToolResult
+      fields:
+        - name: Content
+          type:
+            name: ToolResultContent
+            package: internal/adapter/mcp
+            slice: true
+          exported: true
+          tag: json:"content"
+        - name: IsError
+          type:
+            name: bool
+          exported: true
+          tag: json:"isError,omitempty"
+      exported: true
+      source_file: tools.go
+      doc: |
+        ToolResult is the payload returned by tools/call. IsError is a hint
+        for clients — JSON-RPC errors are used for protocol-level failures
+        (unknown tool etc.) while tool-level errors (package not found) are
+        reported via IsError + a text message so the model can see them.
+      stereotype: value
+    - name: ToolResultContent
+      fields:
+        - name: Type
+          type:
+            name: string
+          exported: true
+          tag: json:"type"
+        - name: Text
+          type:
+            name: string
+          exported: true
+          tag: json:"text"
+      exported: true
+      source_file: tools.go
+      doc: |
+        ToolResultContent is one "content" item returned by tools/call. We
+        only emit text blocks; binary/resource blocks are out of scope for
+        the current tool surface.
+      stereotype: value
+    - name: ValidateResult
+      fields:
+        - name: OK
+          type:
+            name: bool
+          exported: true
+          tag: json:"ok"
+        - name: Target
+          type:
+            name: string
+          exported: true
+          tag: json:"target"
+        - name: Violations
+          type:
+            name: Change
+            package: internal/diff
+            slice: true
+          exported: true
+          tag: json:"violations"
+      exported: true
+      source_file: tools.go
+      doc: |
+        ValidateResult is the structured payload returned by the `validate`
+        tool: ok=true when no drift, otherwise the list of Change entries
+        describing violations.
+      stereotype: value
+functions:
+    - name: Dispatch
+      params:
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+        - name: name
+          type:
+            name: string
+        - name: rawArgs
+          type:
+            name: RawMessage
+            package: encoding/json
+      returns:
+        - name: ToolResult
+          package: internal/adapter/mcp
+        - name: RPCError
+          package: internal/adapter/mcp
+          pointer: true
+      exported: true
+      source_file: tools.go
+      doc: |
+        Dispatch routes a tools/call invocation to the matching handler.
+        Unknown tool names surface as JSON-RPC method-not-found errors; known
+        tools all return ToolResult (possibly with IsError=true when inputs
+        are invalid or on-disk operations fail).
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleApplyDiff
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleDiff
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleExtract
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleGetPackage
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleListPackages
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleListTargets
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleLockTarget
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleSetCurrentTarget
+        - to:
+            package: internal/adapter/mcp
+            file: tools.go
+            symbol: handleValidate
+    - name: Serve
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: state
+          type:
+            name: State
+            package: internal/serve
+            pointer: true
+      returns:
+        - name: error
+      exported: true
+      source_file: stdio.go
+      doc: |
+        Serve runs the MCP stdio transport: it reads line-delimited JSON-RPC
+        2.0 messages from stdin, dispatches them against state, and writes
+        responses back to stdout. Diagnostic logs go to stderr.
+
+        Serve returns when stdin is closed (io.EOF) or ctx is cancelled.
+        It is safe to call concurrently with state mutations — all reads go
+        through serve.State.Snapshot().
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: stdio.go
+            symbol: serveIO
+    - name: ServeClient
+      params:
+        - name: ctx
+          type:
+            name: Context
+            package: context
+        - name: opts
+          type:
+            name: ClientOptions
+            package: internal/adapter/mcp
+      returns:
+        - name: error
+      exported: true
+      source_file: client.go
+      doc: |
+        ServeClient runs the MCP stdio transport in thin-client mode. It
+        reads JSON-RPC messages from stdin, forwards tools/call invocations
+        to the HTTP daemon at opts.Endpoint, and writes responses back to
+        stdout. initialize, notifications/initialized and tools/list are
+        handled locally (ToolDefinitions matches the daemon's set by
+        construction).
+
+        ServeClient returns when stdin is closed (io.EOF) or ctx is
+        cancelled.
+      calls:
+        - to:
+            package: internal/adapter/mcp
+            file: client.go
+            symbol: serveClientIO
+    - name: ToolDefinitions
+      returns:
+        - name: ToolDefinition
+          package: internal/adapter/mcp
+          slice: true
+      exported: true
+      source_file: tools.go
+      doc: |
+        ToolDefinitions returns the nine tools we advertise. Kept as a
+        function rather than a var so the JSON-Schema maps don't become
+        mutable package state.
+constants:
+    - name: ErrInternal
+      type:
+        name: untyped int
+      value: "-32603"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Standard JSON-RPC 2.0 error codes we surface.
+    - name: ErrInvalidParams
+      type:
+        name: untyped int
+      value: "-32602"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Standard JSON-RPC 2.0 error codes we surface.
+    - name: ErrInvalidRequest
+      type:
+        name: untyped int
+      value: "-32600"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Standard JSON-RPC 2.0 error codes we surface.
+    - name: ErrMethodNotFound
+      type:
+        name: untyped int
+      value: "-32601"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Standard JSON-RPC 2.0 error codes we surface.
+    - name: ErrParseError
+      type:
+        name: untyped int
+      value: "-32700"
+      exported: true
+      source_file: protocol.go
+      doc: |
+        Standard JSON-RPC 2.0 error codes we surface.
+dependencies:
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: ClientOptions
+      to:
+        package: net/http
+        symbol: Client
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: Request
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: Response
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: Response
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResultContent
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ValidateResult
+      to:
+        package: internal/diff
+        symbol: Change
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: Dispatch
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: Dispatch
+      to:
+        package: encoding/json
+        symbol: RawMessage
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: Dispatch
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolResult
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: Dispatch
+      to:
+        package: internal/adapter/mcp
+        file: protocol.go
+        symbol: RPCError
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: Serve
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: stdio.go
+        symbol: Serve
+      to:
+        package: internal/serve
+        symbol: State
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: ServeClient
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: ServeClient
+      to:
+        package: internal/adapter/mcp
+        file: client.go
+        symbol: ClientOptions
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolDefinitions
+      to:
+        package: internal/adapter/mcp
+        file: tools.go
+        symbol: ToolDefinition
+      kind: returns
+      through_exported: true

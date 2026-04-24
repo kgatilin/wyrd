@@ -47,15 +47,17 @@ it on your `PATH`.
 
 ### Verifying the install
 
-Archai does not yet have an `archai version` sub-command. Verify the
-install by running the top-level help:
+Verify the install by running:
 
 ```bash
+archai version
 archai --help
 ```
 
-You should see the `diagram`, `target`, `diff`, `validate`, `overlay`,
-`serve`, and `sequence` command groups.
+`archai version` prints the stamped build version. The top-level help
+should show the `diagram`, `target`, `diff`, `validate`, `overlay`,
+`serve`, `extract`, `where`, `list-daemons`, and `sequence` command
+groups.
 
 Go 1.25 or newer is required (see `go.mod`).
 
@@ -146,8 +148,10 @@ parses `./...` directly.
 
 ### 3.1 Minimal `archai.yaml`
 
-Put this next to `go.mod`. It declares layers, the allowed dependencies
-between them, and (optionally) aggregates and configs.
+Put this next to `go.mod`. It declares module-wide layers and the
+allowed dependencies between them. Aggregates and configs can live here,
+but for larger projects prefer package-local fragments so each package
+owns its own architecture metadata.
 
 ```yaml
 # archai.yaml
@@ -170,25 +174,64 @@ layer_rules:
   service: [domain]
   adapter: [domain, service]
   domain:  []
-
-aggregates:
-  user:
-    root: github.com/example/app/internal/domain.User
-
-configs: []
 ```
 
 Patterns under `layers` are module-relative Go import patterns
 (`pkg/...` matches the package and all sub-packages). `layer_rules`
 entries are strict allow-lists: any dependency outside the list is a
-violation. `aggregates` attach a domain root to a layer for browser
-grouping. `configs` (can be empty) declare configuration bundles
-surfaced in the browser's *Configs* view.
+violation.
+
+### 3.2 Package-local overlay fragments
+
+Any package can add architecture metadata in `.arch/overlay.yaml` next
+to its generated model files. These fragments are composed with the
+root `archai.yaml` by `diagram generate`, `overlay check`, `serve`, and
+`target lock`.
+
+Example:
+
+```yaml
+# internal/service/.arch/overlay.yaml
+
+aggregates:
+  generation_service:
+    root: Service
+
+configs:
+  - GenerateOptions
+  - ComposeOptions
+```
+
+Plain type names are package-local. In the example above, `Service`
+resolves to `github.com/example/app/internal/service.Service`.
+Module-relative type refs are also accepted:
+
+```yaml
+configs:
+  - internal/domain.WriteOptions
+```
+
+Fragments may also add `layers` or `layer_rules`, but the recommended
+shape is to keep global dependency policy in root `archai.yaml` and put
+package-owned domain/config metadata in package fragments. `aggregates`
+attach a domain root to a package for browser grouping. `configs`
+declare configuration bundles surfaced in the browser's *Configs* view.
 
 For a real example, see [`archai.yaml`](../archai.yaml) at the root of
-this repo.
+this repo. Archai is self-hosted: this repository keeps generated
+per-package `.arch/` files and a locked `self-hosted` target produced by
+the local binary.
 
-### 3.2 `.arch/` and targets on disk
+Useful maintenance commands for this repository:
+
+```bash
+make archai-generate   # refresh per-package D2/YAML and combined docs
+make archai-baseline   # refresh artifacts and lock target self-hosted
+make archai-check      # overlay check + diff + validate
+make archai-smoke      # CLI smoke on the archai repo itself
+```
+
+### 3.3 `.arch/` and targets on disk
 
 Archai writes all generated artifacts under per-package `.arch/`
 directories and under `.arch/targets/` at the project root:
@@ -199,6 +242,8 @@ directories and under `.arch/targets/` at the project root:
 ├── v1/
 │   ├── meta.yaml                # id, description, created_at, ...
 │   ├── overlay.yaml             # copy of archai.yaml at lock time
+│   ├── overlays/                # package-local overlay fragments
+│   │   └── internal/service/overlay.yaml
 │   └── model/
 │       ├── internal/service/pub.yaml
 │       ├── internal/service/internal.yaml
@@ -209,9 +254,10 @@ directories and under `.arch/targets/` at the project root:
 
 Per-package `.arch/` folders contain the `pub.d2`, `internal.d2`, and
 (when generated with `--format yaml`) `pub.yaml` / `internal.yaml`
-files.
+files. A package-owned `.arch/overlay.yaml` is source metadata, not a
+generated model file.
 
-### 3.3 `.gitignore` guidance
+### 3.4 `.gitignore` guidance
 
 Decide per repo whether the current-model D2 files are artifacts or
 source of truth. A typical pattern:
@@ -226,9 +272,10 @@ source of truth. A typical pattern:
 
 Keep `.arch/targets/` **checked in** — that is your locked
 architectural baseline and what `archai diff` / `archai validate`
-compare against. Keep `archai.yaml` checked in.
+compare against. Keep `archai.yaml` checked in. If you use
+package-local overlays, keep `**/.arch/overlay.yaml` checked in too.
 
-### 3.4 CI integration
+### 3.5 CI integration
 
 The minimum useful gate is `archai overlay check` (layer rules) and
 `archai validate` (drift from the active target). Example GitHub
@@ -444,7 +491,7 @@ The daemon advertises nine tools (defined in
 2. Commit `.arch/targets/<id>/` for your baseline and an
    `.arch/targets/CURRENT` pointer.
 3. Add `archai overlay check` and `archai validate` to the pipeline
-   (see [§3.4](#34-ci-integration)).
+   (see [§3.5](#35-ci-integration)).
 
 ### 7.4 Exploring code with an agent
 

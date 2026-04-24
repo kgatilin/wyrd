@@ -1,0 +1,279 @@
+# overlay package
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Files
+config: {
+  label: "config.go"
+  class: value
+
+  Aggregate: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Root string": ""
+  }
+
+  Config: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Module string": ""
+    "+Layers map[string][]string": ""
+    "+LayerRules map[string][]string": ""
+    "+Aggregates map[string]internal/overlay.Aggregate": ""
+    "+Configs []string": ""
+  }
+
+}
+
+load: {
+  label: "load.go"
+  class: value
+
+  Load: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "return": "(*internal/overlay.Config, error)"
+  }
+
+  LoadComposed: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "return": "(*internal/overlay.Config, error)"
+  }
+
+  findPackageOverlayFragments: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "string"
+    "return": "([]string, error)"
+  }
+
+  mergeFragment: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "dst": "*internal/overlay.Config"
+    "fragment": "*internal/overlay.Config"
+    "pkgPath": "string"
+    "source": "string"
+    "return": "error"
+  }
+
+  mergeStringSlices: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "dst": "map[string][]string"
+    "src": "map[string][]string"
+  }
+
+  modulePackage: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "module": "string"
+    "pkgPath": "string"
+    "return": "string"
+  }
+
+  packagePathForFragment: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "string"
+    "fragmentPath": "string"
+    "return": "(string, error)"
+  }
+
+  qualifyFragmentTypeRef: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "module": "string"
+    "pkgPath": "string"
+    "ref": "string"
+    "return": "string"
+  }
+
+
+  Constants: {
+    shape: class
+    stereotype: "<<const>>"
+
+    "packageOverlayPath": "untyped string = \".arch/overlay.yaml\""
+  }
+
+}
+
+merge: {
+  label: "merge.go"
+  class: value
+
+  Violation: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Package string": ""
+    "+Layer string": ""
+    "+Imports []string": ""
+  }
+
+  Merge: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "models": "[]internal/domain.PackageModel"
+    "cfg": "*internal/overlay.Config"
+    "return": "([]internal/domain.PackageModel, []internal/overlay.Violation, error)"
+  }
+
+  matchAnyGlob: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "globs": "[]string"
+    "pkgPath": "string"
+    "return": "bool"
+  }
+
+  matchGlob: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "glob": "string"
+    "pkgPath": "string"
+    "return": "bool"
+  }
+
+  modulePath: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "module": "string"
+    "pkgPath": "string"
+    "return": "string"
+  }
+
+  splitAggregateRoot: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "module": "string"
+    "root": "string"
+    "return": "(string, string, bool)"
+  }
+
+
+}
+
+validate: {
+  label: "validate.go"
+  class: value
+
+  Validate: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cfg": "*internal/overlay.Config"
+    "goModPath": "string"
+    "return": "error"
+  }
+
+  readGoModModule: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "path": "string"
+    "return": "(string, error)"
+  }
+
+  sortedKeys: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "m": "map[string]V"
+    "return": "[]string"
+  }
+
+  validateGlob: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "layer": "string"
+    "glob": "string"
+    "return": "error"
+  }
+
+  validateTypeRef: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "context": "string"
+    "s": "string"
+    "return": "error"
+  }
+
+
+}
+
+# Dependencies
+load.Load -> config.Config: "returns"
+load.LoadComposed -> config.Config: "returns"
+merge.Merge -> config.Config: "uses"
+merge.Merge -> merge.Violation: "returns"
+validate.Validate -> config.Config: "uses"
+load.mergeFragment -> config.Config: "uses"

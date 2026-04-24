@@ -1,0 +1,9 @@
+aggregates:
+  generation_service:
+    root: Service
+
+configs:
+  - ComposeOptions
+  - GenerateCombinedOptions
+  - GenerateOptions
+  - SplitOptions

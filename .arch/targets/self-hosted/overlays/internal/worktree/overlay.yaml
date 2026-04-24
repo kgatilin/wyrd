@@ -1,0 +1,3 @@
+aggregates:
+  worktree_runtime:
+    root: Entry

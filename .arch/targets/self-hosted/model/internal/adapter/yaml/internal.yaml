@@ -1,0 +1,2332 @@
+schema: archai/v1
+package: internal/adapter/yaml
+name: yaml
+layer: source_adapter
+aggregate: yaml_package_spec
+structs:
+    - name: CallEdgeSpec
+      fields:
+        - name: To
+          type:
+            name: SymbolRefSpec
+            package: internal/adapter/yaml
+          exported: true
+          tag: yaml:"to"
+        - name: Via
+          type:
+            name: string
+          exported: true
+          tag: yaml:"via,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        CallEdgeSpec represents a static call edge from a function/method body
+        to another function/method.
+      stereotype: value
+    - name: ConstSpec
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: yaml:"name"
+        - name: Type
+          type:
+            name: TypeRefSpec
+            package: internal/adapter/yaml
+          exported: true
+          tag: yaml:"type,omitempty"
+        - name: Value
+          type:
+            name: string
+          exported: true
+          tag: yaml:"value,omitempty"
+        - name: Exported
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"exported"
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+          tag: yaml:"source_file,omitempty"
+        - name: Doc
+          type:
+            name: string
+          exported: true
+          tag: yaml:"doc,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        ConstSpec represents a package-level constant declaration.
+      stereotype: value
+    - name: DependencySpec
+      fields:
+        - name: From
+          type:
+            name: SymbolRefSpec
+            package: internal/adapter/yaml
+          exported: true
+          tag: yaml:"from"
+        - name: To
+          type:
+            name: SymbolRefSpec
+            package: internal/adapter/yaml
+          exported: true
+          tag: yaml:"to"
+        - name: Kind
+          type:
+            name: string
+          exported: true
+          tag: yaml:"kind"
+        - name: ThroughExported
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"through_exported,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        DependencySpec represents a dependency between symbols.
+      stereotype: value
+    - name: ErrorSpec
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: yaml:"name"
+        - name: Message
+          type:
+            name: string
+          exported: true
+          tag: yaml:"message,omitempty"
+        - name: Exported
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"exported"
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+          tag: yaml:"source_file,omitempty"
+        - name: Doc
+          type:
+            name: string
+          exported: true
+          tag: yaml:"doc,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        ErrorSpec represents a sentinel error declaration.
+      stereotype: value
+    - name: FieldSpec
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: yaml:"name"
+        - name: Type
+          type:
+            name: TypeRefSpec
+            package: internal/adapter/yaml
+          exported: true
+          tag: yaml:"type"
+        - name: Exported
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"exported"
+        - name: Tag
+          type:
+            name: string
+          exported: true
+          tag: yaml:"tag,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        FieldSpec represents a struct field.
+      stereotype: value
+    - name: FunctionSpec
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: yaml:"name"
+        - name: Params
+          type:
+            name: ParamSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"params,omitempty"
+        - name: Returns
+          type:
+            name: TypeRefSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"returns,omitempty"
+        - name: Exported
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"exported"
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+          tag: yaml:"source_file,omitempty"
+        - name: Doc
+          type:
+            name: string
+          exported: true
+          tag: yaml:"doc,omitempty"
+        - name: Stereotype
+          type:
+            name: string
+          exported: true
+          tag: yaml:"stereotype,omitempty"
+        - name: Calls
+          type:
+            name: CallEdgeSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"calls,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        FunctionSpec represents a package-level function.
+      stereotype: value
+    - name: ImplementationSpec
+      fields:
+        - name: Concrete
+          type:
+            name: SymbolRefSpec
+            package: internal/adapter/yaml
+          exported: true
+          tag: yaml:"concrete"
+        - name: Interface
+          type:
+            name: SymbolRefSpec
+            package: internal/adapter/yaml
+          exported: true
+          tag: yaml:"interface"
+        - name: Pointer
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"pointer,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        ImplementationSpec represents an interface implementation relationship.
+      stereotype: value
+    - name: InterfaceSpec
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: yaml:"name"
+        - name: Methods
+          type:
+            name: MethodSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"methods,omitempty"
+        - name: Exported
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"exported"
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+          tag: yaml:"source_file,omitempty"
+        - name: Doc
+          type:
+            name: string
+          exported: true
+          tag: yaml:"doc,omitempty"
+        - name: Stereotype
+          type:
+            name: string
+          exported: true
+          tag: yaml:"stereotype,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        InterfaceSpec represents an interface definition.
+      stereotype: value
+    - name: MethodSpec
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: yaml:"name"
+        - name: Params
+          type:
+            name: ParamSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"params,omitempty"
+        - name: Returns
+          type:
+            name: TypeRefSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"returns,omitempty"
+        - name: Exported
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"exported"
+        - name: Calls
+          type:
+            name: CallEdgeSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"calls,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        MethodSpec represents a method signature.
+      stereotype: value
+    - name: PackageSpec
+      fields:
+        - name: Schema
+          type:
+            name: string
+          exported: true
+          tag: yaml:"schema"
+        - name: Package
+          type:
+            name: string
+          exported: true
+          tag: yaml:"package"
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: yaml:"name"
+        - name: Layer
+          type:
+            name: string
+          exported: true
+          tag: yaml:"layer,omitempty"
+        - name: Aggregate
+          type:
+            name: string
+          exported: true
+          tag: yaml:"aggregate,omitempty"
+        - name: Interfaces
+          type:
+            name: InterfaceSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"interfaces,omitempty"
+        - name: Structs
+          type:
+            name: StructSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"structs,omitempty"
+        - name: Functions
+          type:
+            name: FunctionSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"functions,omitempty"
+        - name: TypeDefs
+          type:
+            name: TypeDefSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"typedefs,omitempty"
+        - name: Constants
+          type:
+            name: ConstSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"constants,omitempty"
+        - name: Variables
+          type:
+            name: VarSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"variables,omitempty"
+        - name: Errors
+          type:
+            name: ErrorSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"errors,omitempty"
+        - name: Dependencies
+          type:
+            name: DependencySpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"dependencies,omitempty"
+        - name: Implementations
+          type:
+            name: ImplementationSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"implementations,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        PackageSpec is the top-level YAML document for a single package.
+      stereotype: value
+    - name: ParamSpec
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: yaml:"name,omitempty"
+        - name: Type
+          type:
+            name: TypeRefSpec
+            package: internal/adapter/yaml
+          exported: true
+          tag: yaml:"type"
+      exported: true
+      source_file: schema.go
+      doc: |
+        ParamSpec represents a function/method parameter.
+      stereotype: value
+    - name: StructSpec
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: yaml:"name"
+        - name: Fields
+          type:
+            name: FieldSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"fields,omitempty"
+        - name: Methods
+          type:
+            name: MethodSpec
+            package: internal/adapter/yaml
+            slice: true
+          exported: true
+          tag: yaml:"methods,omitempty"
+        - name: Exported
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"exported"
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+          tag: yaml:"source_file,omitempty"
+        - name: Doc
+          type:
+            name: string
+          exported: true
+          tag: yaml:"doc,omitempty"
+        - name: Stereotype
+          type:
+            name: string
+          exported: true
+          tag: yaml:"stereotype,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        StructSpec represents a struct definition.
+      stereotype: value
+    - name: SymbolRefSpec
+      fields:
+        - name: Package
+          type:
+            name: string
+          exported: true
+          tag: yaml:"package,omitempty"
+        - name: File
+          type:
+            name: string
+          exported: true
+          tag: yaml:"file,omitempty"
+        - name: Symbol
+          type:
+            name: string
+          exported: true
+          tag: yaml:"symbol"
+        - name: External
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"external,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        SymbolRefSpec represents a reference to a symbol.
+      stereotype: value
+    - name: TypeDefSpec
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: yaml:"name"
+        - name: UnderlyingType
+          type:
+            name: TypeRefSpec
+            package: internal/adapter/yaml
+          exported: true
+          tag: yaml:"underlying_type"
+        - name: Constants
+          type:
+            name: string
+            slice: true
+          exported: true
+          tag: yaml:"constants,omitempty"
+        - name: Exported
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"exported"
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+          tag: yaml:"source_file,omitempty"
+        - name: Doc
+          type:
+            name: string
+          exported: true
+          tag: yaml:"doc,omitempty"
+        - name: Stereotype
+          type:
+            name: string
+          exported: true
+          tag: yaml:"stereotype,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        TypeDefSpec represents a type definition (e.g., type Status string).
+      stereotype: value
+    - name: TypeRefSpec
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: yaml:"name"
+        - name: Package
+          type:
+            name: string
+          exported: true
+          tag: yaml:"package,omitempty"
+        - name: Pointer
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"pointer,omitempty"
+        - name: Slice
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"slice,omitempty"
+        - name: Map
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"map,omitempty"
+        - name: KeyType
+          type:
+            name: TypeRefSpec
+            package: internal/adapter/yaml
+            pointer: true
+          exported: true
+          tag: yaml:"key_type,omitempty"
+        - name: ValueType
+          type:
+            name: TypeRefSpec
+            package: internal/adapter/yaml
+            pointer: true
+          exported: true
+          tag: yaml:"value_type,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        TypeRefSpec represents a type reference.
+      stereotype: value
+    - name: VarSpec
+      fields:
+        - name: Name
+          type:
+            name: string
+          exported: true
+          tag: yaml:"name"
+        - name: Type
+          type:
+            name: TypeRefSpec
+            package: internal/adapter/yaml
+          exported: true
+          tag: yaml:"type,omitempty"
+        - name: Exported
+          type:
+            name: bool
+          exported: true
+          tag: yaml:"exported"
+        - name: SourceFile
+          type:
+            name: string
+          exported: true
+          tag: yaml:"source_file,omitempty"
+        - name: Doc
+          type:
+            name: string
+          exported: true
+          tag: yaml:"doc,omitempty"
+      exported: true
+      source_file: schema.go
+      doc: |
+        VarSpec represents a package-level variable declaration.
+      stereotype: value
+    - name: reader
+      methods:
+        - name: Read
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: paths
+              type:
+                name: string
+                slice: true
+          returns:
+            - name: PackageModel
+              package: internal/domain
+              slice: true
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/yaml
+                file: reader.go
+                symbol: reader.readPath
+        - name: readPath
+          params:
+            - name: path
+              type:
+                name: string
+          returns:
+            - name: PackageModel
+              package: internal/domain
+              slice: true
+            - name: error
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/yaml
+                file: reader.go
+                symbol: reader.readDirectory
+            - to:
+                package: internal/adapter/yaml
+                file: reader.go
+                symbol: reader.readFile
+        - name: readDirectory
+          params:
+            - name: root
+              type:
+                name: string
+          returns:
+            - name: PackageModel
+              package: internal/domain
+              slice: true
+            - name: error
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/yaml
+                file: reader.go
+                symbol: reader.readFile
+        - name: readFile
+          params:
+            - name: path
+              type:
+                name: string
+          returns:
+            - name: PackageModel
+              package: internal/domain
+              slice: true
+            - name: error
+          exported: false
+          calls:
+            - to:
+                package: internal/adapter/yaml
+                file: convert.go
+                symbol: fromSpec
+      exported: false
+      source_file: reader.go
+    - name: writer
+      methods:
+        - name: Write
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: model
+              type:
+                name: PackageModel
+                package: internal/domain
+            - name: opts
+              type:
+                name: WriteOptions
+                package: internal/domain
+          returns:
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/yaml
+                file: convert.go
+                symbol: toSpec
+        - name: WriteCombined
+          params:
+            - name: ctx
+              type:
+                name: Context
+                package: context
+            - name: models
+              type:
+                name: PackageModel
+                package: internal/domain
+                slice: true
+            - name: outputPath
+              type:
+                name: string
+          returns:
+            - name: error
+          exported: true
+          calls:
+            - to:
+                package: internal/adapter/yaml
+                file: convert.go
+                symbol: toSpec
+            - to:
+                package: internal/domain
+                file: package.go
+                symbol: PackageModel.HasExportedSymbols
+      exported: false
+      source_file: writer.go
+functions:
+    - name: MarshalPackage
+      params:
+        - name: model
+          type:
+            name: PackageModel
+            package: internal/domain
+        - name: format
+          type:
+            name: string
+      returns:
+        - name: byte
+          slice: true
+        - name: error
+      exported: true
+      source_file: marshal.go
+      doc: |
+        MarshalPackage serializes a single PackageModel to bytes in the
+        requested format ("yaml" or "json"). The output matches the on-disk
+        YAML schema produced by the ModelWriter (same field names and nesting),
+        so callers can round-trip a dumped package back through the YAML
+        reader.
+
+        JSON output uses the same field names as YAML (snake_case where
+        applicable) by routing the spec through a generic map, which keeps
+        the two formats in lock-step without duplicate struct tags.
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: marshal.go
+            symbol: normalizeForJSON
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toSpec
+    - name: NewReader
+      returns:
+        - name: ModelReader
+          package: internal/service
+      exported: true
+      source_file: reader.go
+      doc: |
+        NewReader creates a new YAML ModelReader.
+      stereotype: factory
+    - name: NewWriter
+      returns:
+        - name: ModelWriter
+          package: internal/service
+      exported: true
+      source_file: writer.go
+      doc: |
+        NewWriter creates a new YAML ModelWriter.
+      stereotype: factory
+    - name: fromCallEdgeSpec
+      params:
+        - name: s
+          type:
+            name: CallEdgeSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: CallEdge
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromSymbolRefSpec
+    - name: fromConstSpec
+      params:
+        - name: s
+          type:
+            name: ConstSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: ConstDef
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromTypeRefSpec
+    - name: fromDependencySpec
+      params:
+        - name: s
+          type:
+            name: DependencySpec
+            package: internal/adapter/yaml
+      returns:
+        - name: Dependency
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromSymbolRefSpec
+    - name: fromErrorSpec
+      params:
+        - name: s
+          type:
+            name: ErrorSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: ErrorDef
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+    - name: fromFieldSpec
+      params:
+        - name: s
+          type:
+            name: FieldSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: FieldDef
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromTypeRefSpec
+    - name: fromFunctionSpec
+      params:
+        - name: s
+          type:
+            name: FunctionSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: FunctionDef
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromCallEdgeSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromParamSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromTypeRefSpec
+    - name: fromImplementationSpec
+      params:
+        - name: s
+          type:
+            name: ImplementationSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: Implementation
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromSymbolRefSpec
+    - name: fromInterfaceSpec
+      params:
+        - name: s
+          type:
+            name: InterfaceSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: InterfaceDef
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromMethodSpec
+    - name: fromMethodSpec
+      params:
+        - name: s
+          type:
+            name: MethodSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: MethodDef
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromCallEdgeSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromParamSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromTypeRefSpec
+    - name: fromParamSpec
+      params:
+        - name: s
+          type:
+            name: ParamSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: ParamDef
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromTypeRefSpec
+    - name: fromSpec
+      params:
+        - name: spec
+          type:
+            name: PackageSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: PackageModel
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      doc: |
+        fromSpec converts a YAML schema back to a domain PackageModel.
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromConstSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromDependencySpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromErrorSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromFunctionSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromImplementationSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromInterfaceSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromStructSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromTypeDefSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromVarSpec
+    - name: fromStructSpec
+      params:
+        - name: s
+          type:
+            name: StructSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: StructDef
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromFieldSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromMethodSpec
+    - name: fromSymbolRefSpec
+      params:
+        - name: s
+          type:
+            name: SymbolRefSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: SymbolRef
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+    - name: fromTypeDefSpec
+      params:
+        - name: s
+          type:
+            name: TypeDefSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: TypeDef
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromTypeRefSpec
+    - name: fromTypeRefSpec
+      params:
+        - name: s
+          type:
+            name: TypeRefSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: TypeRef
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromTypeRefSpec
+    - name: fromVarSpec
+      params:
+        - name: s
+          type:
+            name: VarSpec
+            package: internal/adapter/yaml
+      returns:
+        - name: VarDef
+          package: internal/domain
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: fromTypeRefSpec
+    - name: normalizeForJSON
+      params:
+        - name: v
+          type:
+            name: any
+      returns:
+        - name: any
+      exported: false
+      source_file: marshal.go
+      doc: |
+        normalizeForJSON walks the yaml.v3-decoded tree and coerces any
+        map[interface{}]interface{} (yaml's default) into map[string]interface{}
+        so encoding/json can marshal it. yaml.v3 already returns
+        map[string]interface{} in most cases, but we walk defensively to be
+        safe across library versions.
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: marshal.go
+            symbol: normalizeForJSON
+    - name: toCallEdgeSpec
+      params:
+        - name: c
+          type:
+            name: CallEdge
+            package: internal/domain
+      returns:
+        - name: CallEdgeSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toSymbolRefSpec
+    - name: toConstSpec
+      params:
+        - name: c
+          type:
+            name: ConstDef
+            package: internal/domain
+      returns:
+        - name: ConstSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toTypeRefSpec
+    - name: toDependencySpec
+      params:
+        - name: d
+          type:
+            name: Dependency
+            package: internal/domain
+      returns:
+        - name: DependencySpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toSymbolRefSpec
+    - name: toErrorSpec
+      params:
+        - name: e
+          type:
+            name: ErrorDef
+            package: internal/domain
+      returns:
+        - name: ErrorSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+    - name: toFieldSpec
+      params:
+        - name: f
+          type:
+            name: FieldDef
+            package: internal/domain
+      returns:
+        - name: FieldSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toTypeRefSpec
+    - name: toFunctionSpec
+      params:
+        - name: f
+          type:
+            name: FunctionDef
+            package: internal/domain
+      returns:
+        - name: FunctionSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toCallEdgeSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toParamSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toTypeRefSpec
+    - name: toImplementationSpec
+      params:
+        - name: i
+          type:
+            name: Implementation
+            package: internal/domain
+      returns:
+        - name: ImplementationSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toSymbolRefSpec
+    - name: toInterfaceSpec
+      params:
+        - name: i
+          type:
+            name: InterfaceDef
+            package: internal/domain
+      returns:
+        - name: InterfaceSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toMethodSpec
+    - name: toMethodSpec
+      params:
+        - name: m
+          type:
+            name: MethodDef
+            package: internal/domain
+      returns:
+        - name: MethodSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toCallEdgeSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toParamSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toTypeRefSpec
+    - name: toParamSpec
+      params:
+        - name: p
+          type:
+            name: ParamDef
+            package: internal/domain
+      returns:
+        - name: ParamSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toTypeRefSpec
+    - name: toSpec
+      params:
+        - name: model
+          type:
+            name: PackageModel
+            package: internal/domain
+        - name: publicOnly
+          type:
+            name: bool
+      returns:
+        - name: PackageSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      doc: |
+        toSpec converts a domain PackageModel to the YAML schema.
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toConstSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toDependencySpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toErrorSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toFunctionSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toImplementationSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toInterfaceSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toStructSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toTypeDefSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toVarSpec
+        - to:
+            package: internal/domain
+            file: package.go
+            symbol: PackageModel.ExportedConstants
+        - to:
+            package: internal/domain
+            file: package.go
+            symbol: PackageModel.ExportedErrors
+        - to:
+            package: internal/domain
+            file: package.go
+            symbol: PackageModel.ExportedFunctions
+        - to:
+            package: internal/domain
+            file: package.go
+            symbol: PackageModel.ExportedInterfaces
+        - to:
+            package: internal/domain
+            file: package.go
+            symbol: PackageModel.ExportedStructs
+        - to:
+            package: internal/domain
+            file: package.go
+            symbol: PackageModel.ExportedTypeDefs
+        - to:
+            package: internal/domain
+            file: package.go
+            symbol: PackageModel.ExportedVariables
+    - name: toStructSpec
+      params:
+        - name: s
+          type:
+            name: StructDef
+            package: internal/domain
+      returns:
+        - name: StructSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toFieldSpec
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toMethodSpec
+    - name: toSymbolRefSpec
+      params:
+        - name: r
+          type:
+            name: SymbolRef
+            package: internal/domain
+      returns:
+        - name: SymbolRefSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+    - name: toTypeDefSpec
+      params:
+        - name: t
+          type:
+            name: TypeDef
+            package: internal/domain
+      returns:
+        - name: TypeDefSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toTypeRefSpec
+    - name: toTypeRefSpec
+      params:
+        - name: t
+          type:
+            name: TypeRef
+            package: internal/domain
+      returns:
+        - name: TypeRefSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toTypeRefSpec
+    - name: toVarSpec
+      params:
+        - name: v
+          type:
+            name: VarDef
+            package: internal/domain
+      returns:
+        - name: VarSpec
+          package: internal/adapter/yaml
+      exported: false
+      source_file: convert.go
+      calls:
+        - to:
+            package: internal/adapter/yaml
+            file: convert.go
+            symbol: toTypeRefSpec
+dependencies:
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: CallEdgeSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: SymbolRefSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ConstSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeRefSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: DependencySpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: SymbolRefSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: FieldSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeRefSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: FunctionSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ParamSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: FunctionSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeRefSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: FunctionSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: CallEdgeSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ImplementationSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: SymbolRefSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: InterfaceSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: MethodSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: MethodSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ParamSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: MethodSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeRefSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: MethodSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: CallEdgeSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: PackageSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: InterfaceSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: PackageSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: StructSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: PackageSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: FunctionSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: PackageSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeDefSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: PackageSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ConstSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: PackageSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: VarSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: PackageSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ErrorSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: PackageSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: DependencySpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: PackageSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ImplementationSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ParamSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeRefSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: StructSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: FieldSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: StructSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: MethodSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeDefSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeRefSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeRefSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeRefSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: VarSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeRefSpec
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: reader.go
+        symbol: reader
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: reader.go
+        symbol: reader
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: writer.go
+        symbol: writer
+      to:
+        package: context
+        symbol: Context
+        external: true
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: writer.go
+        symbol: writer
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: writer.go
+        symbol: writer
+      to:
+        package: internal/domain
+        symbol: WriteOptions
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: marshal.go
+        symbol: MarshalPackage
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: reader.go
+        symbol: NewReader
+      to:
+        package: internal/service
+        symbol: ModelReader
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: writer.go
+        symbol: NewWriter
+      to:
+        package: internal/service
+        symbol: ModelWriter
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromCallEdgeSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: CallEdgeSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromCallEdgeSpec
+      to:
+        package: internal/domain
+        symbol: CallEdge
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromConstSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ConstSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromConstSpec
+      to:
+        package: internal/domain
+        symbol: ConstDef
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromDependencySpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: DependencySpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromDependencySpec
+      to:
+        package: internal/domain
+        symbol: Dependency
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromErrorSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ErrorSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromErrorSpec
+      to:
+        package: internal/domain
+        symbol: ErrorDef
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromFieldSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: FieldSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromFieldSpec
+      to:
+        package: internal/domain
+        symbol: FieldDef
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromFunctionSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: FunctionSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromFunctionSpec
+      to:
+        package: internal/domain
+        symbol: FunctionDef
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromImplementationSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ImplementationSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromImplementationSpec
+      to:
+        package: internal/domain
+        symbol: Implementation
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromInterfaceSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: InterfaceSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromInterfaceSpec
+      to:
+        package: internal/domain
+        symbol: InterfaceDef
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromMethodSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: MethodSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromMethodSpec
+      to:
+        package: internal/domain
+        symbol: MethodDef
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromParamSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ParamSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromParamSpec
+      to:
+        package: internal/domain
+        symbol: ParamDef
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: PackageSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromSpec
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromStructSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: StructSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromStructSpec
+      to:
+        package: internal/domain
+        symbol: StructDef
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromSymbolRefSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: SymbolRefSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromSymbolRefSpec
+      to:
+        package: internal/domain
+        symbol: SymbolRef
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromTypeDefSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeDefSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromTypeDefSpec
+      to:
+        package: internal/domain
+        symbol: TypeDef
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromTypeRefSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeRefSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromTypeRefSpec
+      to:
+        package: internal/domain
+        symbol: TypeRef
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromVarSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: VarSpec
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: fromVarSpec
+      to:
+        package: internal/domain
+        symbol: VarDef
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toCallEdgeSpec
+      to:
+        package: internal/domain
+        symbol: CallEdge
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toCallEdgeSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: CallEdgeSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toConstSpec
+      to:
+        package: internal/domain
+        symbol: ConstDef
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toConstSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ConstSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toDependencySpec
+      to:
+        package: internal/domain
+        symbol: Dependency
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toDependencySpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: DependencySpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toErrorSpec
+      to:
+        package: internal/domain
+        symbol: ErrorDef
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toErrorSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ErrorSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toFieldSpec
+      to:
+        package: internal/domain
+        symbol: FieldDef
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toFieldSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: FieldSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toFunctionSpec
+      to:
+        package: internal/domain
+        symbol: FunctionDef
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toFunctionSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: FunctionSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toImplementationSpec
+      to:
+        package: internal/domain
+        symbol: Implementation
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toImplementationSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ImplementationSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toInterfaceSpec
+      to:
+        package: internal/domain
+        symbol: InterfaceDef
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toInterfaceSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: InterfaceSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toMethodSpec
+      to:
+        package: internal/domain
+        symbol: MethodDef
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toMethodSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: MethodSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toParamSpec
+      to:
+        package: internal/domain
+        symbol: ParamDef
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toParamSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: ParamSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toSpec
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: PackageSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toStructSpec
+      to:
+        package: internal/domain
+        symbol: StructDef
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toStructSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: StructSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toSymbolRefSpec
+      to:
+        package: internal/domain
+        symbol: SymbolRef
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toSymbolRefSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: SymbolRefSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toTypeDefSpec
+      to:
+        package: internal/domain
+        symbol: TypeDef
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toTypeDefSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeDefSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toTypeRefSpec
+      to:
+        package: internal/domain
+        symbol: TypeRef
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toTypeRefSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: TypeRefSpec
+      kind: returns
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toVarSpec
+      to:
+        package: internal/domain
+        symbol: VarDef
+      kind: uses
+    - from:
+        package: internal/adapter/yaml
+        file: convert.go
+        symbol: toVarSpec
+      to:
+        package: internal/adapter/yaml
+        file: schema.go
+        symbol: VarSpec
+      kind: returns

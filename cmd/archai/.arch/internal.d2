@@ -1,5 +1,25 @@
 # main package
 
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
 # Legend
 legend: {
   label: "Color Legend (DDD)"
@@ -10,40 +30,221 @@ legend: {
   aggregate: {
     label: "Domain Model"
     shape: class
-    style.fill: "#e8f4fc"
-    style.font-color: "#000"
+    class: domain
   }
   service: {
     label: "Service"
     shape: class
-    style.fill: "#f0e8fc"
-    style.font-color: "#000"
+    class: service
   }
   factory: {
     label: "Factory"
     shape: class
-    style.fill: "#e8fce8"
-    style.font-color: "#000"
+    class: factory
   }
   options: {
     label: "Value Object"
     shape: class
-    style.fill: "#f8f8f8"
-    style.font-color: "#000"
+    class: value
   }
 }
 
 # Files
+extract: {
+  label: "extract.go"
+  class: value
+
+  dumpExtract: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "w": "io.Writer"
+    "models": "[]internal/domain.PackageModel"
+    "format": "string"
+    "outDir": "string"
+    "return": "error"
+  }
+
+  extractModels: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "path": "string"
+    "return": "([]internal/domain.PackageModel, error)"
+  }
+
+  newExtractCmd: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "return": "*github.com/spf13/cobra.Command"
+  }
+
+  runExtract: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  streamExtract: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "w": "io.Writer"
+    "models": "[]internal/domain.PackageModel"
+    "format": "string"
+    "return": "error"
+  }
+
+
+}
+
 main: {
   label: "main.go"
-  style.fill: "#f8f8f8"
+  class: value
+
+  collectYAMLFiles: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "string"
+    "return": "([]string, error)"
+  }
+
+  findCurrentYAMLSpecs: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "projectRoot": "string"
+    "return": "([]string, error)"
+  }
+
+  formatUptime: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "time.Duration"
+    "return": "string"
+  }
+
+  loadCurrentModel: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "projectRoot": "string"
+    "return": "([]internal/domain.PackageModel, error)"
+  }
+
+  loadTargetModel: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "projectRoot": "string"
+    "id": "string"
+    "return": "([]internal/domain.PackageModel, error)"
+  }
 
   main: {
     shape: class
     stereotype: "<<function>>"
   }
 
+  printOverlayViolations: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "w": "io.Writer"
+    "violations": "[]internal/overlay.Violation"
+    "pkgLayer": "map[string]string"
+  }
+
+  resolveOverlay: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "explicitPath": "string"
+    "return": "(string, string)"
+  }
+
+  runCompose: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  runDiff: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  runDiffApply: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
   runGenerate: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  runListDaemons: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  runMCPThinClient: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "root": "string"
+    "return": "error"
+  }
+
+  runOverlayCheck: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  runSequence: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  runServe: {
     shape: class
     stereotype: "<<function>>"
 
@@ -61,6 +262,133 @@ main: {
     "return": "error"
   }
 
+  runTargetDelete: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  runTargetList: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  runTargetLock: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  runTargetShow: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  runTargetUse: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  runValidate: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  runWhere: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "cmd": "*github.com/spf13/cobra.Command"
+    "args": "[]string"
+    "return": "error"
+  }
+
+  trimModulePrefix: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "module": "string"
+    "pkgPath": "string"
+    "return": "string"
+  }
+
+  validatePatch: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "return": "error"
+  }
+
+  violationCount: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "violations": "[]internal/overlay.Violation"
+    "return": "int"
+  }
+
+  writeTargetModels: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "projectRoot": "string"
+    "id": "string"
+    "models": "[]internal/domain.PackageModel"
+    "return": "error"
+  }
+
+
+}
+
+version: {
+  label: "version.go"
+  class: value
+
+  newVersionCmd: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "return": "*github.com/spf13/cobra.Command"
+  }
+
+  resolveVersion: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "return": "string"
+  }
+
+
+  Variables: {
+    shape: class
+    stereotype: "<<var>>"
+
+    "Version": "string"
+  }
 
 }
 

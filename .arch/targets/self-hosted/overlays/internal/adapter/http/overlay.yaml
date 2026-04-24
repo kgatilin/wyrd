@@ -1,0 +1,3 @@
+aggregates:
+  browser_ui:
+    root: Server

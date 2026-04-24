@@ -104,7 +104,7 @@ func (s *Service) generateInternal(ctx context.Context, opts GenerateOptions) ([
 	// serialized output. Violations are returned to the caller.
 	var violations []overlay.Violation
 	if opts.OverlayPath != "" {
-		cfg, err := overlay.Load(opts.OverlayPath)
+		cfg, err := overlay.LoadComposed(opts.OverlayPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("loading overlay: %w", err)
 		}

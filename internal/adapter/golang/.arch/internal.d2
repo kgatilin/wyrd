@@ -1,5 +1,25 @@
 # golang package
 
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
 # Legend
 legend: {
   label: "Color Legend (DDD)"
@@ -10,33 +30,52 @@ legend: {
   aggregate: {
     label: "Domain Model"
     shape: class
-    style.fill: "#e8f4fc"
-    style.font-color: "#000"
+    class: domain
   }
   service: {
     label: "Service"
     shape: class
-    style.fill: "#f0e8fc"
-    style.font-color: "#000"
+    class: service
   }
   factory: {
     label: "Factory"
     shape: class
-    style.fill: "#e8fce8"
-    style.font-color: "#000"
+    class: factory
   }
   options: {
     label: "Value Object"
     shape: class
-    style.fill: "#f8f8f8"
-    style.font-color: "#000"
+    class: value
   }
 }
 
 # Files
+calls: {
+  label: "calls.go"
+  class: value
+
+  receiverTypeName: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "recv": "*go/ast.FieldList"
+    "return": "string"
+  }
+
+  recvTypeName: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "t": "go/types.Type"
+    "return": "string"
+  }
+
+
+}
+
 reader: {
   label: "reader.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   reader: {
     shape: class
@@ -44,6 +83,11 @@ reader: {
 
     "-modulePath string": ""
 
+    "-extractCalls(pkgs []*golang.org/x/tools/go/packages.Package, models []internal/domain.PackageModel)": ""
+    "-extractCallsFromFuncBody(pkg *golang.org/x/tools/go/packages.Package, fd *go/ast.FuncDecl, loadedTypes map[*go/types.Package]*golang.org/x/tools/go/packages.Package, implIndex map[string][]internal/domain.SymbolRef)": "[]internal/domain.CallEdge"
+    "-handleIdentCall(pkg *golang.org/x/tools/go/packages.Package, ident *go/ast.Ident, loadedTypes map[*go/types.Package]*golang.org/x/tools/go/packages.Package, addEdge func(internal/domain.CallEdge))": ""
+    "-handleSelectorCall(pkg *golang.org/x/tools/go/packages.Package, sel *go/ast.SelectorExpr, loadedTypes map[*go/types.Package]*golang.org/x/tools/go/packages.Package, implIndex map[string][]internal/domain.SymbolRef, addEdge func(internal/domain.CallEdge))": ""
+    "-buildImplementationIndex(pkgs []*golang.org/x/tools/go/packages.Package, models []internal/domain.PackageModel, modelIdxByPath map[string]int)": "map[string][]internal/domain.SymbolRef"
     "+Read(ctx context.Context, paths []string)": "([]internal/domain.PackageModel, error)"
     "-convertPackage(pkg *golang.org/x/tools/go/packages.Package)": "(internal/domain.PackageModel, error)"
     "-relativePath(pkgPath string)": "string"
@@ -55,6 +99,10 @@ reader: {
     "-extractStructFields(structType *go/types.Struct)": "[]internal/domain.FieldDef"
     "-extractFunctions(pkg *golang.org/x/tools/go/packages.Package, astFiles map[string]*go/ast.File)": "[]internal/domain.FunctionDef"
     "-extractTypeDefs(pkg *golang.org/x/tools/go/packages.Package, astFiles map[string]*go/ast.File, constantsByType map[string][]string)": "[]internal/domain.TypeDef"
+    "-extractConstants(pkg *golang.org/x/tools/go/packages.Package, astFiles map[string]*go/ast.File)": "[]internal/domain.ConstDef"
+    "-extractVarsAndErrors(pkg *golang.org/x/tools/go/packages.Package, astFiles map[string]*go/ast.File)": "([]internal/domain.VarDef, []internal/domain.ErrorDef)"
+    "-getConstValueText(astFiles map[string]*go/ast.File, filename string, name string)": "string"
+    "-extractErrorMessage(astFiles map[string]*go/ast.File, filename string, name string)": "(string, bool)"
     "-convertMethod(fn *go/types.Func, sig *go/types.Signature)": "internal/domain.MethodDef"
     "-extractParams(tuple *go/types.Tuple)": "[]internal/domain.ParamDef"
     "-extractReturns(tuple *go/types.Tuple)": "[]internal/domain.TypeRef"
@@ -67,6 +115,7 @@ reader: {
     "-typeRefToSymbolRef(ref internal/domain.TypeRef, pkg *golang.org/x/tools/go/packages.Package)": "*internal/domain.SymbolRef"
     "-findSymbolFile(pkg *golang.org/x/tools/go/packages.Package, symbolName string)": "string"
     "-applyStereotypes(model *internal/domain.PackageModel)": ""
+    "-computeImplementations(pkgs []*golang.org/x/tools/go/packages.Package, models []internal/domain.PackageModel)": ""
   }
 
   NewReader: {
@@ -74,6 +123,14 @@ reader: {
     stereotype: "<<factory>>"
 
     "return": "internal/service.ModelReader"
+  }
+
+  exprText: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "e": "go/ast.Expr"
+    "return": "string"
   }
 
   isBasicType: {
@@ -97,7 +154,7 @@ reader: {
 
 stereotype: {
   label: "stereotype.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   detectFunctionStereotype: {
     shape: class
@@ -149,6 +206,13 @@ stereotype: {
     "return": "internal/domain.Stereotype"
   }
 
+
+  Variables: {
+    shape: class
+    stereotype: "<<var>>"
+
+    "annotationPattern": "*regexp.Regexp"
+  }
 
 }
 

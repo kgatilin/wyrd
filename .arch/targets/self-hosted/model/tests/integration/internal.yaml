@@ -1,0 +1,4 @@
+schema: archai/v1
+package: tests/integration
+name: integration
+layer: tests

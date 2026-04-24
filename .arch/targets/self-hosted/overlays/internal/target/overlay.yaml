@@ -1,0 +1,6 @@
+aggregates:
+  target_snapshot:
+    root: TargetMeta
+
+configs:
+  - LockOptions

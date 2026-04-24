@@ -1,5 +1,25 @@
 # domain package
 
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
 # Legend
 legend: {
   label: "Color Legend (DDD)"
@@ -10,33 +30,61 @@ legend: {
   aggregate: {
     label: "Domain Model"
     shape: class
-    style.fill: "#e8f4fc"
-    style.font-color: "#000"
+    class: domain
   }
   service: {
     label: "Service"
     shape: class
-    style.fill: "#f0e8fc"
-    style.font-color: "#000"
+    class: service
   }
   factory: {
     label: "Factory"
     shape: class
-    style.fill: "#e8fce8"
-    style.font-color: "#000"
+    class: factory
   }
   options: {
     label: "Value Object"
     shape: class
-    style.fill: "#f8f8f8"
-    style.font-color: "#000"
+    class: value
   }
 }
 
 # Files
+call: {
+  label: "call.go"
+  class: domain
+
+  CallEdge: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+To internal/domain.SymbolRef": ""
+    "+Via string": ""
+  }
+
+}
+
+const: {
+  label: "const.go"
+  class: domain
+
+  ConstDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/domain.TypeRef": ""
+    "+Value string": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+  }
+
+}
+
 dependency: {
   label: "dependency.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   Dependency: {
     shape: class
@@ -76,9 +124,26 @@ dependency: {
 
 }
 
+error: {
+  label: "error.go"
+  class: domain
+
+  ErrorDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Message string": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+  }
+
+}
+
 field: {
   label: "field.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   FieldDef: {
     shape: class
@@ -97,7 +162,7 @@ field: {
 
 function: {
   label: "function.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   FunctionDef: {
     shape: class
@@ -110,6 +175,7 @@ function: {
     "+SourceFile string": ""
     "+Doc string": ""
     "+Stereotype internal/domain.Stereotype": ""
+    "+Calls []internal/domain.CallEdge": ""
 
     "+Signature()": "string"
     "+SignatureWithVisibility()": "string"
@@ -117,9 +183,24 @@ function: {
 
 }
 
+implementation: {
+  label: "implementation.go"
+  class: domain
+
+  Implementation: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Concrete internal/domain.SymbolRef": ""
+    "+Interface internal/domain.SymbolRef": ""
+    "+IsPointer bool": ""
+  }
+
+}
+
 interface: {
   label: "interface.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   InterfaceDef: {
     shape: class
@@ -137,7 +218,7 @@ interface: {
 
 method: {
   label: "method.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   MethodDef: {
     shape: class
@@ -147,6 +228,7 @@ method: {
     "+Params []internal/domain.ParamDef": ""
     "+Returns []internal/domain.TypeRef": ""
     "+IsExported bool": ""
+    "+Calls []internal/domain.CallEdge": ""
 
     "+Signature()": "string"
     "+SignatureWithVisibility()": "string"
@@ -181,7 +263,7 @@ method: {
 
 module: {
   label: "module.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   Module: {
     shape: class
@@ -198,7 +280,7 @@ module: {
 
 package: {
   label: "package.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   PackageModel: {
     shape: class
@@ -210,13 +292,22 @@ package: {
     "+Structs []internal/domain.StructDef": ""
     "+Functions []internal/domain.FunctionDef": ""
     "+TypeDefs []internal/domain.TypeDef": ""
+    "+Constants []internal/domain.ConstDef": ""
+    "+Variables []internal/domain.VarDef": ""
+    "+Errors []internal/domain.ErrorDef": ""
     "+Dependencies []internal/domain.Dependency": ""
+    "+Layer string": ""
+    "+Aggregate string": ""
+    "+Implementations []internal/domain.Implementation": ""
 
     "+SourceFiles()": "[]string"
     "+ExportedInterfaces()": "[]internal/domain.InterfaceDef"
     "+ExportedStructs()": "[]internal/domain.StructDef"
     "+ExportedFunctions()": "[]internal/domain.FunctionDef"
     "+ExportedTypeDefs()": "[]internal/domain.TypeDef"
+    "+ExportedConstants()": "[]internal/domain.ConstDef"
+    "+ExportedVariables()": "[]internal/domain.VarDef"
+    "+ExportedErrors()": "[]internal/domain.ErrorDef"
     "+HasExportedSymbols()": "bool"
   }
 
@@ -224,7 +315,7 @@ package: {
 
 stereotype: {
   label: "stereotype.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   Stereotype: {
     shape: class
@@ -248,7 +339,7 @@ stereotype: {
 
 struct: {
   label: "struct.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   StructDef: {
     shape: class
@@ -267,7 +358,7 @@ struct: {
 
 typedef: {
   label: "typedef.go"
-  style.fill: "#e8f4fc"
+  class: domain
 
   TypeDef: {
     shape: class
@@ -286,9 +377,26 @@ typedef: {
 
 }
 
+variable: {
+  label: "variable.go"
+  class: domain
+
+  VarDef: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Type internal/domain.TypeRef": ""
+    "+IsExported bool": ""
+    "+SourceFile string": ""
+    "+Doc string": ""
+  }
+
+}
+
 write_options: {
   label: "write_options.go"
-  style.fill: "#f8f8f8"
+  class: value
 
   WriteOptions: {
     shape: class
@@ -302,25 +410,35 @@ write_options: {
 }
 
 # Dependencies
+call.CallEdge -> dependency.SymbolRef: "uses"
+const.ConstDef -> method.TypeRef: "uses"
 dependency.Dependency -> dependency.SymbolRef: "uses"
 dependency.Dependency -> dependency.DependencyKind: "uses"
 field.FieldDef -> method.TypeRef: "uses"
 function.FunctionDef -> method.ParamDef: "uses"
 function.FunctionDef -> method.TypeRef: "uses"
 function.FunctionDef -> stereotype.Stereotype: "uses"
+function.FunctionDef -> call.CallEdge: "uses"
+implementation.Implementation -> dependency.SymbolRef: "uses"
 interface.InterfaceDef -> method.MethodDef: "uses"
 interface.InterfaceDef -> stereotype.Stereotype: "uses"
 method.MethodDef -> method.ParamDef: "uses"
 method.MethodDef -> method.TypeRef: "uses"
+method.MethodDef -> call.CallEdge: "uses"
 module.Module -> package.PackageModel: "uses"
 package.PackageModel -> interface.InterfaceDef: "uses"
 package.PackageModel -> struct.StructDef: "uses"
 package.PackageModel -> function.FunctionDef: "uses"
 package.PackageModel -> typedef.TypeDef: "uses"
+package.PackageModel -> const.ConstDef: "uses"
+package.PackageModel -> variable.VarDef: "uses"
+package.PackageModel -> error.ErrorDef: "uses"
 package.PackageModel -> dependency.Dependency: "uses"
+package.PackageModel -> implementation.Implementation: "uses"
 method.ParamDef -> method.TypeRef: "uses"
 struct.StructDef -> field.FieldDef: "uses"
 struct.StructDef -> method.MethodDef: "uses"
 struct.StructDef -> stereotype.Stereotype: "uses"
 typedef.TypeDef -> method.TypeRef: "uses"
 typedef.TypeDef -> stereotype.Stereotype: "uses"
+variable.VarDef -> method.TypeRef: "uses"

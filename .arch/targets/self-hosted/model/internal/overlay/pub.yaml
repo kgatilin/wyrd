@@ -1,0 +1,359 @@
+schema: archai/v1
+package: internal/overlay
+name: overlay
+layer: model_ops
+aggregate: overlay_model
+structs:
+    - name: Aggregate
+      fields:
+        - name: Root
+          type:
+            name: string
+          exported: true
+          tag: yaml:"root"
+      exported: true
+      source_file: config.go
+      doc: |
+        Aggregate describes a domain aggregate by its root type.
+        Root is a fully-qualified type name, e.g.
+        "github.com/kgatilin/archai/internal/domain.PackageModel".
+      stereotype: value
+    - name: Config
+      fields:
+        - name: Module
+          type:
+            name: string
+          exported: true
+          tag: yaml:"module"
+        - name: Layers
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: string
+                slice: true
+          exported: true
+          tag: yaml:"layers"
+        - name: LayerRules
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: string
+                slice: true
+          exported: true
+          tag: yaml:"layer_rules"
+        - name: Aggregates
+          type:
+            name: ""
+            map: true
+            key_type:
+                name: string
+            value_type:
+                name: Aggregate
+                package: internal/overlay
+          exported: true
+          tag: yaml:"aggregates"
+        - name: Configs
+          type:
+            name: string
+            slice: true
+          exported: true
+          tag: yaml:"configs"
+      exported: true
+      source_file: config.go
+      doc: |
+        Config is the top-level archai.yaml document.
+
+        Field semantics:
+          - Module: the Go module path (e.g. "github.com/kgatilin/archai").
+            Must match the module directive in go.mod.
+          - Layers: named architectural layers, each mapped to one or more
+            package globs (e.g. "internal/domain/...").
+          - LayerRules: per-layer allow-list of other layers it may depend on.
+            A layer absent from LayerRules is treated as "no outbound
+            dependencies allowed" by downstream consumers.
+          - Aggregates: named domain aggregates rooted at a single type.
+          - Configs: fully-qualified type names to surface as configuration
+            entry points.
+      stereotype: value
+    - name: Violation
+      fields:
+        - name: Package
+          type:
+            name: string
+          exported: true
+        - name: Layer
+          type:
+            name: string
+          exported: true
+        - name: Imports
+          type:
+            name: string
+            slice: true
+          exported: true
+      exported: true
+      source_file: merge.go
+      doc: |
+        Violation describes a forbidden cross-layer import discovered during
+        Merge. It lists the offending source package, the layer it was
+        assigned to, and the imported package paths (module-relative) whose
+        layers are not allowed by LayerRules for the source layer.
+      stereotype: value
+functions:
+    - name: Load
+      params:
+        - name: path
+          type:
+            name: string
+      returns:
+        - name: Config
+          package: internal/overlay
+          pointer: true
+        - name: error
+      exported: true
+      source_file: load.go
+      doc: |
+        Load reads the archai.yaml file at path, parses it into a Config,
+        and returns it. Errors are wrapped with the source path so callers
+        can report them clearly.
+
+        Load does not validate semantic consistency (e.g. module matches
+        go.mod, layer globs are well-formed); use Validate for that.
+    - name: LoadComposed
+      params:
+        - name: path
+          type:
+            name: string
+      returns:
+        - name: Config
+          package: internal/overlay
+          pointer: true
+        - name: error
+      exported: true
+      source_file: load.go
+      doc: |
+        LoadComposed reads the root archai.yaml at path and composes it with
+        package-local overlay fragments named .arch/overlay.yaml below the
+        same project root. The root file remains the place for module-wide
+        settings such as layers and layer rules, while package fragments can
+        declare local configs and aggregates without forcing the root file to
+        know every type.
+
+        Package-local type references may be written as plain type names:
+
+        	configs:
+        	  - Options
+        	aggregates:
+        	  daemon_state:
+        	    root: State
+
+        For a fragment stored at internal/serve/.arch/overlay.yaml, those are
+        expanded to github.com/example/app/internal/serve.Options and
+        github.com/example/app/internal/serve.State using the module from the
+        root config.
+      calls:
+        - to:
+            package: internal/overlay
+            file: load.go
+            symbol: Load
+        - to:
+            package: internal/overlay
+            file: load.go
+            symbol: findPackageOverlayFragments
+        - to:
+            package: internal/overlay
+            file: load.go
+            symbol: mergeFragment
+        - to:
+            package: internal/overlay
+            file: load.go
+            symbol: packagePathForFragment
+    - name: Merge
+      params:
+        - name: models
+          type:
+            name: PackageModel
+            package: internal/domain
+            slice: true
+        - name: cfg
+          type:
+            name: Config
+            package: internal/overlay
+            pointer: true
+      returns:
+        - name: PackageModel
+          package: internal/domain
+          slice: true
+        - name: Violation
+          package: internal/overlay
+          slice: true
+        - name: error
+      exported: true
+      source_file: merge.go
+      doc: |
+        Merge applies cfg to models: it annotates each PackageModel with its
+        Layer and Aggregate (when applicable) and returns the list of
+        layer-rule violations discovered among the packages' dependencies.
+
+        Rules:
+          - For each package, Merge assigns the first layer whose globs match
+            pkg.Path (iteration order of layer names is lexical, so results
+            are deterministic).
+          - For each aggregate, Merge assigns pkg.Aggregate to the package
+            that contains the aggregate root type. The root is encoded as
+            "<module>/<pkgPath>.<TypeName>"; Merge strips cfg.Module to match
+            pkg.Path.
+          - For each Dependency in a PackageModel, if the target is internal
+            (External == false) and resolves to a known layer, and that
+            layer is not in the source layer's LayerRules allow-list, a
+            Violation is recorded.
+
+        Merge returns the updated slice (same backing array, fields mutated
+        in place) and an aggregated []Violation (one entry per source
+        package with at least one forbidden import).
+
+        TODO(M3c): Configs tagging is not implemented here. Configs apply
+        to specific Go types rather than whole packages, so it requires
+        per-type annotation support in the domain model (e.g. on StructDef
+        or TypeDef). Once that exists, Merge should also tag the matching
+        type definitions.
+      calls:
+        - to:
+            package: internal/overlay
+            file: merge.go
+            symbol: matchAnyGlob
+        - to:
+            package: internal/overlay
+            file: merge.go
+            symbol: modulePath
+        - to:
+            package: internal/overlay
+            file: validate.go
+            symbol: sortedKeys
+        - to:
+            package: internal/overlay
+            file: merge.go
+            symbol: splitAggregateRoot
+    - name: Validate
+      params:
+        - name: cfg
+          type:
+            name: Config
+            package: internal/overlay
+            pointer: true
+        - name: goModPath
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: true
+      source_file: validate.go
+      doc: |
+        Validate checks that cfg is internally consistent and agrees with
+        the go.mod at goModPath.
+
+        Specifically it enforces:
+          - cfg.Module is non-empty and matches the module directive in go.mod.
+          - Each layer has at least one package glob, and every glob looks
+            syntactically reasonable (non-empty, no whitespace, no absolute
+            paths, at most one trailing "...").
+          - LayerRules references only known layer names (both keys and
+            values).
+          - Every Aggregate has a non-empty, well-formed fully-qualified
+            Root type name (must contain a '.' separating package path from
+            type name).
+          - Every entry in Configs is a well-formed fully-qualified type name.
+
+        Errors are joined (errors.Join) so callers can see every problem at
+        once rather than discovering them one edit at a time.
+      calls:
+        - to:
+            package: internal/overlay
+            file: validate.go
+            symbol: readGoModModule
+        - to:
+            package: internal/overlay
+            file: validate.go
+            symbol: sortedKeys
+        - to:
+            package: internal/overlay
+            file: validate.go
+            symbol: validateGlob
+        - to:
+            package: internal/overlay
+            file: validate.go
+            symbol: validateTypeRef
+dependencies:
+    - from:
+        package: internal/overlay
+        file: load.go
+        symbol: Load
+      to:
+        package: internal/overlay
+        file: config.go
+        symbol: Config
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/overlay
+        file: load.go
+        symbol: LoadComposed
+      to:
+        package: internal/overlay
+        file: config.go
+        symbol: Config
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/overlay
+        file: merge.go
+        symbol: Merge
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/overlay
+        file: merge.go
+        symbol: Merge
+      to:
+        package: internal/overlay
+        file: config.go
+        symbol: Config
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/overlay
+        file: merge.go
+        symbol: Merge
+      to:
+        package: internal/domain
+        symbol: PackageModel
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/overlay
+        file: merge.go
+        symbol: Merge
+      to:
+        package: internal/overlay
+        file: merge.go
+        symbol: Violation
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/overlay
+        file: validate.go
+        symbol: Validate
+      to:
+        package: internal/overlay
+        file: config.go
+        symbol: Config
+      kind: uses
+      through_exported: true

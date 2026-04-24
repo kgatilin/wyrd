@@ -1,0 +1,275 @@
+schema: archai/v1
+package: internal/target
+name: target
+layer: storage
+aggregate: target_snapshot
+structs:
+    - name: LockOptions
+      fields:
+        - name: Description
+          type:
+            name: string
+          exported: true
+      exported: true
+      source_file: storage.go
+      doc: |
+        LockOptions configures a Lock call.
+      stereotype: value
+    - name: TargetMeta
+      fields:
+        - name: ID
+          type:
+            name: string
+          exported: true
+          tag: yaml:"id"
+        - name: BaseCommit
+          type:
+            name: string
+          exported: true
+          tag: yaml:"base_commit"
+        - name: CreatedAt
+          type:
+            name: string
+          exported: true
+          tag: yaml:"created_at"
+        - name: Description
+          type:
+            name: string
+          exported: true
+          tag: yaml:"description,omitempty"
+      exported: true
+      source_file: meta.go
+      doc: |
+        TargetMeta describes a single locked target.
+
+        The YAML representation lives at .arch/targets/<id>/meta.yaml.
+        Fields:
+          - ID: target identifier, matches the directory name under .arch/targets/.
+          - BaseCommit: git commit hash captured at lock time (output of
+            `git rev-parse HEAD`). Empty if the project is not a git repo.
+          - CreatedAt: RFC3339 timestamp of when Lock was called.
+          - Description: optional free-form description passed via --description.
+      stereotype: value
+functions:
+    - name: Current
+      params:
+        - name: projectRoot
+          type:
+            name: string
+      returns:
+        - name: string
+        - name: error
+      exported: true
+      source_file: storage.go
+      doc: |
+        Current returns the active target id for this worktree. Read order:
+         1. .arch/.worktree/<name>/CURRENT (M9 layout)
+         2. .arch/targets/CURRENT          (pre-M9 layout — deprecated)
+
+        A missing pointer returns an empty id and no error. When the legacy
+        path is used, a deprecation warning is logged once per process.
+      calls:
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: Name
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: ReadCurrent
+    - name: Delete
+      params:
+        - name: projectRoot
+          type:
+            name: string
+        - name: id
+          type:
+            name: string
+        - name: force
+          type:
+            name: bool
+      returns:
+        - name: error
+      exported: true
+      source_file: storage.go
+      doc: |
+        Delete removes .arch/targets/<id>/. If <id> is the active target
+        for this worktree, Delete fails unless force is true; when forced,
+        the per-worktree CURRENT pointer is also removed.
+      calls:
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: Current
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: LegacyCurrentPath
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: Name
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: RemoveCurrent
+    - name: List
+      params:
+        - name: projectRoot
+          type:
+            name: string
+      returns:
+        - name: TargetMeta
+          package: internal/target
+          slice: true
+        - name: error
+      exported: true
+      source_file: storage.go
+      doc: |
+        List returns metadata for every locked target under .arch/targets/,
+        sorted by ID. Entries without a readable meta.yaml are skipped.
+      calls:
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: readMeta
+    - name: Lock
+      params:
+        - name: projectRoot
+          type:
+            name: string
+        - name: id
+          type:
+            name: string
+        - name: opts
+          type:
+            name: LockOptions
+            package: internal/target
+      returns:
+        - name: error
+      exported: true
+      source_file: storage.go
+      doc: |
+        Lock freezes the current per-package .arch/*.yaml snapshots and the
+        project's archai.yaml into .arch/targets/<id>/.
+
+        It does NOT run `archai diagram generate` — callers must ensure the
+        per-package .arch/*.yaml files are up to date (the CLI runs generate
+        before invoking Lock; tests populate .arch/ directly).
+
+        The project layout after Lock looks like:
+
+        	.arch/targets/<id>/meta.yaml
+        	.arch/targets/<id>/overlay.yaml              (copy of archai.yaml, optional)
+        	.arch/targets/<id>/overlays/<pkg>/overlay.yaml (copy of package-local overlay fragments, optional)
+        	.arch/targets/<id>/model/<pkg>/pub.yaml
+        	.arch/targets/<id>/model/<pkg>/internal.yaml
+
+        Returns an error if the target already exists or if the project
+        contains no .arch/*.yaml files to freeze.
+      calls:
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: copyFile
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: findPackageOverlayFiles
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: findPackagesWithArchYAML
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: gitHead
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: writeMeta
+    - name: Show
+      params:
+        - name: projectRoot
+          type:
+            name: string
+        - name: id
+          type:
+            name: string
+      returns:
+        - name: TargetMeta
+          package: internal/target
+          pointer: true
+        - name: string
+          slice: true
+        - name: error
+      exported: true
+      source_file: storage.go
+      doc: |
+        Show returns the meta.yaml for <id> together with the list of package
+        paths (relative to projectRoot) contained in its model/ directory.
+      calls:
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: collectModelPackages
+        - to:
+            package: internal/target
+            file: storage.go
+            symbol: readMeta
+    - name: Use
+      params:
+        - name: projectRoot
+          type:
+            name: string
+        - name: id
+          type:
+            name: string
+      returns:
+        - name: error
+      exported: true
+      source_file: storage.go
+      doc: |
+        Use marks <id> as the active target for this worktree by writing it
+        to .arch/.worktree/<name>/CURRENT. It errors if the target directory
+        does not exist.
+      calls:
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: Name
+        - to:
+            package: internal/worktree
+            file: worktree.go
+            symbol: WriteCurrent
+dependencies:
+    - from:
+        package: internal/target
+        file: storage.go
+        symbol: List
+      to:
+        package: internal/target
+        file: meta.go
+        symbol: TargetMeta
+      kind: returns
+      through_exported: true
+    - from:
+        package: internal/target
+        file: storage.go
+        symbol: Lock
+      to:
+        package: internal/target
+        file: storage.go
+        symbol: LockOptions
+      kind: uses
+      through_exported: true
+    - from:
+        package: internal/target
+        file: storage.go
+        symbol: Show
+      to:
+        package: internal/target
+        file: meta.go
+        symbol: TargetMeta
+      kind: returns
+      through_exported: true

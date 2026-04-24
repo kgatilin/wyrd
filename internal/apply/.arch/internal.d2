@@ -1,0 +1,291 @@
+# apply package
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Files
+apply: {
+  label: "apply.go"
+  class: value
+
+  Apply: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "currentModels": "[]internal/domain.PackageModel"
+    "targetModels": "[]internal/domain.PackageModel"
+    "return": "([]internal/domain.PackageModel, error)"
+  }
+
+  applyChange: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "c": "internal/diff.Change"
+    "curIdx": "map[string]internal/domain.PackageModel"
+    "tgtIdx": "map[string]*internal/domain.PackageModel"
+    "return": "error"
+  }
+
+  applyConst: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "op": "internal/diff.Op"
+    "tgt": "*internal/domain.PackageModel"
+    "cur": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "error"
+  }
+
+  applyDep: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "op": "internal/diff.Op"
+    "tgt": "*internal/domain.PackageModel"
+    "cur": "*internal/domain.PackageModel"
+    "key": "string"
+    "return": "error"
+  }
+
+  applyError: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "op": "internal/diff.Op"
+    "tgt": "*internal/domain.PackageModel"
+    "cur": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "error"
+  }
+
+  applyFunction: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "op": "internal/diff.Op"
+    "tgt": "*internal/domain.PackageModel"
+    "cur": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "error"
+  }
+
+  applyInterface: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "op": "internal/diff.Op"
+    "tgt": "*internal/domain.PackageModel"
+    "cur": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "error"
+  }
+
+  applyPackage: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "c": "internal/diff.Change"
+    "curIdx": "map[string]internal/domain.PackageModel"
+    "tgtIdx": "map[string]*internal/domain.PackageModel"
+    "return": "error"
+  }
+
+  applyStruct: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "op": "internal/diff.Op"
+    "tgt": "*internal/domain.PackageModel"
+    "cur": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "error"
+  }
+
+  applyTypeDef: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "op": "internal/diff.Op"
+    "tgt": "*internal/domain.PackageModel"
+    "cur": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "error"
+  }
+
+  applyVar: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "op": "internal/diff.Op"
+    "tgt": "*internal/domain.PackageModel"
+    "cur": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "error"
+  }
+
+  cloneModels: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgs": "[]internal/domain.PackageModel"
+    "return": "[]internal/domain.PackageModel"
+  }
+
+  clonePackage: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "internal/domain.PackageModel"
+    "return": "internal/domain.PackageModel"
+  }
+
+  findFunction: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "*internal/domain.FunctionDef"
+  }
+
+  findInterface: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "*internal/domain.InterfaceDef"
+  }
+
+  findStruct: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "*internal/domain.StructDef"
+  }
+
+  findTypeDef: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "*internal/domain.TypeDef"
+  }
+
+  indexFunction: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "int"
+  }
+
+  indexInterface: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "int"
+  }
+
+  indexMutableModels: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgs": "[]internal/domain.PackageModel"
+    "return": "map[string]*internal/domain.PackageModel"
+  }
+
+  indexPackages: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "pkgs": "[]internal/domain.PackageModel"
+    "return": "map[string]internal/domain.PackageModel"
+  }
+
+  indexStruct: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "int"
+  }
+
+  indexTypeDef: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "p": "*internal/domain.PackageModel"
+    "name": "string"
+    "return": "int"
+  }
+
+  splitPath: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "kind": "internal/diff.Kind"
+    "path": "string"
+    "return": "(string, string, error)"
+  }
+
+
+}
+
+# Dependencies

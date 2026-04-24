@@ -1,0 +1,597 @@
+# mcp package
+
+# Style classes
+classes: {
+  domain: {
+    style.fill: "#e8f4fc"
+    style.font-color: "#000"
+  }
+  service: {
+    style.fill: "#f0e8fc"
+    style.font-color: "#000"
+  }
+  factory: {
+    style.fill: "#e8fce8"
+    style.font-color: "#000"
+  }
+  value: {
+    style.fill: "#f8f8f8"
+    style.font-color: "#000"
+  }
+}
+
+# Legend
+legend: {
+  label: "Color Legend (DDD)"
+  style.stroke: "#999"
+  style.fill: "#fafafa"
+  near: top-right
+
+  aggregate: {
+    label: "Domain Model"
+    shape: class
+    class: domain
+  }
+  service: {
+    label: "Service"
+    shape: class
+    class: service
+  }
+  factory: {
+    label: "Factory"
+    shape: class
+    class: factory
+  }
+  options: {
+    label: "Value Object"
+    shape: class
+    class: value
+  }
+}
+
+# Files
+client: {
+  label: "client.go"
+  class: value
+
+  ClientOptions: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Endpoint string": ""
+    "+HTTPClient *net/http.Client": ""
+  }
+
+  ServeClient: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "opts": "internal/adapter/mcp.ClientOptions"
+    "return": "error"
+  }
+
+  forwardToolsCall: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "httpClient": "*net/http.Client"
+    "endpoint": "string"
+    "req": "internal/adapter/mcp.Request"
+    "writeLine": "func(internal/adapter/mcp.Response) error"
+    "errOut": "io.Writer"
+    "return": "error"
+  }
+
+  handleClientLine: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "httpClient": "*net/http.Client"
+    "endpoint": "string"
+    "line": "[]byte"
+    "writeLine": "func(internal/adapter/mcp.Response) error"
+    "errOut": "io.Writer"
+    "return": "error"
+  }
+
+  serveClientIO: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "opts": "internal/adapter/mcp.ClientOptions"
+    "in": "io.Reader"
+    "out": "io.Writer"
+    "errOut": "io.Writer"
+    "return": "error"
+  }
+
+
+}
+
+protocol: {
+  label: "protocol.go"
+  class: value
+
+  RPCError: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Code int": ""
+    "+Message string": ""
+    "+Data any": ""
+  }
+
+  Request: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+JSONRPC string": ""
+    "+ID encoding/json.RawMessage": ""
+    "+Method string": ""
+    "+Params encoding/json.RawMessage": ""
+  }
+
+  Response: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+JSONRPC string": ""
+    "+ID encoding/json.RawMessage": ""
+    "+Result interface{}": ""
+    "+Error *internal/adapter/mcp.RPCError": ""
+  }
+
+  initializeResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+ProtocolVersion string": ""
+    "+Capabilities map[string]any": ""
+    "+ServerInfo internal/adapter/mcp.serverInfo": ""
+  }
+
+  serverInfo: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Version string": ""
+  }
+
+  newErrorResponse: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "id": "encoding/json.RawMessage"
+    "code": "int"
+    "message": "string"
+    "return": "internal/adapter/mcp.Response"
+  }
+
+  newInitializeResult: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "return": "internal/adapter/mcp.initializeResult"
+  }
+
+  newResponse: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "id": "encoding/json.RawMessage"
+    "result": "interface{}"
+    "return": "internal/adapter/mcp.Response"
+  }
+
+
+  Constants: {
+    shape: class
+    stereotype: "<<const>>"
+
+    "ErrInternal": "untyped int = -32603"
+    "ErrInvalidParams": "untyped int = -32602"
+    "ErrInvalidRequest": "untyped int = -32600"
+    "ErrMethodNotFound": "untyped int = -32601"
+    "ErrParseError": "untyped int = -32700"
+    "jsonRPCVersion": "untyped string = \"2.0\""
+    "protocolVersion": "untyped string = \"2024-11-05\""
+  }
+
+}
+
+stdio: {
+  label: "stdio.go"
+  class: value
+
+  toolsCallParams: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Arguments encoding/json.RawMessage": ""
+  }
+
+  Serve: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "state": "*internal/serve.State"
+    "return": "error"
+  }
+
+  dispatchToolsCall: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "req": "internal/adapter/mcp.Request"
+    "writeLine": "func(internal/adapter/mcp.Response) error"
+    "errOut": "io.Writer"
+    "return": "error"
+  }
+
+  handleLine: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "line": "[]byte"
+    "writeLine": "func(internal/adapter/mcp.Response) error"
+    "errOut": "io.Writer"
+    "return": "error"
+  }
+
+  serveIO: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "state": "*internal/serve.State"
+    "in": "io.Reader"
+    "out": "io.Writer"
+    "errOut": "io.Writer"
+    "return": "error"
+  }
+
+
+}
+
+tools: {
+  label: "tools.go"
+  class: value
+
+  PackageSummary: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Path string": ""
+    "+Name string": ""
+    "+Layer string": ""
+    "+InterfaceCount int": ""
+    "+StructCount int": ""
+    "+FunctionCount int": ""
+  }
+
+  ToolDefinition: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Name string": ""
+    "+Description string": ""
+    "+InputSchema any": ""
+  }
+
+  ToolResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Content []internal/adapter/mcp.ToolResultContent": ""
+    "+IsError bool": ""
+  }
+
+  ToolResultContent: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Type string": ""
+    "+Text string": ""
+  }
+
+  ValidateResult: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+OK bool": ""
+    "+Target string": ""
+    "+Violations []internal/diff.Change": ""
+  }
+
+  applyDiffArgs: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+PatchYAML string": ""
+    "+Target string": ""
+  }
+
+  diffArgs: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Target string": ""
+  }
+
+  extractArgs: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Paths []string": ""
+  }
+
+  getPackageArgs: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Path string": ""
+  }
+
+  lockTargetArgs: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+ID string": ""
+    "+Description string": ""
+  }
+
+  setCurrentTargetArgs: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+ID string": ""
+  }
+
+  validateArgs: {
+    shape: class
+    stereotype: "<<struct>>"
+
+    "+Target string": ""
+  }
+
+  Dispatch: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "name": "string"
+    "rawArgs": "encoding/json.RawMessage"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  ToolDefinitions: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "return": "[]internal/adapter/mcp.ToolDefinition"
+  }
+
+  collectYAMLFiles: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "root": "string"
+    "return": "([]string, error)"
+  }
+
+  errorResult: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "msg": "string"
+    "return": "internal/adapter/mcp.ToolResult"
+  }
+
+  handleApplyDiff: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "rawArgs": "encoding/json.RawMessage"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  handleDiff: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "rawArgs": "encoding/json.RawMessage"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  handleExtract: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "rawArgs": "encoding/json.RawMessage"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  handleGetPackage: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "rawArgs": "encoding/json.RawMessage"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  handleListPackages: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  handleListTargets: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  handleLockTarget: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "rawArgs": "encoding/json.RawMessage"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  handleSetCurrentTarget: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "rawArgs": "encoding/json.RawMessage"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  handleValidate: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "rawArgs": "encoding/json.RawMessage"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  loadTargetModelsFromDisk: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "root": "string"
+    "id": "string"
+    "return": "([]internal/domain.PackageModel, error)"
+  }
+
+  requireRoot: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "return": "(string, bool)"
+  }
+
+  resolveTargetID: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "explicit": "string"
+    "snapshotCurrent": "string"
+    "root": "string"
+    "return": "(string, string)"
+  }
+
+  snapshotOrEmpty: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "state": "*internal/serve.State"
+    "return": "internal/serve.Snapshot"
+  }
+
+  textResult: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "payload": "any"
+    "return": "(internal/adapter/mcp.ToolResult, *internal/adapter/mcp.RPCError)"
+  }
+
+  unmarshalArgs: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "rawArgs": "encoding/json.RawMessage"
+    "dst": "any"
+    "return": "*internal/adapter/mcp.RPCError"
+  }
+
+  validatePatch: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "d": "*internal/diff.Diff"
+    "return": "error"
+  }
+
+  writeCurrentArchYAML: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "packages": "[]internal/domain.PackageModel"
+    "root": "string"
+    "return": "error"
+  }
+
+  writeTargetModelsToDisk: {
+    shape: class
+    stereotype: "<<function>>"
+
+    "ctx": "context.Context"
+    "root": "string"
+    "id": "string"
+    "models": "[]internal/domain.PackageModel"
+    "return": "error"
+  }
+
+
+}
+
+# Dependencies
+protocol.Response -> protocol.RPCError: "uses"
+tools.ToolResult -> tools.ToolResultContent: "uses"
+protocol.initializeResult -> protocol.serverInfo: "uses"
+tools.Dispatch -> tools.ToolResult: "returns"
+tools.Dispatch -> protocol.RPCError: "returns"
+client.ServeClient -> client.ClientOptions: "uses"
+tools.ToolDefinitions -> tools.ToolDefinition: "returns"
+stdio.dispatchToolsCall -> protocol.Request: "uses"
+tools.errorResult -> tools.ToolResult: "returns"
+client.forwardToolsCall -> protocol.Request: "uses"
+tools.handleApplyDiff -> tools.ToolResult: "returns"
+tools.handleApplyDiff -> protocol.RPCError: "returns"
+tools.handleDiff -> tools.ToolResult: "returns"
+tools.handleDiff -> protocol.RPCError: "returns"
+tools.handleExtract -> tools.ToolResult: "returns"
+tools.handleExtract -> protocol.RPCError: "returns"
+tools.handleGetPackage -> tools.ToolResult: "returns"
+tools.handleGetPackage -> protocol.RPCError: "returns"
+tools.handleListPackages -> tools.ToolResult: "returns"
+tools.handleListPackages -> protocol.RPCError: "returns"
+tools.handleListTargets -> tools.ToolResult: "returns"
+tools.handleListTargets -> protocol.RPCError: "returns"
+tools.handleLockTarget -> tools.ToolResult: "returns"
+tools.handleLockTarget -> protocol.RPCError: "returns"
+tools.handleSetCurrentTarget -> tools.ToolResult: "returns"
+tools.handleSetCurrentTarget -> protocol.RPCError: "returns"
+tools.handleValidate -> tools.ToolResult: "returns"
+tools.handleValidate -> protocol.RPCError: "returns"
+protocol.newErrorResponse -> protocol.Response: "returns"
+protocol.newInitializeResult -> protocol.initializeResult: "returns"
+protocol.newResponse -> protocol.Response: "returns"
+client.serveClientIO -> client.ClientOptions: "uses"
+tools.textResult -> tools.ToolResult: "returns"
+tools.textResult -> protocol.RPCError: "returns"
+tools.unmarshalArgs -> protocol.RPCError: "returns"
