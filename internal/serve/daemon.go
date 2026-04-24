@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kgatilin/archai/internal/worktree"
 )
 
 // Options configures the Serve entry point.
@@ -51,10 +53,13 @@ type Options struct {
 }
 
 // HTTPTransport is the minimal contract the serve daemon needs from an
-// HTTP transport: serve on addr until ctx is cancelled, return nil on a
-// graceful shutdown. Implemented by internal/adapter/http.Server.
+// HTTP transport: bind to addr, invoke ready(boundAddr) once the
+// listener is up, then serve until ctx is cancelled. Returns nil on a
+// graceful shutdown. The ready callback is how callers learn the real
+// bound address when addr uses port 0. Implemented by
+// internal/adapter/http.Server.
 type HTTPTransport interface {
-	Serve(ctx context.Context, addr string) error
+	Serve(ctx context.Context, addr string, ready func(boundAddr string)) error
 }
 
 // Serve runs the daemon: it builds the in-memory model, starts the
@@ -93,23 +98,51 @@ func Serve(ctx context.Context, opts Options) error {
 	// factory are provided. If the caller set the address but didn't
 	// wire a factory we keep the old stub log so operators aren't
 	// silently ignored.
+	//
+	// When a transport comes up we record a serve.json for this
+	// worktree so `archai where` / `archai list-daemons` can find us.
+	// The record is removed on graceful shutdown below.
 	httpErrCh := make(chan error, 1)
 	var httpStarted bool
+	var serveRecorded bool
+	wtName := worktree.Name(absRoot)
 	if opts.HTTPAddr != "" {
 		if opts.HTTPServerFactory != nil {
 			srv, err := opts.HTTPServerFactory(state)
 			if err != nil {
 				return fmt.Errorf("serve: building HTTP transport: %w", err)
 			}
-			fmt.Fprintf(logOut, "serve: HTTP transport listening on %s\n", opts.HTTPAddr)
+			fmt.Fprintf(logOut, "serve: HTTP transport binding %s (worktree=%q)\n", opts.HTTPAddr, wtName)
 			httpStarted = true
+			ready := func(boundAddr string) {
+				rec := worktree.ServeRecord{
+					PID:       os.Getpid(),
+					HTTPAddr:  boundAddr,
+					StartedAt: time.Now().UTC().Format(time.RFC3339),
+				}
+				if err := worktree.WriteServe(absRoot, wtName, rec); err != nil {
+					fmt.Fprintf(logOut, "serve: write serve.json: %v\n", err)
+					return
+				}
+				serveRecorded = true
+				fmt.Fprintf(logOut, "serve: HTTP transport listening on %s\n", boundAddr)
+			}
 			go func() {
-				httpErrCh <- srv.Serve(ctx, opts.HTTPAddr)
+				httpErrCh <- srv.Serve(ctx, opts.HTTPAddr, ready)
 			}()
 		} else {
 			fmt.Fprintf(logOut, "serve: HTTP transport requested on %s — no transport wired (stub)\n", opts.HTTPAddr)
 		}
 	}
+	// Always remove serve.json on return so a killed process doesn't
+	// leave a dangling record when the shutdown path is taken.
+	defer func() {
+		if serveRecorded {
+			if err := worktree.RemoveServe(absRoot, wtName); err != nil {
+				fmt.Fprintf(logOut, "serve: remove serve.json: %v\n", err)
+			}
+		}
+	}()
 
 	watcher, err := NewWatcher(absRoot, opts.Debounce)
 	if err != nil {
@@ -199,6 +232,11 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 			case rel == "archai.yaml":
 				overlayDirty = true
 			case rel == ".arch/targets/CURRENT":
+				// Legacy pre-M9 location. Retained for compatibility
+				// so a manually-edited legacy pointer still triggers a
+				// reload; the per-worktree equivalent is handled next.
+				currentDirty = true
+			case strings.HasPrefix(rel, ".arch/.worktree/") && strings.HasSuffix(rel, "/CURRENT"):
 				currentDirty = true
 			case strings.HasSuffix(abs, ".go"):
 				if pkg := state.FindOwningPackage(abs); pkg != "" {
@@ -226,7 +264,8 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 		}
 
 		if currentDirty {
-			id, err := readCurrent(filepath.Join(root, ".arch", "targets", "CURRENT"))
+			name := worktree.Name(root)
+			id, _, err := worktree.ReadCurrent(root, name)
 			if err != nil {
 				fmt.Fprintf(logOut, "serve: read CURRENT: %v\n", err)
 			} else if err := state.SwitchTarget(id); err != nil {
@@ -236,17 +275,4 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 			}
 		}
 	}
-}
-
-// readCurrent reads the single-line CURRENT pointer. Missing file is
-// treated as an empty id (no active target).
-func readCurrent(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
-		}
-		return "", err
-	}
-	return strings.TrimSpace(string(data)), nil
 }

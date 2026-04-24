@@ -61,9 +61,11 @@ func NewServer(state *serve.State) (*Server, error) {
 
 // Serve listens on addr and serves HTTP requests until ctx is
 // cancelled. It returns nil on a graceful shutdown and the underlying
-// error otherwise. Callers are expected to bridge SIGINT/SIGTERM into
-// ctx.
-func (s *Server) Serve(ctx context.Context, addr string) error {
+// error otherwise. ready — when non-nil — is invoked exactly once
+// after the listener binds successfully, with the actual bound
+// address (useful when addr uses port 0). Callers are expected to
+// bridge SIGINT/SIGTERM into ctx.
+func (s *Server) Serve(ctx context.Context, addr string, ready func(boundAddr string)) error {
 	mux := nethttp.NewServeMux()
 	s.routes(mux)
 
@@ -78,6 +80,10 @@ func (s *Server) Serve(ctx context.Context, addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("http: listen %s: %w", addr, err)
+	}
+
+	if ready != nil {
+		ready(ln.Addr().String())
 	}
 
 	serveErr := make(chan error, 1)

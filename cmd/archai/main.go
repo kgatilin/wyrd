@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/adapter/golang"
@@ -27,6 +28,7 @@ import (
 	"github.com/kgatilin/archai/internal/serve"
 	"github.com/kgatilin/archai/internal/service"
 	"github.com/kgatilin/archai/internal/target"
+	"github.com/kgatilin/archai/internal/worktree"
 	"github.com/spf13/cobra"
 	yamlv3 "gopkg.in/yaml.v3"
 )
@@ -307,9 +309,36 @@ manual verification and as a base for future features.`,
 	}
 	serveCmd.Flags().String("root", ".", "Project root directory")
 	serveCmd.Flags().Bool("mcp-stdio", false, "Enable MCP stdio transport")
-	serveCmd.Flags().String("http", "", "HTTP transport address, e.g. :8080")
+	// Default to port 0 so parallel worktrees don't fight over a fixed
+	// port; the bound address is recorded in .arch/.worktree/<name>/serve.json
+	// for `archai where` / `archai list-daemons` to discover.
+	serveCmd.Flags().String("http", ":0", "HTTP transport address (\"\" disables HTTP; default :0 picks a free port)")
 	serveCmd.Flags().Bool("debug", false, "Verbose per-event logging")
 	rootCmd.AddCommand(serveCmd)
+
+	// where — print this worktree's active serve URL (if any).
+	whereCmd := &cobra.Command{
+		Use:   "where",
+		Short: "Print this worktree's running serve URL",
+		Long: `Read .arch/.worktree/<name>/serve.json and print the URL of the
+daemon currently serving this worktree. Exits non-zero when no
+daemon is running.`,
+		Args: cobra.NoArgs,
+		RunE: runWhere,
+	}
+	rootCmd.AddCommand(whereCmd)
+
+	// list-daemons — scan all worktrees under this repo for live daemons.
+	listDaemonsCmd := &cobra.Command{
+		Use:   "list-daemons",
+		Short: "List live archai serve daemons across all worktrees",
+		Long: `Scan .arch/.worktree/*/serve.json under the current project root
+and print one row per live daemon (worktree name, PID, URL, uptime).
+Stale records (processes that have exited) are skipped.`,
+		Args: cobra.NoArgs,
+		RunE: runListDaemons,
+	}
+	rootCmd.AddCommand(listDaemonsCmd)
 
 	// Sequence command (M6b)
 	sequenceCmd := &cobra.Command{
@@ -1236,6 +1265,85 @@ func validatePatch(d *diff.Diff) error {
 		}
 	}
 	return nil
+}
+
+// runWhere handles `archai where`. It prints the URL of the daemon
+// currently serving this worktree (if any) and exits non-zero when no
+// daemon is recorded or the record is stale.
+func runWhere(cmd *cobra.Command, args []string) error {
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+	name := worktree.Name(projectRoot)
+	rec, err := worktree.ReadServe(projectRoot, name)
+	if err != nil {
+		return fmt.Errorf("reading serve.json: %w", err)
+	}
+	if rec == nil {
+		return fmt.Errorf("no daemon running in worktree %q (run `archai serve`)", name)
+	}
+	if !worktree.PIDAlive(rec.PID) {
+		return fmt.Errorf("stale serve.json for worktree %q (pid %d not alive)", name, rec.PID)
+	}
+	fmt.Printf("http://%s\n", rec.HTTPAddr)
+	return nil
+}
+
+// runListDaemons handles `archai list-daemons`. It prints a small
+// table of live daemons keyed by worktree name.
+func runListDaemons(cmd *cobra.Command, args []string) error {
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+	daemons, err := worktree.ListDaemons(projectRoot)
+	if err != nil {
+		return err
+	}
+	if len(daemons) == 0 {
+		fmt.Println("No live daemons.")
+		return nil
+	}
+	fmt.Printf("%-20s  %-7s  %-22s  %s\n", "WORKTREE", "PID", "URL", "UPTIME")
+	now := time.Now().UTC()
+	for _, d := range daemons {
+		uptime := "?"
+		if !d.StartedAt.IsZero() {
+			uptime = formatUptime(now.Sub(d.StartedAt))
+		}
+		fmt.Printf("%-20s  %-7d  %-22s  %s\n",
+			d.Worktree, d.Record.PID, "http://"+d.Record.HTTPAddr, uptime)
+	}
+	return nil
+}
+
+// formatUptime renders a duration as a short human-readable string
+// (e.g. "3m", "2h14m", "5d3h"). Precision is intentionally coarse.
+func formatUptime(d time.Duration) string {
+	if d < time.Second {
+		return "<1s"
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		h := int(d.Hours())
+		m := int(d.Minutes()) - 60*h
+		if m == 0 {
+			return fmt.Sprintf("%dh", h)
+		}
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+	days := int(d.Hours()) / 24
+	h := int(d.Hours()) - 24*days
+	if h == 0 {
+		return fmt.Sprintf("%dd", days)
+	}
+	return fmt.Sprintf("%dd%dh", days, h)
 }
 
 // writeTargetModels overwrites the target snapshot's model/ tree with the

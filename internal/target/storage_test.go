@@ -215,7 +215,16 @@ func TestUse_WritesCURRENT(t *testing.T) {
 		t.Fatalf("Use: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(root, ".arch", "targets", "CURRENT"))
+	// Per-worktree CURRENT lives under .arch/.worktree/<name>/CURRENT.
+	wtDir := filepath.Join(root, ".arch", ".worktree")
+	entries, err := os.ReadDir(wtDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", wtDir, err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected exactly one worktree dir under %s, got %d", wtDir, len(entries))
+	}
+	data, err := os.ReadFile(filepath.Join(wtDir, entries[0].Name(), "CURRENT"))
 	if err != nil {
 		t.Fatalf("read CURRENT: %v", err)
 	}
@@ -282,9 +291,9 @@ func TestDelete_CurrentRequiresForce(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".arch", "targets", "v1")); !os.IsNotExist(err) {
 		t.Errorf("expected target dir removed, got err=%v", err)
 	}
-	// CURRENT file should also be cleared.
-	if _, err := os.Stat(filepath.Join(root, ".arch", "targets", "CURRENT")); !os.IsNotExist(err) {
-		t.Errorf("expected CURRENT cleared, got err=%v", err)
+	// Current() must now return empty (per-worktree CURRENT cleared).
+	if cur, _ := Current(root); cur != "" {
+		t.Errorf("expected Current() empty after forced delete, got %q", cur)
 	}
 }
 

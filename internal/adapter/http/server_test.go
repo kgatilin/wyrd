@@ -311,6 +311,52 @@ func TestServer_SearchResults_EmptyQueryHint(t *testing.T) {
 	}
 }
 
+// TestServer_Serve_ReadyCallback verifies that Serve invokes the
+// ready callback with the actual bound address when addr uses port 0.
+func TestServer_Serve_ReadyCallback(t *testing.T) {
+	state := serve.NewState(t.TempDir())
+	srv, err := NewServer(state)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	addrCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.Serve(ctx, "127.0.0.1:0", func(addr string) { addrCh <- addr })
+	}()
+
+	select {
+	case addr := <-addrCh:
+		if !strings.HasPrefix(addr, "127.0.0.1:") {
+			t.Fatalf("bound addr = %q, want 127.0.0.1:<port>", addr)
+		}
+		// Hit the server to confirm it's actually up.
+		resp, err := nethttp.Get("http://" + addr + "/")
+		if err != nil {
+			t.Fatalf("GET /: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != nethttp.StatusOK {
+			t.Fatalf("GET /: status = %d", resp.StatusCode)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ready callback not invoked within 2s")
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return within 2s of cancel")
+	}
+}
+
 // TestServer_Serve_ContextCancel verifies that Serve returns cleanly
 // when its context is cancelled while listening.
 func TestServer_Serve_ContextCancel(t *testing.T) {
@@ -322,7 +368,7 @@ func TestServer_Serve_ContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- srv.Serve(ctx, "127.0.0.1:0") }()
+	go func() { errCh <- srv.Serve(ctx, "127.0.0.1:0", nil) }()
 
 	// Give the server a moment to bind, then cancel.
 	time.Sleep(50 * time.Millisecond)

@@ -9,22 +9,24 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/kgatilin/archai/internal/worktree"
 	yamlv3 "gopkg.in/yaml.v3"
 )
 
 // Directory/file name constants used throughout the storage layout.
 const (
-	archDirName      = ".arch"
-	targetsDirName   = "targets"
-	currentFileName  = "CURRENT"
-	metaFileName     = "meta.yaml"
-	overlayFileName  = "overlay.yaml"
-	overlaySource    = "archai.yaml"
-	modelDirName     = "model"
-	pubYAMLFileName  = "pub.yaml"
-	intYAMLFileName  = "internal.yaml"
+	archDirName     = ".arch"
+	targetsDirName  = "targets"
+	currentFileName = "CURRENT"
+	metaFileName    = "meta.yaml"
+	overlayFileName = "overlay.yaml"
+	overlaySource   = "archai.yaml"
+	modelDirName    = "model"
+	pubYAMLFileName = "pub.yaml"
+	intYAMLFileName = "internal.yaml"
 )
 
 // LockOptions configures a Lock call.
@@ -171,8 +173,9 @@ func Show(projectRoot, id string) (*TargetMeta, []string, error) {
 	return &meta, pkgs, nil
 }
 
-// Use marks <id> as the active target by writing it to .arch/targets/CURRENT.
-// It errors if the target directory does not exist.
+// Use marks <id> as the active target for this worktree by writing it
+// to .arch/.worktree/<name>/CURRENT. It errors if the target directory
+// does not exist.
 func Use(projectRoot, id string) error {
 	targetDir := filepath.Join(projectRoot, archDirName, targetsDirName, id)
 	if _, err := os.Stat(targetDir); err != nil {
@@ -181,19 +184,16 @@ func Use(projectRoot, id string) error {
 		}
 		return fmt.Errorf("target: stat %s: %w", targetDir, err)
 	}
-
-	currentPath := filepath.Join(projectRoot, archDirName, targetsDirName, currentFileName)
-	if err := os.MkdirAll(filepath.Dir(currentPath), 0o755); err != nil {
-		return fmt.Errorf("target: create targets dir: %w", err)
-	}
-	if err := os.WriteFile(currentPath, []byte(id), 0o644); err != nil {
+	name := worktree.Name(projectRoot)
+	if err := worktree.WriteCurrent(projectRoot, name, id); err != nil {
 		return fmt.Errorf("target: write CURRENT: %w", err)
 	}
 	return nil
 }
 
-// Delete removes .arch/targets/<id>/. If <id> is the active target (CURRENT),
-// Delete fails unless force is true; when forced, CURRENT is also removed.
+// Delete removes .arch/targets/<id>/. If <id> is the active target
+// for this worktree, Delete fails unless force is true; when forced,
+// the per-worktree CURRENT pointer is also removed.
 func Delete(projectRoot, id string, force bool) error {
 	targetDir := filepath.Join(projectRoot, archDirName, targetsDirName, id)
 	if _, err := os.Stat(targetDir); err != nil {
@@ -211,23 +211,40 @@ func Delete(projectRoot, id string, force bool) error {
 		return fmt.Errorf("target: remove %s: %w", targetDir, err)
 	}
 	if cur == id {
-		_ = os.Remove(filepath.Join(projectRoot, archDirName, targetsDirName, currentFileName))
+		name := worktree.Name(projectRoot)
+		_ = worktree.RemoveCurrent(projectRoot, name)
+		// Best-effort removal of the legacy shared pointer too, so
+		// the next Current() read doesn't pick up a stale id.
+		_ = os.Remove(worktree.LegacyCurrentPath(projectRoot))
 	}
 	return nil
 }
 
-// Current returns the active target id from .arch/targets/CURRENT,
-// or an empty string if no CURRENT file exists.
+// legacyCurrentWarned tracks whether the per-process deprecation
+// notice for reading the pre-M9 .arch/targets/CURRENT path has
+// already been emitted. It keeps the warning out of scripted output
+// on every invocation while still surfacing it to operators.
+var legacyCurrentWarned sync.Once
+
+// Current returns the active target id for this worktree. Read order:
+//  1. .arch/.worktree/<name>/CURRENT (M9 layout)
+//  2. .arch/targets/CURRENT          (pre-M9 layout — deprecated)
+//
+// A missing pointer returns an empty id and no error. When the legacy
+// path is used, a deprecation warning is logged once per process.
 func Current(projectRoot string) (string, error) {
-	path := filepath.Join(projectRoot, archDirName, targetsDirName, currentFileName)
-	data, err := os.ReadFile(path)
+	name := worktree.Name(projectRoot)
+	id, fromLegacy, err := worktree.ReadCurrent(projectRoot, name)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
-		}
 		return "", fmt.Errorf("target: read CURRENT: %w", err)
 	}
-	return strings.TrimSpace(string(data)), nil
+	if fromLegacy {
+		legacyCurrentWarned.Do(func() {
+			fmt.Fprintln(os.Stderr,
+				"warning: reading legacy .arch/targets/CURRENT; run `archai target use <id>` to migrate to per-worktree state")
+		})
+	}
+	return id, nil
 }
 
 // --- helpers ---
