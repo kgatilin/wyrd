@@ -2,6 +2,10 @@
 
 Architecture diagram generator for Go projects. Analyzes Go source code and generates D2 diagrams showing interfaces, structs, functions, and their relationships.
 
+> **Documentation:** the full user guide — installation, quick start,
+> project setup, browser UI, editor and MCP agent integration — lives in
+> [`docs/user-guide.md`](docs/user-guide.md).
+
 ## Installation
 
 ```bash
