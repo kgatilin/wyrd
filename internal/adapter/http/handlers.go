@@ -35,6 +35,20 @@ type pageData struct {
 	NavItems   []navItem
 }
 
+// searchPageData is the model for the full Search page template. It
+// embeds pageData so base.html sees the same Title/ActivePath/NavItems
+// and also carries the initial form state + (optional) pre-rendered
+// results so a non-HTMX request to /search?q=… returns a useful page
+// for bookmarking/permalinking.
+type searchPageData struct {
+	pageData
+	Query   string
+	Kind    string
+	Kinds   []string
+	Results []searchResult
+	Total   int
+}
+
 // navTemplate is the canonical, ordered nav used for every page.
 var navTemplate = []navItem{
 	{Label: "Dashboard", Href: "/"},
@@ -61,7 +75,11 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 	mux.HandleFunc("/layers", s.handleLayers)
 	mux.HandleFunc("/packages", s.pageHandler("packages.html", "Packages", "/packages"))
 	mux.HandleFunc("/configs", s.pageHandler("configs.html", "Configs", "/configs"))
-	mux.HandleFunc("/search", s.pageHandler("search.html", "Search", "/search"))
+	// /search/results must be registered before /search so the prefix
+	// mux treats it as a distinct route rather than falling back to the
+	// full page handler.
+	mux.HandleFunc("/search/results", s.handleSearchResults)
+	mux.HandleFunc("/search", s.handleSearch)
 	// M7e: diff + targets handlers replace the placeholder pageHandlers
 	// for /diff and /targets and add sub-routes for target switching +
 	// cross-target comparison.
@@ -90,6 +108,10 @@ func (s *Server) pageHandler(tmpl, title, activePath string) nethttp.HandlerFunc
 // not themselves pageData values. The base template only reads the
 // promoted fields (Title, ActivePath, NavItems), so passing the
 // embedding struct works as long as those fields remain exported.
+//
+// The search page embeds the HTMX fragment template so it can render
+// initial results inline; we parse both files together when the page
+// pulls in the fragment.
 func (s *Server) renderPage(w nethttp.ResponseWriter, tmpl string, data any) {
 	// Clone so the page template and base template live in their own
 	// namespace — each page file defines its own "content" block and
@@ -99,7 +121,11 @@ func (s *Server) renderPage(w nethttp.ResponseWriter, tmpl string, data any) {
 		nethttp.Error(w, fmt.Sprintf("template clone: %v", err), nethttp.StatusInternalServerError)
 		return
 	}
-	if _, err := t.ParseFS(embedded, "templates/"+tmpl); err != nil {
+	files := []string{"templates/" + tmpl}
+	if tmpl == "search.html" {
+		files = append(files, "templates/search_results.html")
+	}
+	if _, err := t.ParseFS(embedded, files...); err != nil {
 		nethttp.Error(w, fmt.Sprintf("template parse %s: %v", tmpl, err), nethttp.StatusInternalServerError)
 		return
 	}
@@ -175,6 +201,79 @@ func (s *Server) handleRender(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
 	_, _ = w.Write(svg)
+}
+
+// handleSearch renders the full search page. If a `q` query parameter
+// is present we also run the search and inline the results so
+// ?q=… links are shareable and work without JavaScript. HTMX takes
+// over on subsequent keystrokes by hitting /search/results directly.
+func (s *Server) handleSearch(w nethttp.ResponseWriter, r *nethttp.Request) {
+	q := r.URL.Query().Get("q")
+	kind := r.URL.Query().Get("kind")
+	if !isKnownKind(kind) {
+		kind = ""
+	}
+
+	var results []searchResult
+	if q != "" {
+		snap := s.state.Snapshot()
+		results = runSearch(snap.Packages, q, kind)
+	}
+
+	s.renderPage(w, "search.html", searchPageData{
+		pageData: pageData{
+			Title:      "Search",
+			ActivePath: "/search",
+			NavItems:   buildNav("/search"),
+		},
+		Query:   q,
+		Kind:    kind,
+		Kinds:   searchKinds,
+		Results: results,
+		Total:   len(results),
+	})
+}
+
+// handleSearchResults serves the HTMX fragment used for
+// search-as-you-type. It returns just the results list without the
+// surrounding page chrome so HTMX can swap it into the results
+// container on every keystroke.
+func (s *Server) handleSearchResults(w nethttp.ResponseWriter, r *nethttp.Request) {
+	q := r.URL.Query().Get("q")
+	kind := r.URL.Query().Get("kind")
+	if !isKnownKind(kind) {
+		kind = ""
+	}
+
+	snap := s.state.Snapshot()
+	results := runSearch(snap.Packages, q, kind)
+
+	// Fragment templates don't extend base.html, so we parse them on
+	// their own with Clone() to avoid polluting the shared parsed set.
+	t, err := s.templates.Clone()
+	if err != nil {
+		nethttp.Error(w, fmt.Sprintf("template clone: %v", err), nethttp.StatusInternalServerError)
+		return
+	}
+	if _, err := t.ParseFS(embedded, "templates/search_results.html"); err != nil {
+		nethttp.Error(w, fmt.Sprintf("template parse: %v", err), nethttp.StatusInternalServerError)
+		return
+	}
+
+	data := searchPageData{
+		Query:   q,
+		Kind:    kind,
+		Kinds:   searchKinds,
+		Results: results,
+		Total:   len(results),
+	}
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, "search_results", data); err != nil {
+		nethttp.Error(w, fmt.Sprintf("template execute: %v", err), nethttp.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(buf.Bytes())
 }
 
 // buildNav returns a fresh nav slice with Active set on the item whose

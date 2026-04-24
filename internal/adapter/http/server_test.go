@@ -6,6 +6,8 @@ import (
 	nethttp "net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -142,6 +144,170 @@ func TestServer_RenderEndpoint_MissingSource(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != nethttp.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// newLoadedTestServer spins up a Server whose State has been Loaded
+// against a tiny fixture module so search handlers have real packages
+// to query. The fixture mirrors the one used by serve/state_test.
+func newLoadedTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"),
+		[]byte("module example.com/searchfix\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	pkgDir := filepath.Join(root, "internal", "alpha")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "alpha.go"), []byte(`package alpha
+
+// Greeter is an exported interface so the search index has an interface
+// to find.
+type Greeter interface {
+	Greet() string
+}
+
+// Hello is an exported struct so the search index has a struct to find.
+type Hello struct {
+	Name string
+}
+
+// NewHello returns a Hello.
+func NewHello() *Hello { return &Hello{} }
+`), 0o644); err != nil {
+		t.Fatalf("write alpha.go: %v", err)
+	}
+
+	state := serve.NewState(root)
+	if err := state.Load(context.Background()); err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	srv, err := NewServer(state)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	mux := nethttp.NewServeMux()
+	srv.routes(mux)
+	return httptest.NewServer(mux)
+}
+
+func TestServer_SearchPage_RendersFormAndNoResultsWhenEmpty(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/search")
+	if err != nil {
+		t.Fatalf("GET /search: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	// Full page must include the search input and the HTMX target.
+	for _, want := range []string{
+		`id="search-q"`,
+		`id="search-kind"`,
+		`hx-get="/search/results"`,
+		`id="search-results"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("search page missing %q", want)
+		}
+	}
+}
+
+func TestServer_SearchPage_InlineResultsForQuery(t *testing.T) {
+	ts := newLoadedTestServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/search?q=Hello")
+	if err != nil {
+		t.Fatalf("GET /search?q=Hello: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	if !strings.Contains(s, `>Hello<`) {
+		t.Errorf("expected 'Hello' result in body, got:\n%s", s)
+	}
+	if !strings.Contains(s, `/packages/internal/alpha#struct-Hello`) {
+		t.Error("expected link to struct detail page")
+	}
+}
+
+func TestServer_SearchResults_Fragment(t *testing.T) {
+	ts := newLoadedTestServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/search/results?q=Greeter")
+	if err != nil {
+		t.Fatalf("GET /search/results: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+
+	// Fragment must NOT contain the base layout chrome.
+	if strings.Contains(s, `<main class="content">`) {
+		t.Error("fragment should not include base layout <main> block")
+	}
+	if strings.Contains(s, `<header class="site-nav">`) {
+		t.Error("fragment should not include site nav")
+	}
+	// But it must include the result.
+	if !strings.Contains(s, "Greeter") {
+		t.Errorf("fragment missing 'Greeter' result, got:\n%s", s)
+	}
+	if !strings.Contains(s, "/packages/internal/alpha#interface-Greeter") {
+		t.Error("fragment missing interface detail href")
+	}
+}
+
+func TestServer_SearchResults_KindFilter(t *testing.T) {
+	ts := newLoadedTestServer(t)
+	defer ts.Close()
+
+	// Kind=struct should not surface the Greeter interface.
+	resp, err := ts.Client().Get(ts.URL + "/search/results?q=Hello&kind=struct")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	if !strings.Contains(s, "Hello") {
+		t.Errorf("expected Hello struct in results, got:\n%s", s)
+	}
+	if strings.Contains(s, "Greeter") {
+		t.Errorf("kind=struct filter leaked interface match: %s", s)
+	}
+}
+
+func TestServer_SearchResults_EmptyQueryHint(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/search/results?q=")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "Type to search") {
+		t.Errorf("empty query fragment should show hint, got:\n%s", string(body))
 	}
 }
 

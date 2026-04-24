@@ -1,0 +1,23 @@
+{{define "search_results"}}
+{{if eq .Query ""}}
+    <p class="search-hint">Type to search across packages, files, and symbols.</p>
+{{else if eq .Total 0}}
+    <p class="search-empty">No matches for <code>{{.Query}}</code>{{if ne .Kind ""}} with kind <code>{{.Kind}}</code>{{end}}.</p>
+{{else}}
+    <p class="search-summary">{{.Total}} result{{if ne .Total 1}}s{{end}} for <code>{{.Query}}</code>{{if ne .Kind ""}} (kind: <code>{{.Kind}}</code>){{end}}</p>
+    <ul class="search-list">
+    {{range .Results}}
+        <li class="search-item">
+            <span class="search-kind search-kind-{{.Kind}}">{{.Kind}}</span>
+            <a class="search-name" href="{{.Href}}">{{.Name}}</a>
+            {{if and .Package (ne .Package .Name)}}
+                <span class="search-pkg">{{.Package}}</span>
+            {{end}}
+            {{if and .File (ne .File .Name)}}
+                <span class="search-file">{{.File}}</span>
+            {{end}}
+        </li>
+    {{end}}
+    </ul>
+{{end}}
+{{end}}

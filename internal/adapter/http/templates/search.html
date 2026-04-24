@@ -1,8 +1,31 @@
 {{define "content"}}
 <h1>Search</h1>
-<p class="lede">Search across the in-memory model.</p>
-<div class="coming-soon">
-    <div class="tag">M7f</div>
-    <p>Search is coming in M7f — symbol lookup by name, kind, package.</p>
+<p class="lede">Find packages, files, and symbols across the model.</p>
+
+<form class="search-form"
+      hx-get="/search/results"
+      hx-target="#search-results"
+      hx-trigger="keyup changed delay:150ms from:#search-q, change from:#search-kind"
+      hx-push-url="false"
+      action="/search"
+      method="get">
+    <input type="search"
+           id="search-q"
+           name="q"
+           value="{{.Query}}"
+           placeholder="Search symbols, files, packages…"
+           autocomplete="off"
+           autofocus>
+    <select id="search-kind" name="kind">
+        <option value=""{{if eq .Kind ""}} selected{{end}}>All kinds</option>
+        {{range .Kinds}}
+            <option value="{{.}}"{{if eq $.Kind .}} selected{{end}}>{{.}}</option>
+        {{end}}
+    </select>
+    <button type="submit">Search</button>
+</form>
+
+<div id="search-results" class="search-results">
+    {{template "search_results" .}}
 </div>
 {{end}}
