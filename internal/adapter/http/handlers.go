@@ -51,9 +51,11 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 	mux.HandleFunc("/layers", s.pageHandler("layers.html", "Layers", "/layers"))
 	mux.HandleFunc("/packages", s.pageHandler("packages.html", "Packages", "/packages"))
 	mux.HandleFunc("/configs", s.pageHandler("configs.html", "Configs", "/configs"))
-	mux.HandleFunc("/targets", s.pageHandler("targets.html", "Targets", "/targets"))
-	mux.HandleFunc("/diff", s.pageHandler("diff.html", "Diff", "/diff"))
 	mux.HandleFunc("/search", s.pageHandler("search.html", "Search", "/search"))
+	// M7e: diff + targets handlers replace the placeholder pageHandlers
+	// for /diff and /targets and add sub-routes for target switching +
+	// cross-target comparison.
+	s.registerDiffTargetsRoutes(mux)
 	mux.HandleFunc("/", s.handleIndex)
 }
 
@@ -83,7 +85,13 @@ func (s *Server) pageHandler(tmpl, title, activePath string) nethttp.HandlerFunc
 // renderPage renders the given page template followed by the base
 // layout. We render into a buffer first so template errors produce a
 // 500 instead of a half-written response.
-func (s *Server) renderPage(w nethttp.ResponseWriter, tmpl string, data pageData) {
+//
+// data is declared as `any` because M7e introduces page-specific model
+// structs (diffPageData, targetsPageData) that embed pageData but are
+// not themselves pageData values. The base template only reads the
+// promoted fields (Title, ActivePath, NavItems), so passing the
+// embedding struct works as long as those fields remain exported.
+func (s *Server) renderPage(w nethttp.ResponseWriter, tmpl string, data any) {
 	// Clone so the page template and base template live in their own
 	// namespace — each page file defines its own "content" block and
 	// we don't want successive requests to see a stale definition.
@@ -100,6 +108,29 @@ func (s *Server) renderPage(w nethttp.ResponseWriter, tmpl string, data pageData
 	var buf bytes.Buffer
 	if err := t.ExecuteTemplate(&buf, "base", data); err != nil {
 		nethttp.Error(w, fmt.Sprintf("template execute: %v", err), nethttp.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(buf.Bytes())
+}
+
+// renderFragment renders a single named template from the given
+// template file without the surrounding base layout. It is used by
+// HTMX-driven handlers to return partials that replace an element
+// in-place.
+func (s *Server) renderFragment(w nethttp.ResponseWriter, tmpl, fragment string, data any) {
+	t, err := s.templates.Clone()
+	if err != nil {
+		nethttp.Error(w, fmt.Sprintf("template clone: %v", err), nethttp.StatusInternalServerError)
+		return
+	}
+	if _, err := t.ParseFS(embedded, "templates/"+tmpl); err != nil {
+		nethttp.Error(w, fmt.Sprintf("template parse %s: %v", tmpl, err), nethttp.StatusInternalServerError)
+		return
+	}
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, fragment, data); err != nil {
+		nethttp.Error(w, fmt.Sprintf("template execute %s#%s: %v", tmpl, fragment, err), nethttp.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

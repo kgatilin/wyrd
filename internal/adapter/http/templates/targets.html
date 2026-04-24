@@ -1,8 +1,163 @@
 {{define "content"}}
 <h1>Targets</h1>
-<p class="lede">Locked target snapshots.</p>
-<div class="coming-soon">
-    <div class="tag">M7e</div>
-    <p>Target browser is coming in M7e — list, detail, active target, lock metadata.</p>
+<p class="lede">Locked architecture snapshots.</p>
+<div id="targets-root">
+    {{template "targets-fragment" .}}
 </div>
+<section class="compare-section" aria-label="Compare two targets">
+    <h2>Compare</h2>
+    <p class="muted">Diff between any two locked targets (A = before, B = after).</p>
+    <form
+        class="compare-form"
+        hx-get="/targets/compare"
+        hx-target="#compare-root"
+        hx-swap="innerHTML"
+        hx-trigger="change delay:150ms, submit"
+    >
+        <label>A:
+            <select name="a">
+                <option value="">—</option>
+                {{range .Targets}}
+                    <option value="{{.ID}}">{{.ID}}</option>
+                {{end}}
+            </select>
+        </label>
+        <label>B:
+            <select name="b">
+                <option value="">—</option>
+                {{range .Targets}}
+                    <option value="{{.ID}}">{{.ID}}</option>
+                {{end}}
+            </select>
+        </label>
+        <button type="submit">Compare</button>
+    </form>
+    <div id="compare-root">
+        <p class="muted">Pick two targets to compute a cross-target diff.</p>
+    </div>
+</section>
+{{end}}
+
+{{define "targets-fragment"}}
+{{if .Error}}
+    <div class="banner warning">{{.Error}}</div>
+{{end}}
+{{if not .Targets}}
+    <div class="coming-soon">
+        <p>No locked targets yet. Run <code>archai target lock &lt;id&gt;</code> to create one.</p>
+    </div>
+{{else}}
+    <table class="targets-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Created</th>
+                <th>Commit</th>
+                <th>Description</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Targets}}
+                <tr class="target-row{{if eq .ID $.ActiveTarget}} active{{end}}">
+                    <td><code>{{.ID}}</code></td>
+                    <td>{{.CreatedAt}}</td>
+                    <td>{{if .BaseCommit}}<code>{{.BaseCommit}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
+                    <td>{{if .Description}}{{.Description}}{{else}}<span class="muted">—</span>{{end}}</td>
+                    <td>
+                        {{if eq .ID $.ActiveTarget}}
+                            <span class="badge active-badge">active</span>
+                        {{else}}
+                            <span class="muted">—</span>
+                        {{end}}
+                    </td>
+                    <td class="actions">
+                        {{if ne .ID $.ActiveTarget}}
+                            <button
+                                type="button"
+                                class="btn btn-primary"
+                                hx-post="/targets/use?id={{.ID}}"
+                                hx-target="#targets-root"
+                                hx-swap="innerHTML"
+                            >Use</button>
+                        {{end}}
+                    </td>
+                </tr>
+            {{end}}
+        </tbody>
+    </table>
+{{end}}
+{{end}}
+
+{{define "compare-fragment"}}
+{{if .Error}}
+    <div class="banner warning">{{.Error}}</div>
+{{else}}
+    <div class="compare-result">
+        <div class="diff-header">
+            <div class="diff-target"><code>{{.A}}</code> <span class="muted">→</span> <code>{{.B}}</code></div>
+            <div class="diff-summary">
+                <span class="stat add">+{{.Summary.Additions}}</span>
+                <span class="stat change">~{{.Summary.Changes}}</span>
+                <span class="stat remove">-{{.Summary.Removals}}</span>
+                <span class="stat total">{{.Summary.Total}} total</span>
+            </div>
+        </div>
+        <div class="diff-body">
+            <aside class="diff-filter" aria-label="Filter by kind">
+                <h3>Filter</h3>
+                <ul>
+                    {{range .Kinds}}
+                        <li>
+                            <a
+                                href="#"
+                                hx-get="/targets/compare?a={{$.A}}&b={{$.B}}{{if .Kind}}&kind={{.Kind}}{{end}}"
+                                hx-target="#compare-root"
+                                hx-swap="innerHTML"
+                                class="filter-link{{if .Selected}} active{{end}}"
+                            >
+                                <span>{{.Label}}</span>
+                                <span class="badge">{{.Count}}</span>
+                            </a>
+                        </li>
+                    {{end}}
+                </ul>
+            </aside>
+            <section class="diff-content" aria-label="Diff entries">
+                {{if not .Groups}}
+                    <div class="diff-empty">
+                        {{if .Filter}}No <code>{{.Filter}}</code> changes.{{else}}Targets match.{{end}}
+                    </div>
+                {{else}}
+                    {{range .Groups}}
+                        <section class="diff-group {{.CSSTag}}">
+                            <h2>{{.Label}} <span class="muted">({{len .Entries}})</span></h2>
+                            <table class="diff-table">
+                                <thead>
+                                    <tr>
+                                        <th>Kind</th>
+                                        <th>Path</th>
+                                        <th>A ({{$.A}})</th>
+                                        <th>B ({{$.B}})</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .Entries}}
+                                        <tr class="row-{{.Op}}">
+                                            <td><span class="kind-tag">{{.Kind}}</span></td>
+                                            <td><code>{{.Path}}</code></td>
+                                            <td>{{if .Before}}<code class="trunc">{{.Before}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
+                                            <td>{{if .After}}<code class="trunc">{{.After}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
+                                        </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </section>
+                    {{end}}
+                {{end}}
+            </section>
+        </div>
+    </div>
+{{end}}
 {{end}}

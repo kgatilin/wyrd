@@ -1,8 +1,95 @@
 {{define "content"}}
 <h1>Diff</h1>
-<p class="lede">Compare current code against the active target.</p>
-<div class="coming-soon">
-    <div class="tag">M7f</div>
-    <p>Diff view is coming in M7f — structured changes, apply patch, validate.</p>
+<p class="lede">Current code vs active target.</p>
+<div id="diff-root">
+    {{template "diff-fragment" .}}
+</div>
+{{end}}
+
+{{define "diff-fragment"}}
+<div class="diff-page">
+    <div class="diff-header">
+        {{if .HasActive}}
+            <div class="diff-target">
+                <span class="label">Target:</span>
+                <code>{{.ActiveTarget}}</code>
+            </div>
+        {{else}}
+            <div class="diff-target muted">No active target</div>
+        {{end}}
+        {{if not .Error}}
+            <div class="diff-summary" role="status" aria-label="diff summary">
+                <span class="stat add" title="{{.Summary.Additions}} additions">+{{.Summary.Additions}}</span>
+                <span class="stat change" title="{{.Summary.Changes}} changes">~{{.Summary.Changes}}</span>
+                <span class="stat remove" title="{{.Summary.Removals}} removals">-{{.Summary.Removals}}</span>
+                <span class="stat total">{{.Summary.Total}} total</span>
+            </div>
+        {{end}}
+    </div>
+
+    {{if .Error}}
+        <div class="banner warning">{{.Error}}</div>
+    {{else}}
+        <div class="diff-body">
+            <aside class="diff-filter" aria-label="Filter by kind">
+                <h3>Filter</h3>
+                <ul>
+                    {{range .Kinds}}
+                        <li>
+                            <a
+                                href="/diff{{if .Kind}}?kind={{.Kind}}{{end}}"
+                                hx-get="/diff{{if .Kind}}?kind={{.Kind}}{{end}}"
+                                hx-target="#diff-root"
+                                hx-swap="innerHTML"
+                                hx-push-url="true"
+                                class="filter-link{{if .Selected}} active{{end}}"
+                            >
+                                <span>{{.Label}}</span>
+                                <span class="badge">{{.Count}}</span>
+                            </a>
+                        </li>
+                    {{end}}
+                </ul>
+            </aside>
+
+            <section class="diff-content" aria-label="Diff entries">
+                {{if not .Groups}}
+                    <div class="diff-empty">
+                        {{if .Filter}}
+                            No <code>{{.Filter}}</code> changes.
+                        {{else}}
+                            No differences — current code matches target.
+                        {{end}}
+                    </div>
+                {{else}}
+                    {{range .Groups}}
+                        <section class="diff-group {{.CSSTag}}" aria-label="{{.Label}}">
+                            <h2>{{.Label}} <span class="muted">({{len .Entries}})</span></h2>
+                            <table class="diff-table">
+                                <thead>
+                                    <tr>
+                                        <th class="col-kind">Kind</th>
+                                        <th class="col-path">Path</th>
+                                        <th class="col-side">Current</th>
+                                        <th class="col-side">Target</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .Entries}}
+                                        <tr class="row-{{.Op}}">
+                                            <td class="col-kind"><span class="kind-tag">{{.Kind}}</span></td>
+                                            <td class="col-path"><code>{{.Path}}</code></td>
+                                            <td class="col-side side-before">{{if .Before}}<code class="trunc">{{.Before}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
+                                            <td class="col-side side-after">{{if .After}}<code class="trunc">{{.After}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
+                                        </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </section>
+                    {{end}}
+                {{end}}
+            </section>
+        </div>
+    {{end}}
 </div>
 {{end}}

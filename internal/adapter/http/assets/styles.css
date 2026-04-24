@@ -141,3 +141,366 @@ a {
     font-weight: 600;
     margin-bottom: 0.5rem;
 }
+
+/* --- M7e: Diff + Targets views -------------------------------------- */
+
+/* Semantic diff colors. Defined as their own CSS variables so the dark
+   theme overrides can swap them in one place. */
+:root {
+    --diff-add-bg: #ecfdf5;
+    --diff-add-fg: #047857;
+    --diff-add-border: #10b981;
+    --diff-remove-bg: #fef2f2;
+    --diff-remove-fg: #b91c1c;
+    --diff-remove-border: #ef4444;
+    --diff-change-bg: #fefce8;
+    --diff-change-fg: #a16207;
+    --diff-change-border: #eab308;
+    --banner-warn-bg: #fef3c7;
+    --banner-warn-fg: #92400e;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --diff-add-bg: #052e22;
+        --diff-add-fg: #6ee7b7;
+        --diff-add-border: #047857;
+        --diff-remove-bg: #3f1212;
+        --diff-remove-fg: #fca5a5;
+        --diff-remove-border: #b91c1c;
+        --diff-change-bg: #3a2d0a;
+        --diff-change-fg: #fde68a;
+        --diff-change-border: #a16207;
+        --banner-warn-bg: #3a2d0a;
+        --banner-warn-fg: #fde68a;
+    }
+}
+
+.banner {
+    padding: 0.75rem 1rem;
+    border-radius: 0.4rem;
+    margin: 1rem 0;
+    border: 1px solid var(--border);
+}
+
+.banner.warning {
+    background: var(--banner-warn-bg);
+    color: var(--banner-warn-fg);
+    border-color: var(--diff-change-border);
+}
+
+.muted {
+    color: var(--muted);
+}
+
+/* Diff page layout */
+.diff-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.diff-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    background: var(--nav-bg);
+    border: 1px solid var(--border);
+    border-radius: 0.4rem;
+}
+
+.diff-summary {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.diff-summary .stat {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+}
+
+.diff-summary .stat.add {
+    background: var(--diff-add-bg);
+    color: var(--diff-add-fg);
+}
+
+.diff-summary .stat.remove {
+    background: var(--diff-remove-bg);
+    color: var(--diff-remove-fg);
+}
+
+.diff-summary .stat.change {
+    background: var(--diff-change-bg);
+    color: var(--diff-change-fg);
+}
+
+.diff-summary .stat.total {
+    background: var(--code-bg);
+    color: var(--muted);
+}
+
+.diff-body {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 1rem;
+    align-items: start;
+}
+
+.diff-filter {
+    position: sticky;
+    top: 1rem;
+    background: var(--nav-bg);
+    border: 1px solid var(--border);
+    border-radius: 0.4rem;
+    padding: 0.5rem;
+}
+
+.diff-filter h3 {
+    margin: 0 0 0.5rem;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+}
+
+.diff-filter ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.diff-filter .filter-link {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    text-decoration: none;
+    color: var(--fg);
+    font-size: 0.9rem;
+}
+
+.diff-filter .filter-link:hover {
+    background: var(--hover);
+}
+
+.diff-filter .filter-link.active {
+    background: var(--accent);
+    color: var(--accent-fg);
+}
+
+.diff-filter .filter-link.active .badge {
+    background: rgba(255, 255, 255, 0.2);
+    color: var(--accent-fg);
+}
+
+.badge {
+    display: inline-block;
+    min-width: 1.5em;
+    text-align: center;
+    background: var(--code-bg);
+    color: var(--muted);
+    padding: 0 0.35rem;
+    border-radius: 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.diff-content {
+    min-width: 0;
+}
+
+.diff-group {
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--border);
+    border-left-width: 4px;
+    border-radius: 0.4rem;
+    overflow: hidden;
+}
+
+.diff-group.added {
+    border-left-color: var(--diff-add-border);
+}
+
+.diff-group.removed {
+    border-left-color: var(--diff-remove-border);
+}
+
+.diff-group.changed {
+    border-left-color: var(--diff-change-border);
+}
+
+.diff-group h2 {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    font-size: 1rem;
+    background: var(--nav-bg);
+    border-bottom: 1px solid var(--border);
+}
+
+.diff-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.diff-table th, .diff-table td {
+    text-align: left;
+    padding: 0.4rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    font-size: 0.88rem;
+}
+
+.diff-table thead th {
+    background: var(--nav-bg);
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.diff-table .col-kind { width: 10%; }
+.diff-table .col-path { width: 28%; word-break: break-all; }
+.diff-table .col-side { width: 31%; }
+
+.diff-table tr.row-add {
+    background: color-mix(in srgb, var(--diff-add-bg) 60%, transparent);
+}
+.diff-table tr.row-remove {
+    background: color-mix(in srgb, var(--diff-remove-bg) 60%, transparent);
+}
+.diff-table tr.row-change {
+    background: color-mix(in srgb, var(--diff-change-bg) 60%, transparent);
+}
+
+.diff-table .side-before code { color: var(--diff-remove-fg); }
+.diff-table .side-after code { color: var(--diff-add-fg); }
+
+.trunc {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+}
+
+.kind-tag {
+    display: inline-block;
+    font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.25rem;
+    background: var(--code-bg);
+    color: var(--muted);
+}
+
+.diff-empty {
+    padding: 2rem;
+    text-align: center;
+    color: var(--muted);
+    border: 1px dashed var(--border);
+    border-radius: 0.4rem;
+}
+
+/* Targets view */
+.targets-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.5rem;
+}
+
+.targets-table th, .targets-table td {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+    vertical-align: middle;
+}
+
+.targets-table thead th {
+    background: var(--nav-bg);
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.targets-table tr.target-row.active {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.targets-table .actions {
+    text-align: right;
+}
+
+.btn {
+    background: var(--code-bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 0.3rem;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.btn:hover { background: var(--hover); }
+
+.btn-primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-color: var(--accent);
+}
+
+.btn-primary:hover {
+    opacity: 0.9;
+}
+
+.active-badge {
+    background: var(--accent);
+    color: var(--accent-fg);
+}
+
+.compare-section {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+}
+
+.compare-form {
+    display: flex;
+    gap: 1rem;
+    align-items: end;
+    margin: 1rem 0;
+    flex-wrap: wrap;
+}
+
+.compare-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.compare-form select {
+    padding: 0.3rem 0.5rem;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 0.3rem;
+    font-family: inherit;
+    font-size: 0.9rem;
+}
