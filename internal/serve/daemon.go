@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/kgatilin/archai/internal/worktree"
@@ -58,6 +59,13 @@ type Options struct {
 	// Debounce overrides the event coalescing window. Zero uses the
 	// default (200ms). Exposed mainly for tests.
 	Debounce time.Duration
+
+	// IdleTimeout, when non-zero, cancels the daemon after this much
+	// wall-clock time passes without any HTTP request being handled.
+	// Used by auto-started MCP daemons so they don't outlive their
+	// clients. Zero disables the idle timer entirely (the default for
+	// user-started `archai serve`).
+	IdleTimeout time.Duration
 }
 
 // HTTPTransport is the minimal contract the serve daemon needs from an
@@ -68,6 +76,15 @@ type Options struct {
 // internal/adapter/http.Server.
 type HTTPTransport interface {
 	Serve(ctx context.Context, addr string, ready func(boundAddr string)) error
+}
+
+// ActivityAware is implemented by HTTP transports that expose a hook
+// for observing each handled request. serve.Serve wires this to the
+// idle-timeout monitor so IdleTimeout only fires after a real period
+// of HTTP quiet. Transports that don't implement it simply won't
+// participate in idle shutdown (and IdleTimeout becomes a no-op).
+type ActivityAware interface {
+	SetActivityObserver(func())
 }
 
 // Serve runs the daemon: it builds the in-memory model, starts the
@@ -125,6 +142,19 @@ func Serve(ctx context.Context, opts Options) error {
 	// When a transport comes up we record a serve.json for this
 	// worktree so `archai where` / `archai list-daemons` can find us.
 	// The record is removed on graceful shutdown below.
+	// Derive a child context that either the caller's ctx or the
+	// idle-timeout monitor can cancel. The monitor only runs when an
+	// HTTP transport is started and IdleTimeout > 0.
+	runCtx, runCancel := context.WithCancel(ctx)
+	defer runCancel()
+
+	// lastActivity holds the Unix-nano timestamp of the most recent
+	// HTTP request. Seeded at start so the idle monitor measures from
+	// daemon boot (not from Unix epoch).
+	var lastActivity atomic.Int64
+	lastActivity.Store(time.Now().UnixNano())
+	touchActivity := func() { lastActivity.Store(time.Now().UnixNano()) }
+
 	httpErrCh := make(chan error, 1)
 	var httpStarted bool
 	var serveRecorded bool
@@ -134,6 +164,9 @@ func Serve(ctx context.Context, opts Options) error {
 			srv, err := opts.HTTPServerFactory(state)
 			if err != nil {
 				return fmt.Errorf("serve: building HTTP transport: %w", err)
+			}
+			if aware, ok := srv.(ActivityAware); ok {
+				aware.SetActivityObserver(touchActivity)
 			}
 			fmt.Fprintf(logOut, "serve: HTTP transport binding %s (worktree=%q)\n", opts.HTTPAddr, wtName)
 			httpStarted = true
@@ -151,8 +184,15 @@ func Serve(ctx context.Context, opts Options) error {
 				fmt.Fprintf(logOut, "serve: HTTP transport listening on %s\n", boundAddr)
 			}
 			go func() {
-				httpErrCh <- srv.Serve(ctx, opts.HTTPAddr, ready)
+				httpErrCh <- srv.Serve(runCtx, opts.HTTPAddr, ready)
 			}()
+
+			// Idle-timeout monitor. Only meaningful when HTTP is up —
+			// otherwise there's nothing to count as activity.
+			if opts.IdleTimeout > 0 {
+				fmt.Fprintf(logOut, "serve: idle-timeout %s enabled\n", opts.IdleTimeout)
+				go runIdleMonitor(runCtx, opts.IdleTimeout, &lastActivity, runCancel, logOut)
+			}
 		} else {
 			fmt.Fprintf(logOut, "serve: HTTP transport requested on %s — no transport wired (stub)\n", opts.HTTPAddr)
 		}
@@ -179,7 +219,7 @@ func Serve(ctx context.Context, opts Options) error {
 		}
 		watcher = w
 		defer func() { _ = watcher.Close() }()
-		handler = buildHandler(ctx, state, logOut, opts.Debug)
+		handler = buildHandler(runCtx, state, logOut, opts.Debug)
 	}
 
 	// When the MCP stdio transport is requested, it owns the process's
@@ -194,7 +234,7 @@ func Serve(ctx context.Context, opts Options) error {
 			return fmt.Errorf("serve: --mcp-stdio is not compatible with multi-worktree mode")
 		}
 
-		childCtx, cancel := context.WithCancel(ctx)
+		childCtx, cancel := context.WithCancel(runCtx)
 		defer cancel()
 
 		watchErrCh := make(chan error, 1)
@@ -219,17 +259,18 @@ func Serve(ctx context.Context, opts Options) error {
 
 	if watcher != nil {
 		fmt.Fprintln(logOut, "serve: watching for changes (Ctrl-C to stop)")
-		watchErr := watcher.Run(ctx, handler)
+		watchErr := watcher.Run(runCtx, handler)
 		if watchErr != nil && !errors.Is(watchErr, context.Canceled) {
 			return watchErr
 		}
 	} else {
 		// Multi mode: per-worktree watchers are spun up lazily as each
-		// State is loaded (see multiWatcherHook). We just block on ctx
-		// here so HTTP stays alive until Ctrl-C; the deferred
-		// MultiState.Close stops every registered watcher on exit.
+		// State is loaded (see multiWatcherHook). We just block on
+		// runCtx here so HTTP stays alive until Ctrl-C or the
+		// idle-timeout monitor cancels; the deferred MultiState.Close
+		// stops every registered watcher on exit.
 		fmt.Fprintln(logOut, "serve: multi-worktree mode (Ctrl-C to stop)")
-		<-ctx.Done()
+		<-runCtx.Done()
 	}
 
 	// Wait for the HTTP goroutine to unwind (if one was started) so we
@@ -296,6 +337,37 @@ func (c *watcherCloser) Close() error {
 		return c.watcher.Close()
 	}
 	return nil
+}
+
+// runIdleMonitor polls lastActivity and cancels the daemon (via cancel)
+// once idleTimeout has elapsed without any HTTP request. The poll
+// cadence is min(idleTimeout/4, 1s) so short timeouts react quickly in
+// tests while long production timeouts don't spin a tight loop.
+func runIdleMonitor(ctx context.Context, idleTimeout time.Duration, lastActivity *atomic.Int64, cancel context.CancelFunc, logOut io.Writer) {
+	poll := idleTimeout / 4
+	if poll > time.Second {
+		poll = time.Second
+	}
+	if poll < 10*time.Millisecond {
+		poll = 10 * time.Millisecond
+	}
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			last := time.Unix(0, lastActivity.Load())
+			if time.Since(last) >= idleTimeout {
+				fmt.Fprintf(logOut, "serve: idle-timeout %s elapsed (last activity %s ago) — shutting down\n",
+					idleTimeout, time.Since(last).Round(time.Millisecond))
+				cancel()
+				return
+			}
+		}
+	}
 }
 
 // buildHandler returns the EventHandler closure that dispatches a

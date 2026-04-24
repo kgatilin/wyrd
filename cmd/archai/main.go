@@ -308,16 +308,29 @@ manual verification and as a base for future features.`,
 		RunE: runServe,
 	}
 	serveCmd.Flags().String("root", ".", "Project root directory")
-	serveCmd.Flags().Bool("mcp-stdio", false, "Enable MCP stdio transport")
-	// Default to port 0 so parallel worktrees don't fight over a fixed
-	// port; the bound address is recorded in .arch/.worktree/<name>/serve.json
-	// for `archai where` / `archai list-daemons` to discover.
-	serveCmd.Flags().String("http", ":0", "HTTP transport address (\"\" disables HTTP; default :0 picks a free port)")
+	serveCmd.Flags().Bool("mcp-stdio", false, "Run as MCP stdio thin client, proxying tools/call to the worktree's HTTP daemon")
+	// Default to loopback-only port 0 so parallel worktrees don't
+	// fight over a fixed port and the daemon isn't exposed on the LAN
+	// without an explicit opt-in. Users who want LAN access can pass
+	// --http 0.0.0.0:PORT (or any specific interface). The bound
+	// address is recorded in .arch/.worktree/<name>/serve.json for
+	// `archai where` / `archai list-daemons` to discover.
+	serveCmd.Flags().String("http", "127.0.0.1:0", "HTTP transport address (\"\" disables HTTP; default 127.0.0.1:0 binds loopback on a free port, pass 0.0.0.0:PORT for LAN access)")
 	// M10: --multi discovers every git worktree of the project and
 	// exposes each under /w/{name}/ so a single daemon can drive them
 	// all. Omit the flag to keep the classic single-worktree behaviour.
 	serveCmd.Flags().Bool("multi", false, "Serve every git worktree under /w/{name}/* (multi-worktree mode)")
 	serveCmd.Flags().Bool("debug", false, "Verbose per-event logging")
+	// M11: --no-daemon switches --mcp-stdio to one-shot mode. The MCP
+	// stdio wrapper skips discovery/auto-start and runs every tool
+	// call against a freshly-loaded in-memory model in the same
+	// process (no fsnotify).
+	serveCmd.Flags().Bool("no-daemon", false, "With --mcp-stdio: skip auto-start and run one-shot in-process (no HTTP daemon, no watcher)")
+	// M11 idle-timeout: when non-zero, the HTTP daemon exits after
+	// this duration without any requests. Auto-started daemons pass
+	// 15m to keep untracked idle daemons from outliving their MCP
+	// clients. User-started `archai serve` defaults to 0 (disabled).
+	serveCmd.Flags().Duration("idle-timeout", 0, "Exit the daemon after this duration with no HTTP requests (0 disables; auto-started MCP daemons use 15m)")
 	rootCmd.AddCommand(serveCmd)
 
 	// where — print this worktree's active serve URL (if any).
@@ -384,13 +397,24 @@ Examples:
 }
 
 // runServe handles `archai serve`. It wires SIGINT/SIGTERM into a
-// cancellable context and delegates the rest to the serve package.
+// cancellable context and dispatches between three operational modes:
+//
+//  1. Default: long-running HTTP daemon (no --mcp-stdio).
+//  2. Thin-client MCP: --mcp-stdio without --no-daemon. Discovers (or
+//     auto-starts) an HTTP daemon on this worktree and proxies every
+//     tools/call to it over HTTP.
+//  3. One-shot MCP: --mcp-stdio --no-daemon. Runs the full in-process
+//     daemon (model + MCP stdio) in the current process with no HTTP
+//     transport and no watcher-driven auto-reload; every tool call
+//     sees whatever was loaded at startup.
 func runServe(cmd *cobra.Command, args []string) error {
 	root, _ := cmd.Flags().GetString("root")
 	mcpStdio, _ := cmd.Flags().GetBool("mcp-stdio")
 	httpAddr, _ := cmd.Flags().GetString("http")
 	debug, _ := cmd.Flags().GetBool("debug")
 	multi, _ := cmd.Flags().GetBool("multi")
+	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
+	idleTimeout, _ := cmd.Flags().GetDuration("idle-timeout")
 
 	parent := cmd.Context()
 	if parent == nil {
@@ -399,20 +423,40 @@ func runServe(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// M11: --mcp-stdio dispatches to thin-client or one-shot mode
+	// before the classic daemon code path. --multi is not compatible
+	// with either MCP mode.
+	if mcpStdio {
+		if multi {
+			return fmt.Errorf("--multi is not compatible with --mcp-stdio")
+		}
+		if !noDaemon {
+			return runMCPThinClient(ctx, root)
+		}
+		// One-shot in-process MCP: the in-memory model is loaded once,
+		// no HTTP listener is started, and the watcher is skipped by
+		// clearing HTTPAddr. The MCP stdio callback owns the session
+		// lifetime.
+		return serve.Serve(ctx, serve.Options{
+			Root:     root,
+			MCPStdio: true,
+			MCPServe: func(ctx context.Context, state *serve.State) error {
+				return mcp.Serve(ctx, state)
+			},
+			HTTPAddr: "",
+			Debug:    debug,
+		})
+	}
+
 	opts := serve.Options{
-		Root:     root,
-		MCPStdio: mcpStdio,
-		MCPServe: func(ctx context.Context, state *serve.State) error {
-			return mcp.Serve(ctx, state)
-		},
-		HTTPAddr: httpAddr,
-		Debug:    debug,
+		Root:        root,
+		MCPStdio:    false,
+		HTTPAddr:    httpAddr,
+		Debug:       debug,
+		IdleTimeout: idleTimeout,
 	}
 
 	if multi {
-		if mcpStdio {
-			return fmt.Errorf("--multi is not compatible with --mcp-stdio")
-		}
 		// Discover worktrees up-front. The MultiState is shared with
 		// the HTTP server so lazy-loads of individual worktree models
 		// happen on first request.
@@ -435,6 +479,53 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	return serve.Serve(ctx, opts)
+}
+
+// autoStartIdleTimeout is the --idle-timeout value passed to daemons
+// auto-started by the MCP thin client. The daemon exits after this
+// duration of no HTTP requests so an orphaned MCP client doesn't leave
+// a long-lived daemon running on the user's machine.
+const autoStartIdleTimeout = 15 * time.Minute
+
+// runMCPThinClient implements the `archai serve --mcp-stdio` thin
+// client. It resolves the worktree's running HTTP daemon (auto-starting
+// one if necessary) and runs the MCP stdio transport in client mode.
+func runMCPThinClient(ctx context.Context, root string) error {
+	if root == "" {
+		root = "."
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolving root %s: %w", root, err)
+	}
+
+	rec, _, err := serve.DiscoverDaemon(absRoot)
+	if err != nil {
+		return fmt.Errorf("mcp-client: discover daemon: %w", err)
+	}
+	if rec == nil {
+		// Auto-start a detached HTTP daemon on loopback and wait for it
+		// to register serve.json. The daemon is bound to 127.0.0.1 so
+		// auto-start never opens the daemon to the LAN, and it's asked
+		// to exit after autoStartIdleTimeout of quiet to avoid leaking
+		// orphan daemons past the MCP client's lifetime.
+		rec, err = serve.AutoStartDaemon(serve.AutoStartOptions{
+			Root:        absRoot,
+			HTTPAddr:    "127.0.0.1:0",
+			IdleTimeout: autoStartIdleTimeout,
+		})
+		if err != nil {
+			return fmt.Errorf("mcp-client: auto-start daemon: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "mcp-client: auto-started daemon pid=%d addr=%s idle-timeout=%s\n",
+			rec.PID, rec.HTTPAddr, autoStartIdleTimeout)
+	} else {
+		fmt.Fprintf(os.Stderr, "mcp-client: attached to daemon pid=%d addr=%s\n", rec.PID, rec.HTTPAddr)
+	}
+
+	return mcp.ServeClient(ctx, mcp.ClientOptions{
+		Endpoint: "http://" + rec.HTTPAddr,
+	})
 }
 
 // runSequence handles `archai sequence <target>`. It parses the target,

@@ -6,6 +6,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/mod v0.32.0
+	golang.org/x/sys v0.40.0
 	golang.org/x/tools v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
 	oss.terrastruct.com/d2 v0.7.1
@@ -34,7 +35,6 @@ require (
 	golang.org/x/image v0.20.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect

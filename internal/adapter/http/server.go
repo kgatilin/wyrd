@@ -43,6 +43,18 @@ type Server struct {
 	multi     *serve.MultiState
 	templates *template.Template
 	assets    fs.FS
+
+	// onActivity, when non-nil, is invoked for every HTTP request
+	// received by the server. Wired by serve.Serve to drive the
+	// idle-timeout monitor (see ActivityAware in internal/serve).
+	onActivity func()
+}
+
+// SetActivityObserver installs fn as the per-request activity hook.
+// Safe to call before Serve; not safe to call concurrently with Serve.
+// Implements serve.ActivityAware.
+func (s *Server) SetActivityObserver(fn func()) {
+	s.onActivity = fn
 }
 
 // NewServer constructs a single-worktree Server backed by the given
@@ -108,9 +120,22 @@ func (s *Server) Serve(ctx context.Context, addr string, ready func(boundAddr st
 	mux := nethttp.NewServeMux()
 	s.routes(mux)
 
+	// When an activity observer is installed (for idle-timeout), wrap
+	// the mux so each incoming request ticks the monitor. Static asset
+	// requests count as activity too — the goal is "the daemon is
+	// being used", not "tool calls specifically".
+	var handler nethttp.Handler = mux
+	if s.onActivity != nil {
+		observer := s.onActivity
+		handler = nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+			observer()
+			mux.ServeHTTP(w, r)
+		})
+	}
+
 	srv := &nethttp.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

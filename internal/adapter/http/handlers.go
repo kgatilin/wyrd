@@ -132,6 +132,10 @@ func (s *Server) routesContent(mux *nethttp.ServeMux) {
 	// Packages, and Diff views (#46). Registered before the catch-all
 	// "/" dashboard route so prefix matches resolve correctly.
 	s.registerGraphRoutes(mux)
+	// M11: JSON API used by the MCP thin-client wrapper. Registered
+	// under /api/ so the browser UI and the machine API live side by
+	// side on one listener.
+	s.registerAPIRoutes(mux)
 	// In multi mode, the root of a worktree ("/w/{name}/") is served
 	// by the content mux at "/" after dispatchWorktree rewrites the
 	// URL. In single mode the root is registered directly by routes()

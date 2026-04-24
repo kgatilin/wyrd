@@ -50,7 +50,11 @@ func Hello() string { return "hi" }
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, binPath, "serve", "--mcp-stdio", "--root", projectDir)
+	// Use --no-daemon so this test exercises the in-process one-shot
+	// mode (previously the default shape of `serve --mcp-stdio`).
+	// Thin-client mode has its own dedicated coverage in
+	// TestE2E_MCPStdio_ThinClient.
+	cmd := exec.CommandContext(ctx, binPath, "serve", "--mcp-stdio", "--no-daemon", "--root", projectDir)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("stdin pipe: %v", err)
