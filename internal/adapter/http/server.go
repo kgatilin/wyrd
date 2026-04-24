@@ -22,7 +22,7 @@ import (
 	"github.com/kgatilin/archai/internal/serve"
 )
 
-//go:embed templates/*.html assets/*
+//go:embed templates/*.html assets
 var embedded embed.FS
 
 // Server is the HTTP transport. It wraps a net/http.Server and holds

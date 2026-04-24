@@ -1,0 +1,301 @@
+package http
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	nethttp "net/http"
+	nethttptest "net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/archai/internal/serve"
+)
+
+func TestParseTypeID(t *testing.T) {
+	cases := []struct {
+		in      string
+		wantPkg string
+		wantNam string
+		ok      bool
+	}{
+		{"internal/service.Service", "internal/service", "Service", true},
+		{"internal/adapter/golang.Reader", "internal/adapter/golang", "Reader", true},
+		{"fmt.Stringer", "fmt", "Stringer", true},
+		{"noDot", "", "", false},
+		{"", "", "", false},
+		{"pkg.", "", "", false},
+		{".Foo", "", "", false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.in, func(t *testing.T) {
+			got, ok := parseTypeID(tc.in)
+			if ok != tc.ok {
+				t.Fatalf("parseTypeID(%q) ok = %v, want %v", tc.in, ok, tc.ok)
+			}
+			if !ok {
+				return
+			}
+			if got.Package != tc.wantPkg || got.Name != tc.wantNam {
+				t.Fatalf("parseTypeID(%q) = %+v, want {%q, %q}", tc.in, got, tc.wantPkg, tc.wantNam)
+			}
+		})
+	}
+}
+
+func TestBuildTypePage_StructWithImplementsAndUsedBy(t *testing.T) {
+	pkgs := []domain.PackageModel{
+		{
+			Path: "internal/service",
+			Structs: []domain.StructDef{
+				{
+					Name:       "Service",
+					IsExported: true,
+					SourceFile: "service.go",
+					Fields: []domain.FieldDef{
+						{Name: "reader", Type: domain.TypeRef{Name: "ModelReader"}},
+					},
+					Methods: []domain.MethodDef{
+						{Name: "Generate", IsExported: true, Returns: []domain.TypeRef{{Name: "error"}}},
+					},
+				},
+			},
+			Implementations: []domain.Implementation{
+				{
+					Concrete:  domain.SymbolRef{Package: "internal/service", Symbol: "Service"},
+					Interface: domain.SymbolRef{Package: "internal/api", Symbol: "Generator"},
+				},
+			},
+		},
+		{
+			Path: "cmd/archai",
+			Dependencies: []domain.Dependency{
+				{
+					From: domain.SymbolRef{Package: "cmd/archai", Symbol: "main"},
+					To:   domain.SymbolRef{Package: "internal/service", Symbol: "Service"},
+					Kind: domain.DependencyUses,
+				},
+			},
+		},
+	}
+	ref := typeRef{Package: "internal/service", Name: "Service"}
+	data, ok := buildTypePage(pkgs, ref)
+	if !ok {
+		t.Fatal("expected Service to be found")
+	}
+	if data.Kind != typeKindStruct {
+		t.Fatalf("Kind = %q, want struct", data.Kind)
+	}
+	if len(data.Fields) != 1 || data.Fields[0].Name != "reader" {
+		t.Fatalf("fields = %+v", data.Fields)
+	}
+	if len(data.Methods) != 1 || data.Methods[0].Name != "Generate" {
+		t.Fatalf("methods = %+v", data.Methods)
+	}
+	if len(data.Implements) != 1 || data.Implements[0].Name != "Generator" {
+		t.Fatalf("implements = %+v", data.Implements)
+	}
+	if len(data.UsedBy) != 1 || data.UsedBy[0].Package != "cmd/archai" {
+		t.Fatalf("usedBy = %+v", data.UsedBy)
+	}
+	if data.UsedBy[0].Href != "/packages/cmd/archai" {
+		t.Fatalf("usedBy href = %q", data.UsedBy[0].Href)
+	}
+	if data.PackageHref != "/packages/internal/service" {
+		t.Fatalf("packageHref = %q", data.PackageHref)
+	}
+}
+
+func TestBuildTypePage_InterfaceImplementedBy(t *testing.T) {
+	pkgs := []domain.PackageModel{
+		{
+			Path: "internal/api",
+			Interfaces: []domain.InterfaceDef{
+				{Name: "Generator", IsExported: true, SourceFile: "api.go"},
+			},
+			Implementations: []domain.Implementation{
+				{
+					Concrete:  domain.SymbolRef{Package: "internal/service", Symbol: "Service"},
+					Interface: domain.SymbolRef{Package: "internal/api", Symbol: "Generator"},
+				},
+			},
+		},
+	}
+	ref := typeRef{Package: "internal/api", Name: "Generator"}
+	data, ok := buildTypePage(pkgs, ref)
+	if !ok {
+		t.Fatal("expected Generator to be found")
+	}
+	if data.Kind != typeKindInterface {
+		t.Fatalf("Kind = %q, want interface", data.Kind)
+	}
+	if len(data.ImplementedBy) != 1 || data.ImplementedBy[0].Name != "Service" {
+		t.Fatalf("implementedBy = %+v", data.ImplementedBy)
+	}
+	if data.ImplementedBy[0].Href != "/types/internal/service.Service" {
+		t.Fatalf("href = %q", data.ImplementedBy[0].Href)
+	}
+}
+
+func TestBuildTypePage_MissingType(t *testing.T) {
+	pkgs := []domain.PackageModel{{Path: "internal/foo"}}
+	if _, ok := buildTypePage(pkgs, typeRef{Package: "internal/foo", Name: "Nope"}); ok {
+		t.Fatal("expected missing type to return ok=false")
+	}
+}
+
+func TestBuildRelationshipGraph_RootAndEdges(t *testing.T) {
+	ref := typeRef{Package: "internal/service", Name: "Service"}
+	impls := []relatedView{{Package: "internal/api", Name: "Generator", Href: "/types/internal/api.Generator"}}
+	implBy := []relatedView{{Package: "internal/other", Name: "Other"}}
+	usedBy := []usedByView{{Package: "cmd/archai", Count: 3}}
+
+	g := buildRelationshipGraph(ref, impls, implBy, usedBy)
+	if len(g.Nodes) != 4 {
+		t.Fatalf("expected 4 nodes, got %d: %+v", len(g.Nodes), g.Nodes)
+	}
+	if g.Nodes[0].Root == false {
+		t.Fatalf("root node not flagged: %+v", g.Nodes[0])
+	}
+	if len(g.Edges) != 3 {
+		t.Fatalf("expected 3 edges, got %d: %+v", len(g.Edges), g.Edges)
+	}
+}
+
+func TestBuildRelationshipGraph_Empty(t *testing.T) {
+	ref := typeRef{Package: "internal/service", Name: "Service"}
+	g := buildRelationshipGraph(ref, nil, nil, nil)
+	if len(g.Nodes) != 1 {
+		t.Fatalf("want 1 root node, got %d", len(g.Nodes))
+	}
+	if len(g.Edges) != 0 {
+		t.Fatalf("want 0 edges, got %d", len(g.Edges))
+	}
+}
+
+func TestHandleType_RoundTripAndSections(t *testing.T) {
+	ts := newTypesFixtureServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/types/internal/svc.Widget")
+	if err != nil {
+		t.Fatalf("GET /types/: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, string(body))
+	}
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	for _, want := range []string{
+		"Widget",                 // type name
+		"Fields",                 // fields section
+		"Methods",                // methods section
+		"Relationships",          // relationships section
+		"Graph",                  // graph section
+		`id="type-graph"`,        // cytoscape target
+		`cytoscape.min.js`,       // vendored cytoscape script
+		`/packages/internal/svc`, // package backlink
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("/types page missing %q: %s", want, truncate(s, 500))
+		}
+	}
+}
+
+func TestHandleType_NotFound(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/types/internal/nope.Thing")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestHandleTypeGraph_JSON(t *testing.T) {
+	ts := newTypesFixtureServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/api/types/internal/svc.Widget/graph")
+	if err != nil {
+		t.Fatalf("GET /api/types/.../graph: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, string(body))
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("content-type = %q, want application/json", ct)
+	}
+	var payload graphJSON
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(payload.Nodes) < 1 {
+		t.Fatalf("expected at least the root node, got %+v", payload.Nodes)
+	}
+	if !payload.Nodes[0].Root {
+		t.Errorf("first node should be flagged Root")
+	}
+}
+
+// newTypesFixtureServer builds a minimal fixture with a struct that has
+// fields and an exported method + a dependency from another package so
+// the type detail page has something to render in every section.
+func newTypesFixtureServer(t *testing.T) *nethttptest.Server {
+	t.Helper()
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "go.mod"),
+		"module example.com/typesfix\n\ngo 1.21\n")
+	mustWrite(t, filepath.Join(root, "internal", "svc", "widget.go"), `package svc
+
+// Widget is a fixture type used by the /types handler test.
+type Widget struct {
+	Name string
+	Size int
+}
+
+// Describe returns a short description.
+func (w *Widget) Describe() string { return w.Name }
+`)
+	mustWrite(t, filepath.Join(root, "internal", "user", "user.go"), `package user
+
+import svc "example.com/typesfix/internal/svc"
+
+// Use references Widget so the search and used-by collectors have data.
+func Use(w *svc.Widget) string { return w.Describe() }
+`)
+
+	state := serve.NewState(root)
+	if err := state.Load(context.Background()); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	srv, err := NewServer(state)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	mux := nethttp.NewServeMux()
+	srv.routes(mux)
+	return nethttptest.NewServer(mux)
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}

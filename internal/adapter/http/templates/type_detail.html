@@ -1,0 +1,120 @@
+{{define "content"}}
+<h1>
+    <span class="kind-tag">{{.Kind}}</span>
+    {{.Name}}
+</h1>
+<p class="lede">
+    <a class="pkg-link" href="{{.PackageHref}}">{{.Package}}</a>
+    {{if .SourceFile}}<span class="muted"> · {{.SourceFile}}</span>{{end}}
+    {{if not .IsExported}}<span class="pill pill-gray">unexported</span>{{end}}
+    {{if .Stereotype}}<span class="pill pill-gray">{{.Stereotype}}</span>{{end}}
+</p>
+
+{{if .Doc}}
+<section class="card">
+    <h2>Doc</h2>
+    <pre>{{.Doc}}</pre>
+</section>
+{{end}}
+
+{{if .Underlying}}
+<section class="card">
+    <h2>Underlying type</h2>
+    <p class="mono">{{.Underlying}}</p>
+</section>
+{{end}}
+
+{{if .Fields}}
+<section class="card">
+    <h2>Fields</h2>
+    <table class="diff-table">
+        <thead>
+        <tr><th>Name</th><th>Type</th><th>Tag</th></tr>
+        </thead>
+        <tbody>
+        {{range .Fields}}
+            <tr>
+                <td class="mono">{{if .IsExported}}+{{else}}-{{end}}{{.Name}}</td>
+                <td class="mono">{{.Type}}</td>
+                <td class="mono small">{{.Tag}}</td>
+            </tr>
+        {{end}}
+        </tbody>
+    </table>
+</section>
+{{end}}
+
+{{if .Methods}}
+<section class="card">
+    <h2>Methods</h2>
+    <ul class="stat-list">
+        {{range .Methods}}
+            <li><span class="mono">{{if .IsExported}}+{{else}}-{{end}}{{.Signature}}</span></li>
+        {{end}}
+    </ul>
+</section>
+{{end}}
+
+<section class="card">
+    <h2>Relationships</h2>
+    {{if .Implements}}
+        <h3>Implements</h3>
+        <ul class="stat-list">
+            {{range .Implements}}
+                <li><a href="{{.Href}}" class="mono">{{.Package}}.{{.Name}}</a></li>
+            {{end}}
+        </ul>
+    {{end}}
+    {{if .ImplementedBy}}
+        <h3>Implemented by</h3>
+        <ul class="stat-list">
+            {{range .ImplementedBy}}
+                <li><a href="{{.Href}}" class="mono">{{.Package}}.{{.Name}}</a></li>
+            {{end}}
+        </ul>
+    {{end}}
+    {{if .UsedBy}}
+        <h3>Used by</h3>
+        <ul class="stat-list">
+            {{range .UsedBy}}
+                <li>
+                    <a href="{{.Href}}" class="pkg-link">{{.Package}}</a>
+                    <span class="badge">{{.Count}}</span>
+                </li>
+            {{end}}
+        </ul>
+    {{end}}
+    {{if and (not .Implements) (not .ImplementedBy) (not .UsedBy)}}
+        <p class="muted">No relationships recorded.</p>
+    {{end}}
+</section>
+
+<section class="card">
+    <h2>Graph</h2>
+    {{if .RelGraphEmpty}}
+        <p class="muted">No edges to draw — this type stands alone in the loaded model.</p>
+    {{else}}
+        <div id="type-graph" class="cy-graph" data-graph="{{.RelGraphJSON}}"></div>
+        <p class="muted small">Rendered client-side with Cytoscape.js (M8 #46).</p>
+    {{end}}
+</section>
+
+{{if .HasSequences}}
+<section class="card">
+    <h2>Sequences from public methods</h2>
+    {{range $i, $seq := .Sequences}}
+        <h3>{{$seq.Label}}</h3>
+        {{if $seq.HasM6}}
+            <div class="cy-graph cy-sequence" id="seq-graph-{{$i}}" data-graph="{{toJSON $seq.Graph}}"></div>
+        {{else}}
+            <p class="muted">No static call edges recorded for this method (M6 may not have been run, or the method body has no inter-package calls).</p>
+        {{end}}
+    {{end}}
+</section>
+{{end}}
+
+<script src="/assets/vendor/dagre.min.js" defer></script>
+<script src="/assets/vendor/cytoscape.min.js" defer></script>
+<script src="/assets/vendor/cytoscape-dagre.js" defer></script>
+<script src="/assets/graph.js" defer></script>
+{{end}}

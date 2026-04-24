@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -14,6 +15,17 @@ import (
 func templateFuncs() template.FuncMap {
 	return template.FuncMap{
 		"safeHTML": func(s string) template.HTML { return template.HTML(s) },
+		// toJSON marshals v as a JSON string that is safe to embed in an
+		// HTML attribute value (so client-side JS can read it via
+		// dataset.*). Falls back to "{}" on marshal errors so the page
+		// still renders.
+		"toJSON": func(v any) string {
+			buf, err := json.Marshal(v)
+			if err != nil {
+				return "{}"
+			}
+			return string(buf)
+		},
 	}
 }
 
@@ -75,7 +87,13 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 	mux.HandleFunc("/layers", s.handleLayers)
 	mux.HandleFunc("/packages", s.handlePackagesList)
 	mux.HandleFunc("/packages/", s.handlePackageDetail)
-	mux.HandleFunc("/configs", s.pageHandler("configs.html", "Configs", "/configs"))
+	// M7d: type detail pages + JSON graph endpoint for the client-side
+	// Cytoscape renderer. The prefix registration lets /types/{id} carry
+	// a slash-bearing package path ("internal/service.Service").
+	mux.HandleFunc("/types/", s.handleType)
+	mux.HandleFunc("/api/types/", s.handleTypeGraph)
+	// M7d: configs catalog (overlay-driven config type detail pages).
+	mux.HandleFunc("/configs", s.handleConfigs)
 	// /search/results must be registered before /search so the prefix
 	// mux treats it as a distinct route rather than falling back to the
 	// full page handler.

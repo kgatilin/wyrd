@@ -959,3 +959,18 @@ table.config-fields th, table.config-fields td {
 table.config-fields th { color: var(--muted); font-weight: 600; }
 
 .config-type { margin-bottom: 1.5rem; }
+
+/* ---- M7d: Type detail + Configs catalog ------------------------------ */
+
+.cy-graph {
+    width: 100%;
+    height: 360px;
+    border: 1px solid var(--border);
+    border-radius: 0.4rem;
+    background: var(--code-bg);
+    margin: 0.5rem 0;
+}
+
+.cy-graph.cy-sequence {
+    height: 280px;
+}

@@ -1,8 +1,64 @@
 {{define "content"}}
 <h1>Configs</h1>
-<p class="lede">archai.yaml overlay configuration.</p>
-<div class="coming-soon">
-    <div class="tag">M7e</div>
-    <p>Config viewer is coming in M7e — overlay source, parsed tree, validation status.</p>
-</div>
+<p class="lede">
+    Config types declared in <code>archai.yaml</code>.
+    {{if .Module}}<span class="muted">Module: <code>{{.Module}}</code></span>{{end}}
+</p>
+
+{{if not .HasOverlay}}
+    <div class="coming-soon">
+        <div class="tag">no overlay</div>
+        <p>Load an <code>archai.yaml</code> with a <code>configs:</code> list to populate this catalog.</p>
+    </div>
+{{else if not .Configs}}
+    <div class="coming-soon">
+        <div class="tag">empty</div>
+        <p>No config types declared. Add fully-qualified type names to <code>configs:</code> in <code>archai.yaml</code>.</p>
+    </div>
+{{else}}
+    {{range .Configs}}
+        <section class="card">
+            <h2>
+                <a class="mono" href="{{.TypeHref}}">{{.Package}}.{{.Name}}</a>
+            </h2>
+            {{if .Doc}}<p class="muted">{{.Doc}}</p>{{end}}
+
+            <h3>Fields</h3>
+            {{if .Fields}}
+                <table class="diff-table">
+                    <thead>
+                    <tr><th>Name</th><th>Type</th><th>Tag</th><th>Default</th></tr>
+                    </thead>
+                    <tbody>
+                    {{range .Fields}}
+                        <tr>
+                            <td class="mono">{{if .IsExported}}+{{else}}-{{end}}{{.Name}}</td>
+                            <td class="mono">{{.Type}}</td>
+                            <td class="mono small">{{.Tag}}</td>
+                            <td class="mono small">{{.Default}}</td>
+                        </tr>
+                    {{end}}
+                    </tbody>
+                </table>
+            {{else}}
+                <p class="muted">No fields.</p>
+            {{end}}
+
+            <h3>Example (defaults)</h3>
+            <pre>{{.Example}}</pre>
+        </section>
+    {{end}}
+{{end}}
+
+{{if .Missing}}
+    <section class="card">
+        <h2>Unresolved overlay entries</h2>
+        <p class="muted small">The following names appear in <code>archai.yaml</code> but do not match any struct in the loaded packages.</p>
+        <ul class="stat-list">
+            {{range .Missing}}
+                <li><code>{{.}}</code></li>
+            {{end}}
+        </ul>
+    </section>
+{{end}}
 {{end}}
