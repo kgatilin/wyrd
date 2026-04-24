@@ -73,7 +73,8 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 	// Nav pages. The root handler must stay last so it doesn't shadow
 	// more-specific routes.
 	mux.HandleFunc("/layers", s.handleLayers)
-	mux.HandleFunc("/packages", s.pageHandler("packages.html", "Packages", "/packages"))
+	mux.HandleFunc("/packages", s.handlePackagesList)
+	mux.HandleFunc("/packages/", s.handlePackageDetail)
 	mux.HandleFunc("/configs", s.pageHandler("configs.html", "Configs", "/configs"))
 	// /search/results must be registered before /search so the prefix
 	// mux treats it as a distinct route rather than falling back to the

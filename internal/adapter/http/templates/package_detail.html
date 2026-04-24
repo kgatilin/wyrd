@@ -1,0 +1,235 @@
+{{define "content"}}
+<nav class="crumbs">
+    <a href="/packages">Packages</a>
+    <span class="sep">/</span>
+    <span>{{.Pkg.Path}}</span>
+</nav>
+<h1 class="pkg-title">
+    {{.Pkg.Name}}
+    <span class="pkg-path-muted">({{.Pkg.Path}})</span>
+</h1>
+<div class="pkg-badges">
+    {{if .LayerBadge}}<span class="badge badge-layer">{{.LayerBadge}}</span>{{end}}
+    {{if .Pkg.Aggregate}}<span class="badge badge-agg">aggregate: {{.Pkg.Aggregate}}</span>{{end}}
+    {{range .Stereotypes}}<span class="badge badge-stereo">&lt;&lt;{{.}}&gt;&gt;</span>{{end}}
+</div>
+
+<nav class="pkg-tabs" role="tablist">
+    {{range .Tabs}}
+        <a href="/packages/{{$.Pkg.Path}}?tab={{.ID}}"
+           hx-get="/packages/{{$.Pkg.Path}}?tab={{.ID}}"
+           hx-target="#pkg-tab-content"
+           hx-swap="outerHTML"
+           hx-push-url="true"
+           class="pkg-tab{{if .Active}} active{{end}}"
+           role="tab">{{.Label}}</a>
+    {{end}}
+</nav>
+
+{{template "package_detail_tab" .}}
+{{end}}
+
+{{define "package_detail_tab"}}
+<section id="pkg-tab-content" class="pkg-tab-panel" data-tab="{{.Active}}">
+    {{if eq (printf "%s" .Active) "overview"}}
+        {{template "tab-overview" .}}
+    {{else if eq (printf "%s" .Active) "public"}}
+        {{template "tab-symbols" .}}
+    {{else if eq (printf "%s" .Active) "internal"}}
+        {{template "tab-symbols" .}}
+    {{else if eq (printf "%s" .Active) "dependencies"}}
+        {{template "tab-dependencies" .}}
+    {{else if eq (printf "%s" .Active) "configs"}}
+        {{template "tab-configs" .}}
+    {{end}}
+</section>
+{{end}}
+
+{{define "tab-overview"}}
+<div class="tab-overview">
+    {{if .SVGError}}
+        <div class="error-banner">Diagram render failed: {{.SVGError}}</div>
+    {{else if .SVG}}
+        <div class="d2-frame">{{.SVG}}</div>
+    {{else}}
+        <p class="empty">No diagram available for this package.</p>
+    {{end}}
+    <dl class="pkg-meta-list">
+        <dt>Path</dt><dd><code>{{.Pkg.Path}}</code></dd>
+        <dt>Name</dt><dd><code>{{.Pkg.Name}}</code></dd>
+        {{if .LayerBadge}}<dt>Layer</dt><dd>{{.LayerBadge}}</dd>{{end}}
+        {{if .Pkg.Aggregate}}<dt>Aggregate</dt><dd>{{.Pkg.Aggregate}}</dd>{{end}}
+        <dt>Files</dt>
+        <dd>
+            {{range .Pkg.SourceFiles}}<code>{{.}}</code> {{end}}
+        </dd>
+    </dl>
+</div>
+{{end}}
+
+{{define "tab-symbols"}}
+<div class="tab-symbols">
+    {{if .Interfaces}}
+        <h2>Interfaces</h2>
+        <ul class="symbol-list">
+            {{range .Interfaces}}
+                <li>
+                    <code class="sym-name">{{.Name}}</code>
+                    {{if .Stereotype.String}}<span class="badge badge-stereo">&lt;&lt;{{.Stereotype.String}}&gt;&gt;</span>{{end}}
+                    {{if .Doc}}<div class="sym-doc">{{.Doc}}</div>{{end}}
+                    {{if .Methods}}
+                        <ul class="sym-sub">
+                            {{range .Methods}}<li><code>{{.Signature}}</code></li>{{end}}
+                        </ul>
+                    {{end}}
+                </li>
+            {{end}}
+        </ul>
+    {{end}}
+
+    {{if .Structs}}
+        <h2>Structs</h2>
+        <ul class="symbol-list">
+            {{range .Structs}}
+                <li>
+                    <code class="sym-name">{{.Name}}</code>
+                    {{if .Stereotype.String}}<span class="badge badge-stereo">&lt;&lt;{{.Stereotype.String}}&gt;&gt;</span>{{end}}
+                    {{if .Doc}}<div class="sym-doc">{{.Doc}}</div>{{end}}
+                    {{if .Fields}}
+                        <ul class="sym-sub">
+                            {{range .Fields}}<li><code>{{.}}</code></li>{{end}}
+                        </ul>
+                    {{end}}
+                </li>
+            {{end}}
+        </ul>
+    {{end}}
+
+    {{if .Functions}}
+        <h2>Functions</h2>
+        <ul class="symbol-list">
+            {{range .Functions}}
+                <li>
+                    <code class="sym-name">{{.Signature}}</code>
+                    {{if .Stereotype.String}}<span class="badge badge-stereo">&lt;&lt;{{.Stereotype.String}}&gt;&gt;</span>{{end}}
+                    {{if .Doc}}<div class="sym-doc">{{.Doc}}</div>{{end}}
+                </li>
+            {{end}}
+        </ul>
+    {{end}}
+
+    {{if .TypeDefs}}
+        <h2>Types</h2>
+        <ul class="symbol-list">
+            {{range .TypeDefs}}
+                <li>
+                    <code class="sym-name">{{.Name}}</code>
+                    <span class="sym-muted">{{.UnderlyingType}}</span>
+                    {{if .Stereotype.String}}<span class="badge badge-stereo">&lt;&lt;{{.Stereotype.String}}&gt;&gt;</span>{{end}}
+                    {{if .Doc}}<div class="sym-doc">{{.Doc}}</div>{{end}}
+                    {{if .Constants}}<div class="sym-muted">values: {{range $i, $c := .Constants}}{{if $i}}, {{end}}{{$c}}{{end}}</div>{{end}}
+                </li>
+            {{end}}
+        </ul>
+    {{end}}
+
+    {{if .Constants}}
+        <h2>Constants</h2>
+        <ul class="symbol-list compact">
+            {{range .Constants}}<li><code>{{.Name}}</code>{{if .Value}} = <code>{{.Value}}</code>{{end}}</li>{{end}}
+        </ul>
+    {{end}}
+
+    {{if .Variables}}
+        <h2>Variables</h2>
+        <ul class="symbol-list compact">
+            {{range .Variables}}<li><code>{{.Name}}</code></li>{{end}}
+        </ul>
+    {{end}}
+
+    {{if .Errors}}
+        <h2>Errors</h2>
+        <ul class="symbol-list compact">
+            {{range .Errors}}<li><code>{{.Name}}</code>{{if .Message}} — {{.Message}}{{end}}</li>{{end}}
+        </ul>
+    {{end}}
+
+    {{if not (or .Interfaces .Structs .Functions .TypeDefs .Constants .Variables .Errors)}}
+        <p class="empty">No symbols in this tab.</p>
+    {{end}}
+</div>
+{{end}}
+
+{{define "tab-dependencies"}}
+<div class="tab-dependencies">
+    <section>
+        <h2>Outbound</h2>
+        {{if .Outbound}}
+            <ul class="dep-list">
+                {{range .Outbound}}
+                    <li>
+                        {{if .InternalPath}}
+                            <a class="dep-pkg" href="/packages/{{.InternalPath}}"><code>{{.TargetPkg}}</code></a>
+                        {{else}}
+                            <code class="dep-pkg">{{.TargetPkg}}</code>
+                            {{if .External}}<span class="badge badge-ext">external</span>{{end}}
+                        {{end}}
+                        <ul class="dep-syms">
+                            {{range .Symbols}}<li><code>{{.}}</code></li>{{end}}
+                        </ul>
+                    </li>
+                {{end}}
+            </ul>
+        {{else}}
+            <p class="empty">No outbound dependencies.</p>
+        {{end}}
+    </section>
+
+    <section>
+        <h2>Inbound</h2>
+        {{if .Inbound}}
+            <ul class="dep-list">
+                {{range .Inbound}}
+                    <li>
+                        <a class="dep-pkg" href="/packages/{{.InternalPath}}"><code>{{.SourcePkg}}</code></a>
+                        <ul class="dep-syms">
+                            {{range .Symbols}}<li><code>{{.}}</code></li>{{end}}
+                        </ul>
+                    </li>
+                {{end}}
+            </ul>
+        {{else}}
+            <p class="empty">No inbound dependencies.</p>
+        {{end}}
+    </section>
+</div>
+{{end}}
+
+{{define "tab-configs"}}
+<div class="tab-configs">
+    {{if .ConfigTypes}}
+        {{range .ConfigTypes}}
+            <section class="config-type">
+                <h2><code>{{.Name}}</code></h2>
+                {{if .Doc}}<p class="sym-doc">{{.Doc}}</p>{{end}}
+                {{if .Fields}}
+                    <table class="config-fields">
+                        <thead><tr><th>Field</th><th>Type</th><th>Tag</th></tr></thead>
+                        <tbody>
+                            {{range .Fields}}
+                                <tr>
+                                    <td><code>{{.Name}}</code></td>
+                                    <td><code>{{.Type}}</code></td>
+                                    <td><code>{{.Tag}}</code></td>
+                                </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                {{end}}
+            </section>
+        {{end}}
+    {{else}}
+        <p class="empty">No config types declared in this package.</p>
+    {{end}}
+</div>
+{{end}}

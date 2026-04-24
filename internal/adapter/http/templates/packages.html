@@ -1,8 +1,73 @@
 {{define "content"}}
 <h1>Packages</h1>
-<p class="lede">Go packages extracted from the project.</p>
-<div class="coming-soon">
-    <div class="tag">M7d</div>
-    <p>Package browser is coming in M7d — list, detail view, symbols, dependencies.</p>
+<p class="lede">Browse Go packages extracted from the project. Filter by layer, stereotype, or search by name.</p>
+
+<form class="pkg-filter"
+      hx-get="/packages"
+      hx-trigger="change, keyup delay:250ms from:input[name='q']"
+      hx-target="#pkg-tree-wrap"
+      hx-swap="outerHTML"
+      hx-push-url="true">
+    <div class="pkg-filter-row">
+        <label>
+            <span>Layer</span>
+            <select name="layer">
+                <option value="">all</option>
+                {{range .LayerOptions}}
+                    <option value="{{.}}"{{if eq . $.Filter.Layer}} selected{{end}}>{{.}}</option>
+                {{end}}
+            </select>
+        </label>
+        <label>
+            <span>Stereotype</span>
+            <select name="stereotype">
+                <option value="">all</option>
+                {{range .StereotypeOpts}}
+                    <option value="{{.}}"{{if eq . $.Filter.Stereotype}} selected{{end}}>{{.}}</option>
+                {{end}}
+            </select>
+        </label>
+        <label class="grow">
+            <span>Search</span>
+            <input type="search" name="q" value="{{.Filter.Search}}"
+                   placeholder="package path or symbol name">
+        </label>
+    </div>
+</form>
+
+{{template "packages_tree" .}}
+{{end}}
+
+{{define "packages_tree"}}
+<div id="pkg-tree-wrap">
+    <p class="pkg-count">{{.TotalCount}} package{{if ne .TotalCount 1}}s{{end}}{{if or .Filter.Layer .Filter.Stereotype .Filter.Search}} matching filter{{end}}.</p>
+    {{if eq .TotalCount 0}}
+        <p class="empty">No packages match the current filter.</p>
+    {{else}}
+        <ul class="pkg-tree">
+            {{range .Tree}}{{template "pkg-node" .}}{{end}}
+        </ul>
+    {{end}}
 </div>
+{{end}}
+
+{{define "pkg-node"}}
+<li class="pkg-tree-node">
+    {{if .Package}}
+        <a class="pkg-link" href="/packages/{{.FullPath}}">
+            <span class="pkg-name">{{.Name}}</span>
+            <span class="pkg-meta">
+                {{if .Package.Layer}}<span class="badge badge-layer">{{.Package.Layer}}</span>{{end}}
+                <span class="badge badge-count" title="total symbols">{{.Package.SymbolCount}}</span>
+            </span>
+        </a>
+    {{else}}
+        <span class="pkg-dir">{{.Name}}/</span>
+    {{end}}
+    {{if .Children}}
+        <ul class="pkg-tree">
+            {{range .Children}}{{template "pkg-node" .}}{{end}}
+        </ul>
+    {{end}}
+</li>
 {{end}}
