@@ -367,6 +367,12 @@ Examples:
 	sequenceCmd.Flags().StringP("output", "o", "", "Write output to file instead of stdout")
 	rootCmd.AddCommand(sequenceCmd)
 
+	// version — prints `archai <Version>`.
+	rootCmd.AddCommand(newVersionCmd())
+
+	// extract — dumps per-package YAML/JSON (mirror of the MCP extract tool).
+	rootCmd.AddCommand(newExtractCmd())
+
 	// Execute root command
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
