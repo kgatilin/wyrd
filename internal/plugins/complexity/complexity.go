@@ -11,8 +11,10 @@ package complexity
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"sort"
 
@@ -21,6 +23,23 @@ import (
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/plugin"
 )
+
+//go:embed assets/*.js
+var assetsFS embed.FS
+
+// pluginAssets is the asset sub-FS rooted at the plugin's "assets/"
+// directory so the host serves /plugins/complexity/assets/<file>.
+var pluginAssets fs.FS = mustSub(assetsFS, "assets")
+
+func mustSub(f fs.FS, dir string) fs.FS {
+	sub, err := fs.Sub(f, dir)
+	if err != nil {
+		// Compile-time embed failure is the only realistic cause; panic
+		// is acceptable in init-style code.
+		panic(fmt.Sprintf("complexity: assets sub-fs %q: %v", dir, err))
+	}
+	return sub
+}
 
 // Plugin is the in-memory state of the complexity plugin. The Host
 // reference captured during Init is used by every capability
@@ -93,13 +112,14 @@ func (p *Plugin) MCPTools() []plugin.MCPTool {
 	}}
 }
 
-// HTTPHandlers implements plugin.Plugin. The route serves the same
-// scores as JSON. M13 will mount it under /api/plugins/complexity/;
-// for M12 we expose it at the literal /api/complexity/scores so
-// existing dispatch can call it without a prefix.
+// HTTPHandlers implements plugin.Plugin. The route serves the per-package
+// scores as JSON. M13 mounts every plugin route under
+// /api/plugins/<plugin-name><Path>; the path declared here is therefore
+// relative to that prefix. The browser custom element fetches
+// /api/plugins/complexity/scores.
 func (p *Plugin) HTTPHandlers() []plugin.HTTPHandler {
 	return []plugin.HTTPHandler{{
-		Path:    "/api/complexity/scores",
+		Path:    "/scores",
 		Methods: []string{http.MethodGet},
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -108,15 +128,20 @@ func (p *Plugin) HTTPHandlers() []plugin.HTTPHandler {
 	}}
 }
 
-// UIComponents implements plugin.Plugin. The descriptor advertises a
-// dashboard card; the actual UI bundle is not shipped in M12 (M13
-// wires the asset pipeline). Returning the spec lets the bootstrap
-// exercise that code path.
+// UIComponents implements plugin.Plugin. M13 mounts the embedded JS
+// bundle at /plugins/complexity/assets/ and renders
+// <plugin-complexity-heatmap data-model-url="/api/plugins/complexity/scores">
+// on the dashboard (main slot) and on the package detail page (extra
+// tab labelled "Complexity").
 func (p *Plugin) UIComponents() []plugin.UIComponent {
 	return []plugin.UIComponent{{
-		Slot:      plugin.EmbedSlotDashboard,
-		Title:     "Complexity",
-		AssetPath: "/api/complexity/ui",
+		Element: "plugin-complexity-heatmap",
+		Assets:  pluginAssets,
+		Entry:   "heatmap.js",
+		EmbedAt: []plugin.EmbedSlot{
+			{View: plugin.ViewDashboard, Slot: plugin.SlotMain, Label: "Complexity"},
+			{View: plugin.ViewPackageDetail, Slot: plugin.SlotExtraTab, Label: "Complexity"},
+		},
 	}}
 }
 

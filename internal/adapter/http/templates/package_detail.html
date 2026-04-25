@@ -24,14 +24,33 @@
            class="pkg-tab{{if .Active}} active{{end}}"
            role="tab">{{.Label}}</a>
     {{end}}
+    {{range .PluginExtraTabs}}
+        <a href="/packages/{{$.Pkg.Path}}?tab={{.TabID}}"
+           hx-get="/packages/{{$.Pkg.Path}}?tab={{.TabID}}"
+           hx-target="#pkg-tab-content"
+           hx-swap="outerHTML"
+           hx-push-url="true"
+           class="pkg-tab plugin-tab{{if .Active}} active{{end}}"
+           role="tab">{{.Label}}</a>
+    {{end}}
 </nav>
 
 {{template "package_detail_tab" .}}
+
+{{range .PluginScripts}}
+<script src="{{.URL}}" defer></script>
+{{end}}
 {{end}}
 
 {{define "package_detail_tab"}}
-<section id="pkg-tab-content" class="pkg-tab-panel" data-tab="{{.Active}}">
-    {{if eq (printf "%s" .Active) "overview"}}
+<section id="pkg-tab-content" class="pkg-tab-panel" data-tab="{{if .PluginActive}}{{.PluginActive}}{{else}}{{.Active}}{{end}}">
+    {{if .PluginActive}}
+        {{range .PluginExtraTabs}}
+            {{if .Active}}
+                {{.OpenTag}}{{.CloseTag}}
+            {{end}}
+        {{end}}
+    {{else if eq (printf "%s" .Active) "overview"}}
         {{template "tab-overview" .}}
     {{else if eq (printf "%s" .Active) "public"}}
         {{template "tab-symbols" .}}

@@ -68,6 +68,84 @@ type packageTab struct {
 	Active bool
 }
 
+// pluginPanel is one plugin-contributed extra tab: the custom element
+// to render and the URL its data-model-url attribute should point at.
+//
+// OpenTag/CloseTag are pre-rendered template.HTML values because Go's
+// html/template escapes "<" / ">" around dynamic interpolations
+// ("<{{.Element}}>" becomes "&lt;...&gt;"). The host validates Element
+// against a strict allow-list (lowercase letters, digits, hyphen) and
+// pre-builds the open/close tags here so the template can emit them
+// verbatim. Element is retained for tests and filtering.
+type pluginPanel struct {
+	TabID    string // e.g. "plugin:complexity"
+	Label    string
+	Element  string        // custom-element tag (validated)
+	ModelURL string        // data-model-url attribute value
+	Active   bool
+	OpenTag  template.HTML // e.g. <plugin-x data-model-url="/api/plugins/x">
+	CloseTag template.HTML // e.g. </plugin-x>
+}
+
+// pluginScript is one <script defer> tag the page must inject so the
+// browser registers a plugin's custom element.
+type pluginScript struct {
+	URL string
+}
+
+// validCustomElementName reports whether s is a safe custom-element
+// tag name (HTML spec requires lowercase letters / digits / hyphens
+// and at least one hyphen). The allow-list also rejects characters
+// that would let a malicious plugin name break out of the tag.
+func validCustomElementName(s string) bool {
+	if s == "" || !strings.ContainsRune(s, '-') {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '-':
+		default:
+			return false
+		}
+		if i == 0 && (r < 'a' || r > 'z') {
+			// Custom element names must start with a lowercase letter.
+			return false
+		}
+	}
+	return true
+}
+
+// buildPluginPanel constructs a pluginPanel and pre-renders its open
+// and close tags as template.HTML. Returns ok=false when the element
+// name fails validCustomElementName — the host then drops the entry
+// rather than emit unsafe markup.
+func buildPluginPanel(tabID, label, element, modelURL string, active bool, extraAttrs string) (pluginPanel, bool) {
+	if !validCustomElementName(element) {
+		return pluginPanel{}, false
+	}
+	// modelURL is composed from PluginAPIPrefix + plugin name (validated
+	// upstream: pluginNames pass through registry.RegisterPlugin which
+	// already restricts to lowercase identifiers). We still HTML-escape
+	// it defensively in case future plugins ship custom paths.
+	open := "<" + element + ` data-model-url="` + template.HTMLEscapeString(modelURL) + `"`
+	if extraAttrs != "" {
+		open += " " + extraAttrs
+	}
+	open += ">"
+	close := "</" + element + ">"
+	return pluginPanel{
+		TabID:    tabID,
+		Label:    label,
+		Element:  element,
+		ModelURL: modelURL,
+		Active:   active,
+		OpenTag:  template.HTML(open),
+		CloseTag: template.HTML(close),
+	}, true
+}
+
 // buildTabs builds the tab list with Active set on the currently
 // selected tab.
 func buildTabs(active packageDetailTab) []packageTab {
@@ -129,6 +207,18 @@ type packageDetailData struct {
 	Pkg    domain.PackageModel
 	Tabs   []packageTab
 	Active packageDetailTab
+
+	// PluginExtraTabs are M13-injected tabs contributed by plugins
+	// declaring an EmbedAt of (package_detail, extra_tab). The host
+	// renders one custom-element panel per entry.
+	PluginExtraTabs []pluginPanel
+	// PluginScripts is the de-duplicated list of <script defer> tags
+	// to inject so the browser registers each plugin's custom
+	// element. Empty when no plugins target package_detail.
+	PluginScripts []pluginScript
+	// PluginActive is true when the user clicked into a plugin tab;
+	// the value is the plugin tab id (e.g. "plugin:complexity").
+	PluginActive string
 
 	// Overview
 	SVG         template.HTML

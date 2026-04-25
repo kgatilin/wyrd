@@ -7,6 +7,8 @@ import (
 	"html/template"
 	"io"
 	nethttp "net/http"
+
+	"github.com/kgatilin/archai/internal/plugin"
 )
 
 // templateFuncs returns the funcmap shared by every page template.
@@ -99,9 +101,27 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 	// diagrams; accepts POST with a `d2` form field or raw text body.
 	mux.HandleFunc("/render", s.handleRender)
 
+	// M13: plugin transports. Routes are mounted before the catch-all
+	// "/" so /api/plugins/<name>/... and /plugins/<name>/assets/... are
+	// matched by their prefixes rather than falling through to the
+	// dashboard handler.
+	s.registerPluginRoutes(mux)
+
 	// Content routes at their historical top-level paths.
 	s.routesContent(mux)
 	mux.HandleFunc("/", s.handleDashboard)
+}
+
+// registerPluginRoutes mounts every plugin-contributed HTTP handler
+// under /api/plugins/<plugin-name><Path> and every plugin's UI
+// Assets fs.FS under /plugins/<plugin-name>/assets/. No-op when the
+// server was constructed without a BootstrapResult.
+func (s *Server) registerPluginRoutes(mux *nethttp.ServeMux) {
+	if !s.pluginsWired {
+		return
+	}
+	plugin.MountPluginAPIHandlers(mux, s.plugins.HTTPHandlers)
+	plugin.MountPluginAssetHandlers(mux, s.plugins.UIComponents)
 }
 
 // routesContent registers just the content pages onto mux without the

@@ -20,6 +20,10 @@ func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
 	mux.HandleFunc("/render", s.handleRender)
 	mux.HandleFunc("/worktree/select", s.handleWorktreeSelect)
 
+	// M13: plugin routes live at the top level (not per worktree) so a
+	// single asset bundle / API surface backs every worktree's UI.
+	s.registerPluginRoutes(mux)
+
 	// All /w/... URLs are dispatched through dispatchWorktree, which
 	// strips the /w/<name> prefix, resolves the State, and hands off
 	// to the content mux built by routesMux.

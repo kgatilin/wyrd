@@ -4,13 +4,19 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"html/template"
 	nethttp "net/http"
 	"sort"
 	"strings"
 
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/archai/internal/plugin"
 )
+
+// escapeAttr returns s safe to embed inside an HTML attribute value
+// (after a leading "). Delegates to html/template's HTMLEscapeString.
+func escapeAttr(s string) string { return template.HTMLEscapeString(s) }
 
 // handlePackagesList serves the /packages list view: a directory tree
 // of all packages with filter controls for layer, stereotype, and
@@ -86,7 +92,8 @@ func (s *Server) handlePackageDetail(w nethttp.ResponseWriter, r *nethttp.Reques
 		return
 	}
 
-	active := parseTab(r.URL.Query().Get("tab"))
+	rawTab := r.URL.Query().Get("tab")
+	active := parseTab(rawTab)
 	modulePath := ""
 	if snap.Overlay != nil {
 		modulePath = snap.Overlay.Module
@@ -95,6 +102,35 @@ func (s *Server) handlePackageDetail(w nethttp.ResponseWriter, r *nethttp.Reques
 	data := buildPackageDetail(active, pkg, pkgs, snap.Overlay, modulePath)
 	data.pageData = s.basePageData(r, "Package "+pkg.Path, "/packages")
 	data.Partial = isHTMX(r)
+
+	// M13: surface plugin extra tabs + injected scripts.
+	if reg := s.UIRegistry(); reg != nil {
+		entries := reg.Lookup(plugin.ViewPackageDetail, plugin.SlotExtraTab)
+		if len(entries) > 0 {
+			panels := make([]pluginPanel, 0, len(entries))
+			activePluginTab := strings.TrimPrefix(rawTab, "plugin:")
+			extraAttrs := `data-package="` + escapeAttr(pkg.Path) + `"`
+			for _, e := range entries {
+				tabID := "plugin:" + e.Plugin
+				active := strings.HasPrefix(rawTab, "plugin:") && activePluginTab == e.Plugin
+				p, ok := buildPluginPanel(tabID, e.Label, e.Element, e.ModelURL, active, extraAttrs)
+				if !ok {
+					continue
+				}
+				panels = append(panels, p)
+			}
+			data.PluginExtraTabs = panels
+			scripts := reg.ScriptsFor(plugin.ViewPackageDetail)
+			out := make([]pluginScript, 0, len(scripts))
+			for _, s := range scripts {
+				out = append(out, pluginScript{URL: s.URL})
+			}
+			data.PluginScripts = out
+			if strings.HasPrefix(rawTab, "plugin:") {
+				data.PluginActive = rawTab
+			}
+		}
+	}
 
 	// M8 (#46): Overview no longer emits server-rendered D2→SVG.
 	// The tab-overview template includes a .cy-graph div that fetches

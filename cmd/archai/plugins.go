@@ -134,20 +134,22 @@ func (h *cliHost) Subscribe(handler func(plugin.ModelEvent)) plugin.Unsubscribe 
 // Logger implements plugin.Host.
 func (h *cliHost) Logger() *slog.Logger { return h.logger }
 
-// wirePlugins runs the in-process plugin bootstrap and adds every
-// plugin-contributed CLI command to root. Errors from individual
-// plugin Inits are reported to stderr but do not abort startup —
-// other commands should still work.
+// wirePlugins runs the in-process plugin bootstrap and mounts every
+// plugin-contributed CLI command under `archai plugin <name> ...`.
+// Errors from individual plugin Inits are reported to stderr but do
+// not abort startup — other commands should still work.
 //
-// M12 mounts plugin commands at the cobra root level (no `archai
-// plugins <name>` grouping). M13 (#66) replaces this with a proper
-// `plugins` subcommand and per-plugin namespacing.
+// M13 (#66): plugin CLI commands live under the `archai plugin`
+// subgroup; `archai plugin list` enumerates loaded plugins and their
+// CLI / MCP / HTTP / UI capabilities. The MCP / HTTP / UI capabilities
+// are mounted by the serve daemon (see internal/adapter/http and
+// internal/adapter/mcp) rather than by this CLI-side wiring.
 func wirePlugins(rootCmd *cobra.Command) plugin.BootstrapResult {
 	host := newCLIHost()
 	res, err := plugin.Bootstrap(context.Background(), host, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "archai: plugin bootstrap: %v\n", err)
 	}
-	plugin.AddCLICommandsToRoot(rootCmd, res.CLICommands)
+	rootCmd.AddCommand(plugin.BuildPluginCommand(res))
 	return res
 }

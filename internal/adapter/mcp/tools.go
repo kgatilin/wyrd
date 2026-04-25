@@ -10,15 +10,47 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
 	"github.com/kgatilin/archai/internal/apply"
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/archai/internal/plugin"
 	"github.com/kgatilin/archai/internal/serve"
 	"github.com/kgatilin/archai/internal/target"
 	yamlv3 "gopkg.in/yaml.v3"
 )
+
+// pluginToolsMu guards the package-level plugin tool registry. Plugin
+// tool registration happens once at daemon startup (or once per CLI
+// invocation in --no-daemon mode) so contention is irrelevant in
+// practice; the mutex keeps `go test ./...` happy when several test
+// binaries register and reset the registry in parallel.
+var pluginToolsMu sync.RWMutex
+var pluginTools []plugin.NamedMCPTool
+
+// SetPluginTools registers the prefixed plugin tools the MCP transport
+// should expose alongside the built-in tools. Calling SetPluginTools
+// with a different slice replaces every previously registered plugin
+// tool — the daemon owns the lifecycle.
+func SetPluginTools(tools []plugin.NamedMCPTool) {
+	pluginToolsMu.Lock()
+	defer pluginToolsMu.Unlock()
+	cp := make([]plugin.NamedMCPTool, len(tools))
+	copy(cp, tools)
+	pluginTools = cp
+}
+
+// pluginToolsSnapshot returns a copy of the current plugin tool list
+// safe to iterate without holding the mutex.
+func pluginToolsSnapshot() []plugin.NamedMCPTool {
+	pluginToolsMu.RLock()
+	defer pluginToolsMu.RUnlock()
+	out := make([]plugin.NamedMCPTool, len(pluginTools))
+	copy(out, pluginTools)
+	return out
+}
 
 // ToolDefinition describes a single MCP tool exposed via tools/list.
 // InputSchema is a JSON Schema object; we keep it as an any so each
@@ -67,10 +99,31 @@ type ValidateResult struct {
 	Violations []diff.Change `json:"violations"`
 }
 
-// ToolDefinitions returns the nine tools we advertise. Kept as a
+// ToolDefinitions returns the built-in tools we advertise plus every
+// plugin tool registered via SetPluginTools (M13). Plugin tools are
+// surfaced with the canonical "plugin.<plugin-name>.<tool-name>"
+// prefix; the prefix lets agents tell core tools from plugin tools at
+// a glance and prevents accidental collisions.
+func ToolDefinitions() []ToolDefinition {
+	defs := builtinToolDefinitions()
+	for _, t := range pluginToolsSnapshot() {
+		schema := any(t.Tool.InputSchema)
+		if schema == nil {
+			schema = map[string]any{"type": "object", "properties": map[string]any{}}
+		}
+		defs = append(defs, ToolDefinition{
+			Name:        plugin.PrefixedMCPName(t.Plugin, t.Tool.Name),
+			Description: t.Tool.Description,
+			InputSchema: schema,
+		})
+	}
+	return defs
+}
+
+// builtinToolDefinitions returns the nine archai-core tools. Kept as a
 // function rather than a var so the JSON-Schema maps don't become
 // mutable package state.
-func ToolDefinitions() []ToolDefinition {
+func builtinToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
 		{
 			Name:        "extract",
@@ -196,9 +249,10 @@ func ToolDefinitions() []ToolDefinition {
 }
 
 // Dispatch routes a tools/call invocation to the matching handler.
-// Unknown tool names surface as JSON-RPC method-not-found errors; known
-// tools all return ToolResult (possibly with IsError=true when inputs
-// are invalid or on-disk operations fail).
+// Built-in tool names dispatch to their handlers directly; plugin tool
+// names (the ones starting with "plugin.") are routed via the registry
+// installed by SetPluginTools (M13). Unknown names surface as
+// JSON-RPC method-not-found errors.
 func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolResult, *RPCError) {
 	switch name {
 	case "extract":
@@ -219,11 +273,45 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleApplyDiff(state, rawArgs)
 	case "validate":
 		return handleValidate(state, rawArgs)
-	default:
-		return ToolResult{}, &RPCError{
-			Code:    ErrMethodNotFound,
-			Message: fmt.Sprintf("unknown tool %q", name),
+	}
+	if strings.HasPrefix(name, "plugin.") {
+		return dispatchPluginTool(name, rawArgs)
+	}
+	return ToolResult{}, &RPCError{
+		Code:    ErrMethodNotFound,
+		Message: fmt.Sprintf("unknown tool %q", name),
+	}
+}
+
+// dispatchPluginTool resolves name against the registered plugin
+// tools and invokes the matching Handler. The decoded arguments are
+// passed as map[string]any (the contract every plugin Handler signs).
+// Tool-level errors surface as IsError ToolResults; protocol errors
+// (unknown name, malformed args) become RPCError values so the MCP
+// transport can map them to JSON-RPC error responses.
+func dispatchPluginTool(name string, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	for _, t := range pluginToolsSnapshot() {
+		if plugin.PrefixedMCPName(t.Plugin, t.Tool.Name) != name {
+			continue
 		}
+		var args map[string]any
+		if len(rawArgs) > 0 {
+			if err := json.Unmarshal(rawArgs, &args); err != nil {
+				return ToolResult{}, &RPCError{
+					Code:    ErrInvalidParams,
+					Message: fmt.Sprintf("invalid arguments: %v", err),
+				}
+			}
+		}
+		out, err := t.Tool.Handler(context.Background(), args)
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+		return textResult(out)
+	}
+	return ToolResult{}, &RPCError{
+		Code:    ErrMethodNotFound,
+		Message: fmt.Sprintf("unknown tool %q", name),
 	}
 }
 

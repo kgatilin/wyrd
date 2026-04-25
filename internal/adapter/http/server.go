@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kgatilin/archai/internal/plugin"
 	"github.com/kgatilin/archai/internal/serve"
 )
 
@@ -44,10 +45,34 @@ type Server struct {
 	templates *template.Template
 	assets    fs.FS
 
+	// plugins is the bootstrap result captured at server construction
+	// time (M13). httpHandlers / uiAssets / uiRegistry are derived
+	// from it and are nil when no plugins are wired.
+	plugins      plugin.BootstrapResult
+	uiRegistry   *plugin.UIRegistry
+	pluginsWired bool
+
 	// onActivity, when non-nil, is invoked for every HTTP request
 	// received by the server. Wired by serve.Serve to drive the
 	// idle-timeout monitor (see ActivityAware in internal/serve).
 	onActivity func()
+}
+
+// WithPlugins attaches a plugin BootstrapResult to s so its HTTP
+// handlers, asset bundles and UI registry are mounted by routes().
+// Returns s for chaining. Safe to call before Serve; not safe to call
+// concurrently with Serve.
+func (s *Server) WithPlugins(res plugin.BootstrapResult) *Server {
+	s.plugins = res
+	s.uiRegistry = plugin.BuildUIRegistry(res)
+	s.pluginsWired = true
+	return s
+}
+
+// UIRegistry returns the plugin UI registry attached to s, or nil when
+// no plugins are wired.
+func (s *Server) UIRegistry() *plugin.UIRegistry {
+	return s.uiRegistry
 }
 
 // SetActivityObserver installs fn as the per-request activity hook.

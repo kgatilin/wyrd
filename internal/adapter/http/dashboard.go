@@ -13,6 +13,7 @@ import (
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/archai/internal/plugin"
 )
 
 // dashboardData is the full data model for the dashboard page. Each
@@ -40,6 +41,12 @@ type dashboardData struct {
 	// that fetches /api/layers/mini. Previously this was a server-side
 	// D2→SVG render; M8 (#46) moved it to the browser.
 	HasLayerMap bool
+
+	// PluginMain holds plugin-contributed widgets for the dashboard's
+	// main slot. PluginScripts is the de-duplicated list of <script
+	// defer> tags injected once per plugin.
+	PluginMain    []pluginPanel
+	PluginScripts []pluginScript
 }
 
 // handleDashboard renders the dashboard at "/". It composes a
@@ -98,6 +105,29 @@ func (s *Server) handleDashboard(w nethttp.ResponseWriter, r *nethttp.Request) {
 	// defines layers; the browser fetches /api/layers/mini to hydrate it.
 	if snap.Overlay != nil && len(snap.Overlay.Layers) > 0 {
 		data.HasLayerMap = true
+	}
+
+	// M13: plugin-contributed dashboard widgets.
+	if reg := s.UIRegistry(); reg != nil {
+		entries := reg.Lookup(plugin.ViewDashboard, plugin.SlotMain)
+		if len(entries) > 0 {
+			panels := make([]pluginPanel, 0, len(entries))
+			for _, e := range entries {
+				p, ok := buildPluginPanel(
+					"plugin:"+e.Plugin, e.Label, e.Element, e.ModelURL, false, "")
+				if !ok {
+					continue
+				}
+				panels = append(panels, p)
+			}
+			data.PluginMain = panels
+			scripts := reg.ScriptsFor(plugin.ViewDashboard)
+			out := make([]pluginScript, 0, len(scripts))
+			for _, sc := range scripts {
+				out = append(out, pluginScript{URL: sc.URL})
+			}
+			data.PluginScripts = out
+		}
 	}
 
 	s.renderPage(w, "index.html", data)

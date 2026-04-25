@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	httpAdapter "github.com/kgatilin/archai/internal/adapter/http"
 	"github.com/kgatilin/archai/internal/adapter/mcp"
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
+	"github.com/kgatilin/archai/internal/plugin"
 	"github.com/kgatilin/archai/internal/apply"
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
@@ -445,15 +447,17 @@ func runServe(cmd *cobra.Command, args []string) error {
 		// One-shot in-process MCP: the in-memory model is loaded once,
 		// no HTTP listener is started, and the watcher is skipped by
 		// clearing HTTPAddr. The MCP stdio callback owns the session
-		// lifetime.
+		// lifetime. Plugin bootstrap runs so plugin tools surface in
+		// the stdio tools/list.
 		return serve.Serve(ctx, serve.Options{
 			Root:     root,
 			MCPStdio: true,
 			MCPServe: func(ctx context.Context, state *serve.State) error {
 				return mcp.Serve(ctx, state)
 			},
-			HTTPAddr: "",
-			Debug:    debug,
+			HTTPAddr:        "",
+			Debug:           debug,
+			PluginBootstrap: bootstrapDaemonPlugins,
 		})
 	}
 
@@ -478,16 +482,40 @@ func runServe(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("serve: refresh worktrees: %w", err)
 		}
 		opts.MultiState = multiState
-		opts.HTTPServerFactory = func(_ *serve.State) (serve.HTTPTransport, error) {
-			return httpAdapter.NewMultiServer(multiState)
+		// In multi-worktree mode plugins still bootstrap once; their
+		// HTTP/UI surfaces are shared across worktrees.
+		opts.PluginBootstrap = bootstrapDaemonPlugins
+		opts.PluginHTTPFactory = func(_ *serve.State, plugins plugin.BootstrapResult) (serve.HTTPTransport, error) {
+			srv, err := httpAdapter.NewMultiServer(multiState)
+			if err != nil {
+				return nil, err
+			}
+			return srv.WithPlugins(plugins), nil
 		}
 	} else {
-		opts.HTTPServerFactory = func(state *serve.State) (serve.HTTPTransport, error) {
-			return httpAdapter.NewServer(state)
+		opts.PluginBootstrap = bootstrapDaemonPlugins
+		opts.PluginHTTPFactory = func(state *serve.State, plugins plugin.BootstrapResult) (serve.HTTPTransport, error) {
+			srv, err := httpAdapter.NewServer(state)
+			if err != nil {
+				return nil, err
+			}
+			return srv.WithPlugins(plugins), nil
 		}
 	}
 
 	return serve.Serve(ctx, opts)
+}
+
+// bootstrapDaemonPlugins runs plugin Init against the live serve.Host
+// and registers the resulting MCP tool list with the MCP transport.
+// Returning the BootstrapResult lets serve.Serve forward it to the
+// HTTP factory so plugin routes / assets / UI registry are mounted on
+// the same listener as the built-in routes.
+func bootstrapDaemonPlugins(state *serve.State) (plugin.BootstrapResult, error) {
+	host := serve.NewHost(state, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	res, err := plugin.Bootstrap(context.Background(), host, nil)
+	mcp.SetPluginTools(res.MCPTools)
+	return res, err
 }
 
 // autoStartIdleTimeout is the --idle-timeout value passed to daemons

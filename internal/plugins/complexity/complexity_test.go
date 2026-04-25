@@ -109,6 +109,72 @@ func TestComplexity_HTTPHandler(t *testing.T) {
 	}
 }
 
+func TestComplexity_UIComponents(t *testing.T) {
+	p := &Plugin{}
+	comps := p.UIComponents()
+	if len(comps) != 1 {
+		t.Fatalf("UIComponents len = %d, want 1", len(comps))
+	}
+	c := comps[0]
+	if c.Element != "plugin-complexity-heatmap" {
+		t.Errorf("Element = %q", c.Element)
+	}
+	if c.Entry != "heatmap.js" {
+		t.Errorf("Entry = %q", c.Entry)
+	}
+	if c.Assets == nil {
+		t.Fatalf("Assets is nil; expected embedded fs.FS")
+	}
+	// The embedded FS must contain the entry file.
+	data, err := readEntry(c)
+	if err != nil {
+		t.Fatalf("read entry: %v", err)
+	}
+	if len(data) == 0 {
+		t.Errorf("heatmap.js is empty")
+	}
+
+	// EmbedAt covers the dashboard main slot and the package detail extra tab.
+	wantSlots := map[string]bool{
+		plugin.ViewDashboard + "/" + plugin.SlotMain:           false,
+		plugin.ViewPackageDetail + "/" + plugin.SlotExtraTab:  false,
+	}
+	for _, slot := range c.EmbedAt {
+		key := slot.View + "/" + slot.Slot
+		if _, ok := wantSlots[key]; ok {
+			wantSlots[key] = true
+		}
+	}
+	for k, seen := range wantSlots {
+		if !seen {
+			t.Errorf("missing EmbedAt entry %q", k)
+		}
+	}
+}
+
+// readEntry pulls Component.Entry out of Component.Assets.
+func readEntry(c plugin.UIComponent) ([]byte, error) {
+	f, err := c.Assets.Open(c.Entry)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var buf [4096]byte
+	var out []byte
+	for {
+		n, err := f.Read(buf[:])
+		if n > 0 {
+			out = append(out, buf[:n]...)
+		}
+		if err != nil {
+			if err.Error() == "EOF" {
+				return out, nil
+			}
+			return out, err
+		}
+	}
+}
+
 func TestComplexity_MCPTool(t *testing.T) {
 	model := &plugin.Model{
 		Packages: []*domain.PackageModel{{Path: "internal/x", Functions: []domain.FunctionDef{{Name: "F"}}}},

@@ -67,4 +67,20 @@
         <p class="muted">Layer map unavailable — no overlay (archai.yaml) loaded.</p>
     {{end}}
 </section>
+
+{{if .PluginMain}}
+<section class="dash-plugin-section">
+    <h2>Plugins</h2>
+    {{range .PluginMain}}
+    <div class="card plugin-card" data-plugin-tab="{{.TabID}}">
+        {{if .Label}}<h3>{{.Label}}</h3>{{end}}
+        {{.OpenTag}}{{.CloseTag}}
+    </div>
+    {{end}}
+</section>
+{{end}}
+
+{{range .PluginScripts}}
+<script src="{{.URL}}" defer></script>
+{{end}}
 {{end}}

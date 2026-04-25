@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kgatilin/archai/internal/plugin"
 	"github.com/kgatilin/archai/internal/worktree"
 )
 
@@ -66,6 +67,21 @@ type Options struct {
 	// clients. Zero disables the idle timer entirely (the default for
 	// user-started `archai serve`).
 	IdleTimeout time.Duration
+
+	// PluginBootstrap, when non-nil, is invoked once after the initial
+	// model load with the constructed serve.Host so plugins can be
+	// initialised against the live State. The returned BootstrapResult
+	// is forwarded to the HTTPServerFactory so plugin HTTP / asset /
+	// UI registry routes mount onto the same listener as the built-in
+	// routes (M13, #66). An error aborts the daemon.
+	PluginBootstrap func(state *State) (plugin.BootstrapResult, error)
+
+	// PluginHTTPFactory, when both PluginBootstrap and this field are
+	// set, is called instead of HTTPServerFactory so the HTTP transport
+	// receives the bootstrap result and can mount plugin routes. When
+	// nil, HTTPServerFactory is used and plugin routes are not mounted
+	// onto the HTTP transport.
+	PluginHTTPFactory func(state *State, plugins plugin.BootstrapResult) (HTTPTransport, error)
 }
 
 // HTTPTransport is the minimal contract the serve daemon needs from an
@@ -155,13 +171,35 @@ func Serve(ctx context.Context, opts Options) error {
 	lastActivity.Store(time.Now().UnixNano())
 	touchActivity := func() { lastActivity.Store(time.Now().UnixNano()) }
 
+	// Plugin bootstrap. Run before the HTTP transport so plugin routes
+	// can be mounted at construction time. The CLI bootstrap (run in
+	// cmd/archai for `archai plugin ...` commands) never sees the live
+	// daemon Host; it gets a different cliHost. Daemon-side plugin Init
+	// therefore runs again here against the serve.Host so plugins
+	// observing model events see the live event bus.
+	var pluginRes plugin.BootstrapResult
+	if opts.PluginBootstrap != nil && state != nil {
+		res, err := opts.PluginBootstrap(state)
+		if err != nil {
+			fmt.Fprintf(logOut, "serve: plugin bootstrap: %v\n", err)
+		}
+		pluginRes = res
+	}
+
 	httpErrCh := make(chan error, 1)
 	var httpStarted bool
 	var serveRecorded bool
 	wtName := worktree.Name(absRoot)
 	if opts.HTTPAddr != "" {
-		if opts.HTTPServerFactory != nil {
-			srv, err := opts.HTTPServerFactory(state)
+		var srv HTTPTransport
+		var err error
+		switch {
+		case opts.PluginHTTPFactory != nil:
+			srv, err = opts.PluginHTTPFactory(state, pluginRes)
+		case opts.HTTPServerFactory != nil:
+			srv, err = opts.HTTPServerFactory(state)
+		}
+		if srv != nil {
 			if err != nil {
 				return fmt.Errorf("serve: building HTTP transport: %w", err)
 			}
@@ -197,6 +235,7 @@ func Serve(ctx context.Context, opts Options) error {
 			fmt.Fprintf(logOut, "serve: HTTP transport requested on %s — no transport wired (stub)\n", opts.HTTPAddr)
 		}
 	}
+	_ = pluginRes // forwarded via PluginHTTPFactory only.
 	// Always remove serve.json on return so a killed process doesn't
 	// leave a dangling record when the shutdown path is taken.
 	defer func() {

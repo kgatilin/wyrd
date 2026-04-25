@@ -48,7 +48,11 @@ func TestBootstrap_RunsInitAndCollectsCapabilities(t *testing.T) {
 				httpHandlerCalled = true
 			}),
 		}},
-		ui: []UIComponent{{Slot: EmbedSlotDashboard, Title: "Demo", AssetPath: "/demo.js"}},
+		ui: []UIComponent{{
+			Element: "plugin-demo",
+			Entry:   "demo.js",
+			EmbedAt: []EmbedSlot{{View: ViewDashboard, Slot: SlotMain, Label: "Demo"}},
+		}},
 	}
 	RegisterPlugin(p)
 

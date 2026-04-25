@@ -24,6 +24,7 @@ package plugin
 
 import (
 	"context"
+	"io/fs"
 	"log/slog"
 	"net/http"
 
@@ -174,38 +175,71 @@ type HTTPHandler struct {
 	Handler http.Handler
 }
 
-// UIComponent describes a UI panel or widget contributed by a plugin.
-// The browser-side bundle is shipped by the plugin; archai just hands
-// the descriptor to its UI registry (M13).
+// UIComponent describes a custom-element widget contributed by a plugin.
+// M13 (#66) spec: the host serves the plugin's static assets at
+// /plugins/<plugin-name>/assets/... from Assets, queries the UI registry
+// per (view, slot) on each browser page, injects a <plugin-X> custom
+// element wherever the component requested a mount, and emits a
+// <script src='/plugins/<plugin-name>/assets/<entry>' defer> tag once.
 type UIComponent struct {
-	// Slot identifies where the component should mount. Allowed
-	// values are defined by the UI host (e.g. EmbedSlotDashboard).
-	Slot EmbedSlot
+	// Element is the custom-element tag name the plugin registers in
+	// its entry script (e.g. "plugin-complexity-heatmap"). Hyphenation
+	// is required by the Custom Elements spec; archai also uses it as
+	// an HTML-safe id, so it must not contain whitespace or quotes.
+	Element string
 
-	// Title is the human-readable label shown in nav/tabs.
-	Title string
+	// Assets is the embedded filesystem holding the plugin's browser
+	// bundle. Served verbatim by http.FileServer at
+	// /plugins/<plugin-name>/assets/.
+	Assets fs.FS
 
-	// AssetPath is the URL path under which the plugin serves its
-	// UI assets via one of its HTTPHandlers. The UI registry uses
-	// this to fetch the panel script/markup.
-	AssetPath string
+	// Entry is the asset-relative path of the script that defines
+	// Element. Loaded via <script defer> on every host page that
+	// embeds this component.
+	Entry string
+
+	// EmbedAt lists every (view, slot) pair where this component
+	// should be rendered. A single component can appear in multiple
+	// views (e.g. dashboard card + package_detail tab).
+	EmbedAt []EmbedSlot
 }
 
-// EmbedSlot enumerates the UI mount points archai's browser shell
-// exposes to plugins.
-type EmbedSlot string
+// EmbedSlot identifies one mount point on a host page. View picks the
+// page (dashboard, package_detail, ...); Slot picks the region within
+// that page (main, side_panel, extra_tab, header_widget). Label is the
+// human-readable string used for tabbed slots.
+type EmbedSlot struct {
+	// View names the host page. Allowed values for v1 are the
+	// constants ViewDashboard, ViewLayers, ViewPackages,
+	// ViewPackageDetail, ViewTypeDetail, ViewDiff, ViewTargets.
+	// Plugins that pass an unknown view value are dropped from the
+	// registry with a warning.
+	View string
 
+	// Slot picks the region inside View. Allowed values for v1 are
+	// SlotMain, SlotSidePanel, SlotExtraTab, SlotHeaderWidget.
+	Slot string
+
+	// Label is the human-readable name used when the slot is a tab
+	// (SlotExtraTab) or a sidebar item. Ignored by other slots.
+	Label string
+}
+
+// View names recognised by the UI registry. Unknown views are dropped.
 const (
-	// EmbedSlotDashboard mounts a card on the dashboard landing page.
-	EmbedSlotDashboard EmbedSlot = "dashboard"
+	ViewDashboard     = "dashboard"
+	ViewLayers        = "layers"
+	ViewPackages      = "packages"
+	ViewPackageDetail = "package_detail"
+	ViewTypeDetail    = "type_detail"
+	ViewDiff          = "diff"
+	ViewTargets       = "targets"
+)
 
-	// EmbedSlotPackagePanel mounts a tab inside the package detail
-	// view.
-	EmbedSlotPackagePanel EmbedSlot = "package-panel"
-
-	// EmbedSlotLayerPanel mounts a tab inside the layer detail view.
-	EmbedSlotLayerPanel EmbedSlot = "layer-panel"
-
-	// EmbedSlotSidebar adds an entry to the left-side navigation.
-	EmbedSlotSidebar EmbedSlot = "sidebar"
+// Slot names recognised by the UI registry. Unknown slots are dropped.
+const (
+	SlotMain          = "main"
+	SlotSidePanel     = "side_panel"
+	SlotExtraTab      = "extra_tab"
+	SlotHeaderWidget  = "header_widget"
 )
