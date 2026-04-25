@@ -38,9 +38,12 @@ type UIRegistryScript struct {
 // BuildUIRegistry builds the registry from the BootstrapResult's
 // UIComponents. EmbedSlot entries with an unknown View or Slot are
 // dropped; the caller can detect this by inspecting Lookup before
-// rendering. ModelURL defaults to /api/plugins/<plugin-name> when the
-// plugin contributes any HTTP handler — host pages may override per
-// component.
+// rendering. ModelURL is taken verbatim from UIComponent.ModelURL when
+// the plugin author set it; otherwise it falls back to
+// /api/plugins/<plugin-name> when the plugin contributes any HTTP
+// handler. The fallback only matches a handler mounted at Path = ""
+// or "/" — plugins whose handler lives at a non-root path (e.g.
+// "/scores") must set UIComponent.ModelURL explicitly.
 func BuildUIRegistry(res BootstrapResult) *UIRegistry {
 	reg := &UIRegistry{
 		entries: make(map[string]map[string][]UIRegistryEntry),
@@ -59,9 +62,11 @@ func BuildUIRegistry(res BootstrapResult) *UIRegistry {
 		if comp.Element == "" {
 			continue
 		}
-		modelURL := ""
-		if _, ok := httpPlugins[c.Plugin]; ok {
-			modelURL = PluginAPIPrefix + c.Plugin
+		modelURL := comp.ModelURL
+		if modelURL == "" {
+			if _, ok := httpPlugins[c.Plugin]; ok {
+				modelURL = PluginAPIPrefix + c.Plugin
+			}
 		}
 		for _, slot := range comp.EmbedAt {
 			if !validView(slot.View) || !validSlot(slot.Slot) {

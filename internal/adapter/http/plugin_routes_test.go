@@ -123,10 +123,11 @@ func TestServer_PackageDetailRendersPluginTab(t *testing.T) {
 		UIComponents: []plugin.NamedUIComponent{{
 			Plugin: "complexity",
 			Component: plugin.UIComponent{
-				Element: "plugin-complexity-heatmap",
-				Assets:  fstest.MapFS{"heatmap.js": &fstest.MapFile{Data: []byte("// stub")}},
-				Entry:   "heatmap.js",
-				EmbedAt: []plugin.EmbedSlot{{View: plugin.ViewPackageDetail, Slot: plugin.SlotExtraTab, Label: "Complexity"}},
+				Element:  "plugin-complexity-heatmap",
+				Assets:   fstest.MapFS{"heatmap.js": &fstest.MapFile{Data: []byte("// stub")}},
+				Entry:    "heatmap.js",
+				EmbedAt:  []plugin.EmbedSlot{{View: plugin.ViewPackageDetail, Slot: plugin.SlotExtraTab, Label: "Complexity"}},
+				ModelURL: "/api/plugins/complexity/scores",
 			},
 		}},
 	})
@@ -163,7 +164,7 @@ func TestServer_PackageDetailRendersPluginTab(t *testing.T) {
 	html2 := string(body2)
 	for _, want := range []string{
 		"<plugin-complexity-heatmap",
-		`data-model-url="/api/plugins/complexity"`,
+		`data-model-url="/api/plugins/complexity/scores"`,
 		`data-package="internal/foo"`,
 	} {
 		if !strings.Contains(html2, want) {
@@ -189,10 +190,11 @@ func TestServer_DashboardRendersPluginPanel(t *testing.T) {
 		UIComponents: []plugin.NamedUIComponent{{
 			Plugin: "complexity",
 			Component: plugin.UIComponent{
-				Element: "plugin-complexity-heatmap",
-				Assets:  fstest.MapFS{"heatmap.js": &fstest.MapFile{Data: []byte("// stub")}},
-				Entry:   "heatmap.js",
-				EmbedAt: []plugin.EmbedSlot{{View: plugin.ViewDashboard, Slot: plugin.SlotMain, Label: "Complexity"}},
+				Element:  "plugin-complexity-heatmap",
+				Assets:   fstest.MapFS{"heatmap.js": &fstest.MapFile{Data: []byte("// stub")}},
+				Entry:    "heatmap.js",
+				EmbedAt:  []plugin.EmbedSlot{{View: plugin.ViewDashboard, Slot: plugin.SlotMain, Label: "Complexity"}},
+				ModelURL: "/api/plugins/complexity/scores",
 			},
 		}},
 	}
@@ -209,12 +211,82 @@ func TestServer_DashboardRendersPluginPanel(t *testing.T) {
 
 	wants := []string{
 		"<plugin-complexity-heatmap",
-		`data-model-url="/api/plugins/complexity"`,
+		`data-model-url="/api/plugins/complexity/scores"`,
 		`/plugins/complexity/assets/heatmap.js`,
 	}
 	for _, want := range wants {
 		if !strings.Contains(html, want) {
 			t.Errorf("dashboard missing %q\n--- body ---\n%s", want, html)
 		}
+	}
+}
+
+// TestServer_DashboardWidgetModelURLIsRoutable is the regression test for
+// issue #74: when the dashboard widget renders a plugin's custom element,
+// its data-model-url attribute must point at a route that actually
+// returns 200, not 404. The previous default produced /api/plugins/<name>
+// which didn't match a handler mounted at /<sub-path>.
+func TestServer_DashboardWidgetModelURLIsRoutable(t *testing.T) {
+	res := plugin.BootstrapResult{
+		HTTPHandlers: []plugin.NamedHTTPHandler{{
+			Plugin: "complexity",
+			Handler: plugin.HTTPHandler{
+				Path:    "/scores",
+				Methods: []string{nethttp.MethodGet},
+				Handler: nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"ok":true}`))
+				}),
+			},
+		}},
+		UIComponents: []plugin.NamedUIComponent{{
+			Plugin: "complexity",
+			Component: plugin.UIComponent{
+				Element:  "plugin-complexity-heatmap",
+				Assets:   fstest.MapFS{"heatmap.js": &fstest.MapFile{Data: []byte("// stub")}},
+				Entry:    "heatmap.js",
+				EmbedAt:  []plugin.EmbedSlot{{View: plugin.ViewDashboard, Slot: plugin.SlotMain, Label: "Complexity"}},
+				ModelURL: "/api/plugins/complexity/scores",
+			},
+		}},
+	}
+	ts := newTestServerWithPlugins(t, res)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	// Pull the data-model-url value the browser would use.
+	idx := strings.Index(html, `data-model-url="`)
+	if idx < 0 {
+		t.Fatalf("dashboard missing data-model-url attribute\n%s", html)
+	}
+	rest := html[idx+len(`data-model-url="`):]
+	end := strings.Index(rest, `"`)
+	if end < 0 {
+		t.Fatalf("malformed data-model-url attribute")
+	}
+	modelURL := rest[:end]
+	if modelURL == "" {
+		t.Fatalf("data-model-url is empty")
+	}
+
+	// Hit it. Pre-fix this returned 404.
+	resp2, err := ts.Client().Get(ts.URL + modelURL)
+	if err != nil {
+		t.Fatalf("GET %s: %v", modelURL, err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != nethttp.StatusOK {
+		t.Fatalf("GET %s status = %d, want 200 (issue #74 regression)", modelURL, resp2.StatusCode)
+	}
+	got, _ := io.ReadAll(resp2.Body)
+	if len(got) == 0 {
+		t.Errorf("GET %s body is empty", modelURL)
 	}
 }

@@ -142,6 +142,13 @@ func (p *Plugin) UIComponents() []plugin.UIComponent {
 			{View: plugin.ViewDashboard, Slot: plugin.SlotMain, Label: "Complexity"},
 			{View: plugin.ViewPackageDetail, Slot: plugin.SlotExtraTab, Label: "Complexity"},
 		},
+		// HTTPHandlers above mounts /scores; the host's per-plugin
+		// prefix /api/plugins/complexity makes the full URL
+		// /api/plugins/complexity/scores. Set explicitly so the
+		// dashboard widget's data-model-url matches the registered
+		// route (the default fallback would be /api/plugins/complexity
+		// → 404). See issue #74.
+		ModelURL: plugin.PluginAPIPrefix + "complexity/scores",
 	}}
 }
 

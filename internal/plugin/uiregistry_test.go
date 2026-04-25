@@ -143,6 +143,91 @@ func TestPrefixedMCPName(t *testing.T) {
 	}
 }
 
+// TestBuildUIRegistry_ExplicitModelURLRespected verifies that when a
+// UIComponent sets ModelURL the registry passes it through verbatim
+// rather than falling back to the per-plugin default. This is the
+// hook plugin authors use when their HTTP handler lives at a non-root
+// Path (issue #74).
+func TestBuildUIRegistry_ExplicitModelURLRespected(t *testing.T) {
+	res := BootstrapResult{
+		HTTPHandlers: []NamedHTTPHandler{{
+			Plugin: "complexity",
+			Handler: HTTPHandler{
+				Path:    "/scores",
+				Handler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+			},
+		}},
+		UIComponents: []NamedUIComponent{{
+			Plugin: "complexity",
+			Component: UIComponent{
+				Element:  "plugin-complexity-heatmap",
+				Assets:   fstest.MapFS{"heatmap.js": &fstest.MapFile{Data: []byte("// stub")}},
+				Entry:    "heatmap.js",
+				EmbedAt:  []EmbedSlot{{View: ViewDashboard, Slot: SlotMain}},
+				ModelURL: "/api/plugins/complexity/scores",
+			},
+		}},
+	}
+	reg := BuildUIRegistry(res)
+	dash := reg.Lookup(ViewDashboard, SlotMain)
+	if len(dash) != 1 {
+		t.Fatalf("entries = %d, want 1", len(dash))
+	}
+	if got, want := dash[0].ModelURL, "/api/plugins/complexity/scores"; got != want {
+		t.Errorf("ModelURL = %q, want %q (explicit value should be respected)", got, want)
+	}
+}
+
+// TestBuildUIRegistry_EmptyModelURLFallsBack verifies that an empty
+// UIComponent.ModelURL falls back to PluginAPIPrefix + plugin name
+// when the plugin contributes any HTTP handler. Preserves backward
+// compatibility for plugins that don't set the new field.
+func TestBuildUIRegistry_EmptyModelURLFallsBack(t *testing.T) {
+	res := BootstrapResult{
+		HTTPHandlers: []NamedHTTPHandler{{
+			Plugin: "p",
+			Handler: HTTPHandler{
+				Path:    "",
+				Handler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+			},
+		}},
+		UIComponents: []NamedUIComponent{{
+			Plugin: "p",
+			Component: fakeUIComponent("plugin-p", "p.js",
+				EmbedSlot{View: ViewDashboard, Slot: SlotMain}),
+		}},
+	}
+	reg := BuildUIRegistry(res)
+	dash := reg.Lookup(ViewDashboard, SlotMain)
+	if len(dash) != 1 {
+		t.Fatalf("entries = %d, want 1", len(dash))
+	}
+	if got, want := dash[0].ModelURL, PluginAPIPrefix+"p"; got != want {
+		t.Errorf("ModelURL = %q, want %q (default fallback)", got, want)
+	}
+}
+
+// TestBuildUIRegistry_NoHTTPHandlerAndEmptyModelURL verifies that a
+// plugin without any HTTP handler and without an explicit ModelURL
+// produces an empty ModelURL — there's nothing sensible to default to.
+func TestBuildUIRegistry_NoHTTPHandlerAndEmptyModelURL(t *testing.T) {
+	res := BootstrapResult{
+		UIComponents: []NamedUIComponent{{
+			Plugin: "p",
+			Component: fakeUIComponent("plugin-p", "p.js",
+				EmbedSlot{View: ViewDashboard, Slot: SlotMain}),
+		}},
+	}
+	reg := BuildUIRegistry(res)
+	dash := reg.Lookup(ViewDashboard, SlotMain)
+	if len(dash) != 1 {
+		t.Fatalf("entries = %d, want 1", len(dash))
+	}
+	if dash[0].ModelURL != "" {
+		t.Errorf("ModelURL = %q, want empty", dash[0].ModelURL)
+	}
+}
+
 func TestUIRegistry_Views(t *testing.T) {
 	res := BootstrapResult{
 		UIComponents: []NamedUIComponent{

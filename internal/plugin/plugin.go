@@ -202,6 +202,17 @@ type UIComponent struct {
 	// should be rendered. A single component can appear in multiple
 	// views (e.g. dashboard card + package_detail tab).
 	EmbedAt []EmbedSlot
+
+	// ModelURL is the absolute URL the host page emits as the
+	// data-model-url attribute on this custom element. Set it
+	// explicitly when the plugin's HTTP handler is mounted at a
+	// non-root path (e.g. HTTPHandler.Path = "/scores", so
+	// ModelURL = "/api/plugins/<plugin-name>/scores"), or when the
+	// plugin contributes multiple HTTPHandlers and the component
+	// should target a specific one. Empty falls back to
+	// PluginAPIPrefix + plugin name, which only matches a handler
+	// mounted at Path = "" or "/".
+	ModelURL string
 }
 
 // EmbedSlot identifies one mount point on a host page. View picks the
