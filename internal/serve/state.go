@@ -15,9 +15,12 @@ import (
 	"strings"
 	"sync"
 
+	"time"
+
 	"github.com/kgatilin/archai/internal/adapter/golang"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/archai/internal/plugin"
 	"github.com/kgatilin/archai/internal/service"
 	"github.com/kgatilin/archai/internal/target"
 )
@@ -50,6 +53,83 @@ type State struct {
 
 	// currentTarget is the active target id (may be empty).
 	currentTarget string
+
+	// bus broadcasts ModelEvents to plugin subscribers. Lazily
+	// constructed on first access via Bus(); shared by every Host
+	// adapter built from this State.
+	bus *plugin.EventBus
+}
+
+// Bus returns the State's plugin event bus, creating it on first
+// access. Callers (the daemon's reload handler) publish ModelEvents
+// here after each successful state mutation; plugins subscribe via
+// Host.Subscribe.
+func (s *State) Bus() *plugin.EventBus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.bus == nil {
+		s.bus = plugin.NewEventBus()
+	}
+	return s.bus
+}
+
+// PublishPackageReload broadcasts a ModelEventKindPackageReload event.
+// Called by the watcher's batch handler after a successful package
+// reload. paths are module-relative package paths.
+func (s *State) PublishPackageReload(paths []string) {
+	s.Bus().Publish(plugin.ModelEvent{
+		Kind:  plugin.ModelEventKindPackageReload,
+		Paths: append([]string(nil), paths...),
+		At:    time.Now(),
+	})
+}
+
+// PublishOverlayReload broadcasts a ModelEventKindOverlayReload event.
+func (s *State) PublishOverlayReload() {
+	s.Bus().Publish(plugin.ModelEvent{
+		Kind: plugin.ModelEventKindOverlayReload,
+		At:   time.Now(),
+	})
+}
+
+// PublishTargetSwitch broadcasts a ModelEventKindTargetSwitch event
+// carrying the new active target id.
+func (s *State) PublishTargetSwitch(id string) {
+	s.Bus().Publish(plugin.ModelEvent{
+		Kind:   plugin.ModelEventKindTargetSwitch,
+		Target: id,
+		At:     time.Now(),
+	})
+}
+
+// CurrentModel returns the unified Model assembled from the State's
+// current packages + overlay. Safe for concurrent use; the returned
+// Model is a snapshot detached from State (callers may retain it but
+// should re-call CurrentModel after a ModelEvent).
+func (s *State) CurrentModel() *plugin.Model {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	pkgs := make([]domain.PackageModel, 0, len(s.packages))
+	for _, p := range s.packages {
+		pkgs = append(pkgs, p)
+	}
+
+	var cfgCopy *overlay.Config
+	module := ""
+	if s.overlayCfg != nil {
+		cp := *s.overlayCfg
+		cfgCopy = &cp
+		module = cp.Module
+	}
+	return plugin.BuildModel(module, pkgs, cfgCopy)
+}
+
+// CurrentTarget returns the active target id (may be empty).
+func (s *State) CurrentTarget() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.currentTarget
 }
 
 // NewState returns an empty State rooted at root. Callers must invoke

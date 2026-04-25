@@ -391,6 +391,14 @@ Examples:
 	// extract — dumps per-package YAML/JSON (mirror of the MCP extract tool).
 	rootCmd.AddCommand(newExtractCmd())
 
+	// M12: in-process plugin contract. Built-in plugins register
+	// themselves via init(); wirePlugins runs the bootstrap once
+	// against a CLI-scoped Host and mounts every plugin-contributed
+	// CLI command under the cobra root. M13 (#66) will mount the
+	// MCP / HTTP / UI capabilities through the corresponding
+	// transports.
+	wirePlugins(rootCmd)
+
 	// Execute root command
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

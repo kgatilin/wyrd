@@ -413,21 +413,29 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 			}
 		}
 
+		var reloaded []string
 		for pkg := range pkgReloads {
 			if err := state.ReloadPackage(ctx, pkg); err != nil {
 				fmt.Fprintf(logOut, "serve: reload %s: %v\n", pkg, err)
 				continue
 			}
+			reloaded = append(reloaded, pkg)
 			if debug {
 				fmt.Fprintf(logOut, "serve: reloaded package %s\n", pkg)
 			}
+		}
+		if len(reloaded) > 0 {
+			state.PublishPackageReload(reloaded)
 		}
 
 		if overlayDirty {
 			if err := state.ReloadOverlay(ctx); err != nil {
 				fmt.Fprintf(logOut, "serve: reload overlay: %v\n", err)
-			} else if debug {
-				fmt.Fprintln(logOut, "serve: reloaded overlay")
+			} else {
+				state.PublishOverlayReload()
+				if debug {
+					fmt.Fprintln(logOut, "serve: reloaded overlay")
+				}
 			}
 		}
 
@@ -438,8 +446,11 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 				fmt.Fprintf(logOut, "serve: read CURRENT: %v\n", err)
 			} else if err := state.SwitchTarget(id); err != nil {
 				fmt.Fprintf(logOut, "serve: switch target: %v\n", err)
-			} else if debug {
-				fmt.Fprintf(logOut, "serve: active target = %q\n", id)
+			} else {
+				state.PublishTargetSwitch(id)
+				if debug {
+					fmt.Fprintf(logOut, "serve: active target = %q\n", id)
+				}
 			}
 		}
 	}
