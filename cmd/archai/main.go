@@ -21,6 +21,7 @@ import (
 	httpAdapter "github.com/kgatilin/archai/internal/adapter/http"
 	"github.com/kgatilin/archai/internal/adapter/mcp"
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
+	"github.com/kgatilin/archai/internal/buildinfo"
 	"github.com/kgatilin/archai/internal/plugin"
 	"github.com/kgatilin/archai/internal/apply"
 	"github.com/kgatilin/archai/internal/diff"
@@ -491,7 +492,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return nil, err
 			}
-			return srv.WithPlugins(plugins), nil
+			return srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins), nil
 		}
 	} else {
 		opts.PluginBootstrap = bootstrapDaemonPlugins
@@ -500,7 +501,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return nil, err
 			}
-			return srv.WithPlugins(plugins), nil
+			return srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins), nil
 		}
 	}
 

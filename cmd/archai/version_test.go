@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/kgatilin/archai/internal/buildinfo"
 )
 
 // TestVersionCommand verifies `archai version` prints `archai <Version>`.
 func TestVersionCommand(t *testing.T) {
 	orig := Version
-	t.Cleanup(func() { Version = orig })
+	origBI := buildinfo.Version
+	t.Cleanup(func() {
+		Version = orig
+		buildinfo.Version = origBI
+	})
 
 	Version = "v1.2.3-test"
 	cmd := newVersionCmd()
@@ -32,7 +38,11 @@ func TestVersionCommand(t *testing.T) {
 // always start with "archai " and end with a newline.
 func TestVersionCommand_DevFallback(t *testing.T) {
 	orig := Version
-	t.Cleanup(func() { Version = orig })
+	origBI := buildinfo.Version
+	t.Cleanup(func() {
+		Version = orig
+		buildinfo.Version = origBI
+	})
 
 	Version = "dev"
 	cmd := newVersionCmd()
@@ -57,10 +67,33 @@ func TestVersionCommand_DevFallback(t *testing.T) {
 // when Version has been overridden from "dev".
 func TestResolveVersion_NonDev(t *testing.T) {
 	orig := Version
-	t.Cleanup(func() { Version = orig })
+	origBI := buildinfo.Version
+	t.Cleanup(func() {
+		Version = orig
+		buildinfo.Version = origBI
+	})
 
 	Version = "v0.5.0"
 	if got := resolveVersion(); got != "v0.5.0" {
 		t.Fatalf("resolveVersion = %q, want v0.5.0", got)
+	}
+}
+
+// TestResolveVersion_MatchesBuildinfo verifies the CLI and the
+// /api/version endpoint will report the same version string by going
+// through the same buildinfo.Resolve() path.
+func TestResolveVersion_MatchesBuildinfo(t *testing.T) {
+	orig := Version
+	origBI := buildinfo.Version
+	t.Cleanup(func() {
+		Version = orig
+		buildinfo.Version = origBI
+	})
+
+	Version = "v7.7.7"
+	cli := resolveVersion()
+	api := buildinfo.Resolve().Version
+	if cli != api {
+		t.Fatalf("CLI version %q != API version %q", cli, api)
 	}
 }

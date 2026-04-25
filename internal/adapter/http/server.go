@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kgatilin/archai/internal/buildinfo"
 	"github.com/kgatilin/archai/internal/plugin"
 	"github.com/kgatilin/archai/internal/serve"
 )
@@ -56,6 +57,28 @@ type Server struct {
 	// received by the server. Wired by serve.Serve to drive the
 	// idle-timeout monitor (see ActivityAware in internal/serve).
 	onActivity func()
+
+	// version is the build identity surfaced via /api/version and the
+	// page footer. Defaults to buildinfo.Resolve() when unset so tests
+	// and out-of-band callers see a usable value.
+	version buildinfo.Info
+}
+
+// WithVersion stores the build identity reported by the dashboard
+// footer and the /api/version endpoint. Returns s for chaining.
+// Safe to call before Serve; not safe to call concurrently with Serve.
+func (s *Server) WithVersion(info buildinfo.Info) *Server {
+	s.version = info
+	return s
+}
+
+// versionInfo returns the build identity for s, falling back to a
+// fresh buildinfo.Resolve() when WithVersion was not called.
+func (s *Server) versionInfo() buildinfo.Info {
+	if s.version.Version == "" {
+		return buildinfo.Resolve()
+	}
+	return s.version
 }
 
 // WithPlugins attaches a plugin BootstrapResult to s so its HTTP

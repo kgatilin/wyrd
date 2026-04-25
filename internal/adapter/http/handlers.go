@@ -8,6 +8,7 @@ import (
 	"io"
 	nethttp "net/http"
 
+	"github.com/kgatilin/archai/internal/buildinfo"
 	"github.com/kgatilin/archai/internal/plugin"
 )
 
@@ -58,6 +59,11 @@ type pageData struct {
 	MultiMode   bool
 	Worktrees   []worktreeOption
 	CurrentPath string // original request path (used by the switcher form)
+	// Version is the build identity rendered by the footer in
+	// templates/base.html. It is the same struct returned by
+	// /api/version so the dashboard footer and the JSON endpoint can
+	// never disagree.
+	Version buildinfo.Info
 }
 
 // searchPageData is the model for the full Search page template. It
@@ -100,6 +106,10 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 	// D2 → SVG smoke endpoint. Used by M7b-f to render server-side
 	// diagrams; accepts POST with a `d2` form field or raw text body.
 	mux.HandleFunc("/render", s.handleRender)
+
+	// /api/version is worktree-independent: register it at the top
+	// level so single-mode and multi-mode share the same path.
+	mux.HandleFunc("/api/version", s.handleAPIVersion)
 
 	// M13: plugin transports. Routes are mounted before the catch-all
 	// "/" so /api/plugins/<name>/... and /plugins/<name>/assets/... are
@@ -187,6 +197,7 @@ func (s *Server) basePageData(r *nethttp.Request, title, activePath string) page
 		MultiMode:   s.multiMode(),
 		Worktree:    s.currentWorktree(r),
 		CurrentPath: r.URL.Path,
+		Version:     s.versionInfo(),
 	}
 	if s.multiMode() {
 		pd.Worktrees = s.buildWorktreeList(r)

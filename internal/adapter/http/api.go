@@ -8,7 +8,32 @@ import (
 	"strings"
 
 	"github.com/kgatilin/archai/internal/adapter/mcp"
+	"github.com/kgatilin/archai/internal/buildinfo"
 )
+
+// handleAPIVersion serves GET /api/version → buildinfo.Info as JSON.
+// The endpoint is read-only, worktree-independent and intentionally
+// shaped so the dashboard footer and machine clients can rely on the
+// same {version, commit, go} keys forever. Method != GET returns 405.
+//
+// The handler reads the cached Info captured at server-construction
+// time (via WithVersion) and falls back to a fresh Resolve() when no
+// version was wired (e.g. in tests).
+func (s *Server) handleAPIVersion(w nethttp.ResponseWriter, r *nethttp.Request) {
+	if r.Method != nethttp.MethodGet {
+		w.Header().Set("Allow", nethttp.MethodGet)
+		nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
+		return
+	}
+	info := s.versionInfo()
+	// Defensive: surface a non-empty version even if WithVersion
+	// stashed a zero-valued Info upstream.
+	if info.Version == "" {
+		info = buildinfo.Resolve()
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(info)
+}
 
 // registerAPIRoutes wires JSON endpoints that mirror every MCP tool.
 // Each endpoint funnels into mcp.Dispatch so the MCP stdio client (M11

@@ -19,6 +19,9 @@ func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
 	mux.Handle("/assets/", nethttp.StripPrefix("/assets/", nethttp.FileServer(nethttp.FS(s.assets))))
 	mux.HandleFunc("/render", s.handleRender)
 	mux.HandleFunc("/worktree/select", s.handleWorktreeSelect)
+	// /api/version stays at the top level so its URL is the same in
+	// single- and multi-worktree mode.
+	mux.HandleFunc("/api/version", s.handleAPIVersion)
 
 	// M13: plugin routes live at the top level (not per worktree) so a
 	// single asset bundle / API surface backs every worktree's UI.
