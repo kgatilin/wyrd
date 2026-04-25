@@ -1045,3 +1045,205 @@ table.config-fields th { color: var(--muted); font-weight: 600; }
     background: #fed7aa;
     color: #7c2d12;
 }
+
+/* ---- Mobile responsive (#73) -----------------------------------------
+   Layout, typography and graph rules so the browser is usable on a
+   phone. All rules below are additive: they only override existing
+   declarations inside the listed media queries / for the listed
+   widgets, the desktop look is otherwise unchanged. */
+
+/* Long Go FQNs and import paths must wrap rather than push the layout. */
+.mono,
+code,
+.pkg-link,
+.dep-pkg,
+.search-pkg,
+.search-file,
+.search-name,
+nav.crumbs,
+.pkg-path-muted,
+.diff-table .col-path,
+dl.pkg-meta-list dd {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+/* Prevent any descendant from triggering a horizontal scroll of the
+   whole document. <pre> already has overflow-x: auto. */
+html, body {
+    overflow-x: hidden;
+}
+
+/* Card grids use auto-fit, minmax(280px, 1fr) so they cleanly drop
+   from 3 to 2 to 1 column as viewport narrows. */
+.dash-grid,
+.layer-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+/* Tables that can be wide: scroll inside the table container, not the
+   page. */
+.diff-table,
+.targets-table,
+table.config-fields {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.diff-table thead,
+.diff-table tbody,
+.targets-table thead,
+.targets-table tbody,
+table.config-fields thead,
+table.config-fields tbody {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+}
+
+/* Cytoscape containers: width 100%, disable browser pinch / double-tap
+   zoom on the canvas so cytoscape owns the gesture. */
+.cy-graph {
+    width: 100%;
+    touch-action: none;
+}
+
+.cy-toolbar {
+    flex-wrap: wrap;
+    row-gap: 0.4rem;
+}
+
+.cy-btn {
+    min-height: 32px;
+    min-width: 32px;
+}
+
+/* Hamburger toggle is hidden on desktop, surfaced under 720px via the
+   media query below. The nav uses a CSS-only checkbox hack (see
+   base.html) so no JS is required for the menu. */
+.nav-toggle-input,
+.nav-toggle-label {
+    display: none;
+}
+
+@media (max-width: 720px) {
+    header.site-nav {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        align-items: center;
+    }
+    header.site-nav .brand {
+        flex: 1;
+    }
+    .nav-toggle-label {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border: 1px solid var(--border);
+        border-radius: 0.3rem;
+        cursor: pointer;
+        color: var(--fg);
+        background: var(--bg);
+        font-size: 1.25rem;
+        line-height: 1;
+        user-select: none;
+    }
+    header.site-nav nav {
+        display: none;
+        flex-basis: 100%;
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+    .nav-toggle-input:checked ~ nav {
+        display: flex;
+    }
+    header.site-nav .worktree-switcher {
+        flex-basis: 100%;
+    }
+    main.content {
+        padding: 1rem 0.75rem;
+    }
+    nav.pkg-tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    /* On mobile, more vertical space for graphs. */
+    .cy-graph,
+    .cy-graph.layer-map,
+    .cy-graph.layer-map-mini,
+    .cy-graph.package-overview,
+    .cy-graph.diff-overlay {
+        height: 320px;
+    }
+    .cy-graph.cy-sequence {
+        height: 280px;
+    }
+    .diff-body {
+        grid-template-columns: 1fr;
+    }
+    .diff-filter {
+        position: static;
+    }
+}
+
+@media (max-width: 480px) {
+    html, body {
+        font-size: 14px;
+    }
+    main.content {
+        padding: 0.75rem 0.5rem;
+    }
+    .card {
+        padding: 0.75rem;
+    }
+    .dash-grid,
+    .layer-grid {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+    h1 {
+        font-size: 1.25rem;
+    }
+    .pkg-filter-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .pkg-filter label,
+    .pkg-filter label.grow {
+        min-width: 0;
+    }
+    .diff-table th,
+    .diff-table td {
+        padding: 0.3rem 0.4rem;
+        font-size: 0.82rem;
+    }
+}
+
+/* Pan/zoom overlay: a small +/− stack anchored to the bottom-right of
+   any cytoscape container so touch users can reset zoom even when the
+   toolbar above scrolls offscreen. Created by graph.js. */
+.cy-graph-wrap {
+    position: relative;
+}
+.cy-zoom-controls {
+    position: absolute;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    z-index: 5;
+}
+.cy-zoom-controls .cy-btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    text-align: center;
+    line-height: 30px;
+    background: var(--bg);
+}

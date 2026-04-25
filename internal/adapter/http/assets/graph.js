@@ -353,6 +353,42 @@
         if (!el.style.height) { el.style.height = '300px'; }
     }
 
+    // ensureZoomOverlay (#73): inject a small +/- stack into the
+    // bottom-right corner of every cytoscape container so touch users
+    // can zoom even when the toolbar above the graph is scrolled out
+    // of view. Skipped when interactive=false or already added.
+    function ensureZoomOverlay(el, cy) {
+        if (el.dataset.cyZoomOverlay === 'on') { return; }
+        el.dataset.cyZoomOverlay = 'on';
+        var parent = el.parentElement;
+        if (!parent) { return; }
+        if (!parent.classList.contains('cy-graph-wrap')) {
+            parent.classList.add('cy-graph-wrap');
+        }
+        var overlay = document.createElement('div');
+        overlay.className = 'cy-zoom-controls';
+        var mkBtn = function (label, ariaLabel, fn) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'cy-btn';
+            b.textContent = label;
+            b.setAttribute('aria-label', ariaLabel);
+            b.addEventListener('click', function (ev) {
+                ev.preventDefault();
+                fn();
+            });
+            return b;
+        };
+        overlay.appendChild(mkBtn('+', 'Zoom in', function () {
+            cy.zoom({ level: cy.zoom() * 1.25, renderedPosition: { x: el.clientWidth / 2, y: el.clientHeight / 2 } });
+        }));
+        overlay.appendChild(mkBtn('\u2212', 'Zoom out', function () {
+            cy.zoom({ level: cy.zoom() / 1.25, renderedPosition: { x: el.clientWidth / 2, y: el.clientHeight / 2 } });
+        }));
+        overlay.appendChild(mkBtn('\u25A1', 'Fit', function () { cy.fit(null, 20); }));
+        parent.appendChild(overlay);
+    }
+
     function renderGraph(el) {
         applyHeight(el);
         var view = el.getAttribute('data-view') || 'type-detail';
@@ -365,10 +401,16 @@
                 return;
             }
             var elements = hydrateElements(payload);
+            // #73: tune touch interactions. wheelSensitivity reduces
+            // jitter on trackpads + phones; touchTapThreshold avoids
+            // accidental taps mid-pan. Pinch-to-zoom is enabled by
+            // default in cytoscape.
             var cy = window.cytoscape({
                 container: el,
                 elements: elements,
                 layout: preset.layout,
+                wheelSensitivity: 0.2,
+                touchTapThreshold: 8,
                 style: preset.style.concat([
                     { selector: '.cy-faded', style: { 'opacity': 0.2 } },
                     { selector: '.cy-hi', style: { 'opacity': 1 } }
@@ -376,6 +418,9 @@
             });
             attachInteractions(cy, el, interactive);
             attachToolbar(el, cy);
+            if (interactive) {
+                ensureZoomOverlay(el, cy);
+            }
         };
 
         // Source 1: inline payload (M7d path).

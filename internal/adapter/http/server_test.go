@@ -114,6 +114,65 @@ func TestServer_AssetsServed(t *testing.T) {
 	}
 }
 
+// TestServer_StylesheetMobileResponsive (#73) guards the mobile-
+// responsive declarations so a future refactor doesn't silently
+// regress phone usability. Each marker maps to one of the rules from
+// the ticket: card grid auto-fit, mobile breakpoint, hamburger nav,
+// cytoscape touch-action, FQN wrap.
+func TestServer_StylesheetMobileResponsive(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/assets/styles.css")
+	if err != nil {
+		t.Fatalf("GET /assets/styles.css: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	css := string(body)
+	wantMarkers := []string{
+		"minmax(280px, 1fr)",
+		"@media (max-width: 480px)",
+		"@media (max-width: 720px)",
+		"touch-action: none",
+		"overflow-wrap: anywhere",
+		".nav-toggle-input",
+		".cy-zoom-controls",
+	}
+	for _, m := range wantMarkers {
+		if !strings.Contains(css, m) {
+			t.Errorf("styles.css missing responsive marker %q", m)
+		}
+	}
+}
+
+// TestServer_BaseTemplate_HamburgerToggle (#73) asserts that pages
+// served from the base layout include the CSS-only nav toggle. We
+// hit the dashboard and look for the input + label markers.
+func TestServer_BaseTemplate_HamburgerToggle(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	html := string(body)
+	for _, m := range []string{`class="nav-toggle-input"`, `class="nav-toggle-label"`} {
+		if !strings.Contains(html, m) {
+			t.Errorf("rendered page missing %q", m)
+		}
+	}
+}
+
 func TestServer_RenderEndpoint_POSTForm(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()
