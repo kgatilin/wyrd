@@ -7,7 +7,10 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
+	"sync"
 	"unicode"
 
 	"golang.org/x/tools/go/packages"
@@ -65,21 +68,17 @@ func (r *reader) Read(ctx context.Context, paths []string) ([]domain.PackageMode
 		r.modulePath = pkgs[0].Module.Path
 	}
 
-	var models []domain.PackageModel
-	for _, pkg := range pkgs {
-		// Check context cancellation between packages
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
+	// Sort loaded packages by import path so downstream output (the
+	// returned []PackageModel) is deterministic regardless of how the
+	// underlying go/packages loader scheduled them. The convertPackage
+	// fan-out below relies on this stable ordering.
+	sort.SliceStable(pkgs, func(i, j int) bool {
+		return pkgs[i].PkgPath < pkgs[j].PkgPath
+	})
 
-		model, err := r.convertPackage(pkg)
-		if err != nil {
-			return nil, fmt.Errorf("converting package %s: %w", pkg.PkgPath, err)
-		}
-
-		models = append(models, model)
+	models, convErr := r.convertPackagesParallel(ctx, pkgs)
+	if convErr != nil {
+		return nil, convErr
 	}
 
 	// Compute interface implementations across all loaded packages.
@@ -92,6 +91,97 @@ func (r *reader) Read(ctx context.Context, paths []string) ([]domain.PackageMode
 	r.extractCalls(pkgs, models)
 
 	return models, nil
+}
+
+// parallelConvertThreshold is the minimum number of packages that must
+// be present before convertPackagesParallel spawns a worker pool. Below
+// this, the per-goroutine overhead and the runtime/sync costs more than
+// erase the conversion-side speedup measured during #58 profiling
+// (archai's own per-package conversion is small relative to the work
+// already parallelised inside golang.org/x/tools/go/packages.Load).
+//
+// The threshold is also gated on runtime.GOMAXPROCS > 1: on a single-CPU
+// machine there is nothing to parallelise.
+const parallelConvertThreshold = 8
+
+// convertPackagesParallel converts the loaded packages into PackageModels.
+// The pkgs slice must be sorted by PkgPath before this is called so the
+// resulting []PackageModel is deterministic regardless of goroutine
+// scheduling.
+//
+// When the workload or hardware does not justify parallelism (small
+// package counts, GOMAXPROCS == 1) the function executes a serial loop.
+// In the parallel path, each worker writes only into its own index of
+// the results slice, so no locking is required for the conversion
+// output. r.modulePath is set before this function runs and is read-only
+// thereafter, which is the only field shared across workers. ctx is
+// checked once per package so a cancelled context aborts promptly.
+func (r *reader) convertPackagesParallel(ctx context.Context, pkgs []*packages.Package) ([]domain.PackageModel, error) {
+	results := make([]domain.PackageModel, len(pkgs))
+	if len(pkgs) == 0 {
+		return results, nil
+	}
+
+	maxProcs := runtime.GOMAXPROCS(0)
+	if maxProcs < 2 || len(pkgs) < parallelConvertThreshold {
+		// Serial fallback: preserves the deterministic order of pkgs and
+		// avoids goroutine overhead on small workloads.
+		for i, pkg := range pkgs {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			model, err := r.convertPackage(pkg)
+			if err != nil {
+				return nil, fmt.Errorf("converting package %s: %w", pkg.PkgPath, err)
+			}
+			results[i] = model
+		}
+		return results, nil
+	}
+
+	workers := maxProcs
+	if workers > len(pkgs) {
+		workers = len(pkgs)
+	}
+
+	indices := make(chan int, len(pkgs))
+	for i := range pkgs {
+		indices <- i
+	}
+	close(indices)
+
+	var (
+		wg       sync.WaitGroup
+		errOnce  sync.Once
+		firstErr error
+	)
+	captureErr := func(err error) {
+		errOnce.Do(func() { firstErr = err })
+	}
+
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range indices {
+				if ctx.Err() != nil {
+					captureErr(ctx.Err())
+					return
+				}
+				model, err := r.convertPackage(pkgs[i])
+				if err != nil {
+					captureErr(fmt.Errorf("converting package %s: %w", pkgs[i].PkgPath, err))
+					return
+				}
+				results[i] = model
+			}
+		}()
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return results, nil
 }
 
 // convertPackage converts a loaded go/packages.Package to a domain.PackageModel.
@@ -805,9 +895,23 @@ func (r *reader) collectDependencies(pkg *packages.Package, model *domain.Packag
 	var deps []domain.Dependency
 	seenDeps := make(map[string]bool)
 
-	// Helper to add a dependency if it's not a duplicate
+	// Helper to add a dependency if it's not a duplicate. Use a
+	// hand-rolled key to avoid the fmt.Sprintf allocation; this is one
+	// of the hot loops on a full extraction (see #58 profiling notes).
+	var keyBuf strings.Builder
 	addDep := func(dep domain.Dependency) {
-		key := fmt.Sprintf("%s->%s:%s", dep.From.String(), dep.To.String(), dep.Kind)
+		keyBuf.Reset()
+		keyBuf.Grow(len(dep.From.Package) + len(dep.From.Symbol) + len(dep.To.Package) + len(dep.To.Symbol) + len(dep.Kind) + 8)
+		keyBuf.WriteString(dep.From.Package)
+		keyBuf.WriteByte('.')
+		keyBuf.WriteString(dep.From.Symbol)
+		keyBuf.WriteString("->")
+		keyBuf.WriteString(dep.To.Package)
+		keyBuf.WriteByte('.')
+		keyBuf.WriteString(dep.To.Symbol)
+		keyBuf.WriteByte(':')
+		keyBuf.WriteString(string(dep.Kind))
+		key := keyBuf.String()
 		if !seenDeps[key] {
 			seenDeps[key] = true
 			deps = append(deps, dep)
