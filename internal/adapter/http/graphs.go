@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	d2adapter "github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/overlay"
@@ -31,6 +32,9 @@ type graphMeta struct {
 	View   string `json:"view"`
 	Layout string `json:"layout"`
 	Title  string `json:"title,omitempty"`
+	// Mode is set on overview-style payloads ("public" / "full") so the
+	// browser can render the correct toggle state without a round-trip.
+	Mode string `json:"mode,omitempty"`
 }
 
 // graphEndpointDoc describes where graph.js should refresh the data
@@ -147,15 +151,23 @@ func sortedLayerNames(cfg *overlay.Config) []string {
 // --- Package overview -----------------------------------------------
 
 // buildPackageOverviewGraph builds the client-side graph for the
-// Package Overview tab. The subject package sits at the centre with
-// exported types as children; immediate internal dependency targets
+// Package Overview tab. The subject package sits at the centre with its
+// types/functions as children; immediate internal dependency targets
 // (inbound + outbound packages) appear around it.
-func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.PackageModel) graphPayload {
+//
+// In OverviewModePublic (the default) only exported symbols are
+// rendered, and entry-point functions (factories / `New<Type>`
+// constructors) are tagged with kind="entry-point" so the browser can
+// style them distinctly. OverviewModeFull additionally renders
+// unexported symbols.
+func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.PackageModel, mode d2adapter.OverviewMode) graphPayload {
+	mode = mode.Normalize()
 	out := graphPayload{
 		Meta: graphMeta{
 			View:   "package-overview",
 			Layout: "dagre",
 			Title:  pkg.Path,
+			Mode:   string(mode),
 		},
 	}
 
@@ -167,8 +179,20 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 		Root:  true,
 	})
 
-	// Exported types as children of the package compound.
-	ifaces := append([]domain.InterfaceDef(nil), pkg.ExportedInterfaces()...)
+	// Decide which symbols to render based on mode.
+	var ifaces []domain.InterfaceDef
+	var structs []domain.StructDef
+	var fns []domain.FunctionDef
+	if mode == d2adapter.OverviewModeFull {
+		ifaces = append([]domain.InterfaceDef(nil), pkg.Interfaces...)
+		structs = append([]domain.StructDef(nil), pkg.Structs...)
+		fns = append([]domain.FunctionDef(nil), pkg.Functions...)
+	} else {
+		ifaces = append([]domain.InterfaceDef(nil), pkg.ExportedInterfaces()...)
+		structs = append([]domain.StructDef(nil), pkg.ExportedStructs()...)
+		fns = append([]domain.FunctionDef(nil), pkg.ExportedFunctions()...)
+	}
+
 	sort.Slice(ifaces, func(i, j int) bool { return ifaces[i].Name < ifaces[j].Name })
 	for _, i := range ifaces {
 		out.Nodes = append(out.Nodes, graphNode{
@@ -178,7 +202,6 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 			Parent: rootID,
 		})
 	}
-	structs := append([]domain.StructDef(nil), pkg.ExportedStructs()...)
 	sort.Slice(structs, func(i, j int) bool { return structs[i].Name < structs[j].Name })
 	for _, s := range structs {
 		out.Nodes = append(out.Nodes, graphNode{
@@ -188,13 +211,19 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 			Parent: rootID,
 		})
 	}
-	fns := append([]domain.FunctionDef(nil), pkg.ExportedFunctions()...)
 	sort.Slice(fns, func(i, j int) bool { return fns[i].Name < fns[j].Name })
 	for _, f := range fns {
+		kind := "function"
+		// Entry-point detection: factories + `New<Type>` constructors.
+		// We only mark exported entry points; unexported helpers stay
+		// as plain "function" nodes even in full mode.
+		if d2adapter.IsEntryPoint(f) {
+			kind = "entry-point"
+		}
 		out.Nodes = append(out.Nodes, graphNode{
 			ID:     "fn:" + pkg.Path + "." + f.Name,
 			Label:  f.Name,
-			Kind:   "function",
+			Kind:   kind,
 			Parent: rootID,
 		})
 	}
@@ -417,7 +446,8 @@ func (s *Server) handlePackageGraphJSON(w nethttp.ResponseWriter, r *nethttp.Req
 		nethttp.NotFound(w, r)
 		return
 	}
-	writeJSON(w, buildPackageOverviewGraph(pkg, pkgs))
+	mode := d2adapter.ParseOverviewMode(r.URL.Query().Get("mode"))
+	writeJSON(w, buildPackageOverviewGraph(pkg, pkgs, mode))
 }
 
 // handleDiffGraphJSON serves /api/diff?against=<targetID>&kind=<kind>.
@@ -497,7 +527,8 @@ func (s *Server) handlePackageExport(w nethttp.ResponseWriter, r *nethttp.Reques
 		nethttp.NotFound(w, r)
 		return
 	}
-	src := d2SourceForPackage(pkg)
+	mode := d2adapter.ParseOverviewMode(r.URL.Query().Get("mode"))
+	src := d2SourceForPackage(pkg, mode)
 	name := safeFilename(pkg.Path)
 	if fmtSuffix == "d2" {
 		writeText(w, name+".d2", src)

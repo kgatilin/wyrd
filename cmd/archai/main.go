@@ -90,6 +90,7 @@ Examples:
 	generateCmd.Flags().StringP("format", "f", "d2", "Output format: d2 or yaml")
 	generateCmd.Flags().Bool("debug", false, "Print debug information about packages and dependencies")
 	generateCmd.Flags().String("overlay", "", "Path to archai.yaml overlay (default: auto-detect in current directory)")
+	generateCmd.Flags().String("mode", "public", "Combined-mode overview detail: 'public' (default) or 'full'")
 
 	diagramCmd.AddCommand(generateCmd)
 
@@ -758,6 +759,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	format, _ := cmd.Flags().GetString("format")
 	debug, _ := cmd.Flags().GetBool("debug")
 	overlayFlag, _ := cmd.Flags().GetString("overlay")
+	modeFlag, _ := cmd.Flags().GetString("mode")
 
 	// Resolve overlay path: explicit flag wins; otherwise auto-detect
 	// archai.yaml in the current working directory.
@@ -797,9 +799,52 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 
 	// Combined mode: --output flag present
 	if output != "" {
-		// --pub and --internal don't apply to combined mode
+		// --pub and --internal don't apply to combined mode (the mode
+		// selector for combined output is --mode, not these flags).
 		if pubOnly || internalOnly {
-			fmt.Fprintln(os.Stderr, "Note: --pub and --internal flags are ignored in combined mode (always public)")
+			fmt.Fprintln(os.Stderr, "Note: --pub and --internal flags are ignored in combined mode (use --mode=full to include internal detail)")
+		}
+
+		// #61: combined output supports a Public (default) and Full
+		// overview mode. For Full we bypass the service writer and
+		// call the D2 adapter's WriteCombinedWithMode directly so we
+		// don't have to widen the service.ModelWriter interface for
+		// a single optional capability.
+		overviewMode := d2.ParseOverviewMode(modeFlag)
+		if overviewMode == d2.OverviewModeFull && format == "d2" {
+			// Use the WriteCombinedWithMode capability on the D2
+			// writer via interface assertion (the concrete type is
+			// unexported).
+			type combinedWithMode interface {
+				WriteCombinedWithMode(ctx context.Context, models []domain.PackageModel, outputPath string, mode d2.OverviewMode) error
+			}
+			cwm, ok := writer.(combinedWithMode)
+			if !ok {
+				return fmt.Errorf("writer does not support full-mode combined output (use --format=d2)")
+			}
+			packages, err := goReader.Read(ctx, args)
+			if err != nil {
+				return fmt.Errorf("generation failed: reading packages: %w", err)
+			}
+			// Full mode includes internal symbols too, so don't filter
+			// on HasExportedSymbols; include any package that has at
+			// least one symbol of any kind.
+			var filtered []domain.PackageModel
+			for _, pkg := range packages {
+				if len(pkg.Interfaces)+len(pkg.Structs)+len(pkg.Functions)+len(pkg.TypeDefs) > 0 {
+					filtered = append(filtered, pkg)
+				}
+			}
+			if len(filtered) == 0 {
+				fmt.Println("No packages with symbols found")
+				return nil
+			}
+			if err := cwm.WriteCombinedWithMode(ctx, filtered, output, d2.OverviewModeFull); err != nil {
+				return fmt.Errorf("generation failed: %w", err)
+			}
+			fmt.Printf("Combined diagram generated: %s (mode: full)\n", output)
+			fmt.Printf("Packages included: %d\n", len(filtered))
+			return nil
 		}
 
 		opts := service.GenerateCombinedOptions{
@@ -818,7 +863,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 
-		fmt.Printf("Combined diagram generated: %s\n", result.OutputPath)
+		fmt.Printf("Combined diagram generated: %s (mode: public)\n", result.OutputPath)
 		fmt.Printf("Packages included: %d\n", result.PackageCount)
 		return nil
 	}

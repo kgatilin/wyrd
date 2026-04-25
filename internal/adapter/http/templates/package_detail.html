@@ -67,18 +67,31 @@
 {{define "tab-overview"}}
 <div class="tab-overview">
     <div class="cy-toolbar" role="toolbar" aria-label="Diagram controls">
+        <div class="cy-mode-toggle" role="group" aria-label="Diagram detail mode">
+            <button type="button" class="cy-btn cy-btn-mode{{if ne .Mode "full"}} is-active{{end}}"
+                    data-cy-action="set-mode" data-mode="public"
+                    aria-pressed="{{if ne .Mode "full"}}true{{else}}false{{end}}">Public API</button>
+            <button type="button" class="cy-btn cy-btn-mode{{if eq .Mode "full"}} is-active{{end}}"
+                    data-cy-action="set-mode" data-mode="full"
+                    aria-pressed="{{if eq .Mode "full"}}true{{else}}false{{end}}">Full detail</button>
+        </div>
+        <span class="cy-toolbar-spacer"></span>
         <button type="button" class="cy-btn" data-cy-action="fit">Fit</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-in" aria-label="Zoom in">+</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-out" aria-label="Zoom out">-</button>
         <span class="cy-toolbar-spacer"></span>
-        <a class="cy-btn" href="/view/packages/{{.Pkg.Path}}/d2" download>Export D2</a>
-        <a class="cy-btn" href="/view/packages/{{.Pkg.Path}}/svg" download>Export SVG</a>
+        <a class="cy-btn cy-export-d2" href="/view/packages/{{.Pkg.Path}}/d2{{if eq .Mode "full"}}?mode=full{{end}}" download>Export D2</a>
+        <a class="cy-btn cy-export-svg" href="/view/packages/{{.Pkg.Path}}/svg{{if eq .Mode "full"}}?mode=full{{end}}" download>Export SVG</a>
         <button type="button" class="cy-btn" data-cy-action="export-png">Export PNG</button>
     </div>
     <div class="cy-graph package-overview"
-         data-api="/api/packages/{{.Pkg.Path}}/graph"
+         data-api="/api/packages/{{.Pkg.Path}}/graph{{if eq .Mode "full"}}?mode=full{{end}}"
+         data-api-base="/api/packages/{{.Pkg.Path}}/graph"
+         data-export-d2-base="/view/packages/{{.Pkg.Path}}/d2"
+         data-export-svg-base="/view/packages/{{.Pkg.Path}}/svg"
          data-view="package-overview"
          data-layout="dagre"
+         data-mode="{{.Mode}}"
          data-height="420"></div>
     <dl class="pkg-meta-list">
         <dt>Path</dt><dd><code>{{.Pkg.Path}}</code></dd>

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	d2adapter "github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/target"
@@ -128,7 +129,7 @@ func TestBuildPackageOverviewGraph_IncludesTypesAndInternalDeps(t *testing.T) {
 			{To: domain.SymbolRef{Package: "internal/foo", Symbol: "Hello"}},
 		},
 	}
-	g := buildPackageOverviewGraph(foo, []domain.PackageModel{foo, bar})
+	g := buildPackageOverviewGraph(foo, []domain.PackageModel{foo, bar}, d2adapter.OverviewModePublic)
 	if g.Meta.View != "package-overview" {
 		t.Errorf("view = %q", g.Meta.View)
 	}
@@ -160,6 +161,85 @@ func TestBuildPackageOverviewGraph_IncludesTypesAndInternalDeps(t *testing.T) {
 	if in == 0 {
 		t.Error("missing inbound edge bar -> foo")
 	}
+}
+
+// M9 (#61): Public mode hides unexported symbols, Full mode includes
+// them. Factories tagged with the factory stereotype render as
+// kind=entry-point so the front-end can highlight them.
+func TestBuildPackageOverviewGraph_ModeFiltering(t *testing.T) {
+	foo := domain.PackageModel{
+		Path: "internal/foo",
+		Name: "foo",
+		Interfaces: []domain.InterfaceDef{
+			{Name: "PublicAPI", IsExported: true},
+			{Name: "internalIface", IsExported: false},
+		},
+		Structs: []domain.StructDef{
+			{Name: "Public", IsExported: true},
+			{Name: "private", IsExported: false},
+		},
+		Functions: []domain.FunctionDef{
+			{Name: "NewService", IsExported: true, Stereotype: domain.StereotypeFactory},
+			{Name: "internalFn", IsExported: false},
+		},
+	}
+
+	t.Run("public mode omits unexported", func(t *testing.T) {
+		g := buildPackageOverviewGraph(foo, []domain.PackageModel{foo}, d2adapter.OverviewModePublic)
+		ids := nodeIDs(g)
+		for _, want := range []string{
+			"type:internal/foo.PublicAPI",
+			"type:internal/foo.Public",
+			"fn:internal/foo.NewService",
+		} {
+			if !ids[want] {
+				t.Errorf("missing exported node %q", want)
+			}
+		}
+		for _, banned := range []string{
+			"type:internal/foo.internalIface",
+			"type:internal/foo.private",
+			"fn:internal/foo.internalFn",
+		} {
+			if ids[banned] {
+				t.Errorf("public mode unexpectedly includes %q", banned)
+			}
+		}
+		// Mode must be reflected in meta for client-side reasoning.
+		if g.Meta.Mode != string(d2adapter.OverviewModePublic) {
+			t.Errorf("meta.mode = %q, want %q", g.Meta.Mode, d2adapter.OverviewModePublic)
+		}
+		// Factory function is tagged as an entry point.
+		var found bool
+		for _, n := range g.Nodes {
+			if n.ID == "fn:internal/foo.NewService" && n.Kind == "entry-point" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected NewService to render as kind=entry-point")
+		}
+	})
+
+	t.Run("full mode includes unexported", func(t *testing.T) {
+		g := buildPackageOverviewGraph(foo, []domain.PackageModel{foo}, d2adapter.OverviewModeFull)
+		ids := nodeIDs(g)
+		for _, want := range []string{
+			"type:internal/foo.PublicAPI",
+			"type:internal/foo.internalIface",
+			"type:internal/foo.private",
+			"fn:internal/foo.NewService",
+			"fn:internal/foo.internalFn",
+		} {
+			if !ids[want] {
+				t.Errorf("full mode missing node %q", want)
+			}
+		}
+		if g.Meta.Mode != string(d2adapter.OverviewModeFull) {
+			t.Errorf("meta.mode = %q, want %q", g.Meta.Mode, d2adapter.OverviewModeFull)
+		}
+	})
 }
 
 func TestBuildDiffGraph_ColoursByOp(t *testing.T) {
@@ -551,4 +631,61 @@ func nodeIDs(g graphPayload) map[string]bool {
 		out[n.ID] = true
 	}
 	return out
+}
+
+// M9 (#61): per-package D2 source must respect mode and stay deterministic.
+func TestD2SourceForPackage_ModeAndDeterminism(t *testing.T) {
+	pkg := domain.PackageModel{
+		Path: "internal/svc",
+		Name: "svc",
+		Interfaces: []domain.InterfaceDef{
+			{Name: "Greeter", IsExported: true},
+			{Name: "internalIface", IsExported: false},
+		},
+		Structs: []domain.StructDef{
+			{Name: "Service", IsExported: true},
+			{Name: "cache", IsExported: false},
+		},
+		Functions: []domain.FunctionDef{
+			{Name: "NewService", IsExported: true, Stereotype: domain.StereotypeFactory},
+			{Name: "Run", IsExported: true},
+			{Name: "internalCalc", IsExported: false},
+		},
+	}
+
+	pub := d2SourceForPackage(pkg, d2adapter.OverviewModePublic)
+	full := d2SourceForPackage(pkg, d2adapter.OverviewModeFull)
+
+	// Header reflects mode.
+	if !strings.Contains(pub, "# mode: public") {
+		t.Errorf("public output missing mode header: %s", pub)
+	}
+	if !strings.Contains(full, "# mode: full") {
+		t.Errorf("full output missing mode header: %s", full)
+	}
+
+	// Public hides unexported, full shows them.
+	for _, banned := range []string{"internalIface", "cache", "internalCalc"} {
+		if strings.Contains(pub, banned) {
+			t.Errorf("public mode includes unexported symbol %q", banned)
+		}
+		if !strings.Contains(full, banned) {
+			t.Errorf("full mode missing unexported symbol %q", banned)
+		}
+	}
+
+	// Entry-point stereotype on the factory in public mode.
+	if !strings.Contains(pub, "<<entry-point>>") {
+		t.Errorf("public mode missing entry-point stereotype: %s", pub)
+	}
+
+	// Determinism: identical inputs produce identical output across runs.
+	pub2 := d2SourceForPackage(pkg, d2adapter.OverviewModePublic)
+	if pub != pub2 {
+		t.Error("public-mode d2 output is non-deterministic across calls")
+	}
+	full2 := d2SourceForPackage(pkg, d2adapter.OverviewModeFull)
+	if full != full2 {
+		t.Error("full-mode d2 output is non-deterministic across calls")
+	}
 }

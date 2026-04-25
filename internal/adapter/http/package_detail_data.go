@@ -225,6 +225,11 @@ type packageDetailData struct {
 	SVGError    string
 	Stereotypes []string
 	LayerBadge  string
+	// Mode is the overview-render mode ("public" by default, "full" when
+	// the user toggles internal detail). Used by the Overview tab to
+	// control which graph payload is fetched and which export links are
+	// shown.
+	Mode string
 
 	// Public API / Internal
 	Interfaces []domain.InterfaceDef

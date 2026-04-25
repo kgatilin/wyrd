@@ -8,28 +8,82 @@ import (
 	"github.com/kgatilin/archai/internal/domain"
 )
 
+// OverviewMode controls how much detail an overview diagram includes.
+//
+//   - OverviewModePublic: only exported types, functions and methods are
+//     rendered. This is the default and produces the "public API surface"
+//     view of the codebase.
+//   - OverviewModeFull: every symbol (including unexported) is rendered.
+//     Useful for debugging the model or auditing internal coupling.
+//
+// New consumers should always default to OverviewModePublic; OverviewModeFull
+// is only exposed behind explicit user toggles (CLI flag, ?mode=full query).
+type OverviewMode string
+
+const (
+	OverviewModePublic OverviewMode = "public"
+	OverviewModeFull   OverviewMode = "full"
+)
+
+// Normalize coerces an unknown / empty mode value to OverviewModePublic.
+func (m OverviewMode) Normalize() OverviewMode {
+	switch m {
+	case OverviewModeFull:
+		return OverviewModeFull
+	default:
+		return OverviewModePublic
+	}
+}
+
+// includesUnexported reports whether the mode wants unexported symbols
+// rendered in the diagram.
+func (m OverviewMode) includesUnexported() bool {
+	return m.Normalize() == OverviewModeFull
+}
+
+// ParseOverviewMode parses an HTTP / CLI mode value. Empty or unknown
+// inputs return OverviewModePublic so callers always default to the
+// public surface.
+func ParseOverviewMode(s string) OverviewMode {
+	return OverviewMode(strings.ToLower(strings.TrimSpace(s))).Normalize()
+}
+
+// EntryPointStereotype is the stereotype label assigned to exported
+// constructor-style functions (`New<Type>` factories) when an overview
+// is being rendered. It is *visual* metadata — the underlying domain
+// stereotype is not mutated.
+const EntryPointStereotype = "<<entry-point>>"
+
 // combinedBuilder builds D2 diagram content from multiple packages.
 // Unlike d2TextBuilder (which groups by file within a single package),
 // combinedBuilder creates package-level containers and shows cross-package dependencies.
 type combinedBuilder struct {
 	buf    strings.Builder
 	indent int
+	mode   OverviewMode
 }
 
-// newCombinedBuilder creates a new combined builder.
+// newCombinedBuilder creates a new combined builder defaulted to public-only mode.
 func newCombinedBuilder() *combinedBuilder {
-	return &combinedBuilder{}
+	return &combinedBuilder{mode: OverviewModePublic}
 }
 
-// Build generates D2 diagram content from multiple packages.
-// It creates package-level containers with exported symbols only,
-// and renders both intra-package and cross-package dependencies.
+// newCombinedBuilderWithMode returns a builder configured for the given
+// mode. Empty/unknown modes fall back to OverviewModePublic.
+func newCombinedBuilderWithMode(mode OverviewMode) *combinedBuilder {
+	return &combinedBuilder{mode: mode.Normalize()}
+}
+
+// Build generates D2 diagram content from multiple packages using the
+// builder's configured mode (defaults to public-only).
 func (b *combinedBuilder) Build(packages []domain.PackageModel) string {
 	b.buf.Reset()
 	b.indent = 0
 
-	// 1. Write header comment
+	// 1. Write header comment. The mode marker keeps two diagrams from
+	// the same model trivially distinguishable in diffs and golden tests.
 	b.writeComment("Combined Architecture Diagram")
+	b.writeComment(fmt.Sprintf("mode: %s", b.mode.Normalize()))
 	b.writeLine("")
 
 	// 2. Write reusable style classes
@@ -72,7 +126,8 @@ func (b *combinedBuilder) Build(packages []domain.PackageModel) string {
 	return b.buf.String()
 }
 
-// writePackageContainer writes a D2 container for a package with all its exported symbols.
+// writePackageContainer writes a D2 container for a package using the builder's mode.
+// Public mode includes only exported symbols; full mode includes everything.
 func (b *combinedBuilder) writePackageContainer(pkg domain.PackageModel, symbolIndex map[string]map[string]bool) {
 	pkgID := sanitizePackageID(pkg.Path)
 
@@ -92,41 +147,34 @@ func (b *combinedBuilder) writePackageContainer(pkg domain.PackageModel, symbolI
 	b.writeLine(fmt.Sprintf(`class: %s`, class))
 	b.writeLine("")
 
-	// Write exported interfaces
-	for _, iface := range pkg.ExportedInterfaces() {
+	// Pick visible symbols based on mode.
+	for _, iface := range b.visibleInterfaces(pkg) {
 		b.writeInterface(iface)
 		b.writeLine("")
 	}
-
-	// Write exported structs
-	for _, s := range pkg.ExportedStructs() {
+	for _, s := range b.visibleStructs(pkg) {
 		b.writeStruct(s)
 		b.writeLine("")
 	}
-
-	// Write exported functions
-	for _, fn := range pkg.ExportedFunctions() {
+	for _, fn := range b.visibleFunctions(pkg) {
 		b.writeFunction(fn)
 		b.writeLine("")
 	}
-
-	// Write exported type definitions
-	for _, td := range pkg.ExportedTypeDefs() {
+	for _, td := range b.visibleTypeDefs(pkg) {
 		b.writeTypeDef(td)
 		b.writeLine("")
 	}
 
-	// Write exported constants, variables, and errors blocks
-	if exportedConsts := pkg.ExportedConstants(); len(exportedConsts) > 0 {
-		b.writeConstantsBlock(exportedConsts)
+	if consts := b.visibleConstants(pkg); len(consts) > 0 {
+		b.writeConstantsBlock(consts)
 		b.writeLine("")
 	}
-	if exportedVars := pkg.ExportedVariables(); len(exportedVars) > 0 {
-		b.writeVariablesBlock(exportedVars)
+	if vars := b.visibleVariables(pkg); len(vars) > 0 {
+		b.writeVariablesBlock(vars)
 		b.writeLine("")
 	}
-	if exportedErrs := pkg.ExportedErrors(); len(exportedErrs) > 0 {
-		b.writeErrorsBlock(exportedErrs)
+	if errs := b.visibleErrors(pkg); len(errs) > 0 {
+		b.writeErrorsBlock(errs)
 		b.writeLine("")
 	}
 
@@ -144,27 +192,130 @@ func (b *combinedBuilder) writePackageContainer(pkg domain.PackageModel, symbolI
 	b.writeLine("}")
 }
 
-// collectSymbolInfo collects stereotype information from all exported symbols in a package.
+// collectSymbolInfo collects stereotype information from visible symbols
+// in a package. Visibility is mode-aware (public vs full).
 func (b *combinedBuilder) collectSymbolInfo(pkg domain.PackageModel) []symbolInfo {
 	var symbols []symbolInfo
 
-	for _, iface := range pkg.ExportedInterfaces() {
+	for _, iface := range b.visibleInterfaces(pkg) {
 		symbols = append(symbols, symbolInfo{stereotype: iface.Stereotype})
 	}
-	for _, s := range pkg.ExportedStructs() {
+	for _, s := range b.visibleStructs(pkg) {
 		symbols = append(symbols, symbolInfo{stereotype: s.Stereotype})
 	}
-	for _, fn := range pkg.ExportedFunctions() {
+	for _, fn := range b.visibleFunctions(pkg) {
 		symbols = append(symbols, symbolInfo{stereotype: fn.Stereotype})
 	}
-	for _, td := range pkg.ExportedTypeDefs() {
+	for _, td := range b.visibleTypeDefs(pkg) {
 		symbols = append(symbols, symbolInfo{stereotype: td.Stereotype})
 	}
 
 	return symbols
 }
 
-// writeInterface writes a D2 class shape for an exported interface.
+// --- visibility-aware selectors -------------------------------------
+
+// visibleInterfaces returns interfaces matching the configured mode.
+// Public mode: only exported. Full mode: every interface.
+func (b *combinedBuilder) visibleInterfaces(pkg domain.PackageModel) []domain.InterfaceDef {
+	if b.mode.includesUnexported() {
+		out := make([]domain.InterfaceDef, len(pkg.Interfaces))
+		copy(out, pkg.Interfaces)
+		return out
+	}
+	return pkg.ExportedInterfaces()
+}
+
+func (b *combinedBuilder) visibleStructs(pkg domain.PackageModel) []domain.StructDef {
+	if b.mode.includesUnexported() {
+		out := make([]domain.StructDef, len(pkg.Structs))
+		copy(out, pkg.Structs)
+		return out
+	}
+	return pkg.ExportedStructs()
+}
+
+func (b *combinedBuilder) visibleFunctions(pkg domain.PackageModel) []domain.FunctionDef {
+	if b.mode.includesUnexported() {
+		out := make([]domain.FunctionDef, len(pkg.Functions))
+		copy(out, pkg.Functions)
+		return out
+	}
+	return pkg.ExportedFunctions()
+}
+
+func (b *combinedBuilder) visibleTypeDefs(pkg domain.PackageModel) []domain.TypeDef {
+	if b.mode.includesUnexported() {
+		out := make([]domain.TypeDef, len(pkg.TypeDefs))
+		copy(out, pkg.TypeDefs)
+		return out
+	}
+	return pkg.ExportedTypeDefs()
+}
+
+func (b *combinedBuilder) visibleConstants(pkg domain.PackageModel) []domain.ConstDef {
+	if b.mode.includesUnexported() {
+		out := make([]domain.ConstDef, len(pkg.Constants))
+		copy(out, pkg.Constants)
+		return out
+	}
+	return pkg.ExportedConstants()
+}
+
+func (b *combinedBuilder) visibleVariables(pkg domain.PackageModel) []domain.VarDef {
+	if b.mode.includesUnexported() {
+		out := make([]domain.VarDef, len(pkg.Variables))
+		copy(out, pkg.Variables)
+		return out
+	}
+	return pkg.ExportedVariables()
+}
+
+func (b *combinedBuilder) visibleErrors(pkg domain.PackageModel) []domain.ErrorDef {
+	if b.mode.includesUnexported() {
+		out := make([]domain.ErrorDef, len(pkg.Errors))
+		copy(out, pkg.Errors)
+		return out
+	}
+	return pkg.ExportedErrors()
+}
+
+// IsConstructor returns true for exported `New<Type>` factory functions.
+// Used to render entry-point markers / styles in overview diagrams.
+func IsConstructor(fn domain.FunctionDef) bool {
+	if !fn.IsExported {
+		return false
+	}
+	if !strings.HasPrefix(fn.Name, "New") {
+		return false
+	}
+	// "New" alone is allowed (e.g. NewService where the type is implicit
+	// but Stereotype already marked it as factory). Otherwise the next
+	// rune must be uppercase to count as `New<Type>`.
+	if len(fn.Name) == 3 {
+		return true
+	}
+	r := fn.Name[3]
+	return r >= 'A' && r <= 'Z'
+}
+
+// IsEntryPoint reports whether fn should be rendered as a domain-facing
+// entry point in an overview. Currently this is the union of:
+//
+//   - exported factory-stereotyped functions, and
+//   - exported `New<Type>` constructors (regardless of stereotype).
+func IsEntryPoint(fn domain.FunctionDef) bool {
+	if !fn.IsExported {
+		return false
+	}
+	if fn.Stereotype == domain.StereotypeFactory {
+		return true
+	}
+	return IsConstructor(fn)
+}
+
+// writeInterface writes a D2 class shape for an interface, including
+// methods filtered by the current mode.
 func (b *combinedBuilder) writeInterface(iface domain.InterfaceDef) {
 	b.writeLine(fmt.Sprintf("%s: {", iface.Name))
 	b.indent++
@@ -172,11 +323,10 @@ func (b *combinedBuilder) writeInterface(iface domain.InterfaceDef) {
 	b.writeLine("shape: class")
 	b.writeLine(`stereotype: "<<interface>>"`)
 
-	// Write exported methods only
-	exportedMethods := b.filterExportedMethods(iface.Methods)
-	if len(exportedMethods) > 0 {
+	methods := b.visibleMethods(iface.Methods)
+	if len(methods) > 0 {
 		b.writeLine("")
-		for _, m := range exportedMethods {
+		for _, m := range methods {
 			b.writeMethod(m)
 		}
 	}
@@ -185,7 +335,8 @@ func (b *combinedBuilder) writeInterface(iface domain.InterfaceDef) {
 	b.writeLine("}")
 }
 
-// writeStruct writes a D2 class shape for an exported struct.
+// writeStruct writes a D2 class shape for a struct. Field & method
+// visibility honours the builder mode (public-only vs full).
 func (b *combinedBuilder) writeStruct(s domain.StructDef) {
 	b.writeLine(fmt.Sprintf("%s: {", s.Name))
 	b.indent++
@@ -193,20 +344,18 @@ func (b *combinedBuilder) writeStruct(s domain.StructDef) {
 	b.writeLine("shape: class")
 	b.writeLine(`stereotype: "<<struct>>"`)
 
-	// Write exported fields
-	exportedFields := b.filterExportedFields(s.Fields)
-	if len(exportedFields) > 0 {
+	fields := b.visibleFields(s.Fields)
+	if len(fields) > 0 {
 		b.writeLine("")
-		for _, f := range exportedFields {
+		for _, f := range fields {
 			b.writeField(f)
 		}
 	}
 
-	// Write exported methods
-	exportedMethods := b.filterExportedMethods(s.Methods)
-	if len(exportedMethods) > 0 {
+	methods := b.visibleMethods(s.Methods)
+	if len(methods) > 0 {
 		b.writeLine("")
-		for _, m := range exportedMethods {
+		for _, m := range methods {
 			b.writeMethod(m)
 		}
 	}
@@ -215,18 +364,32 @@ func (b *combinedBuilder) writeStruct(s domain.StructDef) {
 	b.writeLine("}")
 }
 
-// writeFunction writes a D2 class shape for an exported function.
+// writeFunction writes a D2 class shape for a function. Exported
+// factories / constructors get the dedicated factory style + an
+// "<<entry-point>>" marker line so they stand out in the overview.
 func (b *combinedBuilder) writeFunction(fn domain.FunctionDef) {
 	b.writeLine(fmt.Sprintf("%s: {", fn.Name))
 	b.indent++
 
 	b.writeLine("shape: class")
 
+	entry := IsEntryPoint(fn)
+
 	// Write stereotype
-	if fn.Stereotype == domain.StereotypeFactory {
+	if fn.Stereotype == domain.StereotypeFactory || IsConstructor(fn) {
 		b.writeLine(`stereotype: "<<factory>>"`)
 	} else {
 		b.writeLine(`stereotype: "<<function>>"`)
+	}
+
+	// Distinct styling for entry points: explicit class assignment plus
+	// a visual marker. The class name resolves to the existing
+	// "factory" colour palette already declared at the top of the file.
+	if entry {
+		b.writeLine(fmt.Sprintf(`class: %s`, ClassFactory))
+		b.writeLine(`style.bold: true`)
+		b.writeLine(`style.stroke-width: 2`)
+		b.writeLine(fmt.Sprintf(`"%s": ""`, EntryPointStereotype))
 	}
 
 	// Write parameters as fields
@@ -384,8 +547,14 @@ func (b *combinedBuilder) formatReturns(returns []domain.TypeRef) string {
 	return "(" + strings.Join(parts, ", ") + ")"
 }
 
-// filterExportedMethods returns only exported methods.
-func (b *combinedBuilder) filterExportedMethods(methods []domain.MethodDef) []domain.MethodDef {
+// visibleMethods returns methods filtered by the current mode (public
+// returns only exported; full returns all).
+func (b *combinedBuilder) visibleMethods(methods []domain.MethodDef) []domain.MethodDef {
+	if b.mode.includesUnexported() {
+		out := make([]domain.MethodDef, len(methods))
+		copy(out, methods)
+		return out
+	}
 	var result []domain.MethodDef
 	for _, m := range methods {
 		if m.IsExported {
@@ -395,8 +564,13 @@ func (b *combinedBuilder) filterExportedMethods(methods []domain.MethodDef) []do
 	return result
 }
 
-// filterExportedFields returns only exported fields.
-func (b *combinedBuilder) filterExportedFields(fields []domain.FieldDef) []domain.FieldDef {
+// visibleFields returns fields filtered by the current mode.
+func (b *combinedBuilder) visibleFields(fields []domain.FieldDef) []domain.FieldDef {
+	if b.mode.includesUnexported() {
+		out := make([]domain.FieldDef, len(fields))
+		copy(out, fields)
+		return out
+	}
 	var result []domain.FieldDef
 	for _, f := range fields {
 		if f.IsExported {
@@ -415,21 +589,23 @@ type depInfo struct {
 	kind       domain.DependencyKind
 }
 
-// buildSymbolIndex builds an index of visible (exported) symbols per package.
+// buildSymbolIndex builds an index of visible symbols per package. The
+// definition of "visible" follows the builder's mode: public renders
+// only exported symbols, full renders every symbol.
 func (b *combinedBuilder) buildSymbolIndex(packages []domain.PackageModel) map[string]map[string]bool {
 	symbolIndex := make(map[string]map[string]bool)
 	for _, pkg := range packages {
 		symbols := make(map[string]bool)
-		for _, iface := range pkg.ExportedInterfaces() {
+		for _, iface := range b.visibleInterfaces(pkg) {
 			symbols[iface.Name] = true
 		}
-		for _, s := range pkg.ExportedStructs() {
+		for _, s := range b.visibleStructs(pkg) {
 			symbols[s.Name] = true
 		}
-		for _, fn := range pkg.ExportedFunctions() {
+		for _, fn := range b.visibleFunctions(pkg) {
 			symbols[fn.Name] = true
 		}
-		for _, td := range pkg.ExportedTypeDefs() {
+		for _, td := range b.visibleTypeDefs(pkg) {
 			symbols[td.Name] = true
 		}
 		symbolIndex[pkg.Path] = symbols
@@ -438,7 +614,9 @@ func (b *combinedBuilder) buildSymbolIndex(packages []domain.PackageModel) map[s
 }
 
 // collectIntraPackageDeps collects dependencies within a single package.
-// Combined mode is always public-only, so only dependencies through exported methods/fields are included.
+// In public mode only "ThroughExported" deps are kept (the public surface
+// is the only thing readers care about); in full mode every dep that
+// connects two visible symbols is included.
 func (b *combinedBuilder) collectIntraPackageDeps(pkg domain.PackageModel, symbolIndex map[string]map[string]bool) []depInfo {
 	var deps []depInfo
 	seen := make(map[string]bool)
@@ -454,8 +632,9 @@ func (b *combinedBuilder) collectIntraPackageDeps(pkg domain.PackageModel, symbo
 			continue
 		}
 
-		// Combined mode: only show dependencies through exported methods/fields
-		if !dep.ThroughExported {
+		// Public mode: only show dependencies through exported methods/fields.
+		// Full mode: keep them all (caller wants the gory detail).
+		if !b.mode.includesUnexported() && !dep.ThroughExported {
 			continue
 		}
 
@@ -501,8 +680,9 @@ func (b *combinedBuilder) collectIntraPackageDeps(pkg domain.PackageModel, symbo
 	return deps
 }
 
-// collectCrossPackageDeps collects dependencies between packages.
-// Combined mode is always public-only, so only dependencies through exported methods/fields are included.
+// collectCrossPackageDeps collects dependencies between packages. The
+// "ThroughExported" gate is only enforced in public mode; full mode
+// includes private wiring too.
 func (b *combinedBuilder) collectCrossPackageDeps(packages []domain.PackageModel, symbolIndex map[string]map[string]bool) []depInfo {
 	var deps []depInfo
 	seen := make(map[string]bool)
@@ -514,8 +694,7 @@ func (b *combinedBuilder) collectCrossPackageDeps(packages []domain.PackageModel
 				continue
 			}
 
-			// Combined mode: only show dependencies through exported methods/fields
-			if !dep.ThroughExported {
+			if !b.mode.includesUnexported() && !dep.ThroughExported {
 				continue
 			}
 

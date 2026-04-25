@@ -58,8 +58,15 @@ func (w *writer) Write(ctx context.Context, model domain.PackageModel, opts doma
 }
 
 // WriteCombined generates a single D2 diagram from multiple packages.
-// Combined mode always renders public API only with package-level containers.
+// The default render is the public API surface (OverviewModePublic).
+// Callers that need internal detail should use WriteCombinedWithMode.
 func (w *writer) WriteCombined(ctx context.Context, models []domain.PackageModel, outputPath string) error {
+	return w.WriteCombinedWithMode(ctx, models, outputPath, OverviewModePublic)
+}
+
+// WriteCombinedWithMode is the mode-aware variant of WriteCombined.
+// Empty / unknown modes fall back to OverviewModePublic.
+func (w *writer) WriteCombinedWithMode(ctx context.Context, models []domain.PackageModel, outputPath string, mode OverviewMode) error {
 	// Check context cancellation before starting
 	select {
 	case <-ctx.Done():
@@ -67,8 +74,8 @@ func (w *writer) WriteCombined(ctx context.Context, models []domain.PackageModel
 	default:
 	}
 
-	// Build combined D2 content
-	builder := newCombinedBuilder()
+	// Build combined D2 content using the requested mode.
+	builder := newCombinedBuilderWithMode(mode)
 	content := builder.Build(models)
 
 	// Ensure parent directory exists
@@ -83,4 +90,13 @@ func (w *writer) WriteCombined(ctx context.Context, models []domain.PackageModel
 	}
 
 	return nil
+}
+
+// BuildOverviewSource is the in-memory entry point used by HTTP/CLI
+// callers when they need the D2 source string (rather than a file). It
+// intentionally lives next to the writer so callers don't have to depend
+// on the unexported builder.
+func BuildOverviewSource(models []domain.PackageModel, mode OverviewMode) string {
+	builder := newCombinedBuilderWithMode(mode)
+	return builder.Build(models)
 }

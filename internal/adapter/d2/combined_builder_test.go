@@ -499,3 +499,143 @@ func TestCombinedBuilder_DeterministicOutput(t *testing.T) {
 		t.Logf("Output2:\n%s", output2)
 	}
 }
+
+// --- M9 / #61: overview-mode (Public vs Full) tests --------------------
+
+// fixtureMixedPackage returns a single package containing both
+// exported and unexported symbols, plus an exported factory and a
+// regular function. Used by mode/entry-point tests below.
+func fixtureMixedPackage() domain.PackageModel {
+	return domain.PackageModel{
+		Name: "svc",
+		Path: "internal/svc",
+		Interfaces: []domain.InterfaceDef{
+			{Name: "PublicAPI", IsExported: true, SourceFile: "api.go"},
+			{Name: "internalHelper", IsExported: false, SourceFile: "helper.go"},
+		},
+		Structs: []domain.StructDef{
+			{Name: "Service", IsExported: true, SourceFile: "service.go"},
+			{Name: "cache", IsExported: false, SourceFile: "cache.go"},
+		},
+		Functions: []domain.FunctionDef{
+			{Name: "NewService", IsExported: true, SourceFile: "service.go", Stereotype: domain.StereotypeFactory},
+			{Name: "Run", IsExported: true, SourceFile: "service.go"},
+			{Name: "internalCalc", IsExported: false, SourceFile: "service.go"},
+		},
+	}
+}
+
+func TestCombinedBuilder_PublicMode_OmitsUnexported(t *testing.T) {
+	pkg := fixtureMixedPackage()
+	builder := newCombinedBuilderWithMode(OverviewModePublic)
+	out := builder.Build([]domain.PackageModel{pkg})
+
+	mustContain := []string{
+		"# mode: public",
+		"PublicAPI",
+		"Service",
+		"NewService",
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(out, want) {
+			t.Errorf("public mode output missing %q\noutput:\n%s", want, out)
+		}
+	}
+	mustOmit := []string{
+		"internalHelper",
+		"cache",
+		"internalCalc",
+	}
+	for _, banned := range mustOmit {
+		if strings.Contains(out, banned) {
+			t.Errorf("public mode output unexpectedly contains %q\noutput:\n%s", banned, out)
+		}
+	}
+}
+
+func TestCombinedBuilder_FullMode_IncludesUnexported(t *testing.T) {
+	pkg := fixtureMixedPackage()
+	builder := newCombinedBuilderWithMode(OverviewModeFull)
+	out := builder.Build([]domain.PackageModel{pkg})
+
+	mustContain := []string{
+		"# mode: full",
+		"PublicAPI",
+		"internalHelper",
+		"Service",
+		"cache",
+		"NewService",
+		"internalCalc",
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(out, want) {
+			t.Errorf("full mode output missing %q\noutput:\n%s", want, out)
+		}
+	}
+}
+
+func TestCombinedBuilder_EntryPointStyling(t *testing.T) {
+	pkg := fixtureMixedPackage()
+	builder := newCombinedBuilderWithMode(OverviewModePublic)
+	out := builder.Build([]domain.PackageModel{pkg})
+
+	// The factory should be flagged as an entry point.
+	if !strings.Contains(out, EntryPointStereotype) {
+		t.Errorf("expected %q stereotype on factory in public mode\noutput:\n%s",
+			EntryPointStereotype, out)
+	}
+	// And styling: bold border (style.bold true / stroke-width 2).
+	if !strings.Contains(out, "style.bold: true") {
+		t.Errorf("expected bold styling on entry point\noutput:\n%s", out)
+	}
+}
+
+func TestCombinedBuilder_ModeNormalization(t *testing.T) {
+	pkg := fixtureMixedPackage()
+
+	// Empty / unknown / case-variant inputs should all collapse to public.
+	for _, raw := range []string{"", "PUBLIC", "garbage", "  public  "} {
+		builder := newCombinedBuilderWithMode(ParseOverviewMode(raw))
+		out := builder.Build([]domain.PackageModel{pkg})
+		if !strings.Contains(out, "# mode: public") {
+			t.Errorf("ParseOverviewMode(%q) did not normalize to public\noutput:\n%s", raw, out)
+		}
+		if strings.Contains(out, "internalCalc") {
+			t.Errorf("ParseOverviewMode(%q) leaked unexported symbols", raw)
+		}
+	}
+}
+
+func TestCombinedBuilder_DeterministicAcrossModes(t *testing.T) {
+	pkg := fixtureMixedPackage()
+
+	// Both modes must produce byte-identical output across builds.
+	for _, mode := range []OverviewMode{OverviewModePublic, OverviewModeFull} {
+		out1 := newCombinedBuilderWithMode(mode).Build([]domain.PackageModel{pkg})
+		out2 := newCombinedBuilderWithMode(mode).Build([]domain.PackageModel{pkg})
+		if out1 != out2 {
+			t.Errorf("mode %q output is not deterministic", mode)
+		}
+	}
+}
+
+func TestParseOverviewMode(t *testing.T) {
+	tests := []struct {
+		input string
+		want  OverviewMode
+	}{
+		{"", OverviewModePublic},
+		{"public", OverviewModePublic},
+		{"PUBLIC", OverviewModePublic},
+		{" public ", OverviewModePublic},
+		{"full", OverviewModeFull},
+		{"FULL", OverviewModeFull},
+		{"unknown", OverviewModePublic},
+	}
+	for _, tt := range tests {
+		got := ParseOverviewMode(tt.input)
+		if got != tt.want {
+			t.Errorf("ParseOverviewMode(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}

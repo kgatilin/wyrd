@@ -179,6 +179,17 @@
                 { selector: 'node[kind = "interface"]', style: { 'background-color': '#0ea5e9' } },
                 { selector: 'node[kind = "struct"]', style: { 'background-color': '#7c3aed' } },
                 { selector: 'node[kind = "function"]', style: { 'background-color': '#0d9488' } },
+                // M9 (#61): exported factories / constructors are the
+                // "entry points" of a package's public surface; render
+                // them with a distinct green fill and a bold dark border
+                // so they stand out from regular functions.
+                { selector: 'node[kind = "entry-point"]', style: {
+                    'background-color': '#16a34a',
+                    'border-color': '#064e3b',
+                    'border-width': 3,
+                    'shape': 'round-rectangle',
+                    'font-weight': 'bold'
+                } },
                 { selector: 'node[kind = "package"]', style: { 'background-color': '#1e293b', 'shape': 'round-rectangle', 'padding': 12, 'background-opacity': 0.4 } },
                 { selector: 'node[kind = "package-in"]', style: { 'background-color': '#475569' } },
                 { selector: 'node[kind = "package-out"]', style: { 'background-color': '#334155' } },
@@ -310,6 +321,24 @@
                                 document.body.appendChild(a);
                                 a.click();
                                 document.body.removeChild(a);
+                            } catch (_err) { /* silent */ }
+                            break;
+                        case 'set-mode':
+                            // M9 (#61): switch overview detail mode
+                            // (public ↔ full). The server renders the
+                            // page differently per ?mode= query, so the
+                            // simplest deterministic path is to update
+                            // the URL and reload. Public is the default
+                            // so dropping the param is fine.
+                            try {
+                                var mode = btn.getAttribute('data-mode') || 'public';
+                                var url = new URL(window.location.href);
+                                if (mode === 'full') {
+                                    url.searchParams.set('mode', 'full');
+                                } else {
+                                    url.searchParams.delete('mode');
+                                }
+                                window.location.assign(url.toString());
                             } catch (_err) { /* silent */ }
                             break;
                     }
