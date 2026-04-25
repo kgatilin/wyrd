@@ -4,7 +4,9 @@ Architecture diagram generator for Go projects. Analyzes Go source code and gene
 
 > **Documentation:** the full user guide — installation, quick start,
 > project setup, browser UI, editor and MCP agent integration — lives in
-> [`docs/user-guide.md`](docs/user-guide.md).
+> [`docs/user-guide.md`](docs/user-guide.md). For the MCP transport,
+> server modes, tool reference, and agent workflows see
+> [`docs/mcp-server-guide.md`](docs/mcp-server-guide.md).
 
 ## Installation
 

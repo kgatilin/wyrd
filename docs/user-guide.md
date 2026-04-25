@@ -405,11 +405,21 @@ keymaps under **Settings → Keymap → External Tools**.
 ## 6. Agent integration (MCP)
 
 Archai exposes its model to MCP clients via `archai serve --mcp-stdio`.
-You can run HTTP and MCP at the same time:
+The same daemon serves the browser UI, so you can run both together:
 
 ```bash
-archai serve --http :8080 --mcp-stdio
+# Long-running HTTP daemon (UI + /api/mcp/* JSON API).
+archai serve --http :8080
+
+# In another terminal — or as the MCP client's command — run the
+# stdio thin client. It will discover or auto-start the HTTP daemon
+# above and proxy every tools/call to it.
+archai serve --mcp-stdio
 ```
+
+For the full MCP / server reference (operational modes, HTTP API,
+tool examples, agent workflows, UI vs CLI vs MCP boundaries), see
+[`mcp-server-guide.md`](mcp-server-guide.md).
 
 ### 6.1 Claude Code — `.mcp.json`
 
@@ -517,6 +527,8 @@ server. Future milestones will polish the UI and add richer interaction
 
 - [`archai.yaml`](../archai.yaml) — real overlay used by archai itself.
 - [`docs/roadmap.md`](roadmap.md) — milestone plan.
+- [`docs/mcp-server-guide.md`](mcp-server-guide.md) — full MCP and
+  `archai serve` reference for agents.
 - [`docs/d2guide.md`](d2guide.md) — D2 diagram notation reference.
 - [`docs/architecture.d2`](architecture.d2) / [`docs/arch-composed.d2`](arch-composed.d2)
   — generated diagrams of archai itself.
