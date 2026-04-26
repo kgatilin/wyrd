@@ -44,6 +44,16 @@
             <li><span class="stat-num">{{.InterfaceCount}}</span> interfaces</li>
         </ul>
     </div>
+
+    {{if .HasBoundedContexts}}
+    <div class="card">
+        <h2>Domain</h2>
+        <ul class="stat-list">
+            <li><span class="stat-num">{{.BCCount}}</span> bounded contexts</li>
+        </ul>
+        <a href="/bc" class="card-link">View Domain model →</a>
+    </div>
+    {{end}}
 </section>
 
 <section class="card layer-preview">

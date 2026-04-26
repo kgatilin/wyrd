@@ -86,6 +86,7 @@ var navTemplate = []navItem{
 	{Label: "Layers", Href: "/layers"},
 	{Label: "Packages", Href: "/packages"},
 	{Label: "Configs", Href: "/configs"},
+	{Label: "Domain", Href: "/bc"},
 	{Label: "Targets", Href: "/targets"},
 	{Label: "Diff", Href: "/diff"},
 	{Label: "Search", Href: "/search"},
@@ -166,6 +167,8 @@ func (s *Server) routesContent(mux *nethttp.ServeMux) {
 	// under /api/ so the browser UI and the machine API live side by
 	// side on one listener.
 	s.registerAPIRoutes(mux)
+	// M14: bounded context list + detail + graph routes.
+	s.registerBCRoutes(mux)
 	// In multi mode, the root of a worktree ("/w/{name}/") is served
 	// by the content mux at "/" after dispatchWorktree rewrites the
 	// URL. In single mode the root is registered directly by routes()

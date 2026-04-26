@@ -1,0 +1,52 @@
+{{define "content"}}
+<h1>Domain</h1>
+<p class="lede">Bounded contexts declared in <code>archai.yaml</code>.</p>
+
+{{if not .HasOverlay}}
+    <div class="coming-soon">
+        <div class="tag">no overlay</div>
+        <p>Load an <code>archai.yaml</code> with a <code>bounded_contexts:</code> block to populate this catalog.</p>
+    </div>
+{{else}}
+    <section class="card layer-preview">
+        <h2>Context map</h2>
+        <div class="cy-graph bc-map"
+             data-api="/api/bc/graph"
+             data-view="bc-map"
+             data-layout="elk"
+             data-height="320"
+             data-interactive="true"></div>
+        <script src="/assets/vendor/dagre.min.js" defer></script>
+        <script src="/assets/vendor/cytoscape.min.js" defer></script>
+        <script src="/assets/vendor/cytoscape-dagre.js" defer></script>
+        <script src="/assets/vendor/elk.bundled.js" defer></script>
+        <script src="/assets/vendor/cytoscape-elk.js" defer></script>
+        <script src="/assets/graph.js" defer></script>
+    </section>
+
+    <section>
+        <table class="diff-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Relationship</th>
+                    <th>Aggregates</th>
+                    <th>Packages</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .BCs}}
+                <tr>
+                    <td><a href="{{.Href}}" class="mono">{{.Name}}</a></td>
+                    <td>{{.Description}}</td>
+                    <td>{{if .Relationship}}<span class="badge badge-stereo">{{.Relationship}}</span>{{end}}</td>
+                    <td class="mono">{{.AggCount}}</td>
+                    <td class="mono">{{.PkgCount}}</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </section>
+{{end}}
+{{end}}

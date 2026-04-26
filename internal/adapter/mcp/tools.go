@@ -99,6 +99,16 @@ type ValidateResult struct {
 	Violations []diff.Change `json:"violations"`
 }
 
+// BCSummary is the minimal record returned by list_bounded_contexts.
+type BCSummary struct {
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	Relationship string   `json:"relationship,omitempty"`
+	Aggregates   []string `json:"aggregates"`
+	Upstream     []string `json:"upstream,omitempty"`
+	Downstream   []string `json:"downstream,omitempty"`
+}
+
 // ToolDefinitions returns the built-in tools we advertise plus every
 // plugin tool registered via SetPluginTools (M13). Plugin tools are
 // surfaced with the canonical "plugin.<plugin-name>.<tool-name>"
@@ -245,6 +255,28 @@ func builtinToolDefinitions() []ToolDefinition {
 				},
 			},
 		},
+		{
+			Name:        "list_bounded_contexts",
+			Description: "List all bounded contexts declared in the archai.yaml overlay with their aggregates and context-map relationships.",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
+		{
+			Name:        "get_bounded_context",
+			Description: "Return the full detail of a single bounded context identified by name, including aggregates, upstream/downstream peers, and member packages.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Bounded context name as declared in archai.yaml.",
+					},
+				},
+				"required": []string{"name"},
+			},
+		},
 	}
 }
 
@@ -273,6 +305,10 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleApplyDiff(state, rawArgs)
 	case "validate":
 		return handleValidate(state, rawArgs)
+	case "list_bounded_contexts":
+		return handleListBoundedContexts(state)
+	case "get_bounded_context":
+		return handleGetBoundedContext(state, rawArgs)
 	}
 	if strings.HasPrefix(name, "plugin.") {
 		return dispatchPluginTool(name, rawArgs)
@@ -622,6 +658,107 @@ func handleValidate(state *serve.State, rawArgs json.RawMessage) (ToolResult, *R
 		res.Violations = d.Changes
 	}
 	return textResult(res)
+}
+
+// handleListBoundedContexts returns the summary of every bounded context
+// declared in the overlay. When no overlay is loaded (or no BCs are
+// declared) an empty slice is returned — not an error — so agents don't
+// have to special-case missing overlays.
+func handleListBoundedContexts(state *serve.State) (ToolResult, *RPCError) {
+	snap := snapshotOrEmpty(state)
+	if snap.Overlay == nil || len(snap.Overlay.BoundedContexts) == 0 {
+		return textResult([]BCSummary{})
+	}
+
+	names := make([]string, 0, len(snap.Overlay.BoundedContexts))
+	for n := range snap.Overlay.BoundedContexts {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+
+	out := make([]BCSummary, 0, len(names))
+	for _, name := range names {
+		bc := snap.Overlay.BoundedContexts[name]
+		aggs := bc.Aggregates
+		if aggs == nil {
+			aggs = []string{}
+		}
+		out = append(out, BCSummary{
+			Name:         name,
+			Description:  bc.Description,
+			Relationship: bc.Relationship,
+			Aggregates:   aggs,
+			Upstream:     bc.Upstream,
+			Downstream:   bc.Downstream,
+		})
+	}
+	return textResult(out)
+}
+
+// getBCArgs is the input schema for the get_bounded_context tool.
+type getBCArgs struct {
+	Name string `json:"name"`
+}
+
+// bcDetail extends BCSummary with the member package paths.
+type bcDetail struct {
+	BCSummary
+	Packages []string `json:"packages"`
+}
+
+// handleGetBoundedContext returns the full detail for a single bounded
+// context, including the paths of all member packages (those whose
+// Aggregate field matches one of the BC's declared aggregates).
+func handleGetBoundedContext(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	var args getBCArgs
+	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
+		return ToolResult{}, rpcErr
+	}
+	if args.Name == "" {
+		return errorResult("missing required argument: name"), nil
+	}
+
+	snap := snapshotOrEmpty(state)
+	if snap.Overlay == nil {
+		return errorResult(fmt.Sprintf("bounded context %q not found: no overlay loaded", args.Name)), nil
+	}
+	bc, ok := snap.Overlay.BoundedContexts[args.Name]
+	if !ok {
+		return errorResult(fmt.Sprintf("bounded context %q not found", args.Name)), nil
+	}
+
+	// Collect member package paths.
+	aggSet := make(map[string]struct{}, len(bc.Aggregates))
+	for _, a := range bc.Aggregates {
+		aggSet[a] = struct{}{}
+	}
+	var pkgPaths []string
+	for _, p := range snap.Packages {
+		if _, ok := aggSet[p.Aggregate]; ok {
+			pkgPaths = append(pkgPaths, p.Path)
+		}
+	}
+	sort.Strings(pkgPaths)
+	if pkgPaths == nil {
+		pkgPaths = []string{}
+	}
+
+	aggs := bc.Aggregates
+	if aggs == nil {
+		aggs = []string{}
+	}
+	detail := bcDetail{
+		BCSummary: BCSummary{
+			Name:         args.Name,
+			Description:  bc.Description,
+			Relationship: bc.Relationship,
+			Aggregates:   aggs,
+			Upstream:     bc.Upstream,
+			Downstream:   bc.Downstream,
+		},
+		Packages: pkgPaths,
+	}
+	return textResult(detail)
 }
 
 // --- shared helpers ---

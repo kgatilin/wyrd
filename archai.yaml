@@ -55,6 +55,46 @@ layer_rules:
   domain:         []
   tests:          [cli, transport, runtime, source_adapter, service, model_ops, storage, domain]
 
-aggregates: {}
+aggregates:
+  domain:
+    root: "github.com/kgatilin/archai/internal/domain.PackageModel"
+  model_ops:
+    root: "github.com/kgatilin/archai/internal/overlay.Config"
+  source_adapter:
+    root: "github.com/kgatilin/archai/internal/adapter/golang.Extractor"
+  runtime:
+    root: "github.com/kgatilin/archai/internal/serve.State"
+  transport:
+    root: "github.com/kgatilin/archai/internal/adapter/http.Server"
+  cli:
+    root: "github.com/kgatilin/archai/cmd/root.Execute"
+
+bounded_contexts:
+  model_core:
+    description: "Core domain model and operations"
+    aggregates:
+      - domain
+      - model_ops
+  io_adapters:
+    description: "I/O adapters for Go source, YAML, and D2"
+    aggregates:
+      - source_adapter
+    downstream:
+      - model_core
+  serving:
+    description: "HTTP server and MCP adapter"
+    aggregates:
+      - runtime
+      - transport
+    downstream:
+      - model_core
+      - io_adapters
+  cli_entry:
+    description: "CLI entry point and command wiring"
+    aggregates:
+      - cli
+    downstream:
+      - serving
+      - io_adapters
 
 configs: []

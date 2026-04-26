@@ -107,7 +107,80 @@ func Validate(cfg *Config, goModPath string) error {
 		}
 	}
 
+	for _, name := range sortedKeys(cfg.BoundedContexts) {
+		bc := cfg.BoundedContexts[name]
+		if strings.TrimSpace(name) == "" {
+			errs = append(errs, errors.New("overlay: bounded_contexts: name must not be empty"))
+			continue
+		}
+		for _, aggName := range bc.Aggregates {
+			if strings.TrimSpace(aggName) == "" {
+				errs = append(errs, fmt.Errorf(
+					"overlay: bounded_contexts %q has empty aggregate reference", name))
+				continue
+			}
+			if _, ok := cfg.Aggregates[aggName]; !ok {
+				errs = append(errs, fmt.Errorf(
+					"overlay: bounded_contexts %q references unknown aggregate %q",
+					name, aggName))
+			}
+		}
+		for _, ref := range bc.Upstream {
+			if strings.TrimSpace(ref) == "" {
+				errs = append(errs, fmt.Errorf(
+					"overlay: bounded_contexts %q has empty upstream reference", name))
+				continue
+			}
+			if ref == name {
+				errs = append(errs, fmt.Errorf(
+					"overlay: bounded_contexts %q references itself as upstream", name))
+				continue
+			}
+			if _, ok := cfg.BoundedContexts[ref]; !ok {
+				errs = append(errs, fmt.Errorf(
+					"overlay: bounded_contexts %q upstream references unknown context %q",
+					name, ref))
+			}
+		}
+		for _, ref := range bc.Downstream {
+			if strings.TrimSpace(ref) == "" {
+				errs = append(errs, fmt.Errorf(
+					"overlay: bounded_contexts %q has empty downstream reference", name))
+				continue
+			}
+			if ref == name {
+				errs = append(errs, fmt.Errorf(
+					"overlay: bounded_contexts %q references itself as downstream", name))
+				continue
+			}
+			if _, ok := cfg.BoundedContexts[ref]; !ok {
+				errs = append(errs, fmt.Errorf(
+					"overlay: bounded_contexts %q downstream references unknown context %q",
+					name, ref))
+			}
+		}
+		if bc.Relationship != "" {
+			if !isAllowedRelationship(bc.Relationship) {
+				errs = append(errs, fmt.Errorf(
+					"overlay: bounded_contexts %q has unknown relationship %q (allowed: %s)",
+					name, bc.Relationship,
+					strings.Join(BoundedContextRelationships, ", ")))
+			}
+		}
+	}
+
 	return errors.Join(errs...)
+}
+
+// isAllowedRelationship reports whether r is in the closed set of
+// recognised context-map relationship qualifiers.
+func isAllowedRelationship(r string) bool {
+	for _, allowed := range BoundedContextRelationships {
+		if r == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 // validateGlob checks a package glob for obvious syntactic problems.

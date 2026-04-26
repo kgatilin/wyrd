@@ -1,0 +1,79 @@
+{{define "content"}}
+<nav class="crumbs">
+    <a href="/bc">Domain</a>
+    <span class="sep">/</span>
+    <span>{{.Name}}</span>
+</nav>
+
+<h1>{{.Name}}</h1>
+
+{{if .Description}}<p class="lede">{{.Description}}</p>{{end}}
+{{if .Relationship}}<p><span class="badge badge-stereo">{{.Relationship}}</span></p>{{end}}
+
+<div class="pkg-tabs" role="tablist">
+    <a class="pkg-tab active" role="tab">Overview</a>
+</div>
+
+<section class="bc-detail-grid">
+    {{if or .Upstream .Downstream}}
+    <div class="card">
+        <h2>Context relationships</h2>
+        {{if .Upstream}}
+        <div class="bc-rel-section">
+            <h3>Upstream</h3>
+            <ul class="dep-list">
+                {{range .Upstream}}
+                <li><a href="{{.Href}}" class="dep-pkg mono">{{.Name}}</a></li>
+                {{end}}
+            </ul>
+        </div>
+        {{end}}
+        {{if .Downstream}}
+        <div class="bc-rel-section">
+            <h3>Downstream</h3>
+            <ul class="dep-list">
+                {{range .Downstream}}
+                <li><a href="{{.Href}}" class="dep-pkg mono">{{.Name}}</a></li>
+                {{end}}
+            </ul>
+        </div>
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if .Aggregates}}
+    <div class="card">
+        <h2>Aggregates</h2>
+        <ul class="stat-list">
+            {{range .Aggregates}}
+            <li><span class="badge badge-agg">{{.}}</span></li>
+            {{end}}
+        </ul>
+    </div>
+    {{end}}
+</section>
+
+{{if .Packages}}
+<section class="card">
+    <h2>Packages</h2>
+    <table class="diff-table">
+        <thead>
+            <tr>
+                <th>Path</th>
+                <th>Aggregate</th>
+                <th>Layer</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Packages}}
+            <tr>
+                <td><a href="/packages/{{.Path}}" class="mono">{{.Path}}</a></td>
+                <td>{{.Aggregate}}</td>
+                <td>{{if .Layer}}<span class="badge badge-layer">{{.Layer}}</span>{{end}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</section>
+{{end}}
+{{end}}

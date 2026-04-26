@@ -11,6 +11,7 @@
 <div class="pkg-badges">
     {{if .LayerBadge}}<span class="badge badge-layer">{{.LayerBadge}}</span>{{end}}
     {{if .Pkg.Aggregate}}<span class="badge badge-agg">aggregate: {{.Pkg.Aggregate}}</span>{{end}}
+    {{if .BCName}}<span class="badge badge-bc">bc: <a href="/bc/{{.BCName}}">{{.BCName}}</a></span>{{end}}
     {{range .Stereotypes}}<span class="badge badge-stereo">&lt;&lt;{{.}}&gt;&gt;</span>{{end}}
 </div>
 
@@ -98,6 +99,7 @@
         <dt>Name</dt><dd><code>{{.Pkg.Name}}</code></dd>
         {{if .LayerBadge}}<dt>Layer</dt><dd>{{.LayerBadge}}</dd>{{end}}
         {{if .Pkg.Aggregate}}<dt>Aggregate</dt><dd>{{.Pkg.Aggregate}}</dd>{{end}}
+        {{if .BCName}}<dt>Bounded Context</dt><dd><a href="/bc/{{.BCName}}">{{.BCName}}</a></dd>{{end}}
         <dt>Files</dt>
         <dd>
             {{range .Pkg.SourceFiles}}<code>{{.}}</code> {{end}}

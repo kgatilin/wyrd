@@ -52,8 +52,8 @@ func mustWrite(t *testing.T, path, body string) {
 
 func TestToolDefinitions(t *testing.T) {
 	defs := ToolDefinitions()
-	if len(defs) != 9 {
-		t.Fatalf("expected 9 tool definitions, got %d", len(defs))
+	if len(defs) != 11 {
+		t.Fatalf("expected 11 tool definitions, got %d", len(defs))
 	}
 	names := map[string]bool{}
 	for _, d := range defs {
@@ -65,7 +65,7 @@ func TestToolDefinitions(t *testing.T) {
 			t.Errorf("tool %q missing input schema", d.Name)
 		}
 	}
-	for _, want := range []string{"extract", "list_packages", "get_package", "lock_target", "list_targets", "set_current_target", "diff", "apply_diff", "validate"} {
+	for _, want := range []string{"extract", "list_packages", "get_package", "lock_target", "list_targets", "set_current_target", "diff", "apply_diff", "validate", "list_bounded_contexts", "get_bounded_context"} {
 		if !names[want] {
 			t.Errorf("missing tool definition for %q", want)
 		}
@@ -219,5 +219,126 @@ func TestGetPackage_MissingPath(t *testing.T) {
 	}
 	if !res.IsError {
 		t.Fatal("expected IsError result for missing path")
+	}
+}
+
+// loadFakeStateWithOverlay extends loadFakeState with a minimal archai.yaml
+// so bounded-context tools have something to query.
+func loadFakeStateWithOverlay(t *testing.T) *serve.State {
+	t.Helper()
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "go.mod"), "module fake.test\n\ngo 1.21\n")
+	mustWrite(t, filepath.Join(dir, "alpha", "alpha.go"), `package alpha
+type Service interface{ Do() }
+`)
+	mustWrite(t, filepath.Join(dir, "beta", "beta.go"), `package beta
+type Thing struct{ Name string }
+`)
+	const overlayYAML = `module: fake.test
+aggregates:
+  core:
+    root: "fake.test/alpha.Service"
+  infra:
+    root: "fake.test/beta.Thing"
+bounded_contexts:
+  main:
+    description: "Main context"
+    aggregates:
+      - core
+      - infra
+  secondary:
+    description: "Secondary context"
+    aggregates:
+      - infra
+    upstream:
+      - main
+`
+	mustWrite(t, filepath.Join(dir, "archai.yaml"), overlayYAML)
+	state := serve.NewState(dir)
+	if err := state.Load(context.Background()); err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	return state
+}
+
+func TestListBoundedContexts_EmptyStateReturnsEmptyArray(t *testing.T) {
+	res, rpcErr := Dispatch(nil, "list_bounded_contexts", nil)
+	if rpcErr != nil {
+		t.Fatalf("unexpected RPC error: %v", rpcErr)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(res.Content[0].Text), "[") {
+		t.Errorf("expected JSON array, got %q", res.Content[0].Text)
+	}
+}
+
+func TestListBoundedContexts_ReturnsSortedList(t *testing.T) {
+	state := loadFakeStateWithOverlay(t)
+	res, rpcErr := Dispatch(state, "list_bounded_contexts", nil)
+	if rpcErr != nil {
+		t.Fatalf("unexpected RPC error: %v", rpcErr)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error result: %+v", res)
+	}
+	var summaries []BCSummary
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &summaries); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("expected 2 BCs, got %d: %+v", len(summaries), summaries)
+	}
+	// Sorted alphabetically: main, secondary.
+	if summaries[0].Name != "main" || summaries[1].Name != "secondary" {
+		t.Errorf("unexpected order: %v, %v", summaries[0].Name, summaries[1].Name)
+	}
+	if summaries[0].Description != "Main context" {
+		t.Errorf("wrong description: %q", summaries[0].Description)
+	}
+}
+
+func TestGetBoundedContext_Found(t *testing.T) {
+	state := loadFakeStateWithOverlay(t)
+	args := json.RawMessage(`{"name":"main"}`)
+	res, rpcErr := Dispatch(state, "get_bounded_context", args)
+	if rpcErr != nil {
+		t.Fatalf("unexpected RPC error: %v", rpcErr)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error result: %+v", res)
+	}
+	var detail bcDetail
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &detail); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if detail.Name != "main" {
+		t.Errorf("wrong name: %q", detail.Name)
+	}
+	if len(detail.Aggregates) != 2 {
+		t.Errorf("expected 2 aggregates, got %d", len(detail.Aggregates))
+	}
+}
+
+func TestGetBoundedContext_NotFound(t *testing.T) {
+	state := loadFakeStateWithOverlay(t)
+	args := json.RawMessage(`{"name":"ghost"}`)
+	res, rpcErr := Dispatch(state, "get_bounded_context", args)
+	if rpcErr != nil {
+		t.Fatalf("unexpected RPC error: %v", rpcErr)
+	}
+	if !res.IsError {
+		t.Fatal("expected IsError result for unknown BC")
+	}
+	if !strings.Contains(res.Content[0].Text, "ghost") {
+		t.Errorf("expected error text to mention BC name; got %q", res.Content[0].Text)
+	}
+}
+
+func TestGetBoundedContext_MissingName(t *testing.T) {
+	res, rpcErr := Dispatch(nil, "get_bounded_context", json.RawMessage(`{}`))
+	if rpcErr != nil {
+		t.Fatalf("unexpected RPC error: %v", rpcErr)
+	}
+	if !res.IsError {
+		t.Fatal("expected IsError result for missing name")
 	}
 }

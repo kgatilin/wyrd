@@ -23,11 +23,12 @@ package overlay
 //   - Configs: fully-qualified type names to surface as configuration
 //     entry points.
 type Config struct {
-	Module     string               `yaml:"module"`
-	Layers     map[string][]string  `yaml:"layers"`
-	LayerRules map[string][]string  `yaml:"layer_rules"`
-	Aggregates map[string]Aggregate `yaml:"aggregates"`
-	Configs    []string             `yaml:"configs"`
+	Module          string                     `yaml:"module"`
+	Layers          map[string][]string        `yaml:"layers"`
+	LayerRules      map[string][]string        `yaml:"layer_rules"`
+	Aggregates      map[string]Aggregate       `yaml:"aggregates"`
+	Configs         []string                   `yaml:"configs"`
+	BoundedContexts map[string]BoundedContext  `yaml:"bounded_contexts,omitempty"`
 }
 
 // Aggregate describes a domain aggregate by its root type.
@@ -35,4 +36,35 @@ type Config struct {
 // "github.com/kgatilin/archai/internal/domain.PackageModel".
 type Aggregate struct {
 	Root string `yaml:"root"`
+}
+
+// BoundedContext groups one or more aggregates into a DDD-style
+// bounded context and (optionally) records its relationships with
+// other contexts.
+//
+// Field semantics:
+//   - Description: optional human-readable summary.
+//   - Aggregates: names of aggregates that belong to this context.
+//     Each must be defined in Config.Aggregates.
+//   - Upstream: names of bounded contexts this one depends on.
+//   - Downstream: names of bounded contexts that depend on this one.
+//   - Relationship: optional context-map relationship qualifier.
+//     Allowed values: "shared-kernel", "customer-supplier",
+//     "conformist", "acl", "open-host". Empty means unspecified.
+type BoundedContext struct {
+	Description  string   `yaml:"description,omitempty"`
+	Aggregates   []string `yaml:"aggregates,omitempty"`
+	Upstream     []string `yaml:"upstream,omitempty"`
+	Downstream   []string `yaml:"downstream,omitempty"`
+	Relationship string   `yaml:"relationship,omitempty"`
+}
+
+// BoundedContextRelationships is the closed set of allowed
+// relationship qualifiers for BoundedContext.Relationship.
+var BoundedContextRelationships = []string{
+	"shared-kernel",
+	"customer-supplier",
+	"conformist",
+	"acl",
+	"open-host",
 }

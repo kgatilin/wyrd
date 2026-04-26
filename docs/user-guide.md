@@ -275,7 +275,63 @@ architectural baseline and what `archai diff` / `archai validate`
 compare against. Keep `archai.yaml` checked in. If you use
 package-local overlays, keep `**/.arch/overlay.yaml` checked in too.
 
-### 3.5 CI integration
+### 3.5 Bounded contexts
+
+Bounded contexts are an optional DDD-style overlay on top of layers and
+aggregates. They let you group aggregates into named domain areas and
+declare context-map relationships between them.
+
+Add a `bounded_contexts:` block to `archai.yaml`:
+
+```yaml
+# archai.yaml
+
+bounded_contexts:
+  model_core:
+    description: "Core domain model and operations"
+    aggregates:
+      - domain
+      - model_ops
+
+  io_adapters:
+    description: "I/O adapters for Go source, YAML, and D2"
+    aggregates:
+      - source_adapter
+    downstream:
+      - model_core
+
+  serving:
+    description: "HTTP server and MCP adapter"
+    aggregates:
+      - runtime
+      - transport
+    downstream:
+      - model_core
+      - io_adapters
+
+  cli_entry:
+    description: "CLI entry point and command wiring"
+    aggregates:
+      - cli
+    downstream:
+      - serving
+      - io_adapters
+```
+
+**Schema reference**
+
+| Field          | Type             | Required | Description |
+|----------------|------------------|----------|-------------|
+| `description`  | string           | no       | Human-readable purpose of the context. |
+| `aggregates`   | list of strings  | no       | Aggregate names (declared in `aggregates:`) that belong to this context. |
+| `upstream`     | list of strings  | no       | Contexts this context depends on (consumes). |
+| `downstream`   | list of strings  | no       | Contexts that depend on this one (consumers). You may declare the relationship from either side — archai reads both. |
+| `relationship` | string           | no       | Optional context-map pattern label. Common values: `shared-kernel`, `customer-supplier`, `conformist`, `acl`, `open-host`. |
+
+Aggregates and bounded contexts are both optional — you can use layers
+alone, aggregates alone, or the full three-tier model.
+
+### 3.6 CI integration
 
 The minimum useful gate is `archai overlay check` (layer rules) and
 `archai validate` (drift from the active target). Example GitHub
@@ -323,9 +379,11 @@ Other flags:
 | `/`                   | Dashboard        | Project summary — module, layer counts, package/type counts, active target, drift status. |
 | `/layers`             | Layers           | The layer map from `archai.yaml` with package counts per layer and an allowed-dependencies grid. Red cells are layer-rule violations in the current code. |
 | `/packages`           | Packages         | Flat list of all packages with layer tag, counts, and import-path search. |
-| `/packages/{path}`    | Package detail   | Interfaces, structs, functions, methods, and dependencies for one package. Links to types. |
+| `/packages/{path}`    | Package detail   | Interfaces, structs, functions, methods, and dependencies for one package. Links to types and bounded context. |
 | `/types/{pkg}.{type}` | Type detail      | Fields/methods of a struct or interface, implementers/implementations, inbound references. |
 | `/configs`            | Configs          | Config bundles declared in `archai.yaml` (empty when no `configs:` entries). |
+| `/bc`                 | Domain           | Bounded context catalog with an interactive context-map graph (visible only when `bounded_contexts:` is declared). |
+| `/bc/{name}`          | BC detail        | Aggregates, upstream/downstream peer contexts, and member packages for one bounded context. |
 | `/targets`            | Targets          | All locked targets, which one is CURRENT, created_at, description. |
 | `/diff`               | Diff             | Structured diff between current code and the active target — color-coded: green = added, red = removed, amber = modified. |
 | `/search`             | Global search    | Packages, types, and functions by name substring. |
@@ -446,20 +504,22 @@ args    = ["serve", "--mcp-stdio", "--root", "."]
 
 ### 6.3 MCP tools
 
-The daemon advertises nine tools (defined in
+The daemon advertises eleven tools (defined in
 `internal/adapter/mcp/tools.go`):
 
-| Tool                 | Purpose                                                                 |
-|----------------------|-------------------------------------------------------------------------|
-| `extract`            | Return the full extracted Go model. Optional `paths` filter.            |
-| `list_packages`      | Minimal per-package summary (path, name, layer, counts).                |
-| `get_package`        | Full `PackageModel` for one package (`path` required).                  |
-| `lock_target`        | Freeze the current in-memory model as `.arch/targets/<id>/`.            |
-| `list_targets`       | List locked targets.                                                    |
-| `set_current_target` | Write `.arch/targets/CURRENT`.                                          |
-| `diff`               | Structured diff of current model vs a target (`target` defaults to CURRENT). |
-| `apply_diff`         | Apply a YAML patch onto a target snapshot (`patch_yaml` required).      |
-| `validate`           | `{ok, violations: [...]}` — same drift as `archai validate`.            |
+| Tool                      | Purpose                                                                 |
+|---------------------------|-------------------------------------------------------------------------|
+| `extract`                 | Return the full extracted Go model. Optional `paths` filter.            |
+| `list_packages`           | Minimal per-package summary (path, name, layer, counts).                |
+| `get_package`             | Full `PackageModel` for one package (`path` required).                  |
+| `lock_target`             | Freeze the current in-memory model as `.arch/targets/<id>/`.            |
+| `list_targets`            | List locked targets.                                                    |
+| `set_current_target`      | Write `.arch/targets/CURRENT`.                                          |
+| `diff`                    | Structured diff of current model vs a target (`target` defaults to CURRENT). |
+| `apply_diff`              | Apply a YAML patch onto a target snapshot (`patch_yaml` required).      |
+| `validate`                | `{ok, violations: [...]}` — same drift as `archai validate`.            |
+| `list_bounded_contexts`   | List all bounded contexts from `archai.yaml` with aggregates and relationships. |
+| `get_bounded_context`     | Full detail for one BC by `name`: aggregates, upstream/downstream peers, member packages. |
 
 ### 6.4 Example agent prompts
 

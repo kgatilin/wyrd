@@ -13,3 +13,7 @@ func sortLayerRules(xs []*LayerRule) {
 func sortAggregates(xs []*Aggregate) {
 	sort.Slice(xs, func(i, j int) bool { return xs[i].Name < xs[j].Name })
 }
+
+func sortBoundedContexts(xs []*BoundedContext) {
+	sort.Slice(xs, func(i, j int) bool { return xs[i].Name < xs[j].Name })
+}

@@ -247,6 +247,11 @@ type packageDetailData struct {
 	// Configs
 	ConfigTypes []configTypeView
 
+	// BCName is the bounded context this package belongs to (via its
+	// aggregate assignment). Empty when the package has no aggregate or
+	// the aggregate is not part of any declared bounded context.
+	BCName string
+
 	// Partial marks that we're rendering only the tab fragment (for
 	// HTMX swaps into #pkg-tab-content).
 	Partial bool
@@ -268,6 +273,7 @@ func buildPackageDetail(
 		Tabs:        buildTabs(active),
 		Stereotypes: collectStereotypes(pkg),
 		LayerBadge:  pkg.Layer,
+		BCName:      findBCForPackage(pkg, cfg),
 	}
 
 	switch active {
@@ -471,6 +477,23 @@ func containsString(xs []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// findBCForPackage returns the bounded context name whose aggregates
+// include the aggregate assigned to pkg. Returns "" when the package
+// has no aggregate or the aggregate is not part of any declared context.
+func findBCForPackage(pkg domain.PackageModel, cfg *overlay.Config) string {
+	if cfg == nil || pkg.Aggregate == "" {
+		return ""
+	}
+	for name, bc := range cfg.BoundedContexts {
+		for _, agg := range bc.Aggregates {
+			if agg == pkg.Aggregate {
+				return name
+			}
+		}
+	}
+	return ""
 }
 
 // buildConfigTypes walks the overlay config list and picks out entries

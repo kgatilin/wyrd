@@ -42,6 +42,11 @@ type dashboardData struct {
 	// D2→SVG render; M8 (#46) moved it to the browser.
 	HasLayerMap bool
 
+	// HasBoundedContexts is true when the overlay declares at least one
+	// bounded context; the dashboard then renders a Domain model card.
+	HasBoundedContexts bool
+	BCCount            int
+
 	// PluginMain holds plugin-contributed widgets for the dashboard's
 	// main slot. PluginScripts is the de-duplicated list of <script
 	// defer> tags injected once per plugin.
@@ -105,6 +110,12 @@ func (s *Server) handleDashboard(w nethttp.ResponseWriter, r *nethttp.Request) {
 	// defines layers; the browser fetches /api/layers/mini to hydrate it.
 	if snap.Overlay != nil && len(snap.Overlay.Layers) > 0 {
 		data.HasLayerMap = true
+	}
+
+	// Domain model card — show BC count when the overlay declares BCs.
+	if snap.Overlay != nil && len(snap.Overlay.BoundedContexts) > 0 {
+		data.HasBoundedContexts = true
+		data.BCCount = len(snap.Overlay.BoundedContexts)
 	}
 
 	// M13: plugin-contributed dashboard widgets.

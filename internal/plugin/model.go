@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"sort"
+
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/overlay"
 )
@@ -66,12 +68,35 @@ type LayerRule struct {
 	AllowedLayers []string
 }
 
-// BoundedContext is reserved for a future overlay extension that
-// groups aggregates into DDD-style contexts. Empty in M12.
+// BoundedContext groups aggregates into a DDD-style context and
+// (optionally) records its context-map relationships with other
+// contexts. Populated from archai.yaml's bounded_contexts: map
+// (M14, issue #72).
 type BoundedContext struct {
-	Name        string
-	Aggregates  []string
+	// Name is the context identifier (map key in archai.yaml).
+	Name string
+
+	// Description is the optional human-readable summary.
 	Description string
+
+	// Aggregates lists the aggregate names that belong to this
+	// context. Each name resolves to an entry in Model.Aggregates.
+	Aggregates []string
+
+	// Upstream lists the bounded contexts this one consumes from
+	// (i.e. dependencies). Names refer to other entries in
+	// Model.BCs.
+	Upstream []string
+
+	// Downstream lists the bounded contexts that consume from this
+	// one. The loader normalises Upstream/Downstream so the graph
+	// is bidirectional and de-duplicated.
+	Downstream []string
+
+	// Relationship is an optional context-map relationship
+	// qualifier ("shared-kernel", "customer-supplier", "conformist",
+	// "acl", "open-host"). Empty when unspecified.
+	Relationship string
 }
 
 // Aggregate is one entry from archai.yaml's aggregates map.
@@ -137,7 +162,88 @@ func BuildModel(module string, pkgs []domain.PackageModel, cfg *overlay.Config) 
 		m.Configs = append(m.Configs, &ConfigType{FQTypeName: fq})
 	}
 
+	if len(cfg.BoundedContexts) > 0 {
+		m.BCs = buildBoundedContexts(cfg.BoundedContexts)
+	}
+
 	return m
+}
+
+// buildBoundedContexts converts the overlay map into the plugin.Model
+// view, normalising upstream/downstream into a bidirectional, de-duplicated
+// graph. For every "A upstream: [B]" the loader inserts a corresponding
+// "B downstream: [A]" so widgets can render the graph without re-walking
+// the inverse direction. Self-references and unknown contexts are dropped
+// here (Validate has already flagged them as errors); we still skip them
+// defensively so a partially valid model does not panic the UI.
+func buildBoundedContexts(src map[string]overlay.BoundedContext) []*BoundedContext {
+	// dedupe sets keyed by context name
+	upstream := make(map[string]map[string]struct{}, len(src))
+	downstream := make(map[string]map[string]struct{}, len(src))
+
+	for name, bc := range src {
+		if upstream[name] == nil {
+			upstream[name] = make(map[string]struct{})
+		}
+		if downstream[name] == nil {
+			downstream[name] = make(map[string]struct{})
+		}
+		for _, ref := range bc.Upstream {
+			if ref == "" || ref == name {
+				continue
+			}
+			if _, ok := src[ref]; !ok {
+				continue
+			}
+			upstream[name][ref] = struct{}{}
+			if downstream[ref] == nil {
+				downstream[ref] = make(map[string]struct{})
+			}
+			downstream[ref][name] = struct{}{}
+		}
+		for _, ref := range bc.Downstream {
+			if ref == "" || ref == name {
+				continue
+			}
+			if _, ok := src[ref]; !ok {
+				continue
+			}
+			downstream[name][ref] = struct{}{}
+			if upstream[ref] == nil {
+				upstream[ref] = make(map[string]struct{})
+			}
+			upstream[ref][name] = struct{}{}
+		}
+	}
+
+	out := make([]*BoundedContext, 0, len(src))
+	for name, bc := range src {
+		aggsCopy := make([]string, len(bc.Aggregates))
+		copy(aggsCopy, bc.Aggregates)
+
+		out = append(out, &BoundedContext{
+			Name:         name,
+			Description:  bc.Description,
+			Aggregates:   aggsCopy,
+			Upstream:     sortedSetKeys(upstream[name]),
+			Downstream:   sortedSetKeys(downstream[name]),
+			Relationship: bc.Relationship,
+		})
+	}
+	sortBoundedContexts(out)
+	return out
+}
+
+func sortedSetKeys(s map[string]struct{}) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(s))
+	for k := range s {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // FindPackage returns the PackageModel with the given module-relative
@@ -162,6 +268,76 @@ func (m *Model) PackagesInLayer(layer string) []*domain.PackageModel {
 	var out []*domain.PackageModel
 	for _, p := range m.Packages {
 		if p != nil && p.Layer == layer {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// FindBoundedContext returns the named bounded context, or nil when
+// no context with that name is declared.
+func (m *Model) FindBoundedContext(name string) *BoundedContext {
+	if m == nil || name == "" {
+		return nil
+	}
+	for _, bc := range m.BCs {
+		if bc != nil && bc.Name == name {
+			return bc
+		}
+	}
+	return nil
+}
+
+// BoundedContextForAggregate returns the bounded context that contains
+// the named aggregate, or nil when none does.
+func (m *Model) BoundedContextForAggregate(aggregate string) *BoundedContext {
+	if m == nil || aggregate == "" {
+		return nil
+	}
+	for _, bc := range m.BCs {
+		if bc == nil {
+			continue
+		}
+		for _, a := range bc.Aggregates {
+			if a == aggregate {
+				return bc
+			}
+		}
+	}
+	return nil
+}
+
+// BoundedContextForPackage returns the bounded context whose
+// aggregates include any aggregate assigned to the given package's
+// declared Aggregate name. Returns nil when the package has no
+// aggregate assigned or the aggregate is not part of any context.
+func (m *Model) BoundedContextForPackage(pkg *domain.PackageModel) *BoundedContext {
+	if m == nil || pkg == nil || pkg.Aggregate == "" {
+		return nil
+	}
+	return m.BoundedContextForAggregate(pkg.Aggregate)
+}
+
+// PackagesInBoundedContext returns the packages whose Aggregate is in
+// the named bounded context. Returns nil for unknown contexts.
+func (m *Model) PackagesInBoundedContext(bcName string) []*domain.PackageModel {
+	if m == nil {
+		return nil
+	}
+	bc := m.FindBoundedContext(bcName)
+	if bc == nil {
+		return nil
+	}
+	in := make(map[string]struct{}, len(bc.Aggregates))
+	for _, a := range bc.Aggregates {
+		in[a] = struct{}{}
+	}
+	var out []*domain.PackageModel
+	for _, p := range m.Packages {
+		if p == nil {
+			continue
+		}
+		if _, ok := in[p.Aggregate]; ok {
 			out = append(out, p)
 		}
 	}
