@@ -114,6 +114,46 @@ func TestLoad_UnknownField(t *testing.T) {
 	}
 }
 
+func TestLoad_ServeHTTPAddr_Present(t *testing.T) {
+	yaml := `module: github.com/example/app
+
+layers:
+  domain:
+    - internal/domain/...
+
+layer_rules:
+  domain: []
+
+aggregates: {}
+configs: []
+
+serve:
+  http_addr: "0.0.0.0:47823"
+`
+	path := writeTempFile(t, "archai.yaml", yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	if cfg.Serve.HTTPAddr != "0.0.0.0:47823" {
+		t.Errorf("Serve.HTTPAddr = %q, want 0.0.0.0:47823", cfg.Serve.HTTPAddr)
+	}
+}
+
+func TestLoad_ServeHTTPAddr_Absent(t *testing.T) {
+	// When the serve block is omitted entirely, the zero-value
+	// ServeConfig{} should be returned so callers can fall through
+	// to flag defaults without ambiguity.
+	path := writeTempFile(t, "archai.yaml", sampleArchaiYAML)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	if cfg.Serve.HTTPAddr != "" {
+		t.Errorf("Serve.HTTPAddr = %q, want empty string", cfg.Serve.HTTPAddr)
+	}
+}
+
 func TestLoadComposed_PackageFragments(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "archai.yaml"), `module: github.com/example/app

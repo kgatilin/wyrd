@@ -199,6 +199,57 @@ func TestValidate_MissingGoMod(t *testing.T) {
 	}
 }
 
+func TestValidate_ServeHTTPAddr_Empty(t *testing.T) {
+	cfg, goMod := validConfig(t)
+	cfg.Serve = ServeConfig{HTTPAddr: ""}
+	if err := Validate(cfg, goMod); err != nil {
+		t.Fatalf("Validate with empty serve.http_addr returned error: %v", err)
+	}
+}
+
+func TestValidate_ServeHTTPAddr_Valid(t *testing.T) {
+	cases := []string{
+		"127.0.0.1:0",
+		"0.0.0.0:47823",
+		"localhost:8080",
+		":8080",
+		"[::1]:8080",
+	}
+	for _, addr := range cases {
+		t.Run(addr, func(t *testing.T) {
+			cfg, goMod := validConfig(t)
+			cfg.Serve = ServeConfig{HTTPAddr: addr}
+			if err := Validate(cfg, goMod); err != nil {
+				t.Fatalf("Validate with serve.http_addr %q returned error: %v", addr, err)
+			}
+		})
+	}
+}
+
+func TestValidate_ServeHTTPAddr_Bad(t *testing.T) {
+	cases := map[string]string{
+		"no port":         "127.0.0.1",
+		"non-numeric":     "127.0.0.1:abc",
+		"out of range":    "127.0.0.1:99999",
+		"trailing space":  "127.0.0.1:8080 ",
+		"leading space":   " 127.0.0.1:8080",
+		"empty port":      "127.0.0.1:",
+	}
+	for name, addr := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg, goMod := validConfig(t)
+			cfg.Serve = ServeConfig{HTTPAddr: addr}
+			err := Validate(cfg, goMod)
+			if err == nil {
+				t.Fatalf("expected error for serve.http_addr %q", addr)
+			}
+			if !strings.Contains(err.Error(), "serve.http_addr") {
+				t.Errorf("expected 'serve.http_addr' in error, got: %v", err)
+			}
+		})
+	}
+}
+
 func TestValidate_AggregatesWithMultipleErrorsJoined(t *testing.T) {
 	cfg, goMod := validConfig(t)
 	cfg.Aggregates["Bad1"] = Aggregate{Root: ""}

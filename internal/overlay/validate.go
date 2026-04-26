@@ -3,9 +3,11 @@ package overlay
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"golang.org/x/mod/modfile"
@@ -107,6 +109,10 @@ func Validate(cfg *Config, goModPath string) error {
 		}
 	}
 
+	if err := validateServeConfig(cfg.Serve); err != nil {
+		errs = append(errs, err)
+	}
+
 	for _, name := range sortedKeys(cfg.BoundedContexts) {
 		bc := cfg.BoundedContexts[name]
 		if strings.TrimSpace(name) == "" {
@@ -170,6 +176,44 @@ func Validate(cfg *Config, goModPath string) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// validateServeConfig checks the optional `serve:` block. Empty values
+// are valid (they fall through to flag defaults at the daemon). When
+// present, HTTPAddr must parse as a "host:port" pair with a numeric
+// port in [0, 65535].
+func validateServeConfig(cfg ServeConfig) error {
+	addr := cfg.HTTPAddr
+	if addr == "" {
+		return nil
+	}
+	if addr != strings.TrimSpace(addr) {
+		return fmt.Errorf(
+			"overlay: serve.http_addr %q has leading/trailing whitespace", addr)
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf(
+			"overlay: serve.http_addr %q is not a valid host:port: %w", addr, err)
+	}
+	if strings.ContainsAny(host, " \t\n") {
+		return fmt.Errorf(
+			"overlay: serve.http_addr %q host contains whitespace", addr)
+	}
+	if port == "" {
+		return fmt.Errorf(
+			"overlay: serve.http_addr %q has empty port", addr)
+	}
+	n, perr := strconv.Atoi(port)
+	if perr != nil {
+		return fmt.Errorf(
+			"overlay: serve.http_addr %q has non-numeric port %q", addr, port)
+	}
+	if n < 0 || n > 65535 {
+		return fmt.Errorf(
+			"overlay: serve.http_addr %q port %d is out of range [0, 65535]", addr, n)
+	}
+	return nil
 }
 
 // isAllowedRelationship reports whether r is in the closed set of

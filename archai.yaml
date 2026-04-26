@@ -98,3 +98,6 @@ bounded_contexts:
       - io_adapters
 
 configs: []
+
+serve:
+  http_addr: "0.0.0.0:47823"

@@ -424,10 +424,24 @@ func runServe(cmd *cobra.Command, args []string) error {
 	root, _ := cmd.Flags().GetString("root")
 	mcpStdio, _ := cmd.Flags().GetBool("mcp-stdio")
 	httpAddr, _ := cmd.Flags().GetString("http")
+	httpAddrFromFlag := cmd.Flags().Changed("http")
 	debug, _ := cmd.Flags().GetBool("debug")
 	multi, _ := cmd.Flags().GetBool("multi")
 	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 	idleTimeout, _ := cmd.Flags().GetDuration("idle-timeout")
+
+	// Resolve --http precedence: explicit flag > overlay serve.http_addr
+	// > flag default. Only consult the overlay when the user did not
+	// pass --http on the command line.
+	if !httpAddrFromFlag {
+		overlayAddr, err := loadServeHTTPAddrFromOverlay(root)
+		if err != nil {
+			return err
+		}
+		if overlayAddr != "" {
+			httpAddr = overlayAddr
+		}
+	}
 
 	parent := cmd.Context()
 	if parent == nil {
@@ -506,6 +520,44 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	return serve.Serve(ctx, opts)
+}
+
+// loadServeHTTPAddrFromOverlay reads <root>/archai.yaml (if present) and
+// returns its serve.http_addr value. A missing overlay returns ("", nil)
+// so callers fall back to the flag default. A malformed serve block is
+// reported as a hard error so misconfigurations surface immediately
+// instead of silently using the default.
+func loadServeHTTPAddrFromOverlay(root string) (string, error) {
+	if root == "" {
+		root = "."
+	}
+	overlayPath := filepath.Join(root, "archai.yaml")
+	if _, err := os.Stat(overlayPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("serve: stat %s: %w", overlayPath, err)
+	}
+	cfg, err := overlay.Load(overlayPath)
+	if err != nil {
+		return "", fmt.Errorf("serve: load %s: %w", overlayPath, err)
+	}
+	// Validate just the serve block in isolation so a partially-formed
+	// archai.yaml (missing module / layers) does not block --http
+	// resolution; downstream consumers run full validation themselves.
+	probe := &overlay.Config{
+		Module: "serve.http_addr-probe",
+		Layers: map[string][]string{"_probe": {"_probe/..."}},
+		Serve:  cfg.Serve,
+	}
+	if vErr := overlay.Validate(probe, ""); vErr != nil {
+		for _, line := range strings.Split(vErr.Error(), "\n") {
+			if strings.Contains(line, "serve.http_addr") {
+				return "", fmt.Errorf("serve: %s: %s", overlayPath, line)
+			}
+		}
+	}
+	return cfg.Serve.HTTPAddr, nil
 }
 
 // bootstrapDaemonPlugins runs plugin Init against the live serve.Host

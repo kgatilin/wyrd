@@ -29,6 +29,19 @@ type Config struct {
 	Aggregates      map[string]Aggregate       `yaml:"aggregates"`
 	Configs         []string                   `yaml:"configs"`
 	BoundedContexts map[string]BoundedContext  `yaml:"bounded_contexts,omitempty"`
+	Serve           ServeConfig                `yaml:"serve,omitempty"`
+}
+
+// ServeConfig captures persistent settings for `archai serve`. Each
+// field has a CLI flag counterpart that takes precedence when set;
+// values here act as the project-level default so a workstation does
+// not have to repeat them on every invocation.
+//
+// Field semantics:
+//   - HTTPAddr: TCP listen address ("host:port") for the HTTP transport.
+//     Empty falls through to the daemon's flag default.
+type ServeConfig struct {
+	HTTPAddr string `yaml:"http_addr,omitempty"`
 }
 
 // Aggregate describes a domain aggregate by its root type.
