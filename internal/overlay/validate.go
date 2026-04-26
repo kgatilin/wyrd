@@ -113,6 +113,10 @@ func Validate(cfg *Config, goModPath string) error {
 		errs = append(errs, err)
 	}
 
+	// Track which BC each aggregate appears in so we can flag any
+	// aggregate that appears in more than one bounded context.
+	aggToBC := make(map[string]string)
+
 	for _, name := range sortedKeys(cfg.BoundedContexts) {
 		bc := cfg.BoundedContexts[name]
 		if strings.TrimSpace(name) == "" {
@@ -129,6 +133,15 @@ func Validate(cfg *Config, goModPath string) error {
 				errs = append(errs, fmt.Errorf(
 					"overlay: bounded_contexts %q references unknown aggregate %q",
 					name, aggName))
+			}
+			if other, dup := aggToBC[aggName]; dup {
+				if other != name {
+					errs = append(errs, fmt.Errorf(
+						"overlay: aggregate %q appears in multiple bounded_contexts (%q and %q); each aggregate may belong to at most one context",
+						aggName, other, name))
+				}
+			} else {
+				aggToBC[aggName] = name
 			}
 		}
 		for _, ref := range bc.Upstream {
@@ -175,7 +188,40 @@ func Validate(cfg *Config, goModPath string) error {
 		}
 	}
 
+	for _, name := range sortedKeys(cfg.Adapters) {
+		ad := cfg.Adapters[name]
+		if strings.TrimSpace(name) == "" {
+			errs = append(errs, errors.New("overlay: adapters: name must not be empty"))
+			continue
+		}
+		if strings.TrimSpace(ad.Direction) == "" {
+			errs = append(errs, fmt.Errorf(
+				"overlay: adapters %q has empty direction (allowed: %s)",
+				name, strings.Join(AdapterDirections, ", ")))
+		} else if !isAllowedDirection(ad.Direction) {
+			errs = append(errs, fmt.Errorf(
+				"overlay: adapters %q has unknown direction %q (allowed: %s)",
+				name, ad.Direction, strings.Join(AdapterDirections, ", ")))
+		}
+		for _, glob := range ad.Packages {
+			if err := validateGlob("adapter "+name, glob); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
 	return errors.Join(errs...)
+}
+
+// isAllowedDirection reports whether d is in the closed set of allowed
+// adapter direction qualifiers.
+func isAllowedDirection(d string) bool {
+	for _, allowed := range AdapterDirections {
+		if d == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 // validateServeConfig checks the optional `serve:` block. Empty values

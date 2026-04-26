@@ -250,6 +250,75 @@ func TestValidate_ServeHTTPAddr_Bad(t *testing.T) {
 	}
 }
 
+func TestValidate_AggregateInMultipleBCs(t *testing.T) {
+	// Each aggregate is allowed in at most one bounded context.
+	cfg, goMod := validConfig(t)
+	cfg.BoundedContexts = map[string]BoundedContext{
+		"alpha": {Aggregates: []string{"Order"}},
+		"beta":  {Aggregates: []string{"Order"}},
+	}
+
+	err := Validate(cfg, goMod)
+	if err == nil {
+		t.Fatal("expected error for aggregate in multiple BCs, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "multiple bounded_contexts") {
+		t.Errorf("expected 'multiple bounded_contexts' in error, got: %v", err)
+	}
+	if !strings.Contains(msg, "Order") {
+		t.Errorf("expected aggregate name in error, got: %v", err)
+	}
+}
+
+func TestValidate_AdapterDirectionValid(t *testing.T) {
+	for _, dir := range []string{"inbound", "outbound", "bidirectional"} {
+		t.Run(dir, func(t *testing.T) {
+			cfg, goMod := validConfig(t)
+			cfg.Adapters = map[string]Adapter{
+				"adp": {Direction: dir, Packages: []string{"internal/foo/..."}},
+			}
+			if err := Validate(cfg, goMod); err != nil {
+				t.Fatalf("Validate returned unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidate_AdapterDirectionInvalid(t *testing.T) {
+	cases := map[string]string{
+		"empty":    "",
+		"unknown":  "sideways",
+		"casing":   "Inbound",
+		"plural":   "inbounds",
+	}
+	for name, dir := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg, goMod := validConfig(t)
+			cfg.Adapters = map[string]Adapter{
+				"adp": {Direction: dir},
+			}
+			if err := Validate(cfg, goMod); err == nil {
+				t.Fatalf("expected error for direction %q", dir)
+			}
+		})
+	}
+}
+
+func TestValidate_AdapterBadPackageGlob(t *testing.T) {
+	cfg, goMod := validConfig(t)
+	cfg.Adapters = map[string]Adapter{
+		"adp": {Direction: "inbound", Packages: []string{"/abs/path/..."}},
+	}
+	err := Validate(cfg, goMod)
+	if err == nil {
+		t.Fatal("expected error for bad adapter package glob")
+	}
+	if !strings.Contains(err.Error(), "adapter") {
+		t.Errorf("expected 'adapter' in error, got: %v", err)
+	}
+}
+
 func TestValidate_AggregatesWithMultipleErrorsJoined(t *testing.T) {
 	cfg, goMod := validConfig(t)
 	cfg.Aggregates["Bad1"] = Aggregate{Root: ""}

@@ -154,6 +154,128 @@ func TestLoad_ServeHTTPAddr_Absent(t *testing.T) {
 	}
 }
 
+func TestLoad_SingleBCOverlay(t *testing.T) {
+	// A single-bounded-context overlay with a human-readable name and an
+	// adapters block must round-trip cleanly through the loader.
+	yaml := `module: github.com/example/app
+
+layers:
+  domain:
+    - internal/domain/...
+
+layer_rules:
+  domain: []
+
+aggregates:
+  domain:
+    root: github.com/example/app/internal/domain.Model
+
+bounded_contexts:
+  model:
+    name: "Model"
+    description: "The package model"
+    aggregates:
+      - domain
+
+adapters:
+  go_extractor:
+    name: "Go Extractor"
+    direction: inbound
+    packages:
+      - internal/adapter/golang/...
+  d2_emitter:
+    direction: outbound
+  http_server:
+    direction: bidirectional
+`
+	path := writeTempFile(t, "archai.yaml", yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	if got := len(cfg.BoundedContexts); got != 1 {
+		t.Fatalf("len(BoundedContexts) = %d, want 1", got)
+	}
+	bc, ok := cfg.BoundedContexts["model"]
+	if !ok {
+		t.Fatalf("missing 'model' bounded context: %+v", cfg.BoundedContexts)
+	}
+	if bc.Name != "Model" {
+		t.Errorf("BoundedContexts[model].Name = %q, want Model", bc.Name)
+	}
+	if got := len(cfg.Adapters); got != 3 {
+		t.Fatalf("len(Adapters) = %d, want 3", got)
+	}
+}
+
+func TestLoad_AdapterDirection(t *testing.T) {
+	cases := []string{"inbound", "outbound", "bidirectional"}
+	for _, dir := range cases {
+		t.Run(dir, func(t *testing.T) {
+			yaml := `module: github.com/example/app
+
+layers:
+  domain:
+    - internal/domain/...
+
+layer_rules:
+  domain: []
+
+aggregates: {}
+configs: []
+
+adapters:
+  example:
+    direction: ` + dir + `
+`
+			path := writeTempFile(t, "archai.yaml", yaml)
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load returned unexpected error: %v", err)
+			}
+			ad, ok := cfg.Adapters["example"]
+			if !ok {
+				t.Fatalf("missing 'example' adapter: %+v", cfg.Adapters)
+			}
+			if ad.Direction != dir {
+				t.Errorf("Adapters[example].Direction = %q, want %q", ad.Direction, dir)
+			}
+		})
+	}
+}
+
+func TestLoad_InvalidAdapterDirection(t *testing.T) {
+	// Loader-level: KnownFields(true) accepts any string for `direction`,
+	// but Validate must reject unknown values.
+	goMod := writeGoMod(t, "github.com/example/app")
+	yaml := `module: github.com/example/app
+
+layers:
+  domain:
+    - internal/domain/...
+
+layer_rules:
+  domain: []
+
+aggregates: {}
+configs: []
+
+adapters:
+  bogus:
+    direction: sideways
+`
+	path := writeTempFile(t, "archai.yaml", yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	if err := Validate(cfg, goMod); err == nil {
+		t.Fatal("expected validation error for unknown adapter direction, got nil")
+	} else if !strings.Contains(err.Error(), "sideways") {
+		t.Errorf("expected error to mention bad direction, got: %v", err)
+	}
+}
+
 func TestLoadComposed_PackageFragments(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "archai.yaml"), `module: github.com/example/app

@@ -4,16 +4,17 @@
 # generated per-package `.arch/` files in this repository are produced from
 # this overlay, so the project demonstrates the tool on its own codebase.
 #
-# Architecture shape:
-#   - `domain` is the extracted package model and shared value vocabulary.
-#   - `model_ops` contains operations over that model: overlay, diff, apply,
-#     and sequence analysis.
-#   - `service` owns the generation/composition use cases and ports.
-#   - `source_adapter` reads/writes external model formats and Go source.
-#   - `runtime` keeps live in-memory state and file watchers.
-#   - `transport` exposes the model to browser and MCP clients.
-#   - `storage` owns target/worktree filesystem state.
-#   - `cli` wires the public command surface.
+# Architecture shape (post-#82):
+#   - The domain is a single bounded context, `model`, that owns the
+#     extracted package model and the operations performed over it
+#     (overlay, diff, apply, sequence). Everything else is an adapter.
+#   - Inbound adapters drive the model from the outside (Go source
+#     extractor, YAML overlay loader). Outbound adapters render the
+#     model to other formats (D2 diagrams, dashboard HTML/JS).
+#     Bidirectional adapters serve and accept commands at runtime
+#     (HTTP server, MCP server).
+#   - Layer rules still describe permitted package-level dependencies
+#     between architectural slices.
 
 module: github.com/kgatilin/archai
 
@@ -60,42 +61,52 @@ aggregates:
     root: "github.com/kgatilin/archai/internal/domain.PackageModel"
   model_ops:
     root: "github.com/kgatilin/archai/internal/overlay.Config"
-  source_adapter:
-    root: "github.com/kgatilin/archai/internal/adapter/golang.Extractor"
-  runtime:
-    root: "github.com/kgatilin/archai/internal/serve.State"
-  transport:
-    root: "github.com/kgatilin/archai/internal/adapter/http.Server"
-  cli:
-    root: "github.com/kgatilin/archai/cmd/root.Execute"
 
 bounded_contexts:
-  model_core:
-    description: "Core domain model and operations"
+  model:
+    name: "Model"
+    description: "The package model and the operations performed over it (overlay, diff, apply, sequence)."
     aggregates:
       - domain
       - model_ops
-  io_adapters:
-    description: "I/O adapters for Go source, YAML, and D2"
-    aggregates:
-      - source_adapter
-    downstream:
-      - model_core
-  serving:
-    description: "HTTP server and MCP adapter"
-    aggregates:
-      - runtime
-      - transport
-    downstream:
-      - model_core
-      - io_adapters
-  cli_entry:
-    description: "CLI entry point and command wiring"
-    aggregates:
-      - cli
-    downstream:
-      - serving
-      - io_adapters
+
+adapters:
+  go_extractor:
+    name: "Go Extractor"
+    direction: inbound
+    description: "Reads Go source and extracts the package model."
+    packages:
+      - internal/adapter/golang/...
+  yaml_overlay:
+    name: "YAML Overlay"
+    direction: inbound
+    description: "Loads archai.yaml and per-package overlay fragments."
+    packages:
+      - internal/adapter/yaml/...
+  d2_emitter:
+    name: "D2 Emitter"
+    direction: outbound
+    description: "Renders the model and overlay into D2 diagram source."
+    packages:
+      - internal/adapter/d2/...
+  dashboard:
+    name: "Dashboard"
+    direction: outbound
+    description: "HTML/JS dashboard that visualises the model in a browser."
+    packages:
+      - internal/adapter/http/...
+  mcp_server:
+    name: "MCP Server"
+    direction: bidirectional
+    description: "Model Context Protocol surface for IDE/agent tooling."
+    packages:
+      - internal/adapter/mcp/...
+  http_server:
+    name: "HTTP Server"
+    direction: bidirectional
+    description: "HTTP API and dashboard host process."
+    packages:
+      - internal/serve/...
 
 configs: []
 

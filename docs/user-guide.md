@@ -287,49 +287,64 @@ Add a `bounded_contexts:` block to `archai.yaml`:
 # archai.yaml
 
 bounded_contexts:
-  model_core:
-    description: "Core domain model and operations"
+  model:
+    name: "Model"
+    description: "The package model and the operations performed over it."
     aggregates:
       - domain
       - model_ops
 
-  io_adapters:
-    description: "I/O adapters for Go source, YAML, and D2"
-    aggregates:
-      - source_adapter
-    downstream:
-      - model_core
+adapters:
+  go_extractor:
+    name: "Go Extractor"
+    direction: inbound
+    description: "Reads Go source into the model."
+    packages:
+      - internal/adapter/golang/...
 
-  serving:
-    description: "HTTP server and MCP adapter"
-    aggregates:
-      - runtime
-      - transport
-    downstream:
-      - model_core
-      - io_adapters
+  d2_emitter:
+    name: "D2 Emitter"
+    direction: outbound
+    description: "Renders the model into D2 diagram source."
+    packages:
+      - internal/adapter/d2/...
 
-  cli_entry:
-    description: "CLI entry point and command wiring"
-    aggregates:
-      - cli
-    downstream:
-      - serving
-      - io_adapters
+  http_server:
+    name: "HTTP Server"
+    direction: bidirectional
+    description: "HTTP API and dashboard host process."
+    packages:
+      - internal/serve/...
 ```
 
-**Schema reference**
+**Bounded context schema reference**
 
 | Field          | Type             | Required | Description |
 |----------------|------------------|----------|-------------|
+| `name`         | string           | no       | Human-readable display name. Falls back to the map key when empty. |
 | `description`  | string           | no       | Human-readable purpose of the context. |
-| `aggregates`   | list of strings  | no       | Aggregate names (declared in `aggregates:`) that belong to this context. |
+| `aggregates`   | list of strings  | no       | Aggregate names (declared in `aggregates:`) that belong to this context. Each aggregate may belong to at most one bounded context. |
 | `upstream`     | list of strings  | no       | Contexts this context depends on (consumes). |
 | `downstream`   | list of strings  | no       | Contexts that depend on this one (consumers). You may declare the relationship from either side — archai reads both. |
 | `relationship` | string           | no       | Optional context-map pattern label. Common values: `shared-kernel`, `customer-supplier`, `conformist`, `acl`, `open-host`. |
 
-Aggregates and bounded contexts are both optional — you can use layers
-alone, aggregates alone, or the full three-tier model.
+**Adapter schema reference**
+
+Adapters are hexagonal-architecture ports — concrete integration points
+between the domain model and the outside world. Use them when "every
+non-domain aggregate is just an adapter" maps the system more cleanly
+than splitting it into multiple bounded contexts.
+
+| Field         | Type            | Required | Description |
+|---------------|-----------------|----------|-------------|
+| `name`        | string          | no       | Human-readable display name. |
+| `direction`   | string          | yes      | One of `inbound`, `outbound`, `bidirectional`. |
+| `description` | string          | no       | Human-readable summary. |
+| `packages`    | list of strings | no       | Package globs (relative to the module root) implementing the adapter. |
+
+Aggregates, bounded contexts, and adapters are all optional — you can
+use layers alone, layers + aggregates, or the full layered + DDD +
+hexagonal model.
 
 ### 3.6 CI integration
 
