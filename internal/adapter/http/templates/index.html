@@ -78,6 +78,26 @@
     {{end}}
 </section>
 
+{{if .HasBoundedContexts}}
+<section class="card bc-preview">
+    <h2>Domain map</h2>
+    <a href="/bc" class="diagram-link" aria-label="Open Domain view">
+        <div class="cy-graph bc-map-mini"
+             data-api="/api/bc/mini"
+             data-view="bc-map-mini"
+             data-layout="elk"
+             data-height="220"
+             data-interactive="false"></div>
+    </a>
+    <script src="/assets/vendor/dagre.min.js" defer></script>
+    <script src="/assets/vendor/cytoscape.min.js" defer></script>
+    <script src="/assets/vendor/cytoscape-dagre.js" defer></script>
+    <script src="/assets/vendor/elk.bundled.js" defer></script>
+    <script src="/assets/vendor/cytoscape-elk.js" defer></script>
+    <script src="/assets/graph.js" defer></script>
+</section>
+{{end}}
+
 {{if .PluginMain}}
 <section class="dash-plugin-section">
     <h2>Plugins</h2>

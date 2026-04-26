@@ -113,6 +113,10 @@ type graphNode struct {
 	// Op is the diff operation ("add" | "remove" | "change") for
 	// nodes produced by the diff overlay. Empty for non-diff graphs.
 	Op string `json:"op,omitempty"`
+	// Description is an optional secondary text. The browser-side
+	// renderer surfaces it as a tooltip / aria-label so the primary
+	// label stays short and unclipped (used by the BC view, #81).
+	Description string `json:"description,omitempty"`
 }
 
 type graphEdge struct {
@@ -121,6 +125,10 @@ type graphEdge struct {
 	Label   string   `json:"label,omitempty"`
 	Kind    string   `json:"kind,omitempty"`
 	Details []string `json:"details,omitempty"`
+	// Relationship qualifies BC-map edges with a DDD context-map
+	// relationship ("shared-kernel" / "customer-supplier" /
+	// "conformist" / "acl" / "open-host"). Empty for other graphs.
+	Relationship string `json:"relationship,omitempty"`
 }
 
 // sequenceEntry is one public-method entry point for which a static

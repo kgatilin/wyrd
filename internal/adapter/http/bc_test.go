@@ -54,7 +54,7 @@ func sampleBCPackages() []domain.PackageModel {
 
 func TestBuildBCGraph_NodesAndEdges(t *testing.T) {
 	cfg := sampleBCOverlay()
-	payload := buildBCGraph(cfg)
+	payload := buildBCGraph(cfg, false)
 	if payload.Meta.View != "bc-map" {
 		t.Errorf("meta.view = %q, want bc-map", payload.Meta.View)
 	}
@@ -69,10 +69,37 @@ func TestBuildBCGraph_NodesAndEdges(t *testing.T) {
 		if n.Kind != "bc" {
 			t.Errorf("node %q: want kind=bc, got %q", n.ID, n.Kind)
 		}
+		// Label must NOT contain a newline — name and description
+		// are exposed as separate fields so the front-end can lay
+		// them out without clipping (#81).
+		if strings.Contains(n.Label, "\n") {
+			t.Errorf("node %q: label contains newline (%q); name and description must be separate fields", n.ID, n.Label)
+		}
 	}
 	for _, want := range []string{"bc:core_ctx", "bc:infra_ctx"} {
 		if !nodeIDs[want] {
 			t.Errorf("missing node %q; nodes: %v", want, nodeIDs)
+		}
+	}
+
+	// Description must be carried on the node, not concatenated into
+	// the label.
+	for _, n := range payload.Nodes {
+		switch n.ID {
+		case "bc:core_ctx":
+			if n.Label != "core_ctx" {
+				t.Errorf("core_ctx label = %q, want %q", n.Label, "core_ctx")
+			}
+			if n.Description != "Core domain" {
+				t.Errorf("core_ctx description = %q, want %q", n.Description, "Core domain")
+			}
+		case "bc:infra_ctx":
+			if n.Label != "infra_ctx" {
+				t.Errorf("infra_ctx label = %q, want %q", n.Label, "infra_ctx")
+			}
+			if n.Description != "Infrastructure" {
+				t.Errorf("infra_ctx description = %q, want %q", n.Description, "Infrastructure")
+			}
 		}
 	}
 
@@ -99,9 +126,94 @@ func TestBuildBCGraph_NoDuplicateEdges(t *testing.T) {
 			"b": {Upstream: []string{"a"}},
 		},
 	}
-	payload := buildBCGraph(cfg)
+	payload := buildBCGraph(cfg, false)
 	if len(payload.Edges) > 2 {
 		t.Errorf("expected at most 2 edges (one per direction), got %d", len(payload.Edges))
+	}
+}
+
+// TestBuildBCGraph_DownstreamOnlyEdges verifies that an edge is
+// derived from a Downstream declaration even when no Upstream
+// counterpart exists. A.Downstream contains B  ->  A -> B.
+func TestBuildBCGraph_DownstreamOnlyEdges(t *testing.T) {
+	cfg := &overlay.Config{
+		Module: "example.com/app",
+		BoundedContexts: map[string]overlay.BoundedContext{
+			"a": {Downstream: []string{"b"}},
+			"b": {},
+		},
+	}
+	payload := buildBCGraph(cfg, false)
+	if len(payload.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d: %+v", len(payload.Edges), payload.Edges)
+	}
+	e := payload.Edges[0]
+	if e.Source != "bc:a" || e.Target != "bc:b" {
+		t.Errorf("edge: got %s -> %s, want bc:a -> bc:b", e.Source, e.Target)
+	}
+}
+
+// TestBuildBCGraph_MixedUpstreamDownstreamDedup verifies that when
+// both sides declare the same edge symmetrically (A.Downstream=[B]
+// AND B.Upstream=[A]), only one edge is emitted (same relationship).
+func TestBuildBCGraph_MixedUpstreamDownstreamDedup(t *testing.T) {
+	cfg := &overlay.Config{
+		Module: "example.com/app",
+		BoundedContexts: map[string]overlay.BoundedContext{
+			"a": {Downstream: []string{"b"}, Relationship: "customer-supplier"},
+			"b": {Upstream: []string{"a"}, Relationship: "customer-supplier"},
+		},
+	}
+	payload := buildBCGraph(cfg, false)
+	if len(payload.Edges) != 1 {
+		t.Fatalf("expected 1 edge after dedup, got %d: %+v", len(payload.Edges), payload.Edges)
+	}
+	e := payload.Edges[0]
+	if e.Source != "bc:a" || e.Target != "bc:b" {
+		t.Errorf("edge: got %s -> %s, want bc:a -> bc:b", e.Source, e.Target)
+	}
+	if e.Relationship != "customer-supplier" {
+		t.Errorf("edge.relationship = %q, want customer-supplier", e.Relationship)
+	}
+}
+
+// TestBuildBCGraph_RelationshipQualifierPreserved verifies that the
+// relationship qualifier of the BC declaring the link is attached
+// to the edge.
+func TestBuildBCGraph_RelationshipQualifierPreserved(t *testing.T) {
+	// Each edge has exactly one declarer — no symmetrical declarations
+	// — so the relationship attached to each edge is unambiguous.
+	cfg := &overlay.Config{
+		Module: "example.com/app",
+		BoundedContexts: map[string]overlay.BoundedContext{
+			"core":   {Downstream: []string{"infra"}, Relationship: "open-host"},
+			"infra":  {Relationship: "conformist"},
+			"shared": {Downstream: []string{"core"}, Relationship: "shared-kernel"},
+		},
+	}
+	payload := buildBCGraph(cfg, false)
+
+	// Build a lookup of relationships per (source, target).
+	rels := map[string]string{}
+	for _, e := range payload.Edges {
+		rels[e.Source+"->"+e.Target] = e.Relationship
+	}
+
+	if got := rels["bc:core->bc:infra"]; got != "open-host" {
+		t.Errorf("core->infra relationship = %q, want open-host", got)
+	}
+	if got := rels["bc:shared->bc:core"]; got != "shared-kernel" {
+		t.Errorf("shared->core relationship = %q, want shared-kernel", got)
+	}
+}
+
+// TestBuildBCGraph_MiniViewTag verifies that mini=true flips the
+// view tag to "bc-map-mini".
+func TestBuildBCGraph_MiniViewTag(t *testing.T) {
+	cfg := sampleBCOverlay()
+	payload := buildBCGraph(cfg, true)
+	if payload.Meta.View != "bc-map-mini" {
+		t.Errorf("meta.view = %q, want bc-map-mini", payload.Meta.View)
 	}
 }
 
@@ -261,6 +373,34 @@ func TestAPIBCGraph_ReturnsJSONPayload(t *testing.T) {
 	}
 	if p.Meta.View != "bc-map" {
 		t.Errorf("meta.view = %q, want bc-map", p.Meta.View)
+	}
+	if len(p.Nodes) < 2 {
+		t.Errorf("expected at least 2 nodes (one per BC), got %d", len(p.Nodes))
+	}
+}
+
+func TestAPIBCGraphMini_ReturnsMiniViewTag(t *testing.T) {
+	ts, _ := newBCFixtureServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/api/bc/mini")
+	if err != nil {
+		t.Fatalf("GET /api/bc/mini: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body=%s", resp.StatusCode, string(b))
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json*", ct)
+	}
+	var p graphPayload
+	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if p.Meta.View != "bc-map-mini" {
+		t.Errorf("meta.view = %q, want bc-map-mini", p.Meta.View)
 	}
 	if len(p.Nodes) < 2 {
 		t.Errorf("expected at least 2 nodes (one per BC), got %d", len(p.Nodes))

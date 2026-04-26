@@ -200,6 +200,45 @@
         };
     });
 
+    // Bounded-context map (#81). Each node is one BC; the relationship
+    // qualifier (shared-kernel / customer-supplier / conformist / acl /
+    // open-host) is exposed as data on the edge so it can be styled
+    // and surfaced as a label. The optional description is exposed via
+    // a native title tooltip (set in attachInteractions) so wrapping it
+    // into the label can no longer cause clipping.
+    registerView('bc-map', function () {
+        return {
+            layout: { name: pickLayout('elk'), 'elk': { algorithm: 'layered', 'elk.direction': 'RIGHT' }, padding: 20 },
+            style: [
+                baseNodeStyle(),
+                {
+                    selector: 'node[kind = "bc"]',
+                    style: {
+                        'background-color': '#0f766e',
+                        'shape': 'round-rectangle',
+                        'padding': 10,
+                        'font-size': 12,
+                        'color': '#f0fdfa'
+                    }
+                },
+                baseEdgeStyle(),
+                { selector: 'edge', style: { 'label': 'data(relationship)' } },
+                { selector: 'edge[relationship = "shared-kernel"]', style: { 'line-color': '#7c3aed', 'target-arrow-color': '#7c3aed' } },
+                { selector: 'edge[relationship = "customer-supplier"]', style: { 'line-color': '#2563eb', 'target-arrow-color': '#2563eb' } },
+                { selector: 'edge[relationship = "conformist"]', style: { 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af' } },
+                { selector: 'edge[relationship = "acl"]', style: { 'line-color': '#dc2626', 'target-arrow-color': '#dc2626', 'line-style': 'dashed' } },
+                { selector: 'edge[relationship = "open-host"]', style: { 'line-color': '#16a34a', 'target-arrow-color': '#16a34a' } }
+            ]
+        };
+    });
+
+    // Dashboard mini variant of bc-map; same styling, tighter padding.
+    registerView('bc-map-mini', function () {
+        var full = registry['bc-map']();
+        full.layout = { name: pickLayout('elk'), 'elk': { algorithm: 'layered', 'elk.direction': 'RIGHT' }, padding: 8 };
+        return full;
+    });
+
     // Diff overlay (M8): per-change node, coloured by op, parented by
     // the pseudo-package node the change lives under.
     registerView('diff-overlay', function () {
@@ -232,6 +271,10 @@
             };
             if (n.parent) { data.parent = n.parent; }
             if (n.op) { data.op = n.op; }
+            // #81: description is a separate field on the node so the
+            // front-end can show it as a tooltip without bloating the
+            // label and triggering clipping.
+            if (n.description) { data.description = n.description; }
             elements.push({ group: 'nodes', data: data });
         });
         (payload.edges || []).forEach(function (e, i) {
@@ -245,6 +288,8 @@
             if (e.details) {
                 edgeData.details = e.details;
             }
+            // #81: BC-graph relationship qualifier surfaces on the edge.
+            if (e.relationship) { edgeData.relationship = e.relationship; }
             elements.push({ group: 'edges', data: edgeData });
         });
         return elements;
@@ -273,15 +318,23 @@
             }
         });
         // Hover highlight: fade everything else, accent the neighbourhood.
+        // Also surface the optional `description` field as a native
+        // browser tooltip on the cytoscape container, so BC nodes (#81)
+        // can show their description without inflating the node label.
         cy.on('mouseover', 'node', function (evt) {
             var n = evt.target;
             cy.elements().addClass('cy-faded');
             n.removeClass('cy-faded').addClass('cy-hi');
             n.connectedEdges().removeClass('cy-faded').addClass('cy-hi');
             n.connectedEdges().connectedNodes().removeClass('cy-faded').addClass('cy-hi');
+            var desc = n.data('description');
+            if (desc) {
+                el.setAttribute('title', desc);
+            }
         });
         cy.on('mouseout', 'node', function () {
             cy.elements().removeClass('cy-faded cy-hi');
+            el.removeAttribute('title');
         });
     }
 

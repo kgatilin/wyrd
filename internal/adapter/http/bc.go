@@ -47,11 +47,13 @@ type bcRefView struct {
 }
 
 // registerBCRoutes mounts the /bc and /bc/{name} handlers plus the
-// JSON graph API at /api/bc/graph.
+// JSON graph API at /api/bc/graph and the dashboard preview variant at
+// /api/bc/mini.
 func (s *Server) registerBCRoutes(mux *nethttp.ServeMux) {
 	mux.HandleFunc("/bc", s.handleBCList)
 	mux.HandleFunc("/bc/", s.handleBCDetail)
 	mux.HandleFunc("/api/bc/graph", s.handleBCGraph)
+	mux.HandleFunc("/api/bc/mini", s.handleBCGraphMini)
 }
 
 // handleBCList renders /bc — the bounded context catalog.
@@ -132,27 +134,63 @@ func (s *Server) handleBCDetail(w nethttp.ResponseWriter, r *nethttp.Request) {
 // bounded context graph. Nodes represent bounded contexts; edges
 // represent upstream/downstream relationships.
 func (s *Server) handleBCGraph(w nethttp.ResponseWriter, r *nethttp.Request) {
+	s.serveBCGraph(w, r, false)
+}
+
+// handleBCGraphMini serves GET /api/bc/mini — a compact variant of the
+// BC graph used by the dashboard preview card. Mirrors the layer-map
+// mini route (graphs.go).
+func (s *Server) handleBCGraphMini(w nethttp.ResponseWriter, r *nethttp.Request) {
+	s.serveBCGraph(w, r, true)
+}
+
+// serveBCGraph is the shared implementation behind /api/bc/graph and
+// /api/bc/mini. The mini=true flag flips the view tag so the front-end
+// renderer can pick a compact preset.
+func (s *Server) serveBCGraph(w nethttp.ResponseWriter, r *nethttp.Request, mini bool) {
+	view := "bc-map"
+	if mini {
+		view = "bc-map-mini"
+	}
 	snap := s.state.Snapshot()
 	if snap.Overlay == nil {
 		writeJSON(w, graphPayload{
-			Meta:  graphMeta{View: "bc-map", Layout: "elk"},
+			Meta:  graphMeta{View: view, Layout: "elk"},
 			Nodes: []graphNode{},
 			Edges: []graphEdge{},
 		})
 		return
 	}
-	payload := buildBCGraph(snap.Overlay)
-	writeJSON(w, payload)
+	writeJSON(w, buildBCGraph(snap.Overlay, mini))
 }
 
-// buildBCGraph produces the Cytoscape payload for /api/bc/graph.
-// Each bounded context becomes a node; upstream relationships become
-// directed edges. The function avoids duplicate edges by only emitting
-// an edge when the source is alphabetically less than the target, then
-// relying on the upstream/downstream labelling for direction.
-func buildBCGraph(cfg *overlay.Config) graphPayload {
+// buildBCGraph produces the Cytoscape payload for the bounded context
+// graph. Each bounded context becomes a node carrying its name as the
+// primary label and (when present) its description as a separate
+// optional field — the front-end can surface description as a tooltip
+// or wrap it independently, avoiding the clipping problem that
+// concatenating "name\ndescription" caused (#81).
+//
+// Edges are derived from BOTH directions of the BC relationship graph:
+//
+//   - A.Downstream contains B  ->  edge A -> B
+//   - A.Upstream   contains B  ->  edge B -> A
+//
+// The relationship qualifier (BoundedContext.Relationship: shared-kernel
+// / customer-supplier / conformist / acl / open-host) is attached to
+// the edge from the BC that declares the link. Edges are deduplicated
+// by the (source, target, relationship) tuple so symmetrical
+// declarations on both sides do not produce parallel edges.
+//
+// When mini is true the view tag is switched to "bc-map-mini" so the
+// dashboard renderer can apply a compact style preset.
+func buildBCGraph(cfg *overlay.Config, mini bool) graphPayload {
+	view := "bc-map"
+	if mini {
+		view = "bc-map-mini"
+	}
 	out := graphPayload{
-		Meta:  graphMeta{View: "bc-map", Layout: "elk"},
+		Meta:  graphMeta{View: view, Layout: "elk"},
 		Nodes: make([]graphNode, 0, len(cfg.BoundedContexts)),
 		Edges: make([]graphEdge, 0),
 	}
@@ -166,39 +204,45 @@ func buildBCGraph(cfg *overlay.Config) graphPayload {
 
 	for _, name := range names {
 		bc := cfg.BoundedContexts[name]
-		label := name
-		if bc.Description != "" {
-			label = name + "\n" + bc.Description
-		}
 		out.Nodes = append(out.Nodes, graphNode{
-			ID:    "bc:" + name,
-			Label: label,
-			Kind:  "bc",
+			ID:          "bc:" + name,
+			Label:       name,
+			Kind:        "bc",
+			Description: bc.Description,
 		})
 	}
 
-	// Emit edges only from the upstream side to avoid duplicates.
+	// Dedup key: source + "->" + target + "|" + relationship.
 	seen := make(map[string]struct{})
+	addEdge := func(source, target, relationship string) {
+		key := source + "->" + target + "|" + relationship
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		out.Edges = append(out.Edges, graphEdge{
+			Source:       "bc:" + source,
+			Target:       "bc:" + target,
+			Kind:         "upstream",
+			Relationship: relationship,
+		})
+	}
+
 	for _, name := range names {
 		bc := cfg.BoundedContexts[name]
+		// A.Downstream contains B  -> A -> B
+		for _, dn := range bc.Downstream {
+			if _, ok := cfg.BoundedContexts[dn]; !ok {
+				continue
+			}
+			addEdge(name, dn, bc.Relationship)
+		}
+		// A.Upstream contains B  -> B -> A
 		for _, up := range bc.Upstream {
 			if _, ok := cfg.BoundedContexts[up]; !ok {
 				continue
 			}
-			edgeID := "bc:" + up + "->bc:" + name
-			reverseID := "bc:" + name + "->bc:" + up
-			if _, exists := seen[edgeID]; exists {
-				continue
-			}
-			if _, exists := seen[reverseID]; exists {
-				continue
-			}
-			seen[edgeID] = struct{}{}
-			out.Edges = append(out.Edges, graphEdge{
-				Source: "bc:" + up,
-				Target: "bc:" + name,
-				Kind:   "upstream",
-			})
+			addEdge(up, name, bc.Relationship)
 		}
 	}
 
