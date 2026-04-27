@@ -1,0 +1,358 @@
+package http
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	d2adapter "github.com/kgatilin/archai/internal/adapter/d2"
+	"github.com/kgatilin/archai/internal/domain"
+)
+
+// buildPackageOverviewGraph builds the client-side graph for the
+// Package Overview tab. The subject package sits at the centre with its
+// types/functions as children; immediate internal dependency targets
+// (inbound + outbound packages) appear around it.
+//
+// In OverviewModePublic (the default) only exported symbols are
+// rendered, and entry-point functions (factories / `New<Type>`
+// constructors) are tagged with kind="entry-point" so the browser can
+// style them distinctly. OverviewModeFull additionally renders
+// unexported symbols.
+func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.PackageModel, mode d2adapter.OverviewMode) graphPayload {
+	mode = mode.Normalize()
+	out := graphPayload{
+		Meta: graphMeta{
+			View:   "package-overview",
+			Layout: "dagre",
+			Title:  pkg.Path,
+			Mode:   string(mode),
+		},
+	}
+
+	rootID := "pkg:" + pkg.Path
+	typeIndex := buildOverviewTypeIndex(allPkgs)
+	out.Nodes = append(out.Nodes, graphNode{
+		ID:    rootID,
+		Label: pkg.Name,
+		Kind:  "package",
+		Root:  true,
+	})
+
+	// Decide which symbols to render based on mode.
+	var ifaces []domain.InterfaceDef
+	var structs []domain.StructDef
+	var fns []domain.FunctionDef
+	if mode == d2adapter.OverviewModeFull {
+		ifaces = append([]domain.InterfaceDef(nil), pkg.Interfaces...)
+		structs = append([]domain.StructDef(nil), pkg.Structs...)
+		fns = append([]domain.FunctionDef(nil), pkg.Functions...)
+	} else {
+		ifaces = append([]domain.InterfaceDef(nil), pkg.ExportedInterfaces()...)
+		structs = append([]domain.StructDef(nil), pkg.ExportedStructs()...)
+		fns = append([]domain.FunctionDef(nil), pkg.ExportedFunctions()...)
+	}
+
+	sort.Slice(ifaces, func(i, j int) bool { return ifaces[i].Name < ifaces[j].Name })
+	for _, i := range ifaces {
+		out.Nodes = append(out.Nodes, graphNode{
+			ID:     "type:" + pkg.Path + "." + i.Name,
+			Label:  interfaceOverviewLabel(i, mode, pkg.Path, typeIndex),
+			Kind:   "interface",
+			Parent: rootID,
+		})
+	}
+	sort.Slice(structs, func(i, j int) bool { return structs[i].Name < structs[j].Name })
+	for _, s := range structs {
+		out.Nodes = append(out.Nodes, graphNode{
+			ID:     "type:" + pkg.Path + "." + s.Name,
+			Label:  structOverviewLabel(s, mode, pkg.Path, typeIndex),
+			Kind:   "struct",
+			Parent: rootID,
+		})
+	}
+	sort.Slice(fns, func(i, j int) bool { return fns[i].Name < fns[j].Name })
+	for _, f := range fns {
+		kind := "function"
+		// Entry-point detection: factories + `New<Type>` constructors.
+		// We only mark exported entry points; unexported helpers stay
+		// as plain "function" nodes even in full mode.
+		if d2adapter.IsEntryPoint(f) {
+			kind = "entry-point"
+		}
+		out.Nodes = append(out.Nodes, graphNode{
+			ID:     "fn:" + pkg.Path + "." + f.Name,
+			Label:  functionOverviewLabel(f, pkg.Path, typeIndex),
+			Kind:   kind,
+			Parent: rootID,
+		})
+	}
+
+	// Outbound dep packages (internal only) — each becomes a top-level
+	// package node with an edge from the subject package.
+	known := knownPackagePaths(allPkgs)
+	seenOut := make(map[string]struct{})
+	for _, d := range pkg.Dependencies {
+		if d.To.External || d.To.Package == "" {
+			continue
+		}
+		if d.To.Package == pkg.Path {
+			continue
+		}
+		// Normalize when dep includes module prefix — the existing
+		// Overview relies on same-path matching so we skip unknowns.
+		if _, ok := known[d.To.Package]; !ok {
+			continue
+		}
+		if _, dup := seenOut[d.To.Package]; dup {
+			continue
+		}
+		seenOut[d.To.Package] = struct{}{}
+		out.Nodes = append(out.Nodes, graphNode{
+			ID:    "pkg:" + d.To.Package,
+			Label: shortName(d.To.Package),
+			Kind:  "package-out",
+		})
+		out.Edges = append(out.Edges, graphEdge{
+			Source: rootID,
+			Target: "pkg:" + d.To.Package,
+			Kind:   "outbound",
+		})
+	}
+
+	// Inbound dep packages — every other pkg that targets ours.
+	seenIn := make(map[string]struct{})
+	for _, src := range allPkgs {
+		if src.Path == pkg.Path {
+			continue
+		}
+		for _, d := range src.Dependencies {
+			if d.To.Package != pkg.Path {
+				continue
+			}
+			if _, dup := seenIn[src.Path]; dup {
+				continue
+			}
+			seenIn[src.Path] = struct{}{}
+			if _, dup := seenOut[src.Path]; dup {
+				// Symmetric: already present as outbound; the edge below
+				// still makes sense (A uses B and B uses A).
+			} else {
+				out.Nodes = append(out.Nodes, graphNode{
+					ID:    "pkg:" + src.Path,
+					Label: shortName(src.Path),
+					Kind:  "package-in",
+				})
+			}
+			out.Edges = append(out.Edges, graphEdge{
+				Source: "pkg:" + src.Path,
+				Target: rootID,
+				Kind:   "inbound",
+			})
+			break
+		}
+	}
+
+	return out
+}
+
+func interfaceOverviewLabel(iface domain.InterfaceDef, mode d2adapter.OverviewMode, currentPkg string, typeIndex map[string]map[string]string) string {
+	lines := []string{iface.Name, "interface"}
+	methods := visibleOverviewMethods(iface.Methods, mode)
+	if len(methods) > 0 {
+		lines = append(lines, "methods:")
+	}
+	for _, m := range methods {
+		lines = append(lines, "  "+methodOverviewLine(m, currentPkg, typeIndex))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func structOverviewLabel(st domain.StructDef, mode d2adapter.OverviewMode, currentPkg string, typeIndex map[string]map[string]string) string {
+	lines := []string{st.Name, "struct"}
+	fields := visibleOverviewFields(st.Fields, mode)
+	methods := visibleOverviewMethods(st.Methods, mode)
+	if len(fields) > 0 {
+		lines = append(lines, "fields:")
+	}
+	for _, f := range fields {
+		lines = append(lines, "  "+fieldOverviewLine(f, currentPkg))
+	}
+	if len(methods) > 0 {
+		lines = append(lines, "methods:")
+	}
+	for _, m := range methods {
+		lines = append(lines, "  "+methodOverviewLine(m, currentPkg, typeIndex))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func functionOverviewLabel(fn domain.FunctionDef, currentPkg string, typeIndex map[string]map[string]string) string {
+	kind := "function"
+	switch {
+	case d2adapter.IsConstructor(fn):
+		kind = "constructor"
+	case fn.Stereotype == domain.StereotypeFactory:
+		kind = "factory"
+	}
+	lines := []string{fn.Name, kind}
+	if len(fn.Params) > 0 {
+		lines = append(lines, "args:")
+		for _, p := range fn.Params {
+			lines = append(lines, "  "+paramOverviewLine(p, currentPkg))
+		}
+	}
+	if len(fn.Returns) > 0 {
+		lines = append(lines, "returns:")
+		for _, r := range fn.Returns {
+			lines = append(lines, "  "+returnOverviewLine(r, currentPkg, typeIndex))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildOverviewTypeIndex(packages []domain.PackageModel) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(packages))
+	ensure := func(pkg string) map[string]string {
+		if out[pkg] == nil {
+			out[pkg] = make(map[string]string)
+		}
+		return out[pkg]
+	}
+	for _, pkg := range packages {
+		types := ensure(pkg.Path)
+		for _, iface := range pkg.Interfaces {
+			types[iface.Name] = "interface"
+		}
+		for _, st := range pkg.Structs {
+			types[st.Name] = "struct"
+		}
+		for _, td := range pkg.TypeDefs {
+			types[td.Name] = "type"
+		}
+	}
+	return out
+}
+
+func visibleOverviewMethods(methods []domain.MethodDef, mode d2adapter.OverviewMode) []domain.MethodDef {
+	out := make([]domain.MethodDef, 0, len(methods))
+	for _, m := range methods {
+		if mode.Normalize() == d2adapter.OverviewModeFull || m.IsExported {
+			out = append(out, m)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Signature() < out[j].Signature()
+	})
+	return out
+}
+
+func visibleOverviewFields(fields []domain.FieldDef, mode d2adapter.OverviewMode) []domain.FieldDef {
+	out := make([]domain.FieldDef, 0, len(fields))
+	for _, f := range fields {
+		if mode.Normalize() == d2adapter.OverviewModeFull || f.IsExported {
+			out = append(out, f)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func methodOverviewLine(m domain.MethodDef, currentPkg string, typeIndex map[string]map[string]string) string {
+	prefix := "-"
+	if m.IsExported {
+		prefix = "+"
+	}
+	params := make([]string, 0, len(m.Params))
+	for _, p := range m.Params {
+		params = append(params, paramOverviewLine(p, currentPkg))
+	}
+	line := fmt.Sprintf("%s %s(%s)", prefix, m.Name, strings.Join(params, ", "))
+	if len(m.Returns) == 0 {
+		return line
+	}
+	return line + ": " + formatOverviewReturns(m.Returns, currentPkg, typeIndex)
+}
+
+func fieldOverviewLine(f domain.FieldDef, currentPkg string) string {
+	prefix := "-"
+	if f.IsExported {
+		prefix = "+"
+	}
+	return fmt.Sprintf("%s %s: %s", prefix, f.Name, shortOverviewType(f.Type, currentPkg))
+}
+
+func paramOverviewLine(p domain.ParamDef, currentPkg string) string {
+	if p.Name == "" {
+		return shortOverviewType(p.Type, currentPkg)
+	}
+	return fmt.Sprintf("%s: %s", p.Name, shortOverviewType(p.Type, currentPkg))
+}
+
+func returnOverviewLine(r domain.TypeRef, currentPkg string, typeIndex map[string]map[string]string) string {
+	typ := shortOverviewType(r, currentPkg)
+	kind := overviewTypeKind(r, currentPkg, typeIndex)
+	if kind == "" || kind == "value" {
+		return typ
+	}
+	return kind + " " + typ
+}
+
+func formatOverviewReturns(returns []domain.TypeRef, currentPkg string, typeIndex map[string]map[string]string) string {
+	if len(returns) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(returns))
+	for _, r := range returns {
+		parts = append(parts, returnOverviewLine(r, currentPkg, typeIndex))
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return "(" + strings.Join(parts, ", ") + ")"
+}
+
+func shortOverviewType(t domain.TypeRef, currentPkg string) string {
+	prefix := ""
+	if t.IsSlice {
+		prefix += "[]"
+	}
+	if t.IsMap {
+		key := ""
+		if t.KeyType != nil {
+			key = shortOverviewType(*t.KeyType, currentPkg)
+		}
+		value := ""
+		if t.ValueType != nil {
+			value = shortOverviewType(*t.ValueType, currentPkg)
+		}
+		return prefix + "map[" + key + "]" + value
+	}
+	if t.IsPointer {
+		prefix += "*"
+	}
+	name := t.Name
+	if t.Package != "" {
+		name = shortName(t.Package) + "." + name
+	}
+	return prefix + name
+}
+
+func overviewTypeKind(t domain.TypeRef, currentPkg string, typeIndex map[string]map[string]string) string {
+	if t.IsMap {
+		return "value"
+	}
+	pkg := t.Package
+	if pkg == "" {
+		pkg = currentPkg
+	}
+	if types := typeIndex[pkg]; types != nil {
+		if kind := types[t.Name]; kind != "" {
+			return kind
+		}
+	}
+	return "value"
+}
