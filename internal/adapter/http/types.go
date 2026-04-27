@@ -117,6 +117,12 @@ type graphNode struct {
 	// renderer surfaces it as a tooltip / aria-label so the primary
 	// label stays short and unclipped (used by the BC view, #81).
 	Description string `json:"description,omitempty"`
+	// Href is an optional navigation link rendered by the browser-side
+	// graph. Sequence nodes set it to /types/{pkg}.{Type} for methods
+	// or /packages/{pkg} for plain functions when the symbol resolves
+	// against the loaded model (used by package Overview sequences,
+	// #88).
+	Href string `json:"href,omitempty"`
 }
 
 type graphEdge struct {
@@ -502,6 +508,7 @@ func buildRelationshipGraph(ref typeRef, impls, implBy []relatedView, usedBy []u
 // the template renders as "(no recorded calls)".
 func buildSequenceEntries(packages []domain.PackageModel, ref typeRef, meths []domain.MethodDef) []sequenceEntry {
 	const maxDepth = 4
+	resolver := newSequenceLinkResolver(packages)
 	var out []sequenceEntry
 	for _, m := range meths {
 		if !m.IsExported {
@@ -512,7 +519,7 @@ func buildSequenceEntries(packages []domain.PackageModel, ref typeRef, meths []d
 		entry := sequenceEntry{
 			Method: m.Name,
 			Label:  ref.Name + "." + m.Name,
-			Graph:  sequenceNodeToGraph(node),
+			Graph:  sequenceNodeToGraph(node, resolver),
 			HasM6:  len(m.Calls) > 0,
 		}
 		out = append(out, entry)
@@ -520,11 +527,151 @@ func buildSequenceEntries(packages []domain.PackageModel, ref typeRef, meths []d
 	return out
 }
 
+// buildPackageSequenceEntries returns a sequence tree per candidate
+// entry point in pkg, ordered for the Overview tab. Mode controls the
+// candidate set:
+//
+//   - "" or "public": exported package-level functions and exported
+//     methods of exported structs. Constructors (Stereotype factory
+//     or "New" prefix) are listed first.
+//   - "full": same plus unexported variants, useful for full-detail
+//     mode of the Overview graph.
+//
+// Depth is capped at 4. Methods/functions with no captured Calls still
+// produce a root-only entry so the template can show the entry point.
+func buildPackageSequenceEntries(packages []domain.PackageModel, pkg domain.PackageModel, mode string) []sequenceEntry {
+	const maxDepth = 4
+	includeUnexported := mode == "full"
+	resolver := newSequenceLinkResolver(packages)
+
+	type candidate struct {
+		entry    sequenceEntry
+		priority int // 0 = constructor/factory, 1 = function, 2 = method
+	}
+	var cands []candidate
+
+	for _, fn := range pkg.Functions {
+		if !fn.IsExported && !includeUnexported {
+			continue
+		}
+		start := domain.SymbolRef{Package: pkg.Path, Symbol: fn.Name}
+		node := sequence.Build(packages, start, maxDepth)
+		priority := 1
+		if fn.Stereotype == domain.StereotypeFactory || strings.HasPrefix(fn.Name, "New") {
+			priority = 0
+		}
+		cands = append(cands, candidate{
+			entry: sequenceEntry{
+				Method: fn.Name,
+				Label:  fn.Name,
+				Graph:  sequenceNodeToGraph(node, resolver),
+				HasM6:  len(fn.Calls) > 0,
+			},
+			priority: priority,
+		})
+	}
+
+	for _, st := range pkg.Structs {
+		if !st.IsExported && !includeUnexported {
+			continue
+		}
+		for _, m := range st.Methods {
+			if !m.IsExported && !includeUnexported {
+				continue
+			}
+			start := domain.SymbolRef{Package: pkg.Path, Symbol: st.Name + "." + m.Name}
+			node := sequence.Build(packages, start, maxDepth)
+			cands = append(cands, candidate{
+				entry: sequenceEntry{
+					Method: st.Name + "." + m.Name,
+					Label:  st.Name + "." + m.Name,
+					Graph:  sequenceNodeToGraph(node, resolver),
+					HasM6:  len(m.Calls) > 0,
+				},
+				priority: 2,
+			})
+		}
+	}
+
+	sort.SliceStable(cands, func(i, j int) bool {
+		if cands[i].priority != cands[j].priority {
+			return cands[i].priority < cands[j].priority
+		}
+		return cands[i].entry.Label < cands[j].entry.Label
+	})
+
+	out := make([]sequenceEntry, 0, len(cands))
+	for _, c := range cands {
+		out = append(out, c.entry)
+	}
+	return out
+}
+
+// sequenceLinkResolver decides whether a sequence-node symbol should be
+// linkable. A symbol is linkable when its package is part of the loaded
+// model — we can then point at /types/{pkg}.{Type} (for "Type.Method")
+// or /packages/{pkg} (for plain functions). External / unloaded
+// symbols stay unlinked so the user does not click on a 404.
+type sequenceLinkResolver struct {
+	pkgTypes map[string]map[string]bool // pkgPath -> set of type names
+	pkgFuncs map[string]map[string]bool // pkgPath -> set of function names
+}
+
+func newSequenceLinkResolver(packages []domain.PackageModel) *sequenceLinkResolver {
+	r := &sequenceLinkResolver{
+		pkgTypes: make(map[string]map[string]bool, len(packages)),
+		pkgFuncs: make(map[string]map[string]bool, len(packages)),
+	}
+	for _, p := range packages {
+		types := make(map[string]bool, len(p.Structs)+len(p.Interfaces)+len(p.TypeDefs))
+		for _, s := range p.Structs {
+			types[s.Name] = true
+		}
+		for _, i := range p.Interfaces {
+			types[i.Name] = true
+		}
+		for _, td := range p.TypeDefs {
+			types[td.Name] = true
+		}
+		r.pkgTypes[p.Path] = types
+
+		fns := make(map[string]bool, len(p.Functions))
+		for _, fn := range p.Functions {
+			fns[fn.Name] = true
+		}
+		r.pkgFuncs[p.Path] = fns
+	}
+	return r
+}
+
+// hrefFor returns the navigation target for a sequence-node symbol or
+// "" when the symbol is not part of the loaded model. Methods stored
+// as "Type.Method" link to /types/{pkg}.{Type}; plain functions link
+// to /packages/{pkg}.
+func (r *sequenceLinkResolver) hrefFor(ref domain.SymbolRef) string {
+	if r == nil || ref.External || ref.Package == "" || ref.Symbol == "" {
+		return ""
+	}
+	if dot := strings.Index(ref.Symbol, "."); dot > 0 {
+		typeName := ref.Symbol[:dot]
+		if types, ok := r.pkgTypes[ref.Package]; ok && types[typeName] {
+			return "/types/" + ref.Package + "." + typeName
+		}
+		return ""
+	}
+	if fns, ok := r.pkgFuncs[ref.Package]; ok && fns[ref.Symbol] {
+		return "/packages/" + ref.Package
+	}
+	return ""
+}
+
 // sequenceNodeToGraph converts a sequence.Node tree into the flat
 // cytoscape graph payload the page renders. Node ids are the
 // "pkg|Symbol" key plus a stable breadth-first index so repeat visits
-// in different subtrees get distinct nodes.
-func sequenceNodeToGraph(root *sequence.Node) graphJSON {
+// in different subtrees get distinct nodes. When resolver is non-nil,
+// each node carries an Href pointing at /types/{...} or /packages/{...}
+// for symbols that resolve against the loaded model.
+func sequenceNodeToGraph(root *sequence.Node, resolver *sequenceLinkResolver) graphJSON {
 	if root == nil {
 		return graphJSON{}
 	}
@@ -551,7 +698,17 @@ func sequenceNodeToGraph(root *sequence.Node) graphJSON {
 		case parentID == "":
 			kind = "root"
 		}
-		out.Nodes = append(out.Nodes, graphNode{ID: id, Label: label, Kind: kind, Root: parentID == ""})
+		var href string
+		if resolver != nil && !n.Cycle && !n.DepthLimit && !n.NotFound {
+			href = resolver.hrefFor(n.Symbol)
+		}
+		out.Nodes = append(out.Nodes, graphNode{
+			ID:    id,
+			Label: label,
+			Kind:  kind,
+			Root:  parentID == "",
+			Href:  href,
+		})
 		if parentID != "" {
 			out.Edges = append(out.Edges, graphEdge{Source: parentID, Target: id, Label: n.Via})
 		}

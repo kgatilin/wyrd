@@ -99,11 +99,11 @@ func (s *Server) handlePackageDetail(w nethttp.ResponseWriter, r *nethttp.Reques
 		modulePath = snap.Overlay.Module
 	}
 
-	data := buildPackageDetail(active, pkg, pkgs, snap.Overlay, modulePath)
+	// Overview render mode (#61): default Public, opt-in Full via ?mode=full.
+	mode := string(d2adapter.ParseOverviewMode(r.URL.Query().Get("mode")).Normalize())
+	data := buildPackageDetail(active, pkg, pkgs, snap.Overlay, modulePath, mode)
 	data.pageData = s.basePageData(r, "Package "+pkg.Path, "/packages")
 	data.Partial = isHTMX(r)
-	// Overview render mode (#61): default Public, opt-in Full via ?mode=full.
-	data.Mode = string(d2adapter.ParseOverviewMode(r.URL.Query().Get("mode")).Normalize())
 	// Dependencies graph direction (#89). Distinct query param from the
 	// overview Mode so toggling one tab doesn't perturb the other.
 	data.DepsMode = parseDepsMode(r.URL.Query().Get("deps"))

@@ -94,11 +94,31 @@
          data-layout="dagre"
          data-mode="{{.Mode}}"
          data-height="420"></div>
-    {{if .Pkg.SourceFiles}}
-    <p class="pkg-overview-files">
-        <span class="pkg-overview-files-label">Files:</span>
-        {{range .Pkg.SourceFiles}}<code>{{.}}</code> {{end}}
-    </p>
+    <dl class="pkg-meta-list">
+        <dt>Path</dt><dd><code>{{.Pkg.Path}}</code></dd>
+        <dt>Name</dt><dd><code>{{.Pkg.Name}}</code></dd>
+        {{if .LayerBadge}}<dt>Layer</dt><dd>{{.LayerBadge}}</dd>{{end}}
+        {{if .Pkg.Aggregate}}<dt>Aggregate</dt><dd>{{.Pkg.Aggregate}}</dd>{{end}}
+        {{if .BCName}}<dt>Bounded Context</dt><dd><a href="/bc/{{.BCName}}">{{.BCName}}</a></dd>{{end}}
+        <dt>Files</dt>
+        <dd>
+            {{range .Pkg.SourceFiles}}<code>{{.}}</code> {{end}}
+        </dd>
+    </dl>
+    {{if .HasSequences}}
+    <section class="card pkg-sequences">
+        <h2>Sequences from entry points</h2>
+        <p class="muted">Static call trees rooted at each {{if eq .Mode "full"}}function and method{{else}}exported function and method{{end}} in this package. Linked nodes navigate to the relevant type or package.</p>
+        {{range $i, $seq := .Sequences}}
+            <h3>{{$seq.Label}}</h3>
+            {{if $seq.HasM6}}
+                <div class="cy-graph cy-sequence" id="pkg-seq-graph-{{$i}}" data-graph="{{toJSON $seq.Graph}}" data-view="sequence" data-layout="dagre" data-height="320"></div>
+            {{else}}
+                <p class="muted">No static call edges recorded for this entry point — the renderer shows only the root.</p>
+                <div class="cy-graph cy-sequence" id="pkg-seq-graph-{{$i}}" data-graph="{{toJSON $seq.Graph}}" data-view="sequence" data-layout="dagre" data-height="160"></div>
+            {{end}}
+        {{end}}
+    </section>
     {{end}}
 </div>
 <script src="/assets/vendor/dagre.min.js" defer></script>

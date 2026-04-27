@@ -290,6 +290,163 @@ func Use(w *svc.Widget) string { return w.Describe() }
 	return nethttptest.NewServer(mux)
 }
 
+func TestBuildPackageSequenceEntries_PublicMode(t *testing.T) {
+	pkg := domain.PackageModel{
+		Path: "internal/svc",
+		Functions: []domain.FunctionDef{
+			{Name: "NewService", IsExported: true, Stereotype: domain.StereotypeFactory},
+			{Name: "Helper", IsExported: true},
+			{Name: "internal", IsExported: false},
+		},
+		Structs: []domain.StructDef{
+			{
+				Name: "Service", IsExported: true,
+				Methods: []domain.MethodDef{
+					{Name: "Run", IsExported: true},
+					{Name: "step", IsExported: false},
+				},
+			},
+			{Name: "hidden", IsExported: false, Methods: []domain.MethodDef{
+				{Name: "Do", IsExported: true},
+			}},
+		},
+	}
+	got := buildPackageSequenceEntries([]domain.PackageModel{pkg}, pkg, "")
+	if len(got) != 3 {
+		t.Fatalf("public mode entries = %d, want 3: %+v", len(got), got)
+	}
+	if got[0].Label != "NewService" {
+		t.Fatalf("constructor not first: %+v", got)
+	}
+	labels := []string{got[0].Label, got[1].Label, got[2].Label}
+	wantSet := map[string]bool{"NewService": true, "Helper": true, "Service.Run": true}
+	for _, l := range labels {
+		if !wantSet[l] {
+			t.Fatalf("unexpected label %q in %+v", l, labels)
+		}
+	}
+}
+
+func TestBuildPackageSequenceEntries_FullMode(t *testing.T) {
+	pkg := domain.PackageModel{
+		Path: "internal/svc",
+		Functions: []domain.FunctionDef{
+			{Name: "Helper", IsExported: true},
+			{Name: "internal", IsExported: false},
+		},
+		Structs: []domain.StructDef{
+			{Name: "hidden", IsExported: false, Methods: []domain.MethodDef{
+				{Name: "Do", IsExported: true},
+				{Name: "step", IsExported: false},
+			}},
+		},
+	}
+	got := buildPackageSequenceEntries([]domain.PackageModel{pkg}, pkg, "full")
+	if len(got) != 4 {
+		t.Fatalf("full mode entries = %d, want 4: %+v", len(got), got)
+	}
+}
+
+func TestBuildPackageSequenceEntries_Empty(t *testing.T) {
+	pkg := domain.PackageModel{Path: "internal/svc"}
+	if got := buildPackageSequenceEntries([]domain.PackageModel{pkg}, pkg, ""); len(got) != 0 {
+		t.Fatalf("expected 0 entries, got %+v", got)
+	}
+}
+
+func TestBuildPackageSequenceEntries_RootGraphHasM6Flag(t *testing.T) {
+	pkg := domain.PackageModel{
+		Path: "internal/svc",
+		Functions: []domain.FunctionDef{
+			{
+				Name: "Run", IsExported: true,
+				Calls: []domain.CallEdge{
+					{To: domain.SymbolRef{Package: "internal/svc", Symbol: "helper"}},
+				},
+			},
+			{Name: "Bare", IsExported: true},
+			{Name: "helper", IsExported: false},
+		},
+	}
+	got := buildPackageSequenceEntries([]domain.PackageModel{pkg}, pkg, "")
+	by := map[string]sequenceEntry{}
+	for _, e := range got {
+		by[e.Label] = e
+	}
+	if !by["Run"].HasM6 {
+		t.Fatalf("Run should have HasM6=true: %+v", by["Run"])
+	}
+	if by["Bare"].HasM6 {
+		t.Fatalf("Bare should have HasM6=false: %+v", by["Bare"])
+	}
+}
+
+func TestSequenceLinkResolver_HrefFor(t *testing.T) {
+	pkgs := []domain.PackageModel{
+		{
+			Path: "internal/svc",
+			Structs: []domain.StructDef{
+				{Name: "Service", IsExported: true},
+			},
+			Functions: []domain.FunctionDef{
+				{Name: "Helper", IsExported: true},
+			},
+		},
+	}
+	r := newSequenceLinkResolver(pkgs)
+
+	cases := []struct {
+		name string
+		ref  domain.SymbolRef
+		want string
+	}{
+		{"method on known type", domain.SymbolRef{Package: "internal/svc", Symbol: "Service.Run"}, "/types/internal/svc.Service"},
+		{"plain function", domain.SymbolRef{Package: "internal/svc", Symbol: "Helper"}, "/packages/internal/svc"},
+		{"unknown type method", domain.SymbolRef{Package: "internal/svc", Symbol: "Other.Run"}, ""},
+		{"unknown function", domain.SymbolRef{Package: "internal/svc", Symbol: "missing"}, ""},
+		{"external symbol", domain.SymbolRef{Package: "fmt", Symbol: "Println", External: true}, ""},
+		{"unloaded package", domain.SymbolRef{Package: "other/pkg", Symbol: "Foo"}, ""},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := r.hrefFor(tc.ref); got != tc.want {
+				t.Fatalf("hrefFor(%+v) = %q, want %q", tc.ref, got, tc.want)
+			}
+		})
+	}
+
+	// nil resolver tolerates calls.
+	var nilR *sequenceLinkResolver
+	if got := nilR.hrefFor(domain.SymbolRef{Package: "x", Symbol: "Y"}); got != "" {
+		t.Fatalf("nil resolver hrefFor = %q, want empty", got)
+	}
+}
+
+func TestSequenceNodeToGraph_PopulatesHref(t *testing.T) {
+	pkgs := []domain.PackageModel{
+		{
+			Path:      "internal/svc",
+			Structs:   []domain.StructDef{{Name: "Service", IsExported: true, Methods: []domain.MethodDef{{Name: "Run", IsExported: true, Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "helper"}}}}}}},
+			Functions: []domain.FunctionDef{{Name: "helper"}},
+		},
+	}
+	got := buildPackageSequenceEntries(pkgs, pkgs[0], "")
+	if len(got) != 1 {
+		t.Fatalf("entries = %d, want 1", len(got))
+	}
+	g := got[0].Graph
+	if len(g.Nodes) < 2 {
+		t.Fatalf("expected at least 2 nodes, got %+v", g.Nodes)
+	}
+	if g.Nodes[0].Href != "/types/internal/svc.Service" {
+		t.Fatalf("root href = %q", g.Nodes[0].Href)
+	}
+	if g.Nodes[1].Href != "/packages/internal/svc" {
+		t.Fatalf("child href = %q", g.Nodes[1].Href)
+	}
+}
+
 func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
