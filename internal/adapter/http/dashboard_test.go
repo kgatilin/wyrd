@@ -100,14 +100,72 @@ func TestHandleDashboard_WithFixture(t *testing.T) {
 	if !strings.Contains(s, "Go 1.21") {
 		t.Errorf("expected Go 1.21 in dashboard, body:\n%s", truncate(s, 400))
 	}
-	// M8 (#46): the Layer map preview is rendered client-side; the
-	// dashboard now emits a .cy-graph div pointing at /api/layers/mini
-	// rather than an inline SVG.
-	if !strings.Contains(s, `data-api="/api/layers/mini"`) {
-		t.Errorf("expected client-side .cy-graph div for layer preview, body:\n%s", truncate(s, 400))
+	if !strings.Contains(s, `class="layer-stack"`) {
+		t.Errorf("expected layered package stack, body:\n%s", truncate(s, 400))
 	}
-	if !strings.Contains(s, `class="cy-graph layer-map-mini"`) {
-		t.Errorf("expected layer-map-mini styling on cy-graph, body:\n%s", truncate(s, 400))
+	if !strings.Contains(s, `href="/packages/internal/domain"`) {
+		t.Errorf("expected package link inside layer stack, body:\n%s", truncate(s, 400))
+	}
+	if strings.Contains(s, `data-api="/api/layers/mini"`) {
+		t.Errorf("dashboard should not render Layer map as a mini graph, body:\n%s", truncate(s, 400))
+	}
+}
+
+func TestDashboard_DomainMapPrecedesLayerMap(t *testing.T) {
+	ts, _ := newBCFixtureServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, string(body))
+	}
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	domainIdx := strings.Index(s, "Domain map")
+	layerIdx := strings.Index(s, "Layer map")
+	if domainIdx < 0 || layerIdx < 0 {
+		t.Fatalf("dashboard missing Domain map or Layer map: %s", truncate(s, 600))
+	}
+	if domainIdx > layerIdx {
+		t.Errorf("Domain map should render before Layer map")
+	}
+	if !strings.Contains(s, `class="cy-graph bc-map-mini"`) {
+		t.Errorf("expected Domain map to remain a Cytoscape graph, body:\n%s", truncate(s, 600))
+	}
+}
+
+func TestDashboardDomainGraphStyleUsesCytoscapeD2LikePreset(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/assets/graph.js")
+	if err != nil {
+		t.Fatalf("GET /assets/graph.js: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	js := string(body)
+	for _, want := range []string{
+		"function defaultGraphDisplay()",
+		"window.archaiGraphDisplay = graphDisplay",
+		"panel: '#ffffff'",
+		"function d2LikeNodeStyle()",
+		"registerView('bc-map-mini'",
+		"kindNodeStyle('bc')",
+		"'border-width': 3",
+		"'text-outline-width': 0",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("graph.js missing dashboard mini style marker %q", want)
+		}
 	}
 }
 

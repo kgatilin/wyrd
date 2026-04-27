@@ -98,7 +98,7 @@ func buildLayerGraph(cfg *overlay.Config, packages []domain.PackageModel, mini b
 			}
 			out.Nodes = append(out.Nodes, graphNode{
 				ID:     "pkg:" + p.Path,
-				Label:  shortName(p.Path),
+				Label:  p.Path,
 				Kind:   "package",
 				Parent: "layer:" + l,
 			})
@@ -115,9 +115,14 @@ func buildLayerGraph(cfg *overlay.Config, packages []domain.PackageModel, mini b
 
 	violations, allowed, declared := buildLayerEdges(cfg, packages)
 	addEdge := func(from, to, kind string, details []string) {
+		label := ""
+		if !mini {
+			label = kind
+		}
 		out.Edges = append(out.Edges, graphEdge{
 			Source:  "layer:" + from,
 			Target:  "layer:" + to,
+			Label:   label,
 			Kind:    kind,
 			Details: details,
 		})
@@ -144,8 +149,33 @@ func sortedLayerNames(cfg *overlay.Config) []string {
 	for n := range cfg.Layers {
 		names = append(names, n)
 	}
-	sort.Strings(names)
+	sort.Slice(names, func(i, j int) bool {
+		ri, knownI := layerDisplayRank(names[i])
+		rj, knownJ := layerDisplayRank(names[j])
+		if knownI != knownJ {
+			return knownI
+		}
+		if knownI && ri != rj {
+			return ri < rj
+		}
+		return names[i] < names[j]
+	})
 	return names
+}
+
+func layerDisplayRank(name string) (int, bool) {
+	switch strings.ToLower(strings.ReplaceAll(name, "-", "_")) {
+	case "domain":
+		return 0, true
+	case "application", "app", "service", "services", "model_ops":
+		return 1, true
+	case "infrastructure", "infra", "runtime", "storage":
+		return 2, true
+	case "adapter", "adapters", "transport", "source_adapter", "cli":
+		return 3, true
+	default:
+		return 0, false
+	}
 }
 
 // --- Package overview -----------------------------------------------
@@ -172,6 +202,7 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 	}
 
 	rootID := "pkg:" + pkg.Path
+	typeIndex := buildOverviewTypeIndex(allPkgs)
 	out.Nodes = append(out.Nodes, graphNode{
 		ID:    rootID,
 		Label: pkg.Name,
@@ -197,7 +228,7 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 	for _, i := range ifaces {
 		out.Nodes = append(out.Nodes, graphNode{
 			ID:     "type:" + pkg.Path + "." + i.Name,
-			Label:  i.Name,
+			Label:  interfaceOverviewLabel(i, mode, pkg.Path, typeIndex),
 			Kind:   "interface",
 			Parent: rootID,
 		})
@@ -206,7 +237,7 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 	for _, s := range structs {
 		out.Nodes = append(out.Nodes, graphNode{
 			ID:     "type:" + pkg.Path + "." + s.Name,
-			Label:  s.Name,
+			Label:  structOverviewLabel(s, mode, pkg.Path, typeIndex),
 			Kind:   "struct",
 			Parent: rootID,
 		})
@@ -222,7 +253,7 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 		}
 		out.Nodes = append(out.Nodes, graphNode{
 			ID:     "fn:" + pkg.Path + "." + f.Name,
-			Label:  f.Name,
+			Label:  functionOverviewLabel(f, pkg.Path, typeIndex),
 			Kind:   kind,
 			Parent: rootID,
 		})
@@ -294,6 +325,207 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 	}
 
 	return out
+}
+
+func interfaceOverviewLabel(iface domain.InterfaceDef, mode d2adapter.OverviewMode, currentPkg string, typeIndex map[string]map[string]string) string {
+	lines := []string{iface.Name, "interface"}
+	methods := visibleOverviewMethods(iface.Methods, mode)
+	if len(methods) > 0 {
+		lines = append(lines, "methods:")
+	}
+	for _, m := range methods {
+		lines = append(lines, "  "+methodOverviewLine(m, currentPkg, typeIndex))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func structOverviewLabel(st domain.StructDef, mode d2adapter.OverviewMode, currentPkg string, typeIndex map[string]map[string]string) string {
+	lines := []string{st.Name, "struct"}
+	fields := visibleOverviewFields(st.Fields, mode)
+	methods := visibleOverviewMethods(st.Methods, mode)
+	if len(fields) > 0 {
+		lines = append(lines, "fields:")
+	}
+	for _, f := range fields {
+		lines = append(lines, "  "+fieldOverviewLine(f, currentPkg))
+	}
+	if len(methods) > 0 {
+		lines = append(lines, "methods:")
+	}
+	for _, m := range methods {
+		lines = append(lines, "  "+methodOverviewLine(m, currentPkg, typeIndex))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func functionOverviewLabel(fn domain.FunctionDef, currentPkg string, typeIndex map[string]map[string]string) string {
+	kind := "function"
+	switch {
+	case d2adapter.IsConstructor(fn):
+		kind = "constructor"
+	case fn.Stereotype == domain.StereotypeFactory:
+		kind = "factory"
+	}
+	lines := []string{fn.Name, kind}
+	if len(fn.Params) > 0 {
+		lines = append(lines, "args:")
+		for _, p := range fn.Params {
+			lines = append(lines, "  "+paramOverviewLine(p, currentPkg))
+		}
+	}
+	if len(fn.Returns) > 0 {
+		lines = append(lines, "returns:")
+		for _, r := range fn.Returns {
+			lines = append(lines, "  "+returnOverviewLine(r, currentPkg, typeIndex))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildOverviewTypeIndex(packages []domain.PackageModel) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(packages))
+	ensure := func(pkg string) map[string]string {
+		if out[pkg] == nil {
+			out[pkg] = make(map[string]string)
+		}
+		return out[pkg]
+	}
+	for _, pkg := range packages {
+		types := ensure(pkg.Path)
+		for _, iface := range pkg.Interfaces {
+			types[iface.Name] = "interface"
+		}
+		for _, st := range pkg.Structs {
+			types[st.Name] = "struct"
+		}
+		for _, td := range pkg.TypeDefs {
+			types[td.Name] = "type"
+		}
+	}
+	return out
+}
+
+func visibleOverviewMethods(methods []domain.MethodDef, mode d2adapter.OverviewMode) []domain.MethodDef {
+	out := make([]domain.MethodDef, 0, len(methods))
+	for _, m := range methods {
+		if mode.Normalize() == d2adapter.OverviewModeFull || m.IsExported {
+			out = append(out, m)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Signature() < out[j].Signature()
+	})
+	return out
+}
+
+func visibleOverviewFields(fields []domain.FieldDef, mode d2adapter.OverviewMode) []domain.FieldDef {
+	out := make([]domain.FieldDef, 0, len(fields))
+	for _, f := range fields {
+		if mode.Normalize() == d2adapter.OverviewModeFull || f.IsExported {
+			out = append(out, f)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func methodOverviewLine(m domain.MethodDef, currentPkg string, typeIndex map[string]map[string]string) string {
+	prefix := "-"
+	if m.IsExported {
+		prefix = "+"
+	}
+	params := make([]string, 0, len(m.Params))
+	for _, p := range m.Params {
+		params = append(params, paramOverviewLine(p, currentPkg))
+	}
+	line := fmt.Sprintf("%s %s(%s)", prefix, m.Name, strings.Join(params, ", "))
+	if len(m.Returns) == 0 {
+		return line
+	}
+	return line + ": " + formatOverviewReturns(m.Returns, currentPkg, typeIndex)
+}
+
+func fieldOverviewLine(f domain.FieldDef, currentPkg string) string {
+	prefix := "-"
+	if f.IsExported {
+		prefix = "+"
+	}
+	return fmt.Sprintf("%s %s: %s", prefix, f.Name, shortOverviewType(f.Type, currentPkg))
+}
+
+func paramOverviewLine(p domain.ParamDef, currentPkg string) string {
+	if p.Name == "" {
+		return shortOverviewType(p.Type, currentPkg)
+	}
+	return fmt.Sprintf("%s: %s", p.Name, shortOverviewType(p.Type, currentPkg))
+}
+
+func returnOverviewLine(r domain.TypeRef, currentPkg string, typeIndex map[string]map[string]string) string {
+	typ := shortOverviewType(r, currentPkg)
+	kind := overviewTypeKind(r, currentPkg, typeIndex)
+	if kind == "" || kind == "value" {
+		return typ
+	}
+	return kind + " " + typ
+}
+
+func formatOverviewReturns(returns []domain.TypeRef, currentPkg string, typeIndex map[string]map[string]string) string {
+	if len(returns) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(returns))
+	for _, r := range returns {
+		parts = append(parts, returnOverviewLine(r, currentPkg, typeIndex))
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return "(" + strings.Join(parts, ", ") + ")"
+}
+
+func shortOverviewType(t domain.TypeRef, currentPkg string) string {
+	prefix := ""
+	if t.IsSlice {
+		prefix += "[]"
+	}
+	if t.IsMap {
+		key := ""
+		if t.KeyType != nil {
+			key = shortOverviewType(*t.KeyType, currentPkg)
+		}
+		value := ""
+		if t.ValueType != nil {
+			value = shortOverviewType(*t.ValueType, currentPkg)
+		}
+		return prefix + "map[" + key + "]" + value
+	}
+	if t.IsPointer {
+		prefix += "*"
+	}
+	name := t.Name
+	if t.Package != "" {
+		name = shortName(t.Package) + "." + name
+	}
+	return prefix + name
+}
+
+func overviewTypeKind(t domain.TypeRef, currentPkg string, typeIndex map[string]map[string]string) string {
+	if t.IsMap {
+		return "value"
+	}
+	pkg := t.Package
+	if pkg == "" {
+		pkg = currentPkg
+	}
+	if types := typeIndex[pkg]; types != nil {
+		if kind := types[t.Name]; kind != "" {
+			return kind
+		}
+	}
+	return "value"
 }
 
 // --- Diff overlay ---------------------------------------------------

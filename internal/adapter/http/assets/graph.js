@@ -64,43 +64,359 @@
         return requested || 'cose';
     }
 
-    function baseNodeStyle() {
+    function defaultGraphDisplay() {
         return {
-            selector: 'node',
-            style: {
-                'background-color': '#64748b',
-                'label': 'data(label)',
-                'color': '#e2e8f0',
-                'text-valign': 'center',
-                'text-halign': 'center',
-                'text-outline-color': '#1e293b',
-                'text-outline-width': 2,
-                'font-size': 11,
-                'width': 'label',
-                'height': 24,
-                'padding': 6,
-                'shape': 'round-rectangle'
+            palette: {
+                ink: '#111827',
+                muted: '#475569',
+                border: '#334155',
+                panel: '#ffffff',
+                packageFill: '#f8fafc',
+                packageBorder: '#cbd5e1',
+                accent: '#2563eb',
+                accentWash: '#dbeafe'
+            },
+            semantic: {
+                blue: '#2563eb',
+                cyan: '#0ea5e9',
+                purple: '#7c3aed',
+                teal: '#0f766e',
+                green: '#16a34a',
+                greenDark: '#064e3b',
+                red: '#dc2626',
+                orange: '#d97706',
+                slate: '#475569',
+                slateDark: '#334155',
+                gray: '#9ca3af',
+                amber: '#b45309',
+                sky: '#38bdf8',
+                outbound: '#f97316'
+            },
+            layout: {
+                layered: {
+                    algorithm: 'layered',
+                    'elk.edgeRouting': 'ORTHOGONAL',
+                    'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
+                    'elk.layered.cycleBreaking.strategy': 'GREEDY',
+                    'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+                    'elk.layered.layering.strategy': 'NETWORK_SIMPLEX',
+                    'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+                    'elk.spacing.nodeNode': '42',
+                    'elk.layered.spacing.nodeNodeBetweenLayers': '96',
+                    'elk.spacing.edgeNode': '32',
+                    'elk.spacing.edgeEdge': '20'
+                },
+                free: {
+                    algorithm: 'stress',
+                    'elk.spacing.nodeNode': '48',
+                    'elk.spacing.edgeNode': '28',
+                    'elk.spacing.edgeEdge': '20',
+                    'elk.hierarchyHandling': 'INCLUDE_CHILDREN'
+                },
+                dagre: {
+                    nodeSep: 30,
+                    rankSep: 60
+                }
+            },
+            node: {
+                d2: {
+                    'background-color': 'palette.panel',
+                    'border-color': 'palette.ink',
+                    'border-width': 3,
+                    'label': 'data(label)',
+                    'color': 'palette.ink',
+                    'text-valign': 'center',
+                    'text-halign': 'center',
+                    'text-outline-width': 0,
+                    'font-size': 12,
+                    'font-weight': 600,
+                    'width': 'label',
+                    'height': 'label',
+                    'padding': 12,
+                    'shape': 'round-rectangle',
+                    'text-wrap': 'wrap',
+                    'text-justification': 'left',
+                    'text-max-width': 260,
+                    'line-height': 1.25
+                },
+                layer: {
+                    'background-color': 'palette.panel',
+                    'background-opacity': 1,
+                    'border-width': 3,
+                    'border-color': 'palette.border',
+                    'shape': 'round-rectangle',
+                    'text-valign': 'top',
+                    'text-halign': 'center',
+                    'padding': 28,
+                    'font-size': 14,
+                    'font-weight': 700,
+                    'color': 'palette.ink',
+                    'text-justification': 'center'
+                },
+                packageChip: {
+                    'background-color': 'palette.packageFill',
+                    'border-color': 'palette.packageBorder',
+                    'border-width': 1.5,
+                    'font-size': 10,
+                    'font-weight': 500,
+                    'padding': 8,
+                    'text-wrap': 'wrap',
+                    'text-justification': 'center',
+                    'text-max-width': 180,
+                    'width': 190,
+                    'height': 'label'
+                }
+            },
+            edge: {
+                d2: {
+                    'curve-style': 'bezier',
+                    'target-arrow-shape': 'triangle',
+                    'line-color': 'palette.muted',
+                    'target-arrow-color': 'palette.muted',
+                    'label': 'data(label)',
+                    'font-size': 10,
+                    'font-weight': 500,
+                    'color': 'palette.ink',
+                    'text-background-color': 'palette.panel',
+                    'text-background-opacity': 0.9,
+                    'text-background-padding': 3,
+                    'width': 3,
+                    'z-index': 10
+                }
+            },
+            kinds: {
+                root: { 'border-color': 'semantic.blue' },
+                interface: { 'border-color': 'semantic.cyan' },
+                struct: { 'border-color': 'semantic.purple' },
+                function: { 'border-color': 'semantic.teal' },
+                package: { 'border-color': 'semantic.purple' },
+                packageContainer: { 'background-color': 'palette.panel', 'border-color': 'palette.border', 'border-width': 3, 'shape': 'round-rectangle', 'padding': 14, 'background-opacity': 0.92 },
+                packageContainerSoft: { 'background-color': 'palette.panel', 'border-color': 'palette.packageBorder', 'border-width': 2, 'shape': 'round-rectangle', 'padding': 14, 'background-opacity': 0.92 },
+                packageIn: { 'border-color': 'semantic.sky' },
+                packageOut: { 'border-color': 'semantic.outbound' },
+                cycle: { 'border-color': 'semantic.amber' },
+                depthLimit: { 'border-color': 'semantic.slate' },
+                entryPoint: { 'border-color': 'semantic.green', 'border-width': 3, 'shape': 'round-rectangle', 'font-weight': 'bold' },
+                bc: { 'border-color': 'palette.ink', 'shape': 'round-rectangle', 'padding': 12, 'font-size': 12 }
+            },
+            edges: {
+                allowed: { 'line-color': 'semantic.green', 'target-arrow-color': 'semantic.green' },
+                violation: { 'line-color': 'semantic.red', 'target-arrow-color': 'semantic.red', 'width': 4 },
+                declared: { 'line-color': 'semantic.gray', 'target-arrow-color': 'semantic.gray', 'line-style': 'dashed', 'opacity': 0.6 },
+                declaredPreview: { 'line-color': 'semantic.gray', 'target-arrow-color': 'semantic.gray', 'line-style': 'dashed', 'opacity': 0.75 },
+                inbound: { 'line-color': 'semantic.sky', 'target-arrow-color': 'semantic.sky' },
+                outbound: { 'line-color': 'semantic.outbound', 'target-arrow-color': 'semantic.outbound' },
+                add: { 'line-color': 'semantic.green', 'target-arrow-color': 'semantic.green' },
+                remove: { 'line-color': 'semantic.red', 'target-arrow-color': 'semantic.red', 'line-style': 'dashed' },
+                change: { 'line-color': 'semantic.orange', 'target-arrow-color': 'semantic.orange' }
+            },
+            relationships: {
+                'shared-kernel': { 'line-color': 'semantic.purple', 'target-arrow-color': 'semantic.purple' },
+                'customer-supplier': { 'line-color': 'semantic.blue', 'target-arrow-color': 'semantic.blue' },
+                'conformist': { 'line-color': 'semantic.gray', 'target-arrow-color': 'semantic.gray' },
+                'acl': { 'line-color': 'semantic.red', 'target-arrow-color': 'semantic.red', 'line-style': 'dashed' },
+                'open-host': { 'line-color': 'semantic.green', 'target-arrow-color': 'semantic.green' }
+            },
+            hover: {
+                'border-color': 'palette.accent',
+                'underlay-color': 'palette.accentWash',
+                'underlay-opacity': 0.85,
+                'underlay-padding': 8
             }
         };
     }
 
-    function baseEdgeStyle() {
-        return {
-            selector: 'edge',
-            style: {
-                'curve-style': 'bezier',
-                'target-arrow-shape': 'triangle',
-                'line-color': '#94a3b8',
-                'target-arrow-color': '#94a3b8',
-                'label': 'data(label)',
-                'font-size': 9,
-                'color': '#64748b',
-                'text-background-color': '#0f172a',
-                'text-background-opacity': 0.7,
-                'text-background-padding': 2,
-                'width': 1.5
+    function isPlainObject(value) {
+        return value && typeof value === 'object' && !Array.isArray(value);
+    }
+
+    function deepMerge(base, override) {
+        var out = {};
+        var k;
+        for (k in base) {
+            if (Object.prototype.hasOwnProperty.call(base, k)) {
+                out[k] = isPlainObject(base[k]) ? deepMerge(base[k], {}) : base[k];
             }
+        }
+        for (k in (override || {})) {
+            if (Object.prototype.hasOwnProperty.call(override, k)) {
+                if (isPlainObject(out[k]) && isPlainObject(override[k])) {
+                    out[k] = deepMerge(out[k], override[k]);
+                } else {
+                    out[k] = override[k];
+                }
+            }
+        }
+        return out;
+    }
+
+    var graphDisplay = deepMerge(defaultGraphDisplay(), window.archaiGraphDisplay || {});
+    window.archaiGraphDisplay = graphDisplay;
+
+    function displayValue(value) {
+        if (typeof value !== 'string') { return value; }
+        var parts = value.split('.');
+        if (parts.length !== 2) { return value; }
+        var group = graphDisplay[parts[0]];
+        if (!group) { return value; }
+        return Object.prototype.hasOwnProperty.call(group, parts[1]) ? group[parts[1]] : value;
+    }
+
+    function resolveStyle(style) {
+        var out = {};
+        for (var k in style) {
+            if (Object.prototype.hasOwnProperty.call(style, k)) {
+                out[k] = displayValue(style[k]);
+            }
+        }
+        return out;
+    }
+
+    function extendStyle() {
+        var out = {};
+        for (var i = 0; i < arguments.length; i++) {
+            var style = arguments[i] || {};
+            for (var k in style) {
+                if (Object.prototype.hasOwnProperty.call(style, k)) {
+                    out[k] = style[k];
+                }
+            }
+        }
+        return out;
+    }
+
+    function styleRule(selector, style) {
+        return { selector: selector, style: resolveStyle(style) };
+    }
+
+    function nodeStyle(name, selector, extra) {
+        return styleRule(selector || 'node', extendStyle(graphDisplay.node[name] || {}, extra));
+    }
+
+    function edgeStyle(name, selector, extra) {
+        return styleRule(selector || 'edge', extendStyle(graphDisplay.edge[name] || {}, extra));
+    }
+
+    function kindNodeStyle(kind, styleName, extra) {
+        return styleRule('node[kind = "' + kind + '"]', extendStyle(graphDisplay.kinds[styleName || kind] || {}, extra));
+    }
+
+    function opNodeStyle(op, colorName) {
+        return styleRule('node[op = "' + op + '"]', { 'border-color': 'semantic.' + colorName });
+    }
+
+    function kindEdgeStyle(kind, styleName, extra) {
+        return styleRule('edge[kind = "' + kind + '"]', extendStyle(graphDisplay.edges[styleName || kind] || {}, extra));
+    }
+
+    function relationshipEdgeStyle(relationship) {
+        return styleRule('edge[relationship = "' + relationship + '"]', graphDisplay.relationships[relationship] || {});
+    }
+
+    function layeredLayout(direction, padding) {
+        direction = normalizeLayoutDirection(direction);
+        var elk = extendStyle(graphDisplay.layout.layered);
+        if (direction) {
+            elk['elk.direction'] = direction;
+        }
+        return {
+            name: pickLayout('elk'),
+            'elk': elk,
+            padding: padding || 20
         };
+    }
+
+    function elkFreeLayout(algorithm, padding) {
+        var elk = extendStyle(graphDisplay.layout.free, { algorithm: algorithm || graphDisplay.layout.free.algorithm || 'stress' });
+        return {
+            name: pickLayout('elk'),
+            'elk': elk,
+            padding: padding || 20
+        };
+    }
+
+    function normalizeLayoutDirection(direction) {
+        var d = String(direction || '').toUpperCase();
+        if (d === 'RIGHT' || d === 'LR') { return 'RIGHT'; }
+        if (d === 'DOWN' || d === 'TB') { return 'DOWN'; }
+        return '';
+    }
+
+    function normalizeLayoutMode(mode) {
+        var m = String(mode || '').toLowerCase();
+        if (m === 'smart' || m === 'auto' || m === '') { return 'auto'; }
+        if (m === 'vertical' || m === 'down' || m === 'tb') { return 'vertical'; }
+        if (m === 'horizontal' || m === 'right' || m === 'lr') { return 'horizontal'; }
+        if (m === 'relaxed' || m === 'stress') { return 'stress'; }
+        return 'auto';
+    }
+
+    function graphLayoutKey(el, view) {
+        var key = el.getAttribute('data-layout-key') || view || el.getAttribute('data-view') || 'default';
+        return key;
+    }
+
+    function graphLayoutStorageKey(el, view) {
+        return 'archai.graph.layoutMode.' + graphLayoutKey(el, view);
+    }
+
+    function getLayoutMode(el, view) {
+        var fallback = normalizeLayoutMode(el.getAttribute('data-layout-mode'));
+        try {
+            var stored = window.localStorage && window.localStorage.getItem(graphLayoutStorageKey(el, view));
+            return normalizeLayoutMode(stored || fallback);
+        } catch (_err) {
+            return fallback;
+        }
+    }
+
+    function setLayoutMode(el, view, mode) {
+        var normalized = normalizeLayoutMode(mode);
+        el.setAttribute('data-layout-mode', normalized);
+        try {
+            if (window.localStorage) {
+                window.localStorage.setItem(graphLayoutStorageKey(el, view), normalized);
+            }
+        } catch (_err) { /* storage can be unavailable in private contexts */ }
+        return normalized;
+    }
+
+    function layerMapLayout(mode) {
+        switch (normalizeLayoutMode(mode)) {
+            case 'vertical':
+                return layeredLayout('DOWN', 28);
+            case 'horizontal':
+                return layeredLayout('RIGHT', 28);
+            case 'stress':
+                return elkFreeLayout('stress', 28);
+            default:
+                return layeredLayout('', 28);
+        }
+    }
+
+    function layerMapEdgeAxis(mode) {
+        switch (normalizeLayoutMode(mode)) {
+            case 'vertical':
+                return 'vertical';
+            case 'horizontal':
+                return 'horizontal';
+            default:
+                return '';
+        }
+    }
+
+    function d2LikeNodeStyle() {
+        return nodeStyle('d2');
+    }
+
+    function d2LikeEdgeStyle(taxiDirection) {
+        var useTaxi = taxiDirection === 'vertical' || taxiDirection === 'horizontal';
+        var style = extendStyle(graphDisplay.edge.d2, { 'curve-style': useTaxi ? 'taxi' : 'bezier' });
+        if (useTaxi) {
+            style['taxi-direction'] = taxiDirection;
+            style['taxi-turn'] = 24;
+        }
+        return edgeStyle('d2', 'edge', style);
     }
 
     // Type-detail view (M7d): kept as the default preset so existing
@@ -109,52 +425,31 @@
         return {
             layout: { name: pickLayout('dagre'), rankDir: 'LR', padding: 10 },
             style: [
-                baseNodeStyle(),
-                { selector: 'node[root]', style: { 'background-color': '#2563eb' } },
-                { selector: 'node[kind = "interface"]', style: { 'background-color': '#0ea5e9' } },
-                { selector: 'node[kind = "package"]', style: { 'background-color': '#7c3aed' } },
-                { selector: 'node[kind = "cycle"]', style: { 'background-color': '#b45309' } },
-                { selector: 'node[kind = "depth-limit"]', style: { 'background-color': '#475569' } },
-                baseEdgeStyle()
+                d2LikeNodeStyle(),
+                styleRule('node[root]', graphDisplay.kinds.root),
+                kindNodeStyle('interface'),
+                kindNodeStyle('package'),
+                kindNodeStyle('cycle'),
+                kindNodeStyle('depth-limit', 'depthLimit'),
+                d2LikeEdgeStyle('horizontal')
             ]
         };
     });
 
     // Layer map (full, /layers). Compound layer nodes; edges coloured
     // by kind ("allowed" / "violation" / "declared").
-    registerView('layer-map', function () {
+    registerView('layer-map', function (ctx) {
+        var mode = normalizeLayoutMode(ctx && ctx.layoutMode);
         return {
-            layout: { name: pickLayout('elk'), 'elk': { algorithm: 'layered', 'elk.direction': 'RIGHT' }, padding: 20 },
+            layout: layerMapLayout(mode),
             style: [
-                baseNodeStyle(),
-                {
-                    selector: 'node[kind = "layer"]',
-                    style: {
-                        'background-color': '#1e293b',
-                        'background-opacity': 0.35,
-                        'border-width': 1,
-                        'border-color': '#475569',
-                        'shape': 'round-rectangle',
-                        'text-valign': 'top',
-                        'text-halign': 'center',
-                        'padding': 16,
-                        'font-size': 13,
-                        'color': '#f1f5f9'
-                    }
-                },
-                { selector: 'node[kind = "package"]', style: { 'background-color': '#7c3aed' } },
-                baseEdgeStyle(),
-                { selector: 'edge[kind = "allowed"]', style: { 'line-color': '#16a34a', 'target-arrow-color': '#16a34a' } },
-                { selector: 'edge[kind = "violation"]', style: { 'line-color': '#dc2626', 'target-arrow-color': '#dc2626', 'width': 2 } },
-                {
-                    selector: 'edge[kind = "declared"]',
-                    style: {
-                        'line-color': '#9ca3af',
-                        'target-arrow-color': '#9ca3af',
-                        'line-style': 'dashed',
-                        'opacity': 0.6
-                    }
-                }
+                d2LikeNodeStyle(),
+                nodeStyle('layer', 'node[kind = "layer"]'),
+                nodeStyle('packageChip', 'node[kind = "package"]'),
+                d2LikeEdgeStyle(layerMapEdgeAxis(mode)),
+                kindEdgeStyle('allowed'),
+                kindEdgeStyle('violation'),
+                kindEdgeStyle('declared')
             ]
         };
     });
@@ -163,39 +458,41 @@
     // interactions (click-through navigates to /layers via the parent
     // <a>).
     registerView('layer-map-mini', function () {
-        var full = registry['layer-map']();
-        full.layout = { name: pickLayout('elk'), 'elk': { algorithm: 'layered', 'elk.direction': 'RIGHT' }, padding: 8 };
-        return full;
+        return {
+            layout: layeredLayout('DOWN', 16),
+            style: [
+                d2LikeNodeStyle(),
+                nodeStyle('d2', 'node[kind = "layer"]', { 'border-color': 'palette.border' }),
+                d2LikeEdgeStyle('vertical'),
+                kindEdgeStyle('allowed'),
+                kindEdgeStyle('violation'),
+                kindEdgeStyle('declared', 'declaredPreview')
+            ]
+        };
     });
 
     // Package overview (M8): subject package at centre with exported
     // types as children, inbound/outbound packages around it.
     registerView('package-overview', function () {
         return {
-            layout: { name: pickLayout('dagre'), rankDir: 'LR', padding: 10, nodeSep: 30, rankSep: 60 },
+            layout: extendStyle({ name: pickLayout('dagre'), rankDir: 'LR', padding: 10 }, graphDisplay.layout.dagre),
             style: [
-                baseNodeStyle(),
-                { selector: 'node[root]', style: { 'background-color': '#2563eb' } },
-                { selector: 'node[kind = "interface"]', style: { 'background-color': '#0ea5e9' } },
-                { selector: 'node[kind = "struct"]', style: { 'background-color': '#7c3aed' } },
-                { selector: 'node[kind = "function"]', style: { 'background-color': '#0d9488' } },
+                d2LikeNodeStyle(),
+                styleRule('node[root]', graphDisplay.kinds.root),
+                kindNodeStyle('interface'),
+                kindNodeStyle('struct'),
+                kindNodeStyle('function'),
                 // M9 (#61): exported factories / constructors are the
                 // "entry points" of a package's public surface; render
                 // them with a distinct green fill and a bold dark border
                 // so they stand out from regular functions.
-                { selector: 'node[kind = "entry-point"]', style: {
-                    'background-color': '#16a34a',
-                    'border-color': '#064e3b',
-                    'border-width': 3,
-                    'shape': 'round-rectangle',
-                    'font-weight': 'bold'
-                } },
-                { selector: 'node[kind = "package"]', style: { 'background-color': '#1e293b', 'shape': 'round-rectangle', 'padding': 12, 'background-opacity': 0.4 } },
-                { selector: 'node[kind = "package-in"]', style: { 'background-color': '#475569' } },
-                { selector: 'node[kind = "package-out"]', style: { 'background-color': '#334155' } },
-                baseEdgeStyle(),
-                { selector: 'edge[kind = "inbound"]', style: { 'line-color': '#38bdf8', 'target-arrow-color': '#38bdf8' } },
-                { selector: 'edge[kind = "outbound"]', style: { 'line-color': '#f97316', 'target-arrow-color': '#f97316' } }
+                kindNodeStyle('entry-point', 'entryPoint'),
+                kindNodeStyle('package', 'packageContainer'),
+                kindNodeStyle('package-in', 'packageIn'),
+                kindNodeStyle('package-out', 'packageOut'),
+                d2LikeEdgeStyle(),
+                kindEdgeStyle('inbound'),
+                kindEdgeStyle('outbound')
             ]
         };
     });
@@ -208,35 +505,38 @@
     // into the label can no longer cause clipping.
     registerView('bc-map', function () {
         return {
-            layout: { name: pickLayout('elk'), 'elk': { algorithm: 'layered', 'elk.direction': 'RIGHT' }, padding: 20 },
+            layout: layeredLayout('RIGHT', 20),
             style: [
-                baseNodeStyle(),
-                {
-                    selector: 'node[kind = "bc"]',
-                    style: {
-                        'background-color': '#0f766e',
-                        'shape': 'round-rectangle',
-                        'padding': 10,
-                        'font-size': 12,
-                        'color': '#f0fdfa'
-                    }
-                },
-                baseEdgeStyle(),
+                d2LikeNodeStyle(),
+                kindNodeStyle('bc'),
+                d2LikeEdgeStyle('horizontal'),
                 { selector: 'edge', style: { 'label': 'data(relationship)' } },
-                { selector: 'edge[relationship = "shared-kernel"]', style: { 'line-color': '#7c3aed', 'target-arrow-color': '#7c3aed' } },
-                { selector: 'edge[relationship = "customer-supplier"]', style: { 'line-color': '#2563eb', 'target-arrow-color': '#2563eb' } },
-                { selector: 'edge[relationship = "conformist"]', style: { 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af' } },
-                { selector: 'edge[relationship = "acl"]', style: { 'line-color': '#dc2626', 'target-arrow-color': '#dc2626', 'line-style': 'dashed' } },
-                { selector: 'edge[relationship = "open-host"]', style: { 'line-color': '#16a34a', 'target-arrow-color': '#16a34a' } }
+                relationshipEdgeStyle('shared-kernel'),
+                relationshipEdgeStyle('customer-supplier'),
+                relationshipEdgeStyle('conformist'),
+                relationshipEdgeStyle('acl'),
+                relationshipEdgeStyle('open-host')
             ]
         };
     });
 
-    // Dashboard mini variant of bc-map; same styling, tighter padding.
+    // Dashboard mini variant of bc-map: Cytoscape data and layout, but
+    // with the same white-node / heavy-stroke visual language as D2.
     registerView('bc-map-mini', function () {
-        var full = registry['bc-map']();
-        full.layout = { name: pickLayout('elk'), 'elk': { algorithm: 'layered', 'elk.direction': 'RIGHT' }, padding: 8 };
-        return full;
+        return {
+            layout: layeredLayout('RIGHT', 16),
+            style: [
+                d2LikeNodeStyle(),
+                kindNodeStyle('bc'),
+                d2LikeEdgeStyle('horizontal'),
+                { selector: 'edge', style: { 'label': 'data(relationship)' } },
+                relationshipEdgeStyle('shared-kernel'),
+                relationshipEdgeStyle('customer-supplier'),
+                relationshipEdgeStyle('conformist'),
+                relationshipEdgeStyle('acl'),
+                relationshipEdgeStyle('open-host')
+            ]
+        };
     });
 
     // Diff overlay (M8): per-change node, coloured by op, parented by
@@ -245,15 +545,15 @@
         return {
             layout: { name: pickLayout('dagre'), rankDir: 'TB', padding: 10 },
             style: [
-                baseNodeStyle(),
-                { selector: 'node[op = "add"]', style: { 'background-color': '#16a34a' } },
-                { selector: 'node[op = "remove"]', style: { 'background-color': '#dc2626' } },
-                { selector: 'node[op = "change"]', style: { 'background-color': '#d97706' } },
-                { selector: 'node[kind = "package"]', style: { 'background-color': '#1e293b', 'shape': 'round-rectangle', 'padding': 12, 'background-opacity': 0.35 } },
-                baseEdgeStyle(),
-                { selector: 'edge[kind = "add"]', style: { 'line-color': '#16a34a', 'target-arrow-color': '#16a34a' } },
-                { selector: 'edge[kind = "remove"]', style: { 'line-color': '#dc2626', 'target-arrow-color': '#dc2626', 'line-style': 'dashed' } },
-                { selector: 'edge[kind = "change"]', style: { 'line-color': '#d97706', 'target-arrow-color': '#d97706' } }
+                d2LikeNodeStyle(),
+                opNodeStyle('add', 'green'),
+                opNodeStyle('remove', 'red'),
+                opNodeStyle('change', 'orange'),
+                kindNodeStyle('package', 'packageContainerSoft'),
+                d2LikeEdgeStyle('vertical'),
+                kindEdgeStyle('add'),
+                kindEdgeStyle('remove'),
+                kindEdgeStyle('change')
             ]
         };
     });
@@ -302,43 +602,68 @@
             cy.boxSelectionEnabled(false);
             return;
         }
+        var isClickableNode = function (node) {
+            var id = node.id();
+            return id.indexOf('pkg:') === 0 || id.indexOf('type:') === 0;
+        };
         // Click → navigate (package / type). The node's id encodes a
-        // routing prefix ("pkg:" / "type:" / "layer:"); anything else
-        // is left alone.
+        // routing prefix ("pkg:" / "type:"). Compound layer containers
+        // are visual grouping only, so hovering a large layer block does
+        // not constantly toggle highlight while moving between packages.
         cy.on('tap', 'node', function (evt) {
             var id = evt.target.id();
             if (id.indexOf('pkg:') === 0) {
                 window.location.href = '/packages/' + id.slice(4);
             } else if (id.indexOf('type:') === 0) {
                 window.location.href = '/types/' + id.slice(5);
-            } else if (id.indexOf('layer:') === 0) {
-                // Navigate to the Layers list — layers don't have a
-                // dedicated detail page.
-                window.location.href = '/layers#' + id.slice(6);
             }
         });
-        // Hover highlight: fade everything else, accent the neighbourhood.
-        // Also surface the optional `description` field as a native
-        // browser tooltip on the cytoscape container, so BC nodes (#81)
-        // can show their description without inflating the node label.
+        // Hover highlight: only accent the clickable block under the
+        // pointer. Do not fade the rest of the graph; on dense compound
+        // graphs that creates a full-canvas flicker while moving across
+        // labels and layer containers.
         cy.on('mouseover', 'node', function (evt) {
             var n = evt.target;
-            cy.elements().addClass('cy-faded');
-            n.removeClass('cy-faded').addClass('cy-hi');
-            n.connectedEdges().removeClass('cy-faded').addClass('cy-hi');
-            n.connectedEdges().connectedNodes().removeClass('cy-faded').addClass('cy-hi');
+            if (isClickableNode(n)) {
+                n.addClass('cy-hover');
+                el.style.cursor = 'pointer';
+            }
+            // Surface the optional `description` field as a native
+            // browser tooltip, so BC nodes (#81) can show it without
+            // inflating the node label.
             var desc = n.data('description');
             if (desc) {
                 el.setAttribute('title', desc);
             }
         });
-        cy.on('mouseout', 'node', function () {
-            cy.elements().removeClass('cy-faded cy-hi');
+        cy.on('mouseout', 'node', function (evt) {
+            evt.target.removeClass('cy-hover');
+            el.style.cursor = '';
             el.removeAttribute('title');
         });
     }
 
-    function attachToolbar(el, cy) {
+    function syncLayoutModeControls(toolbar, mode) {
+        var normalized = normalizeLayoutMode(mode);
+        var controls = toolbar.querySelectorAll('[data-cy-action="set-layout-mode"]');
+        for (var i = 0; i < controls.length; i++) {
+            if (controls[i].tagName === 'SELECT') {
+                controls[i].value = normalized;
+            }
+        }
+    }
+
+    function clearZoomOverlay(el) {
+        var parent = el.parentElement;
+        if (!parent) { return; }
+        var overlay = parent.querySelector('.cy-zoom-controls');
+        if (overlay) {
+            parent.removeChild(overlay);
+        }
+        delete el.dataset.cyZoomOverlay;
+    }
+
+    function attachToolbar(el, cy, view, rerender) {
         // The toolbar is the previous sibling of el when present.
         var toolbar = el.previousElementSibling;
         if (!toolbar || !toolbar.classList.contains('cy-toolbar')) {
@@ -350,10 +675,15 @@
             }
         }
         if (!toolbar) { return; }
+        syncLayoutModeControls(toolbar, getLayoutMode(el, view));
         var actions = toolbar.querySelectorAll('[data-cy-action]');
         for (var i = 0; i < actions.length; i++) {
             (function (btn) {
-                btn.addEventListener('click', function (ev) {
+                var eventName = btn.tagName === 'SELECT' ? 'change' : 'click';
+                if (btn.__archaiCyHandler) {
+                    btn.removeEventListener(btn.__archaiCyEventName || 'click', btn.__archaiCyHandler);
+                }
+                btn.__archaiCyHandler = function (ev) {
                     ev.preventDefault();
                     switch (btn.getAttribute('data-cy-action')) {
                         case 'fit':
@@ -365,9 +695,16 @@
                         case 'zoom-out':
                             cy.zoom({ level: cy.zoom() / 1.25, renderedPosition: { x: el.clientWidth / 2, y: el.clientHeight / 2 } });
                             break;
+                        case 'set-layout-mode':
+                            var mode = setLayoutMode(el, view, btn.value || btn.getAttribute('data-layout-mode'));
+                            syncLayoutModeControls(toolbar, mode);
+                            if (rerender) {
+                                rerender();
+                            }
+                            break;
                         case 'export-png':
                             try {
-                                var uri = cy.png({ full: true, scale: 2, bg: '#0f172a' });
+                                var uri = cy.png({ full: true, scale: 2, bg: graphDisplay.palette.panel });
                                 var a = document.createElement('a');
                                 a.href = uri;
                                 a.download = 'graph.png';
@@ -395,7 +732,9 @@
                             } catch (_err) { /* silent */ }
                             break;
                     }
-                });
+                };
+                btn.__archaiCyEventName = eventName;
+                btn.addEventListener(eventName, btn.__archaiCyHandler);
             })(actions[i]);
         }
     }
@@ -446,14 +785,31 @@
         applyHeight(el);
         var view = el.getAttribute('data-view') || 'type-detail';
         var interactive = el.getAttribute('data-interactive') !== 'false';
-        var preset = (registry[view] || registry['type-detail'])();
+        var currentCy = null;
+        var currentPayload = null;
+
+        var makePreset = function () {
+            var ctx = {
+                el: el,
+                view: view,
+                layoutMode: getLayoutMode(el, view)
+            };
+            return (registry[view] || registry['type-detail'])(ctx);
+        };
 
         var hydrate = function (payload) {
+            currentPayload = payload;
             if (!window.cytoscape) {
                 el.innerHTML = '<p class="muted small">(cytoscape.js not available)</p>';
                 return;
             }
+            if (currentCy) {
+                currentCy.destroy();
+                currentCy = null;
+                clearZoomOverlay(el);
+            }
             var elements = hydrateElements(payload);
+            var preset = makePreset();
             // #73: tune touch interactions. wheelSensitivity reduces
             // jitter on trackpads + phones; touchTapThreshold avoids
             // accidental taps mid-pan. Pinch-to-zoom is enabled by
@@ -465,12 +821,16 @@
                 wheelSensitivity: 0.2,
                 touchTapThreshold: 8,
                 style: preset.style.concat([
-                    { selector: '.cy-faded', style: { 'opacity': 0.2 } },
-                    { selector: '.cy-hi', style: { 'opacity': 1 } }
+                    styleRule('.cy-hover', graphDisplay.hover)
                 ])
             });
+            currentCy = cy;
             attachInteractions(cy, el, interactive);
-            attachToolbar(el, cy);
+            attachToolbar(el, cy, view, function () {
+                if (currentPayload) {
+                    hydrate(currentPayload);
+                }
+            });
             if (interactive) {
                 ensureZoomOverlay(el, cy);
             }

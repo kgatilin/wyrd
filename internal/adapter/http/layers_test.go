@@ -59,6 +59,42 @@ func TestComputePackageLayers_AssignsFromGlobs(t *testing.T) {
 	}
 }
 
+func TestBuildLayerViews_OrdersKnownArchitectureLayers(t *testing.T) {
+	cfg := &overlay.Config{
+		Module: "example.com/app",
+		Layers: map[string][]string{
+			"adapters":       {"internal/adapter/..."},
+			"infrastructure": {"internal/target/..."},
+			"application":    {"internal/service/..."},
+			"domain":         {"internal/domain/..."},
+		},
+	}
+	pkgs := []domain.PackageModel{
+		{Path: "internal/adapter/http"},
+		{Path: "internal/domain"},
+		{Path: "internal/service"},
+		{Path: "internal/target"},
+		{Path: "tests/integration"},
+	}
+
+	got := buildLayerViews(cfg, pkgs)
+	var names []string
+	for _, v := range got {
+		names = append(names, v.Name)
+	}
+	want := []string{"domain", "application", "infrastructure", "adapters"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("layer order = %v, want %v", names, want)
+	}
+	for _, v := range got {
+		for _, p := range v.Packages {
+			if p.Rel == "tests/integration" {
+				t.Fatalf("tests package should not appear in layer views: %+v", got)
+			}
+		}
+	}
+}
+
 func TestBuildLayerEdges_SplitsAllowedAndViolations(t *testing.T) {
 	cfg := sampleOverlay()
 	pkgs := []domain.PackageModel{
@@ -260,6 +296,15 @@ func TestHandleLayers_WithOverlay(t *testing.T) {
 	for _, want := range []string{
 		`class="cy-graph layer-map"`,
 		`data-api="/api/layers"`,
+		`data-height="640"`,
+		`data-layout-key="layers"`,
+		`data-layout-mode="auto"`,
+		`data-cy-action="set-layout-mode"`,
+		`<option value="auto">Smart</option>`,
+		`<option value="vertical">Vertical</option>`,
+		`<option value="horizontal">Horizontal</option>`,
+		`<option value="stress">Relaxed</option>`,
+		`href="/packages/internal/domain"`,
 		`href="/view/layers/d2"`,
 		`href="/view/layers/svg"`,
 		`data-cy-action="fit"`,
@@ -267,6 +312,94 @@ func TestHandleLayers_WithOverlay(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("/layers body missing %q", want)
 		}
+	}
+}
+
+func TestLayerGraphStyleUsesSharedD2LikePreset(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/assets/graph.js")
+	if err != nil {
+		t.Fatalf("GET /assets/graph.js: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	js := string(body)
+	for _, want := range []string{
+		"function defaultGraphDisplay()",
+		"var graphDisplay = deepMerge(defaultGraphDisplay(), window.archaiGraphDisplay || {})",
+		"window.archaiGraphDisplay = graphDisplay",
+		"function nodeStyle(name, selector, extra)",
+		"function kindEdgeStyle(kind, styleName, extra)",
+		"function layeredLayout(direction, padding)",
+		"function elkFreeLayout(algorithm, padding)",
+		"function normalizeLayoutMode(mode)",
+		"function setLayoutMode(el, view, mode)",
+		"function layerMapLayout(mode)",
+		"registerView('type-detail'",
+		"registerView('layer-map'",
+		"registerView('package-overview'",
+		"registerView('bc-map'",
+		"registerView('diff-overlay'",
+		"layout: layerMapLayout(mode)",
+		"d2LikeEdgeStyle(layerMapEdgeAxis(mode))",
+		"case 'set-layout-mode':",
+		`nodeStyle('packageChip', 'node[kind = "package"]')`,
+		"kindEdgeStyle('allowed')",
+		"'text-wrap': 'wrap'",
+		"n.addClass('cy-hover')",
+		"styleRule('.cy-hover', graphDisplay.hover)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("graph.js missing layer graph style marker %q", want)
+		}
+	}
+	if strings.Contains(js, "cy-faded") {
+		t.Errorf("graph.js should not fade the whole graph on hover")
+	}
+	if strings.Contains(js, "nodeStyle('dark')") || strings.Contains(js, "edgeStyle('dark')") {
+		t.Errorf("graph.js should use the shared D2-like graph style for every Cytoscape view")
+	}
+	if strings.Contains(js, "id.indexOf('layer:')") {
+		t.Errorf("graph.js should not treat compound layer containers as clickable hover targets")
+	}
+}
+
+func TestGraphToolbarButtonsUseReadableControls(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/assets/styles.css")
+	if err != nil {
+		t.Fatalf("GET /assets/styles.css: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	css := string(body)
+	for _, want := range []string{
+		".cy-btn {",
+		"color: var(--fg);",
+		"border: 1px solid #cbd5e1;",
+		"font-weight: 600;",
+		"display: inline-flex;",
+		"align-items: center;",
+		"justify-content: center;",
+		".cy-select {",
+		"background: var(--bg);",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("styles.css missing readable graph toolbar marker %q", want)
+		}
+	}
+	if strings.Contains(css, "color: var(--text") {
+		t.Errorf("graph toolbar buttons should not use missing --text variable")
 	}
 }
 

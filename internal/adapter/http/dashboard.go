@@ -37,10 +37,9 @@ type dashboardData struct {
 	InterfaceCount int
 
 	// HasLayerMap is true when the overlay declares at least one layer;
-	// the dashboard then renders a small client-side Cytoscape preview
-	// that fetches /api/layers/mini. Previously this was a server-side
-	// D2→SVG render; M8 (#46) moved it to the browser.
+	// the dashboard then renders a small layered package stack.
 	HasLayerMap bool
+	LayerStack  []layerView
 
 	// HasBoundedContexts is true when the overlay declares at least one
 	// bounded context; the dashboard then renders a Domain model card.
@@ -107,9 +106,10 @@ func (s *Server) handleDashboard(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 
 	// Layer map preview — only render the <div> when the overlay
-	// defines layers; the browser fetches /api/layers/mini to hydrate it.
+	// defines layers.
 	if snap.Overlay != nil && len(snap.Overlay.Layers) > 0 {
 		data.HasLayerMap = true
+		data.LayerStack = buildLayerViews(snap.Overlay, snap.Packages)
 	}
 
 	// Domain model card — show BC count when the overlay declares BCs.

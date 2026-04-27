@@ -15,6 +15,15 @@
         <button type="button" class="cy-btn" data-cy-action="fit">Fit</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-in" aria-label="Zoom in">+</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-out" aria-label="Zoom out">-</button>
+        <label class="cy-select-label">
+            Layout
+            <select class="cy-select" data-cy-action="set-layout-mode" aria-label="Layout mode">
+                <option value="auto">Smart</option>
+                <option value="vertical">Vertical</option>
+                <option value="horizontal">Horizontal</option>
+                <option value="stress">Relaxed</option>
+            </select>
+        </label>
         <span class="cy-toolbar-spacer"></span>
         <a class="cy-btn" href="/view/layers/d2" download>Export D2</a>
         <a class="cy-btn" href="/view/layers/svg" download>Export SVG</a>
@@ -24,7 +33,9 @@
          data-api="/api/layers"
          data-view="layer-map"
          data-layout="elk"
-         data-height="520"></div>
+         data-layout-key="layers"
+         data-layout-mode="auto"
+         data-height="640"></div>
     <p class="legend">
         <span class="pill pill-green">allowed</span>
         <span class="pill pill-red">violation</span>
@@ -46,7 +57,7 @@
             {{if .Packages}}
                 <ul class="pkg-list">
                     {{range .Packages}}
-                        <li><a href="/packages#{{.Rel}}" class="pkg-link" title="{{.Rel}}">{{.Name}}</a></li>
+                        <li><a href="/packages/{{.Rel}}" class="pkg-link" title="{{.Rel}}">{{.Name}}</a></li>
                     {{end}}
                 </ul>
             {{else}}

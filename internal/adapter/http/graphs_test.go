@@ -36,6 +36,7 @@ func TestBuildLayerGraph_FullViewIncludesPackagesAndEdges(t *testing.T) {
 	}
 	// Every layer appears as a compound node.
 	var haveLayers, havePkgs int
+	var haveFullPackageLabel bool
 	for _, n := range g.Nodes {
 		switch n.Kind {
 		case "layer":
@@ -45,6 +46,9 @@ func TestBuildLayerGraph_FullViewIncludesPackagesAndEdges(t *testing.T) {
 			if n.Parent == "" {
 				t.Errorf("package node %q missing parent", n.ID)
 			}
+			if n.ID == "pkg:internal/adapter/yaml" && n.Label == "internal/adapter/yaml" {
+				haveFullPackageLabel = true
+			}
 		}
 	}
 	if haveLayers != 3 {
@@ -53,12 +57,17 @@ func TestBuildLayerGraph_FullViewIncludesPackagesAndEdges(t *testing.T) {
 	if havePkgs != 3 {
 		t.Errorf("havePkgs = %d, want 3", havePkgs)
 	}
+	if !haveFullPackageLabel {
+		t.Errorf("expected full package path label for internal/adapter/yaml")
+	}
 	// Exactly one allowed edge (service -> domain).
 	var allowed, violations int
+	var allowedLabel string
 	for _, e := range g.Edges {
 		switch e.Kind {
 		case "allowed":
 			allowed++
+			allowedLabel = e.Label
 		case "violation":
 			violations++
 		}
@@ -68,6 +77,9 @@ func TestBuildLayerGraph_FullViewIncludesPackagesAndEdges(t *testing.T) {
 	}
 	if violations != 0 {
 		t.Errorf("violation edges = %d, want 0 (none forbidden in fixture)", violations)
+	}
+	if allowedLabel != "allowed" {
+		t.Errorf("allowed edge label = %q, want allowed", allowedLabel)
 	}
 }
 
@@ -111,13 +123,46 @@ func TestBuildPackageOverviewGraph_IncludesTypesAndInternalDeps(t *testing.T) {
 		Path: "internal/foo",
 		Name: "foo",
 		Interfaces: []domain.InterfaceDef{
-			{Name: "Greeter", IsExported: true},
+			{
+				Name:       "Greeter",
+				IsExported: true,
+				Methods: []domain.MethodDef{
+					{
+						Name:       "Greet",
+						IsExported: true,
+						Params: []domain.ParamDef{
+							{Name: "name", Type: domain.TypeRef{Name: "string"}},
+						},
+						Returns: []domain.TypeRef{{Name: "string"}},
+					},
+				},
+			},
 		},
 		Structs: []domain.StructDef{
-			{Name: "Hello", IsExported: true},
+			{
+				Name:       "Hello",
+				IsExported: true,
+				Fields: []domain.FieldDef{
+					{Name: "Name", IsExported: true, Type: domain.TypeRef{Name: "string"}},
+				},
+				Methods: []domain.MethodDef{
+					{
+						Name:       "Say",
+						IsExported: true,
+						Returns:    []domain.TypeRef{{Name: "error"}},
+					},
+				},
+			},
 		},
 		Functions: []domain.FunctionDef{
-			{Name: "New", IsExported: true},
+			{
+				Name:       "New",
+				IsExported: true,
+				Params: []domain.ParamDef{
+					{Name: "name", Type: domain.TypeRef{Name: "string"}},
+				},
+				Returns: []domain.TypeRef{{Name: "Hello", IsPointer: true}},
+			},
 		},
 		Dependencies: []domain.Dependency{
 			{To: domain.SymbolRef{Package: "internal/bar", Symbol: "Bar"}},
@@ -161,6 +206,18 @@ func TestBuildPackageOverviewGraph_IncludesTypesAndInternalDeps(t *testing.T) {
 	if in == 0 {
 		t.Error("missing inbound edge bar -> foo")
 	}
+	for id, want := range map[string][]string{
+		"type:internal/foo.Greeter": {"Greeter", "interface", "methods:", "+ Greet(name: string): string"},
+		"type:internal/foo.Hello":   {"Hello", "struct", "fields:", "+ Name: string", "methods:", "+ Say(): error"},
+		"fn:internal/foo.New":       {"New", "constructor", "args:", "name: string", "returns:", "struct *Hello"},
+	} {
+		label := nodeLabel(g, id)
+		for _, part := range want {
+			if !strings.Contains(label, part) {
+				t.Errorf("node %s label = %q, missing %q", id, label, part)
+			}
+		}
+	}
 }
 
 // M9 (#61): Public mode hides unexported symbols, Full mode includes
@@ -171,15 +228,37 @@ func TestBuildPackageOverviewGraph_ModeFiltering(t *testing.T) {
 		Path: "internal/foo",
 		Name: "foo",
 		Interfaces: []domain.InterfaceDef{
-			{Name: "PublicAPI", IsExported: true},
+			{
+				Name:       "PublicAPI",
+				IsExported: true,
+				Methods: []domain.MethodDef{
+					{Name: "Serve", IsExported: true},
+					{Name: "debug", IsExported: false},
+				},
+			},
 			{Name: "internalIface", IsExported: false},
 		},
 		Structs: []domain.StructDef{
-			{Name: "Public", IsExported: true},
+			{
+				Name:       "Public",
+				IsExported: true,
+				Fields: []domain.FieldDef{
+					{Name: "Name", IsExported: true, Type: domain.TypeRef{Name: "string"}},
+					{Name: "secret", IsExported: false, Type: domain.TypeRef{Name: "string"}},
+				},
+			},
 			{Name: "private", IsExported: false},
 		},
 		Functions: []domain.FunctionDef{
-			{Name: "NewService", IsExported: true, Stereotype: domain.StereotypeFactory},
+			{
+				Name:       "NewService",
+				IsExported: true,
+				Params: []domain.ParamDef{
+					{Name: "cfg", Type: domain.TypeRef{Name: "Config"}},
+				},
+				Returns:    []domain.TypeRef{{Name: "Service", IsPointer: true}},
+				Stereotype: domain.StereotypeFactory,
+			},
 			{Name: "internalFn", IsExported: false},
 		},
 	}
@@ -220,6 +299,15 @@ func TestBuildPackageOverviewGraph_ModeFiltering(t *testing.T) {
 		if !found {
 			t.Errorf("expected NewService to render as kind=entry-point")
 		}
+		if label := nodeLabel(g, "type:internal/foo.PublicAPI"); !strings.Contains(label, "+ Serve()") || strings.Contains(label, "debug") {
+			t.Errorf("public interface label = %q, want exported methods only", label)
+		}
+		if label := nodeLabel(g, "type:internal/foo.Public"); !strings.Contains(label, "+ Name: string") || strings.Contains(label, "secret") {
+			t.Errorf("public struct label = %q, want exported fields only", label)
+		}
+		if label := nodeLabel(g, "fn:internal/foo.NewService"); !strings.Contains(label, "constructor") || !strings.Contains(label, "cfg: Config") || !strings.Contains(label, "returns:") || !strings.Contains(label, "*Service") {
+			t.Errorf("factory label = %q, want constructor params and return", label)
+		}
 	})
 
 	t.Run("full mode includes unexported", func(t *testing.T) {
@@ -238,6 +326,12 @@ func TestBuildPackageOverviewGraph_ModeFiltering(t *testing.T) {
 		}
 		if g.Meta.Mode != string(d2adapter.OverviewModeFull) {
 			t.Errorf("meta.mode = %q, want %q", g.Meta.Mode, d2adapter.OverviewModeFull)
+		}
+		if label := nodeLabel(g, "type:internal/foo.PublicAPI"); !strings.Contains(label, "- debug()") {
+			t.Errorf("full interface label = %q, want unexported methods", label)
+		}
+		if label := nodeLabel(g, "type:internal/foo.Public"); !strings.Contains(label, "- secret: string") {
+			t.Errorf("full struct label = %q, want unexported fields", label)
 		}
 	})
 }
@@ -631,6 +725,15 @@ func nodeIDs(g graphPayload) map[string]bool {
 		out[n.ID] = true
 	}
 	return out
+}
+
+func nodeLabel(g graphPayload, id string) string {
+	for _, n := range g.Nodes {
+		if n.ID == id {
+			return n.Label
+		}
+	}
+	return ""
 }
 
 // M9 (#61): per-package D2 source must respect mode and stay deterministic.

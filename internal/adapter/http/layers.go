@@ -85,14 +85,11 @@ func (s *Server) handleLayers(w nethttp.ResponseWriter, r *nethttp.Request) {
 }
 
 // buildLayerViews constructs one layerView per layer, with packages
-// assigned to that layer via overlay globs. The layer ordering is
-// lexical so reloads produce stable HTML.
+// assigned to that layer via overlay globs. Known architecture layer
+// names are ordered top-down; everything else falls back to lexical
+// order so reloads produce stable HTML.
 func buildLayerViews(cfg *overlay.Config, packages []domain.PackageModel) []layerView {
-	layerNames := make([]string, 0, len(cfg.Layers))
-	for name := range cfg.Layers {
-		layerNames = append(layerNames, name)
-	}
-	sort.Strings(layerNames)
+	layerNames := sortedLayerNames(cfg)
 
 	// Assign each package to the first layer whose glob it matches
 	// (same rule as overlay.Merge, kept local to avoid mutating the
@@ -260,11 +257,7 @@ func buildLayerMapD2(cfg *overlay.Config, packages []domain.PackageModel, detail
 		}
 	}
 
-	layerNames := make([]string, 0, len(cfg.Layers))
-	for name := range cfg.Layers {
-		layerNames = append(layerNames, name)
-	}
-	sort.Strings(layerNames)
+	layerNames := sortedLayerNames(cfg)
 
 	for _, name := range layerNames {
 		id := d2ID(name)
@@ -305,11 +298,7 @@ func buildLayerMapD2(cfg *overlay.Config, packages []domain.PackageModel, detail
 // are absent from the map.
 func computePackageLayers(cfg *overlay.Config, packages []domain.PackageModel) map[string]string {
 	out := make(map[string]string, len(packages))
-	layerNames := make([]string, 0, len(cfg.Layers))
-	for name := range cfg.Layers {
-		layerNames = append(layerNames, name)
-	}
-	sort.Strings(layerNames)
+	layerNames := sortedLayerNames(cfg)
 
 	for _, p := range packages {
 		rel := moduleRel(cfg.Module, p.Path)
