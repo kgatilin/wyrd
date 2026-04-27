@@ -10,6 +10,41 @@
 // The script is tolerant: when Cytoscape or a layout plugin is missing,
 // we fall back to a cose layout (cytoscape built-in) or display a short
 // hint so the page is never blank.
+//
+// ============================================================================
+// SHARED GRAPH STYLE — SINGLE SOURCE OF TRUTH (#90)
+// ============================================================================
+// All browser diagrams (type-detail, layer-map, layer-map-mini,
+// package-overview, bc-map, bc-map-mini, diff-overlay) share one
+// D2-like visual language defined by `defaultGraphDisplay()` below:
+//
+//   - palette       : neutral ink/border/panel colours and accents
+//   - semantic      : named colours for kind/edge meaning (green=allowed,
+//                     red=violation, etc.)
+//   - node.d2       : the shared base node style (white panel,
+//                     heavy ink border, wrapped left-justified label)
+//   - node.layer    : compound layer container style (top-centered title)
+//   - node.packageChip / kinds.packageContainer{,Soft} : compound
+//                     package container variants
+//   - edge.d2       : the shared base edge style (bezier arrow, ink
+//                     label on white background)
+//   - kinds         : per-kind border colour / shape adjustments (only
+//                     semantic differences, never a separate preset)
+//   - edges         : edge styles by kind (allowed / violation / ...)
+//   - relationships : BC-map relationship qualifiers (#81)
+//   - hover         : the single `.cy-hover` accent applied on mouseover
+//
+// To change the look of every browser graph, edit `defaultGraphDisplay()`.
+// To add semantic meaning for a new kind / edge type, add an entry to
+// `kinds` / `edges` / `relationships` and reference it from the relevant
+// view's `registerView(...)` call below.
+//
+// IMPORTANT: views must NOT introduce their own dark/fill node/edge
+// preset, override the shared base style with arbitrary colours, or
+// duplicate any style block. The HTTP adapter tests guard against
+// that — see `TestLayerGraphStyleUsesSharedD2LikePreset` and
+// `TestDashboardDomainGraphStyleUsesCytoscapeD2LikePreset`.
+// ============================================================================
 (function () {
     'use strict';
 
@@ -164,6 +199,22 @@
                     'text-justification': 'center',
                     'text-max-width': 180,
                     'width': 190,
+                    'height': 'label'
+                },
+                layerMini: {
+                    'background-color': 'palette.panel',
+                    'background-opacity': 1,
+                    'border-color': 'palette.border',
+                    'border-width': 3,
+                    'shape': 'round-rectangle',
+                    'text-valign': 'center',
+                    'text-halign': 'center',
+                    'padding': 10,
+                    'font-size': 11,
+                    'font-weight': 700,
+                    'color': 'palette.ink',
+                    'text-justification': 'center',
+                    'width': 'label',
                     'height': 'label'
                 }
             },
@@ -456,13 +507,15 @@
 
     // Dashboard mini layer-map: layers only, no children, no
     // interactions (click-through navigates to /layers via the parent
-    // <a>).
+    // <a>). Uses the shared `layerMini` node variant defined in
+    // graphDisplay.node so the dashboard mini map stays visually in
+    // line with the rest of the system (#90).
     registerView('layer-map-mini', function () {
         return {
             layout: layeredLayout('DOWN', 16),
             style: [
                 d2LikeNodeStyle(),
-                nodeStyle('d2', 'node[kind = "layer"]', { 'border-color': 'palette.border' }),
+                nodeStyle('layerMini', 'node[kind = "layer"]'),
                 d2LikeEdgeStyle('vertical'),
                 kindEdgeStyle('allowed'),
                 kindEdgeStyle('violation'),
