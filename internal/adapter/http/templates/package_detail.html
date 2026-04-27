@@ -94,17 +94,12 @@
          data-layout="dagre"
          data-mode="{{.Mode}}"
          data-height="420"></div>
-    <dl class="pkg-meta-list">
-        <dt>Path</dt><dd><code>{{.Pkg.Path}}</code></dd>
-        <dt>Name</dt><dd><code>{{.Pkg.Name}}</code></dd>
-        {{if .LayerBadge}}<dt>Layer</dt><dd>{{.LayerBadge}}</dd>{{end}}
-        {{if .Pkg.Aggregate}}<dt>Aggregate</dt><dd>{{.Pkg.Aggregate}}</dd>{{end}}
-        {{if .BCName}}<dt>Bounded Context</dt><dd><a href="/bc/{{.BCName}}">{{.BCName}}</a></dd>{{end}}
-        <dt>Files</dt>
-        <dd>
-            {{range .Pkg.SourceFiles}}<code>{{.}}</code> {{end}}
-        </dd>
-    </dl>
+    {{if .Pkg.SourceFiles}}
+    <p class="pkg-overview-files">
+        <span class="pkg-overview-files-label">Files:</span>
+        {{range .Pkg.SourceFiles}}<code>{{.}}</code> {{end}}
+    </p>
+    {{end}}
 </div>
 <script src="/assets/vendor/dagre.min.js" defer></script>
 <script src="/assets/vendor/cytoscape.min.js" defer></script>
