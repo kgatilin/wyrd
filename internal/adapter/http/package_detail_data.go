@@ -80,8 +80,8 @@ type packageTab struct {
 type pluginPanel struct {
 	TabID    string // e.g. "plugin:complexity"
 	Label    string
-	Element  string        // custom-element tag (validated)
-	ModelURL string        // data-model-url attribute value
+	Element  string // custom-element tag (validated)
+	ModelURL string // data-model-url attribute value
 	Active   bool
 	OpenTag  template.HTML // e.g. <plugin-x data-model-url="/api/plugins/x">
 	CloseTag template.HTML // e.g. </plugin-x>
@@ -243,6 +243,15 @@ type packageDetailData struct {
 	// Dependencies
 	Outbound []outboundDep
 	Inbound  []inboundDep
+	// DepsMode selects which directional edges the dependency graph
+	// renders ("inbound" / "outbound" / "both"). Default is "both" so a
+	// fresh visit shows the full picture.
+	DepsMode string
+	// Externals lists third-party / stdlib outbound dependencies that
+	// are intentionally excluded from the dependency graph (#89). Each
+	// entry carries the import path; they're surfaced as a compact list
+	// next to the diagram so the user still sees the full picture.
+	Externals []outboundDep
 
 	// Configs
 	ConfigTypes []configTypeView
@@ -294,7 +303,19 @@ func buildPackageDetail(
 		data.Variables = unexportedVariables(pkg.Variables)
 		data.Errors = unexportedErrors(pkg.Errors)
 	case tabDependencies:
-		data.Outbound = buildOutbound(pkg, allPkgs)
+		all := buildOutbound(pkg, allPkgs)
+		// Split internals (rendered in graph) from externals (compact
+		// list under the diagram per #89).
+		var internals, externals []outboundDep
+		for _, d := range all {
+			if d.External {
+				externals = append(externals, d)
+			} else {
+				internals = append(internals, d)
+			}
+		}
+		data.Outbound = internals
+		data.Externals = externals
 		data.Inbound = buildInbound(pkg, allPkgs)
 	case tabConfigs:
 		data.ConfigTypes = buildConfigTypes(pkg, cfg, modulePath)

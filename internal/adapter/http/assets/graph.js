@@ -550,6 +550,25 @@
         };
     });
 
+    // Package dependency graph (#89): subject package at centre, project
+    // packages it depends on (outbound) and packages that depend on it
+    // (inbound) shown around it. Externals are surfaced outside the graph.
+    registerView('package-deps', function () {
+        return {
+            layout: extendStyle({ name: pickLayout('dagre'), rankDir: 'LR', padding: 10 }, graphDisplay.layout.dagre),
+            style: [
+                d2LikeNodeStyle(),
+                styleRule('node[root]', graphDisplay.kinds.root),
+                kindNodeStyle('package', 'packageContainer'),
+                kindNodeStyle('package-in', 'packageIn'),
+                kindNodeStyle('package-out', 'packageOut'),
+                d2LikeEdgeStyle(),
+                kindEdgeStyle('inbound'),
+                kindEdgeStyle('outbound')
+            ]
+        };
+    });
+
     // Bounded-context map (#81). Each node is one BC; the relationship
     // qualifier (shared-kernel / customer-supplier / conformist / acl /
     // open-host) is exposed as data on the edge so it can be styled

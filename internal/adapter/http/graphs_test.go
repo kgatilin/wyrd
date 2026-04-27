@@ -792,3 +792,249 @@ func TestD2SourceForPackage_ModeAndDeterminism(t *testing.T) {
 		t.Error("full-mode d2 output is non-deterministic across calls")
 	}
 }
+
+// --- #89 dedicated package dependency graph -----------------------------
+
+// depsFixture builds a small project where:
+//
+//	internal/foo  -> internal/bar (project)
+//	internal/foo  -> internal/bar (duplicate, must dedup)
+//	internal/foo  -> github.com/lib/pq (external)
+//	internal/baz  -> internal/foo (inbound)
+//	internal/qux  -> internal/foo (inbound)
+//
+// allowing each mode to be exercised against a known set of edges.
+func depsFixture() (foo domain.PackageModel, all []domain.PackageModel) {
+	foo = domain.PackageModel{
+		Path: "internal/foo",
+		Name: "foo",
+		Dependencies: []domain.Dependency{
+			{To: domain.SymbolRef{Package: "internal/bar", Symbol: "Thing"}},
+			{To: domain.SymbolRef{Package: "internal/bar", Symbol: "Other"}},
+			{To: domain.SymbolRef{Package: "github.com/lib/pq", Symbol: "Open", External: true}},
+		},
+	}
+	bar := domain.PackageModel{Path: "internal/bar"}
+	baz := domain.PackageModel{
+		Path: "internal/baz",
+		Dependencies: []domain.Dependency{
+			{To: domain.SymbolRef{Package: "internal/foo", Symbol: "New"}},
+			{To: domain.SymbolRef{Package: "internal/foo", Symbol: "Hello"}},
+		},
+	}
+	qux := domain.PackageModel{
+		Path: "internal/qux",
+		Dependencies: []domain.Dependency{
+			{To: domain.SymbolRef{Package: "internal/foo", Symbol: "Hello"}},
+		},
+	}
+	return foo, []domain.PackageModel{foo, bar, baz, qux}
+}
+
+func TestBuildPackageDepsGraph_BothModeIncludesInboundOutbound(t *testing.T) {
+	foo, all := depsFixture()
+	g := buildPackageDepsGraph(foo, all, depsModeBoth)
+
+	if g.Meta.View != "package-deps" {
+		t.Errorf("view = %q, want package-deps", g.Meta.View)
+	}
+	if g.Meta.Mode != depsModeBoth {
+		t.Errorf("mode = %q, want both", g.Meta.Mode)
+	}
+
+	ids := nodeIDs(g)
+	for _, want := range []string{
+		"pkg:internal/foo", // root, preserves pkg: prefix for onTap
+		"pkg:internal/bar", // outbound peer
+		"pkg:internal/baz", // inbound peer
+		"pkg:internal/qux", // inbound peer
+	} {
+		if !ids[want] {
+			t.Errorf("missing node %q in %v", want, ids)
+		}
+	}
+	// Externals must NOT appear as nodes.
+	for id := range ids {
+		if strings.Contains(id, "github.com/lib/pq") {
+			t.Errorf("external dep leaked into graph: %q", id)
+		}
+	}
+
+	// Edges: 1 outbound (foo->bar), 2 inbound (baz->foo, qux->foo) — and
+	// the duplicate foo->bar dependency must dedup to a single edge.
+	var out, in int
+	var fooBarEdges int
+	for _, e := range g.Edges {
+		switch e.Kind {
+		case "outbound":
+			out++
+			if e.Source == "pkg:internal/foo" && e.Target == "pkg:internal/bar" {
+				fooBarEdges++
+			}
+		case "inbound":
+			in++
+		}
+	}
+	if out != 1 {
+		t.Errorf("outbound edges = %d, want 1", out)
+	}
+	if fooBarEdges != 1 {
+		t.Errorf("duplicate foo->bar deps must dedup: got %d edges", fooBarEdges)
+	}
+	if in != 2 {
+		t.Errorf("inbound edges = %d, want 2", in)
+	}
+}
+
+func TestBuildPackageDepsGraph_OutboundModeOmitsInbound(t *testing.T) {
+	foo, all := depsFixture()
+	g := buildPackageDepsGraph(foo, all, depsModeOutbound)
+
+	if g.Meta.Mode != depsModeOutbound {
+		t.Errorf("mode = %q", g.Meta.Mode)
+	}
+	for _, e := range g.Edges {
+		if e.Kind == "inbound" {
+			t.Errorf("outbound mode leaked inbound edge: %+v", e)
+		}
+	}
+	ids := nodeIDs(g)
+	for _, banned := range []string{"pkg:internal/baz", "pkg:internal/qux"} {
+		if ids[banned] {
+			t.Errorf("outbound mode included inbound peer node %q", banned)
+		}
+	}
+	if !ids["pkg:internal/bar"] {
+		t.Error("outbound mode missing outbound peer pkg:internal/bar")
+	}
+}
+
+func TestBuildPackageDepsGraph_InboundModeOmitsOutbound(t *testing.T) {
+	foo, all := depsFixture()
+	g := buildPackageDepsGraph(foo, all, depsModeInbound)
+
+	if g.Meta.Mode != depsModeInbound {
+		t.Errorf("mode = %q", g.Meta.Mode)
+	}
+	for _, e := range g.Edges {
+		if e.Kind == "outbound" {
+			t.Errorf("inbound mode leaked outbound edge: %+v", e)
+		}
+	}
+	ids := nodeIDs(g)
+	if ids["pkg:internal/bar"] {
+		t.Error("inbound mode must not include outbound peer pkg:internal/bar")
+	}
+	for _, want := range []string{"pkg:internal/baz", "pkg:internal/qux"} {
+		if !ids[want] {
+			t.Errorf("inbound mode missing peer %q", want)
+		}
+	}
+}
+
+func TestBuildPackageDepsGraph_DefaultsToBothOnUnknownMode(t *testing.T) {
+	foo, all := depsFixture()
+	g := buildPackageDepsGraph(foo, all, "garbage")
+	if g.Meta.Mode != depsModeBoth {
+		t.Errorf("unknown mode should default to both, got %q", g.Meta.Mode)
+	}
+}
+
+func TestBuildPackageDepsGraph_RootMarkedAndIDPreserved(t *testing.T) {
+	foo, all := depsFixture()
+	g := buildPackageDepsGraph(foo, all, depsModeBoth)
+	var rootCount int
+	for _, n := range g.Nodes {
+		if n.Root {
+			rootCount++
+			if n.ID != "pkg:internal/foo" {
+				t.Errorf("root id = %q, want pkg:internal/foo (preserves prefix for onTap)", n.ID)
+			}
+		}
+	}
+	if rootCount != 1 {
+		t.Errorf("rootCount = %d, want 1", rootCount)
+	}
+}
+
+func TestBuildPackageDepsGraph_Deterministic(t *testing.T) {
+	foo, all := depsFixture()
+	a := buildPackageDepsGraph(foo, all, depsModeBoth)
+	b := buildPackageDepsGraph(foo, all, depsModeBoth)
+	ja, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jb, err := json.Marshal(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(ja) != string(jb) {
+		t.Errorf("non-deterministic output:\nA=%s\nB=%s", ja, jb)
+	}
+}
+
+func TestBuildPackageDepsGraph_IgnoresUnknownInternalTargets(t *testing.T) {
+	// A dep pointing at a project-shaped path that isn't in the
+	// snapshot must be skipped rather than rendered as a phantom node.
+	foo := domain.PackageModel{
+		Path: "internal/foo",
+		Dependencies: []domain.Dependency{
+			{To: domain.SymbolRef{Package: "internal/ghost", Symbol: "X"}},
+		},
+	}
+	g := buildPackageDepsGraph(foo, []domain.PackageModel{foo}, depsModeBoth)
+	for _, n := range g.Nodes {
+		if n.ID == "pkg:internal/ghost" {
+			t.Errorf("phantom node for unknown internal dep: %+v", n)
+		}
+	}
+	if len(g.Edges) != 0 {
+		t.Errorf("expected no edges for unknown target, got %+v", g.Edges)
+	}
+}
+
+func TestExternalDepCount_DedupesAndIgnoresInternal(t *testing.T) {
+	pkg := domain.PackageModel{
+		Dependencies: []domain.Dependency{
+			{To: domain.SymbolRef{Package: "github.com/lib/pq", Symbol: "Open", External: true}},
+			{To: domain.SymbolRef{Package: "github.com/lib/pq", Symbol: "Close", External: true}},
+			{To: domain.SymbolRef{Package: "encoding/json", Symbol: "Marshal", External: true}},
+			{To: domain.SymbolRef{Package: "internal/bar", Symbol: "X"}},
+		},
+	}
+	if got := externalDepCount(pkg); got != 2 {
+		t.Errorf("externalDepCount = %d, want 2", got)
+	}
+}
+
+func TestPackageDepsGraphHandler_ServesJSON(t *testing.T) {
+	fx := newPackagesTestServer(t)
+	// In the fixture, internal/bar imports internal/foo; querying foo
+	// (the dependency target) should surface bar as an inbound peer.
+	resp, err := fx.ts.Client().Get(fx.ts.URL + "/api/packages/internal/foo/deps/graph?mode=both")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body=%s", resp.StatusCode, body)
+	}
+	var g graphPayload
+	if err := json.NewDecoder(resp.Body).Decode(&g); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if g.Meta.View != "package-deps" {
+		t.Errorf("view = %q", g.Meta.View)
+	}
+	var sawInbound bool
+	for _, e := range g.Edges {
+		if e.Kind == "inbound" && e.Source == "pkg:internal/bar" && e.Target == "pkg:internal/foo" {
+			sawInbound = true
+		}
+	}
+	if !sawInbound {
+		t.Errorf("expected inbound bar->foo edge, got %+v", g.Edges)
+	}
+}

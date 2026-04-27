@@ -202,8 +202,59 @@
 
 {{define "tab-dependencies"}}
 <div class="tab-dependencies">
-    <section>
-        <h2>Outbound</h2>
+    <div class="cy-toolbar" role="toolbar" aria-label="Dependency graph controls">
+        <div class="cy-mode-toggle" role="group" aria-label="Dependency direction">
+            <a href="/packages/{{.Pkg.Path}}?tab=dependencies&deps=both"
+               hx-get="/packages/{{.Pkg.Path}}?tab=dependencies&deps=both"
+               hx-target="#pkg-tab-content"
+               hx-swap="outerHTML"
+               hx-push-url="true"
+               class="cy-btn cy-btn-mode{{if eq .DepsMode "both"}} is-active{{end}}"
+               aria-pressed="{{if eq .DepsMode "both"}}true{{else}}false{{end}}">Both</a>
+            <a href="/packages/{{.Pkg.Path}}?tab=dependencies&deps=inbound"
+               hx-get="/packages/{{.Pkg.Path}}?tab=dependencies&deps=inbound"
+               hx-target="#pkg-tab-content"
+               hx-swap="outerHTML"
+               hx-push-url="true"
+               class="cy-btn cy-btn-mode{{if eq .DepsMode "inbound"}} is-active{{end}}"
+               aria-pressed="{{if eq .DepsMode "inbound"}}true{{else}}false{{end}}">Inbound</a>
+            <a href="/packages/{{.Pkg.Path}}?tab=dependencies&deps=outbound"
+               hx-get="/packages/{{.Pkg.Path}}?tab=dependencies&deps=outbound"
+               hx-target="#pkg-tab-content"
+               hx-swap="outerHTML"
+               hx-push-url="true"
+               class="cy-btn cy-btn-mode{{if eq .DepsMode "outbound"}} is-active{{end}}"
+               aria-pressed="{{if eq .DepsMode "outbound"}}true{{else}}false{{end}}">Outbound</a>
+        </div>
+        <span class="cy-toolbar-spacer"></span>
+        <button type="button" class="cy-btn" data-cy-action="fit">Fit</button>
+        <button type="button" class="cy-btn" data-cy-action="zoom-in" aria-label="Zoom in">+</button>
+        <button type="button" class="cy-btn" data-cy-action="zoom-out" aria-label="Zoom out">-</button>
+    </div>
+    <div class="cy-graph package-deps"
+         data-api="/api/packages/{{.Pkg.Path}}/deps/graph?mode={{.DepsMode}}"
+         data-api-base="/api/packages/{{.Pkg.Path}}/deps/graph"
+         data-view="package-deps"
+         data-layout="dagre"
+         data-mode="{{.DepsMode}}"
+         data-height="420"></div>
+
+    {{if .Externals}}
+        <section class="dep-externals">
+            <h2>External dependencies <span class="dep-count">({{len .Externals}})</span></h2>
+            <ul class="dep-list compact">
+                {{range .Externals}}
+                    <li>
+                        <code class="dep-pkg">{{.TargetPkg}}</code>
+                        <span class="badge badge-ext">external</span>
+                    </li>
+                {{end}}
+            </ul>
+        </section>
+    {{end}}
+
+    <section class="dep-symbols">
+        <h2>Outbound symbols</h2>
         {{if .Outbound}}
             <ul class="dep-list">
                 {{range .Outbound}}
@@ -212,7 +263,6 @@
                             <a class="dep-pkg" href="/packages/{{.InternalPath}}"><code>{{.TargetPkg}}</code></a>
                         {{else}}
                             <code class="dep-pkg">{{.TargetPkg}}</code>
-                            {{if .External}}<span class="badge badge-ext">external</span>{{end}}
                         {{end}}
                         <ul class="dep-syms">
                             {{range .Symbols}}<li><code>{{.}}</code></li>{{end}}
@@ -221,12 +271,12 @@
                 {{end}}
             </ul>
         {{else}}
-            <p class="empty">No outbound dependencies.</p>
+            <p class="empty">No internal outbound dependencies.</p>
         {{end}}
     </section>
 
-    <section>
-        <h2>Inbound</h2>
+    <section class="dep-symbols">
+        <h2>Inbound symbols</h2>
         {{if .Inbound}}
             <ul class="dep-list">
                 {{range .Inbound}}
@@ -243,6 +293,10 @@
         {{end}}
     </section>
 </div>
+<script src="/assets/vendor/dagre.min.js" defer></script>
+<script src="/assets/vendor/cytoscape.min.js" defer></script>
+<script src="/assets/vendor/cytoscape-dagre.js" defer></script>
+<script src="/assets/graph.js" defer></script>
 {{end}}
 
 {{define "tab-configs"}}

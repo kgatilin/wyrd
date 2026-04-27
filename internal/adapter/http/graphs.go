@@ -42,18 +42,29 @@ func (s *Server) handleLayersGraphMiniJSON(w nethttp.ResponseWriter, r *nethttp.
 	writeJSON(w, buildLayerGraph(snap.Overlay, snap.Packages, true))
 }
 
-// handlePackageGraphJSON serves /api/packages/<path>/graph. The path
-// may contain slashes; the trailing "/graph" segment is mandatory so
-// this handler never collides with a list/detail endpoint later.
+// handlePackageGraphJSON serves /api/packages/<path>/graph and the
+// dedicated dependency-only variant /api/packages/<path>/deps/graph
+// (#89). The path may contain slashes; the trailing "/graph" or
+// "/deps/graph" segment is mandatory so this handler never collides
+// with a list/detail endpoint later.
 func (s *Server) handlePackageGraphJSON(w nethttp.ResponseWriter, r *nethttp.Request) {
 	const prefix = "/api/packages/"
 	rest := strings.TrimPrefix(r.URL.Path, prefix)
-	if !strings.HasSuffix(rest, "/graph") {
+
+	// Detect the deps variant first since "/deps/graph" also ends in
+	// "/graph"; ordering matters.
+	depsView := false
+	switch {
+	case strings.HasSuffix(rest, "/deps/graph"):
+		depsView = true
+		rest = strings.TrimSuffix(rest, "/deps/graph")
+	case strings.HasSuffix(rest, "/graph"):
+		rest = strings.TrimSuffix(rest, "/graph")
+	default:
 		nethttp.NotFound(w, r)
 		return
 	}
-	pkgPath := strings.TrimSuffix(rest, "/graph")
-	pkgPath = strings.Trim(pkgPath, "/")
+	pkgPath := strings.Trim(rest, "/")
 	if pkgPath == "" {
 		nethttp.NotFound(w, r)
 		return
@@ -63,6 +74,10 @@ func (s *Server) handlePackageGraphJSON(w nethttp.ResponseWriter, r *nethttp.Req
 	pkg, ok := findPackage(pkgs, pkgPath)
 	if !ok {
 		nethttp.NotFound(w, r)
+		return
+	}
+	if depsView {
+		writeJSON(w, buildPackageDepsGraph(pkg, pkgs, r.URL.Query().Get("mode")))
 		return
 	}
 	mode := d2adapter.ParseOverviewMode(r.URL.Query().Get("mode"))
