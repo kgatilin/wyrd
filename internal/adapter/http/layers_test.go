@@ -309,6 +309,8 @@ func TestHandleLayers_WithOverlay(t *testing.T) {
 		`href="/view/layers/d2"`,
 		`href="/view/layers/svg"`,
 		`data-cy-action="fit"`,
+		`data-cy-action="fullscreen"`,
+		`class="cy-graph-widget"`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("/layers body missing %q", want)
@@ -341,6 +343,8 @@ func TestLayerGraphStyleUsesSharedD2LikePreset(t *testing.T) {
 		"function normalizeLayoutMode(mode)",
 		"function setLayoutMode(el, view, mode)",
 		"function layerMapLayout(mode)",
+		"function toggleGraphFullscreen(el, cy)",
+		"function setSequenceZoomAt(frame, svg, widthPx, clientX, clientY)",
 		"registerView('type-detail'",
 		"registerView('layer-map'",
 		"registerView('package-overview'",
@@ -349,6 +353,10 @@ func TestLayerGraphStyleUsesSharedD2LikePreset(t *testing.T) {
 		"layout: layerMapLayout(mode)",
 		"d2LikeEdgeStyle(layerMapEdgeAxis(mode))",
 		"case 'set-layout-mode':",
+		"case 'fullscreen':",
+		"document.addEventListener('fullscreenchange', syncFullscreenGraphs)",
+		"frame.__archaiSequenceWheelZoom",
+		"if (!ev.ctrlKey && !ev.metaKey) { return; }",
 		`nodeStyle('packageChip', 'node[kind = "package"]')`,
 		"kindEdgeStyle('allowed')",
 		"'text-wrap': 'wrap'",
@@ -394,6 +402,8 @@ func TestGraphToolbarButtonsUseReadableControls(t *testing.T) {
 		"justify-content: center;",
 		".cy-select {",
 		"background: var(--bg);",
+		".cy-graph-fullscreen-target:fullscreen",
+		".sequence-widget.cy-graph-fullscreen-target:fullscreen",
 	} {
 		if !strings.Contains(css, want) {
 			t.Errorf("styles.css missing readable graph toolbar marker %q", want)

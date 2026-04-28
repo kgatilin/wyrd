@@ -11,10 +11,12 @@
 
 <section class="card">
     <h2>Layer map</h2>
+    <div class="cy-graph-widget">
     <div class="cy-toolbar" role="toolbar" aria-label="Diagram controls">
         <button type="button" class="cy-btn" data-cy-action="fit">Fit</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-in" aria-label="Zoom in">+</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-out" aria-label="Zoom out">-</button>
+        <button type="button" class="cy-btn" data-cy-action="fullscreen">Full</button>
         <label class="cy-select-label">
             Layout
             <select class="cy-select" data-cy-action="set-layout-mode" aria-label="Layout mode">
@@ -36,6 +38,7 @@
          data-layout-key="layers"
          data-layout-mode="auto"
          data-height="640"></div>
+    </div>
     <p class="legend">
         <span class="pill pill-green">allowed</span>
         <span class="pill pill-red">violation</span>

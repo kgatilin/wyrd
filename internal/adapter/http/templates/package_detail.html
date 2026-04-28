@@ -67,6 +67,7 @@
 
 {{define "tab-overview"}}
 <div class="tab-overview">
+    <div class="cy-graph-widget">
     <div class="cy-toolbar" role="toolbar" aria-label="Diagram controls">
         <div class="cy-mode-toggle" role="group" aria-label="Diagram scope">
             <a href="/packages/{{.Pkg.Path}}?tab=overview{{if eq .Mode "full"}}&amp;mode=full{{end}}"
@@ -98,6 +99,7 @@
         <button type="button" class="cy-btn" data-cy-action="fit">Fit</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-in" aria-label="Zoom in">+</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-out" aria-label="Zoom out">-</button>
+        <button type="button" class="cy-btn" data-cy-action="fullscreen">Full</button>
         {{if ne .OverviewScope "deps"}}
         <span class="cy-toolbar-spacer"></span>
         <a class="cy-btn cy-export-d2" href="/view/packages/{{.Pkg.Path}}/d2{{if eq .Mode "full"}}?mode=full{{end}}" download>Export D2</a>
@@ -126,6 +128,7 @@
          data-mode="{{.Mode}}"
          data-height="420"></div>
     {{end}}
+    </div>
     <dl class="pkg-meta-list">
         <dt>Path</dt><dd><code>{{.Pkg.Path}}</code></dd>
         <dt>Name</dt><dd><code>{{.Pkg.Name}}</code></dd>
@@ -142,11 +145,13 @@
         <h2>Sequence diagrams from entry points</h2>
         <p class="muted">Static call sequences rooted at {{if eq .Mode "full"}}functions and methods{{else}}exported functions and methods{{end}} with recorded call edges.</p>
         {{range $i, $seq := .Sequences}}
+        <div class="sequence-widget">
             <h3>{{$seq.Label}}</h3>
             <div class="sequence-toolbar" role="toolbar" aria-label="Sequence diagram controls">
                 <button type="button" class="cy-btn" data-sequence-action="fit">Fit</button>
                 <button type="button" class="cy-btn" data-sequence-action="zoom-in" aria-label="Zoom in">+</button>
                 <button type="button" class="cy-btn" data-sequence-action="zoom-out" aria-label="Zoom out">-</button>
+                <button type="button" class="cy-btn" data-sequence-action="fullscreen">Full</button>
             </div>
             {{if $seq.SVG}}
                 <div class="d2-frame sequence-frame">{{$seq.SVG}}</div>
@@ -155,6 +160,7 @@
             {{else}}
                 <p class="muted">No renderable call sequence recorded for this entry point.</p>
             {{end}}
+        </div>
         {{end}}
     </section>
     {{end}}
@@ -260,6 +266,7 @@
 
 {{define "tab-dependencies"}}
 <div class="tab-dependencies">
+    <div class="cy-graph-widget">
     <div class="cy-toolbar" role="toolbar" aria-label="Dependency graph controls">
         <div class="cy-mode-toggle" role="group" aria-label="Dependency direction">
             <a href="/packages/{{.Pkg.Path}}?tab=dependencies&deps=both"
@@ -288,6 +295,7 @@
         <button type="button" class="cy-btn" data-cy-action="fit">Fit</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-in" aria-label="Zoom in">+</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-out" aria-label="Zoom out">-</button>
+        <button type="button" class="cy-btn" data-cy-action="fullscreen">Full</button>
     </div>
     <div class="cy-graph package-deps"
          data-api="/api/packages/{{.Pkg.Path}}/deps/graph?mode={{.DepsMode}}"
@@ -296,6 +304,7 @@
          data-layout="dagre"
          data-mode="{{.DepsMode}}"
          data-height="420"></div>
+    </div>
 
     {{if .Externals}}
         <section class="dep-externals">

@@ -744,6 +744,98 @@
         delete el.dataset.cyZoomOverlay;
     }
 
+    function fullscreenElement() {
+        return document.fullscreenElement ||
+            document.webkitFullscreenElement ||
+            document.mozFullScreenElement ||
+            document.msFullscreenElement ||
+            null;
+    }
+
+    function requestFullscreen(el) {
+        if (el.requestFullscreen) { return el.requestFullscreen(); }
+        if (el.webkitRequestFullscreen) { return el.webkitRequestFullscreen(); }
+        if (el.mozRequestFullScreen) { return el.mozRequestFullScreen(); }
+        if (el.msRequestFullscreen) { return el.msRequestFullscreen(); }
+        return null;
+    }
+
+    function exitFullscreen() {
+        if (document.exitFullscreen) { return document.exitFullscreen(); }
+        if (document.webkitExitFullscreen) { return document.webkitExitFullscreen(); }
+        if (document.mozCancelFullScreen) { return document.mozCancelFullScreen(); }
+        if (document.msExitFullscreen) { return document.msExitFullscreen(); }
+        return null;
+    }
+
+    function graphFullscreenTarget(el) {
+        return (el.closest && el.closest('.cy-graph-widget')) || el.parentElement || el;
+    }
+
+    function sequenceFullscreenTarget(frame, toolbar) {
+        if (frame && frame.closest) {
+            return frame.closest('.sequence-widget') || frame;
+        }
+        return toolbar || frame;
+    }
+
+    function resizeGraphSoon(cy, el) {
+        window.setTimeout(function () {
+            if (cy) {
+                cy.resize();
+                cy.fit(null, 20);
+            } else if (el && el.__archaiCy) {
+                el.__archaiCy.resize();
+                el.__archaiCy.fit(null, 20);
+            }
+        }, 80);
+    }
+
+    function toggleFullscreen(target, onDone) {
+        if (!target) { return; }
+        target.classList.add('cy-graph-fullscreen-target');
+        if (fullscreenElement() === target) {
+            exitFullscreen();
+            return;
+        }
+        var result = requestFullscreen(target);
+        if (result && typeof result.then === 'function') {
+            result.then(function () {
+                if (onDone) { onDone(); }
+            }).catch(function () {});
+            return;
+        }
+        if (onDone) { onDone(); }
+    }
+
+    function toggleGraphFullscreen(el, cy) {
+        toggleFullscreen(graphFullscreenTarget(el), function () {
+            resizeGraphSoon(cy, el);
+        });
+    }
+
+    function syncFullscreenGraphs() {
+        var active = fullscreenElement();
+        var targets = document.querySelectorAll ? document.querySelectorAll('.cy-graph-fullscreen-target.is-fullscreen') : [];
+        for (var i = 0; i < targets.length; i++) {
+            targets[i].classList.remove('is-fullscreen');
+        }
+        if (active && active.classList) {
+            active.classList.add('is-fullscreen');
+        }
+        var graphs = document.querySelectorAll ? document.querySelectorAll('.cy-graph') : [];
+        for (var j = 0; j < graphs.length; j++) {
+            if (graphs[j].__archaiCy) {
+                resizeGraphSoon(graphs[j].__archaiCy, graphs[j]);
+            }
+        }
+    }
+
+    document.addEventListener('fullscreenchange', syncFullscreenGraphs);
+    document.addEventListener('webkitfullscreenchange', syncFullscreenGraphs);
+    document.addEventListener('mozfullscreenchange', syncFullscreenGraphs);
+    document.addEventListener('MSFullscreenChange', syncFullscreenGraphs);
+
     function attachToolbar(el, cy, view, rerender) {
         // The toolbar is the previous sibling of el when present.
         var toolbar = el.previousElementSibling;
@@ -775,6 +867,9 @@
                             break;
                         case 'zoom-out':
                             cy.zoom({ level: cy.zoom() / 1.25, renderedPosition: { x: el.clientWidth / 2, y: el.clientHeight / 2 } });
+                            break;
+                        case 'fullscreen':
+                            toggleGraphFullscreen(el, cy);
                             break;
                         case 'set-layout-mode':
                             var mode = setLayoutMode(el, view, btn.value || btn.getAttribute('data-layout-mode'));
@@ -859,6 +954,7 @@
             cy.zoom({ level: cy.zoom() / 1.25, renderedPosition: { x: el.clientWidth / 2, y: el.clientHeight / 2 } });
         }));
         overlay.appendChild(mkBtn('\u25A1', 'Fit', function () { cy.fit(null, 20); }));
+        overlay.appendChild(mkBtn('[]', 'Fullscreen', function () { toggleGraphFullscreen(el, cy); }));
         parent.appendChild(overlay);
     }
 
@@ -980,6 +1076,19 @@
         svg.style.maxHeight = 'none';
     }
 
+    function setSequenceZoomAt(frame, svg, widthPx, clientX, clientY) {
+        var frameRect = frame.getBoundingClientRect();
+        var anchorX = typeof clientX === 'number' ? clientX - frameRect.left : frame.clientWidth / 2;
+        var anchorY = typeof clientY === 'number' ? clientY - frameRect.top : frame.clientHeight / 2;
+        var beforeW = Math.max(frame.scrollWidth, 1);
+        var beforeH = Math.max(frame.scrollHeight, 1);
+        var ratioX = Math.max(0, Math.min(1, (frame.scrollLeft + anchorX) / beforeW));
+        var ratioY = Math.max(0, Math.min(1, (frame.scrollTop + anchorY) / beforeH));
+        setSequenceZoom(frame, svg, widthPx);
+        frame.scrollLeft = Math.max(0, ratioX * frame.scrollWidth - anchorX);
+        frame.scrollTop = Math.max(0, ratioY * frame.scrollHeight - anchorY);
+    }
+
     function fitSequence(frame, svg) {
         frame.classList.remove('is-zoomed');
         svg.style.width = '';
@@ -1008,10 +1117,31 @@
                         fitSequence(frame, svg);
                         return;
                     }
+                    if (action === 'fullscreen') {
+                        toggleFullscreen(sequenceFullscreenTarget(frame, toolbar));
+                        return;
+                    }
                     var width = sequenceCurrentWidth(svg);
-                    setSequenceZoom(frame, svg, action === 'zoom-out' ? width / 1.25 : width * 1.25);
+                    setSequenceZoomAt(frame, svg, action === 'zoom-out' ? width / 1.25 : width * 1.25);
                 });
             })(toolbars[i]);
+        }
+        var frames = scope.querySelectorAll ? scope.querySelectorAll('.sequence-frame') : [];
+        for (var j = 0; j < frames.length; j++) {
+            (function (frame) {
+                if (frame.__archaiSequenceWheelZoom) { return; }
+                frame.__archaiSequenceWheelZoom = true;
+                frame.addEventListener('wheel', function (ev) {
+                    if (!ev.ctrlKey && !ev.metaKey) { return; }
+                    var svg = frame.querySelector ? frame.querySelector('svg') : null;
+                    if (!svg) { return; }
+                    ev.preventDefault();
+                    var width = sequenceCurrentWidth(svg);
+                    var factor = Math.exp(-ev.deltaY * 0.002);
+                    factor = Math.max(0.75, Math.min(1.35, factor));
+                    setSequenceZoomAt(frame, svg, width * factor, ev.clientX, ev.clientY);
+                }, { passive: false });
+            })(frames[j]);
         }
     }
 

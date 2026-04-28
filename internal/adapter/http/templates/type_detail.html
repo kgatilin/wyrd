@@ -103,12 +103,14 @@
 <section class="card">
     <h2>Sequences from public methods</h2>
     {{range $i, $seq := .Sequences}}
+    <div class="sequence-widget">
         <h3>{{$seq.Label}}</h3>
         {{if $seq.HasM6}}
             <div class="sequence-toolbar" role="toolbar" aria-label="Sequence diagram controls">
                 <button type="button" class="cy-btn" data-sequence-action="fit">Fit</button>
                 <button type="button" class="cy-btn" data-sequence-action="zoom-in" aria-label="Zoom in">+</button>
                 <button type="button" class="cy-btn" data-sequence-action="zoom-out" aria-label="Zoom out">-</button>
+                <button type="button" class="cy-btn" data-sequence-action="fullscreen">Full</button>
             </div>
             {{if $seq.SVG}}
                 <div class="d2-frame sequence-frame">{{$seq.SVG}}</div>
@@ -120,6 +122,7 @@
         {{else}}
             <p class="muted">No static call edges recorded for this method (M6 may not have been run, or the method body has no inter-package calls).</p>
         {{end}}
+    </div>
     {{end}}
 </section>
 {{end}}

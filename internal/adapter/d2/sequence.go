@@ -25,6 +25,10 @@ type SequenceDiagram struct {
 	HasCalls bool
 }
 
+type sequenceSymbolInfo struct {
+	Exported bool
+}
+
 func normalizeSequenceOptions(opts SequenceOptions) SequenceOptions {
 	opts.Mode = opts.Mode.Normalize()
 	if opts.MaxDepth <= 0 {
@@ -64,6 +68,7 @@ func BuildTypeSequenceSources(models []domain.PackageModel, pkgPath, typeName st
 	if maxDepth <= 0 {
 		maxDepth = 4
 	}
+	symbols := buildSequenceSymbolIndex(models)
 	out := make([]SequenceDiagram, 0, len(methods))
 	for _, m := range methods {
 		if !m.IsExported {
@@ -71,12 +76,16 @@ func BuildTypeSequenceSources(models []domain.PackageModel, pkgPath, typeName st
 		}
 		start := domain.SymbolRef{Package: pkgPath, Symbol: typeName + "." + m.Name}
 		tree := sequence.Build(models, start, maxDepth)
+		tree = buildInteractionTree(tree, symbols, false)
+		if tree == nil {
+			continue
+		}
 		out = append(out, SequenceDiagram{
 			Label:    typeName + "." + m.Name,
 			Start:    start,
 			Tree:     tree,
 			Source:   BuildSequenceSource(tree),
-			HasCalls: len(m.Calls) > 0,
+			HasCalls: len(tree.Children) > 0,
 		})
 	}
 	return out
@@ -87,6 +96,7 @@ func BuildTypeSequenceSources(models []domain.PackageModel, pkgPath, typeName st
 func BuildPackageSequenceSources(models []domain.PackageModel, pkg domain.PackageModel, opts SequenceOptions) []SequenceDiagram {
 	opts = normalizeSequenceOptions(opts)
 	includeUnexported := opts.Mode.includesUnexported()
+	symbols := buildSequenceSymbolIndex(models)
 
 	type candidate struct {
 		diagram  SequenceDiagram
@@ -103,6 +113,10 @@ func BuildPackageSequenceSources(models []domain.PackageModel, pkg domain.Packag
 		}
 		start := domain.SymbolRef{Package: pkg.Path, Symbol: fn.Name}
 		tree := sequence.Build(models, start, opts.MaxDepth)
+		tree = buildInteractionTree(tree, symbols, includeUnexported)
+		if tree == nil && !opts.IncludeRootOnly {
+			continue
+		}
 		priority := 1
 		if fn.Stereotype == domain.StereotypeFactory || strings.HasPrefix(fn.Name, "New") {
 			priority = 0
@@ -113,7 +127,7 @@ func BuildPackageSequenceSources(models []domain.PackageModel, pkg domain.Packag
 				Start:    start,
 				Tree:     tree,
 				Source:   BuildSequenceSource(tree),
-				HasCalls: len(fn.Calls) > 0,
+				HasCalls: tree != nil && len(tree.Children) > 0,
 			},
 			priority: priority,
 		})
@@ -132,13 +146,17 @@ func BuildPackageSequenceSources(models []domain.PackageModel, pkg domain.Packag
 			}
 			start := domain.SymbolRef{Package: pkg.Path, Symbol: st.Name + "." + m.Name}
 			tree := sequence.Build(models, start, opts.MaxDepth)
+			tree = buildInteractionTree(tree, symbols, includeUnexported)
+			if tree == nil && !opts.IncludeRootOnly {
+				continue
+			}
 			cands = append(cands, candidate{
 				diagram: SequenceDiagram{
 					Label:    st.Name + "." + m.Name,
 					Start:    start,
 					Tree:     tree,
 					Source:   BuildSequenceSource(tree),
-					HasCalls: len(m.Calls) > 0,
+					HasCalls: tree != nil && len(tree.Children) > 0,
 				},
 				priority: 2,
 			})
@@ -157,6 +175,87 @@ func BuildPackageSequenceSources(models []domain.PackageModel, pkg domain.Packag
 		out = append(out, c.diagram)
 	}
 	return out
+}
+
+func buildInteractionTree(root *sequence.Node, symbols map[string]sequenceSymbolInfo, includeUnexported bool) *sequence.Node {
+	if root == nil {
+		return nil
+	}
+	out := cloneSequenceNode(root)
+	for _, child := range root.Children {
+		appendInteractionChild(out, root.Symbol, child, symbols, includeUnexported)
+	}
+	if len(out.Children) == 0 {
+		return nil
+	}
+	return out
+}
+
+func buildSequenceSymbolIndex(models []domain.PackageModel) map[string]sequenceSymbolInfo {
+	idx := make(map[string]sequenceSymbolInfo)
+	for _, model := range models {
+		for _, fn := range model.Functions {
+			idx[sequenceSymbolKey(domain.SymbolRef{Package: model.Path, Symbol: fn.Name})] = sequenceSymbolInfo{
+				Exported: fn.IsExported,
+			}
+		}
+		for _, st := range model.Structs {
+			for _, m := range st.Methods {
+				idx[sequenceSymbolKey(domain.SymbolRef{Package: model.Path, Symbol: st.Name + "." + m.Name})] = sequenceSymbolInfo{
+					Exported: st.IsExported && m.IsExported,
+				}
+			}
+		}
+	}
+	return idx
+}
+
+func appendInteractionChild(
+	parent *sequence.Node,
+	caller domain.SymbolRef,
+	child *sequence.Node,
+	symbols map[string]sequenceSymbolInfo,
+	includeUnexported bool,
+) {
+	if child == nil {
+		return
+	}
+	if sequenceVisible(child.Symbol, symbols, includeUnexported) && sequenceActorName(caller) != sequenceActorName(child.Symbol) {
+		cloned := cloneSequenceNode(child)
+		for _, grandchild := range child.Children {
+			appendInteractionChild(cloned, child.Symbol, grandchild, symbols, includeUnexported)
+		}
+		parent.Children = append(parent.Children, cloned)
+		return
+	}
+	for _, grandchild := range child.Children {
+		appendInteractionChild(parent, caller, grandchild, symbols, includeUnexported)
+	}
+}
+
+func cloneSequenceNode(n *sequence.Node) *sequence.Node {
+	if n == nil {
+		return nil
+	}
+	return &sequence.Node{
+		Symbol:     n.Symbol,
+		Via:        n.Via,
+		Cycle:      n.Cycle,
+		DepthLimit: n.DepthLimit,
+		NotFound:   n.NotFound,
+	}
+}
+
+func sequenceVisible(ref domain.SymbolRef, symbols map[string]sequenceSymbolInfo, includeUnexported bool) bool {
+	info, ok := symbols[sequenceSymbolKey(ref)]
+	if !ok {
+		return false
+	}
+	return includeUnexported || info.Exported
+}
+
+func sequenceSymbolKey(ref domain.SymbolRef) string {
+	return ref.Package + "|" + ref.Symbol
 }
 
 func writeSequenceD2Edges(sb *strings.Builder, n *sequence.Node) {
@@ -193,9 +292,12 @@ func sequenceActorName(ref domain.SymbolRef) string {
 		return leaf + "." + typ
 	}
 	if leaf == "" {
+		if ref.Package != "" {
+			return ref.Package
+		}
 		return ref.Symbol
 	}
-	return leaf + "." + ref.Symbol
+	return leaf
 }
 
 func sequenceMethodLabel(ref domain.SymbolRef) string {
@@ -226,12 +328,15 @@ func sequencePkgLeaf(pkg string) string {
 }
 
 func sequenceD2Ident(s string) string {
+	if s == "" {
+		return `""`
+	}
 	for _, r := range s {
 		switch {
 		case r >= 'a' && r <= 'z':
 		case r >= 'A' && r <= 'Z':
 		case r >= '0' && r <= '9':
-		case r == '_' || r == '.':
+		case r == '_':
 		default:
 			return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
 		}

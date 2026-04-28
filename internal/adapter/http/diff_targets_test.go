@@ -346,6 +346,7 @@ func TestDiff_IncludesCytoscapeOverlay(t *testing.T) {
 		`href="/view/diff/d2"`,
 		`href="/view/diff/svg"`,
 		`data-cy-action="fit"`,
+		`data-cy-action="fullscreen"`,
 		`data-cy-action="export-png"`,
 	} {
 		if !strings.Contains(body, want) {

@@ -296,7 +296,7 @@ func TestBuildPackageSequenceEntries_PublicMode(t *testing.T) {
 		Functions: []domain.FunctionDef{
 			{
 				Name: "NewService", IsExported: true, Stereotype: domain.StereotypeFactory,
-				Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Helper"}}},
+				Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Service.Run"}}},
 			},
 			{
 				Name: "Helper", IsExported: true,
@@ -321,14 +321,14 @@ func TestBuildPackageSequenceEntries_PublicMode(t *testing.T) {
 		},
 	}
 	got := buildPackageSequenceEntries([]domain.PackageModel{pkg}, pkg, "")
-	if len(got) != 3 {
-		t.Fatalf("public mode entries = %d, want 3: %+v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("public mode entries = %d, want 2: %+v", len(got), got)
 	}
 	if got[0].Label != "NewService" {
 		t.Fatalf("constructor not first: %+v", got)
 	}
-	labels := []string{got[0].Label, got[1].Label, got[2].Label}
-	wantSet := map[string]bool{"NewService": true, "Helper": true, "Service.Run": true}
+	labels := []string{got[0].Label, got[1].Label}
+	wantSet := map[string]bool{"NewService": true, "Service.Run": true}
 	for _, l := range labels {
 		if !wantSet[l] {
 			t.Fatalf("unexpected label %q in %+v", l, labels)
@@ -368,8 +368,8 @@ func TestBuildPackageSequenceEntries_FullMode(t *testing.T) {
 		},
 	}
 	got := buildPackageSequenceEntries([]domain.PackageModel{pkg}, pkg, "full")
-	if len(got) != 4 {
-		t.Fatalf("full mode entries = %d, want 4: %+v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("full mode entries = %d, want 2: %+v", len(got), got)
 	}
 }
 
@@ -387,12 +387,18 @@ func TestBuildPackageSequenceEntries_SkipsRootOnlyEntries(t *testing.T) {
 			{
 				Name: "Run", IsExported: true,
 				Calls: []domain.CallEdge{
-					{To: domain.SymbolRef{Package: "internal/svc", Symbol: "helper"}},
+					{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Service.Do"}},
 				},
 			},
 			{Name: "Bare", IsExported: true},
-			{Name: "helper", IsExported: false},
 		},
+		Structs: []domain.StructDef{{
+			Name: "Service", IsExported: true,
+			Methods: []domain.MethodDef{{
+				Name:       "Do",
+				IsExported: true,
+			}},
+		}},
 	}
 	got := buildPackageSequenceEntries([]domain.PackageModel{pkg}, pkg, "")
 	by := map[string]sequenceEntry{}
@@ -405,7 +411,7 @@ func TestBuildPackageSequenceEntries_SkipsRootOnlyEntries(t *testing.T) {
 	if _, ok := by["Bare"]; ok {
 		t.Fatalf("Bare should be skipped because it has no recorded calls: %+v", by["Bare"])
 	}
-	if !strings.Contains(by["Run"].D2, "svc.Run -> svc.helper: helper") {
+	if !strings.Contains(by["Run"].D2, `svc -> "svc.Service": Do`) {
 		t.Fatalf("Run D2 does not look like a sequence edge: %q", by["Run"].D2)
 	}
 }
@@ -455,9 +461,13 @@ func TestSequenceLinkResolver_HrefFor(t *testing.T) {
 func TestSequenceNodeToGraph_PopulatesHref(t *testing.T) {
 	pkgs := []domain.PackageModel{
 		{
-			Path:      "internal/svc",
-			Structs:   []domain.StructDef{{Name: "Service", IsExported: true, Methods: []domain.MethodDef{{Name: "Run", IsExported: true, Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "helper"}}}}}}},
-			Functions: []domain.FunctionDef{{Name: "helper"}},
+			Path: "internal/svc",
+			Structs: []domain.StructDef{{Name: "Service", IsExported: true, Methods: []domain.MethodDef{{
+				Name:       "Run",
+				IsExported: true,
+				Calls:      []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Helper"}}},
+			}}}},
+			Functions: []domain.FunctionDef{{Name: "Helper", IsExported: true}},
 		},
 	}
 	got := buildPackageSequenceEntries(pkgs, pkgs[0], "")

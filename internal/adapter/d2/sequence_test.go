@@ -70,8 +70,8 @@ func TestBuildSequenceSourceSimpleChainArrows(t *testing.T) {
 	out := BuildSequenceSource(sequence.Build(models, start, 5))
 
 	for _, want := range []string{
-		"a.Alpha -> b.Beta: Beta",
-		"b.Beta -> c.Gamma: Gamma",
+		"a -> b: Beta",
+		"b -> c: Gamma",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected arrow %q in output:\n%s", want, out)
@@ -84,8 +84,8 @@ func TestBuildSequenceSourceMethodActorsShareType(t *testing.T) {
 	start := domain.SymbolRef{Package: "pkg/svc", Symbol: "Service.Generate"}
 	out := BuildSequenceSource(sequence.Build(models, start, 5))
 	for _, want := range []string{
-		`svc.Service -> rd.fileReader: "Read [via io.Reader]"`,
-		`svc.Service -> rd.memReader: "Read [via io.Reader]"`,
+		`"svc.Service" -> "rd.fileReader": "Read [via io.Reader]"`,
+		`"svc.Service" -> "rd.memReader": "Read [via io.Reader]"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in D2 output:\n%s", want, out)
@@ -124,7 +124,7 @@ func TestBuildPackageSequenceSources(t *testing.T) {
 			{
 				Name: "NewService", IsExported: true,
 				Stereotype: domain.StereotypeFactory,
-				Calls:      []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Helper"}}},
+				Calls:      []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Service.Run"}}},
 			},
 			{
 				Name: "Helper", IsExported: true,
@@ -144,16 +144,25 @@ func TestBuildPackageSequenceSources(t *testing.T) {
 	}
 
 	got := BuildPackageSequenceSources([]domain.PackageModel{pkg}, pkg, SequenceOptions{Mode: OverviewModePublic})
-	if len(got) != 3 {
-		t.Fatalf("entries = %d, want 3: %+v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("entries = %d, want 2: %+v", len(got), got)
 	}
 	if got[0].Label != "NewService" {
 		t.Fatalf("constructor not first: %+v", got)
+	}
+	if got[1].Label != "Service.Run" {
+		t.Fatalf("method sequence not second: %+v", got)
 	}
 	for _, entry := range got {
 		if !strings.Contains(entry.Source, "shape: sequence_diagram") {
 			t.Fatalf("%s missing D2 sequence source: %q", entry.Label, entry.Source)
 		}
+	}
+	if !strings.Contains(got[0].Source, `svc -> "svc.Service": Run`) {
+		t.Fatalf("constructor sequence should show package-to-type call: %q", got[0].Source)
+	}
+	if !strings.Contains(got[1].Source, `"svc.Service" -> svc: Helper`) {
+		t.Fatalf("method sequence should show type-to-package call: %q", got[1].Source)
 	}
 }
 
@@ -164,9 +173,15 @@ func TestBuildPackageSequenceSourcesFullModeAndSkipsRootOnly(t *testing.T) {
 			{Name: "Bare", IsExported: true},
 			{
 				Name: "internal", IsExported: false,
-				Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Bare"}}},
+				Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "worker.Run"}}},
 			},
 		},
+		Structs: []domain.StructDef{{
+			Name: "worker",
+			Methods: []domain.MethodDef{{
+				Name: "Run",
+			}},
+		}},
 	}
 	got := BuildPackageSequenceSources([]domain.PackageModel{pkg}, pkg, SequenceOptions{Mode: OverviewModePublic})
 	if len(got) != 0 {
@@ -175,6 +190,56 @@ func TestBuildPackageSequenceSourcesFullModeAndSkipsRootOnly(t *testing.T) {
 	got = BuildPackageSequenceSources([]domain.PackageModel{pkg}, pkg, SequenceOptions{Mode: OverviewModeFull})
 	if len(got) != 1 || got[0].Label != "internal" {
 		t.Fatalf("full mode entries = %+v, want internal only", got)
+	}
+	if !strings.Contains(got[0].Source, `svc -> "svc.worker": Run`) {
+		t.Fatalf("full mode sequence should include hidden type interaction: %q", got[0].Source)
+	}
+}
+
+func TestBuildPackageSequenceSourcesCollapsesSameActorHelpers(t *testing.T) {
+	pkg := domain.PackageModel{
+		Path: "internal/svc",
+		Structs: []domain.StructDef{
+			{
+				Name: "Service", IsExported: true,
+				Methods: []domain.MethodDef{
+					{
+						Name:       "Run",
+						IsExported: true,
+						Calls: []domain.CallEdge{
+							{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Service.step"}},
+						},
+					},
+					{
+						Name: "step",
+						Calls: []domain.CallEdge{
+							{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Repo.Get"}},
+						},
+					},
+				},
+			},
+			{
+				Name: "Repo", IsExported: true,
+				Methods: []domain.MethodDef{{
+					Name:       "Get",
+					IsExported: true,
+				}},
+			},
+		},
+	}
+
+	got := BuildPackageSequenceSources([]domain.PackageModel{pkg}, pkg, SequenceOptions{Mode: OverviewModePublic})
+	if len(got) != 1 {
+		t.Fatalf("entries = %d, want only Run: %+v", len(got), got)
+	}
+	if got[0].Label != "Service.Run" {
+		t.Fatalf("label = %q, want Service.Run", got[0].Label)
+	}
+	if strings.Contains(got[0].Source, "step") {
+		t.Fatalf("same-actor helper should be collapsed out of D2 source: %q", got[0].Source)
+	}
+	if !strings.Contains(got[0].Source, `"svc.Service" -> "svc.Repo": Get`) {
+		t.Fatalf("sequence should show the public inter-type call: %q", got[0].Source)
 	}
 }
 

@@ -4,10 +4,12 @@
 {{if .HasActive}}
 <section class="card diff-overlay-card">
     <h2>Overlay</h2>
+    <div class="cy-graph-widget">
     <div class="cy-toolbar" role="toolbar" aria-label="Diagram controls">
         <button type="button" class="cy-btn" data-cy-action="fit">Fit</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-in" aria-label="Zoom in">+</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-out" aria-label="Zoom out">-</button>
+        <button type="button" class="cy-btn" data-cy-action="fullscreen">Full</button>
         <span class="cy-toolbar-spacer"></span>
         <a class="cy-btn" href="/view/diff/d2{{if .Filter}}?kind={{.Filter}}{{end}}" download>Export D2</a>
         <a class="cy-btn" href="/view/diff/svg{{if .Filter}}?kind={{.Filter}}{{end}}" download>Export SVG</a>
@@ -18,6 +20,7 @@
          data-view="diff-overlay"
          data-layout="dagre"
          data-height="380"></div>
+    </div>
     <p class="legend">
         <span class="pill pill-green">added</span>
         <span class="pill pill-red">removed</span>

@@ -287,6 +287,9 @@ func TestPackageDetail_OverviewTab(t *testing.T) {
 	if !strings.Contains(body, "Package only") || !strings.Contains(body, "Package deps") {
 		t.Errorf("overview: expected scope switcher, got: %s", body)
 	}
+	if !strings.Contains(body, `data-cy-action="fullscreen"`) {
+		t.Errorf("overview: expected fullscreen control, got: %s", body)
+	}
 }
 
 func TestPackageDetail_OverviewDepsScope(t *testing.T) {
