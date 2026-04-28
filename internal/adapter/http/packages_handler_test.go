@@ -284,6 +284,32 @@ func TestPackageDetail_OverviewTab(t *testing.T) {
 	if !strings.Contains(body, `class="cy-graph package-overview"`) {
 		t.Errorf("overview: expected package-overview class on cy-graph, got: %s", body)
 	}
+	if !strings.Contains(body, "Package only") || !strings.Contains(body, "Package deps") {
+		t.Errorf("overview: expected scope switcher, got: %s", body)
+	}
+}
+
+func TestPackageDetail_OverviewDepsScope(t *testing.T) {
+	fx := newPackagesTestServer(t)
+
+	code, body := getBody(t, fx.ts, "/packages/internal/foo?scope=deps")
+	if code != nethttp.StatusOK {
+		t.Fatalf("status = %d, body=%s", code, body)
+	}
+
+	wantAPI := `data-api="/api/packages/internal/foo/deps/graph?mode=both"`
+	if !strings.Contains(body, wantAPI) {
+		t.Errorf("overview deps: expected %s, got: %s", wantAPI, body)
+	}
+	if !strings.Contains(body, `class="cy-graph package-deps"`) {
+		t.Errorf("overview deps: expected package-deps class on cy-graph, got: %s", body)
+	}
+	if strings.Contains(body, `data-api="/api/packages/internal/foo/graph"`) {
+		t.Errorf("overview deps: should not render package-overview graph source")
+	}
+	if !strings.Contains(body, `aria-pressed="true">Package deps</a>`) {
+		t.Errorf("overview deps: expected Package deps toggle active, got: %s", body)
+	}
 }
 
 func TestPackageDetail_PublicTab(t *testing.T) {

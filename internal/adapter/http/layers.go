@@ -79,8 +79,7 @@ func (s *Server) handleLayers(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 	// M8 (#46): the Layer map is rendered client-side from /api/layers,
 	// so we no longer emit a server-side D2 → SVG render for the display
-	// diagram. The D2 source is still available via /view/layers/d2 for
-	// export and the `archai sequence` CLI path is unchanged.
+	// diagram. The D2 source is still available via /view/layers/d2.
 	s.renderPage(w, "layers.html", data)
 }
 

@@ -21,12 +21,12 @@ import (
 	httpAdapter "github.com/kgatilin/archai/internal/adapter/http"
 	"github.com/kgatilin/archai/internal/adapter/mcp"
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
-	"github.com/kgatilin/archai/internal/buildinfo"
-	"github.com/kgatilin/archai/internal/plugin"
 	"github.com/kgatilin/archai/internal/apply"
+	"github.com/kgatilin/archai/internal/buildinfo"
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/archai/internal/plugin"
 	"github.com/kgatilin/archai/internal/sequence"
 	"github.com/kgatilin/archai/internal/serve"
 	"github.com/kgatilin/archai/internal/service"
@@ -367,8 +367,8 @@ Stale records (processes that have exited) are skipped.`,
 		Use:   "sequence <target>",
 		Short: "Render a static call-sequence tree rooted at a function or method",
 		Long: `Walk the static call graph starting at the given symbol and print
-the resulting tree as either an indented outline (default) or a D2 sequence
-diagram.
+the resulting tree as an indented outline (default), D2 sequence diagram,
+or rendered SVG.
 
 Target format:
   <pkg/path>.<FuncName>
@@ -380,13 +380,38 @@ present; otherwise the Go reader parses ./... directly.
 Examples:
   archai sequence internal/service.Service.Generate
   archai sequence internal/service.Service.Generate --depth 3
-  archai sequence internal/service.Service.Generate --format d2 -o gen.d2`,
+  archai sequence internal/service.Service.Generate --format d2 -o gen.d2
+  archai sequence internal/service.Service.Generate --format svg -o gen.svg`,
 		Args: cobra.ExactArgs(1),
 		RunE: runSequence,
 	}
 	sequenceCmd.Flags().Int("depth", 5, "Maximum call-chain depth")
-	sequenceCmd.Flags().StringP("format", "f", "text", "Output format: text or d2")
+	sequenceCmd.Flags().StringP("format", "f", "text", "Output format: text, d2, or svg")
 	sequenceCmd.Flags().StringP("output", "o", "", "Write output to file instead of stdout")
+
+	sequencePackageCmd := &cobra.Command{
+		Use:   "package <package>",
+		Short: "Render package entry-point sequence diagrams",
+		Long: `Build the same package entry-point sequence diagrams used by the
+browser package Overview tab, without starting the HTTP server.
+
+By default root-only entries are skipped, so the output contains actual
+call sequences rather than isolated boxes.
+
+Examples:
+  archai sequence package internal/plugin --output-dir .arch/sequences
+  archai sequence package internal/plugin --entry NewReader --format svg -o new-reader.svg
+  archai sequence package internal/plugin --mode full --format d2 --output-dir /tmp/seq`,
+		Args: cobra.ExactArgs(1),
+		RunE: runSequencePackage,
+	}
+	sequencePackageCmd.Flags().Int("depth", 4, "Maximum call-chain depth")
+	sequencePackageCmd.Flags().StringP("format", "f", "d2", "Output format: text, d2, or svg")
+	sequencePackageCmd.Flags().StringP("output", "o", "", "Write a single selected diagram to file")
+	sequencePackageCmd.Flags().String("output-dir", "", "Write every generated diagram to this directory")
+	sequencePackageCmd.Flags().String("entry", "", "Render only the entry point with this label")
+	sequencePackageCmd.Flags().String("mode", "public", "Entry-point mode: public or full")
+	sequenceCmd.AddCommand(sequencePackageCmd)
 	rootCmd.AddCommand(sequenceCmd)
 
 	// version — prints `archai <Version>`.
@@ -653,24 +678,185 @@ func runSequence(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not build sequence for %q", target)
 	}
 
-	var rendered string
+	var rendered []byte
 	switch format {
 	case "", "text":
-		rendered = sequence.FormatText(tree)
+		rendered = []byte(sequence.FormatText(tree))
 	case "d2":
-		rendered = sequence.FormatD2(tree)
+		rendered = []byte(d2.BuildSequenceSource(tree))
+	case "svg":
+		source := d2.BuildSequenceSource(tree)
+		svg, err := d2.RenderSVG(ctx, source)
+		if err != nil {
+			return err
+		}
+		rendered = svg
 	default:
-		return fmt.Errorf("unsupported format %q (use text or d2)", format)
+		return fmt.Errorf("unsupported format %q (use text, d2, or svg)", format)
 	}
 
 	if output == "" {
-		fmt.Print(rendered)
+		_, _ = cmd.OutOrStdout().Write(rendered)
 		return nil
 	}
-	if err := os.WriteFile(output, []byte(rendered), 0o644); err != nil {
+	if err := os.WriteFile(output, rendered, 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", output, err)
 	}
 	return nil
+}
+
+// runSequencePackage handles `archai sequence package <package>`.
+func runSequencePackage(cmd *cobra.Command, args []string) error {
+	pkgPath := args[0]
+	depth, _ := cmd.Flags().GetInt("depth")
+	format, _ := cmd.Flags().GetString("format")
+	output, _ := cmd.Flags().GetString("output")
+	outputDir, _ := cmd.Flags().GetString("output-dir")
+	entry, _ := cmd.Flags().GetString("entry")
+	mode, _ := cmd.Flags().GetString("mode")
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+	models, err := loadCurrentModel(ctx, projectRoot)
+	if err != nil {
+		return fmt.Errorf("loading current model: %w", err)
+	}
+	pkg, ok := findModelPackage(models, pkgPath)
+	if !ok {
+		return fmt.Errorf("package %q not found in current model", pkgPath)
+	}
+
+	diagrams := d2.BuildPackageSequenceSources(models, pkg, d2.SequenceOptions{
+		Mode:     d2.ParseOverviewMode(mode),
+		MaxDepth: depth,
+	})
+	if entry != "" {
+		diagrams = filterSequenceDiagrams(diagrams, entry)
+	}
+	if len(diagrams) == 0 {
+		if entry != "" {
+			return fmt.Errorf("no sequence diagram for entry %q in package %q", entry, pkgPath)
+		}
+		return fmt.Errorf("no non-empty sequence diagrams for package %q", pkgPath)
+	}
+
+	if outputDir != "" {
+		if output != "" {
+			return fmt.Errorf("use either --output or --output-dir, not both")
+		}
+		if err := os.MkdirAll(outputDir, 0o755); err != nil {
+			return fmt.Errorf("creating output dir %s: %w", outputDir, err)
+		}
+		ext, err := sequenceFormatExt(format)
+		if err != nil {
+			return err
+		}
+		for _, diagram := range diagrams {
+			rendered, err := renderSequenceDiagram(ctx, diagram, format)
+			if err != nil {
+				return fmt.Errorf("rendering %s: %w", diagram.Label, err)
+			}
+			path := filepath.Join(outputDir, safeSequenceFilename(diagram.Label)+ext)
+			if err := os.WriteFile(path, rendered, 0o644); err != nil {
+				return fmt.Errorf("writing %s: %w", path, err)
+			}
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Wrote %d sequence diagram(s) to %s\n", len(diagrams), outputDir)
+		return nil
+	}
+
+	if len(diagrams) != 1 {
+		return fmt.Errorf("package %q has %d sequence diagrams; use --entry or --output-dir", pkgPath, len(diagrams))
+	}
+	rendered, err := renderSequenceDiagram(ctx, diagrams[0], format)
+	if err != nil {
+		return err
+	}
+	if output == "" {
+		_, _ = cmd.OutOrStdout().Write(rendered)
+		return nil
+	}
+	if err := os.WriteFile(output, rendered, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", output, err)
+	}
+	return nil
+}
+
+func findModelPackage(models []domain.PackageModel, path string) (domain.PackageModel, bool) {
+	for _, pkg := range models {
+		if pkg.Path == path {
+			return pkg, true
+		}
+	}
+	return domain.PackageModel{}, false
+}
+
+func filterSequenceDiagrams(diagrams []d2.SequenceDiagram, entry string) []d2.SequenceDiagram {
+	var out []d2.SequenceDiagram
+	for _, diagram := range diagrams {
+		if diagram.Label == entry || diagram.Start.Symbol == entry {
+			out = append(out, diagram)
+		}
+	}
+	return out
+}
+
+func renderSequenceDiagram(ctx context.Context, diagram d2.SequenceDiagram, format string) ([]byte, error) {
+	switch format {
+	case "", "d2":
+		return []byte(diagram.Source), nil
+	case "text":
+		return []byte(sequence.FormatText(diagram.Tree)), nil
+	case "svg":
+		return d2.RenderSVG(ctx, diagram.Source)
+	default:
+		return nil, fmt.Errorf("unsupported format %q (use text, d2, or svg)", format)
+	}
+}
+
+func sequenceFormatExt(format string) (string, error) {
+	switch format {
+	case "", "d2":
+		return ".d2", nil
+	case "text":
+		return ".txt", nil
+	case "svg":
+		return ".svg", nil
+	default:
+		return "", fmt.Errorf("unsupported format %q (use text, d2, or svg)", format)
+	}
+}
+
+func safeSequenceFilename(label string) string {
+	if label == "" {
+		return "sequence"
+	}
+	var b strings.Builder
+	for _, r := range label {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "sequence"
+	}
+	return out
 }
 
 // runOverlayCheck executes `archai overlay check`. It loads the overlay,

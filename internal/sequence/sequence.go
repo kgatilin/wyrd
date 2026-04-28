@@ -1,7 +1,7 @@
 // Package sequence builds and renders static call-sequence trees rooted at
 // a given function or method. Input is a set of PackageModels populated by
 // the Go reader (M6a); output is a Node tree that can be rendered as a
-// text outline or a D2 sequence diagram.
+// text outline (via this package) or D2/SVG diagrams (via the D2 adapter).
 package sequence
 
 import "github.com/kgatilin/archai/internal/domain"

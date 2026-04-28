@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	d2adapter "github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/overlay"
 	"github.com/kgatilin/archai/internal/serve"
@@ -197,7 +198,7 @@ func TestBuildLayerMapD2_RendersNodesAndEdges(t *testing.T) {
 		t.Errorf("expected edge service -> domain in D2 source:\n%s", src)
 	}
 	// And the D2 source must actually render to SVG.
-	svg, err := renderD2(context.Background(), src)
+	svg, err := d2adapter.RenderSVG(context.Background(), src)
 	if err != nil {
 		t.Fatalf("renderD2: %v\nsource:\n%s", err, src)
 	}

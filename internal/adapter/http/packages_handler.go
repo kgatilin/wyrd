@@ -101,7 +101,8 @@ func (s *Server) handlePackageDetail(w nethttp.ResponseWriter, r *nethttp.Reques
 
 	// Overview render mode (#61): default Public, opt-in Full via ?mode=full.
 	mode := string(d2adapter.ParseOverviewMode(r.URL.Query().Get("mode")).Normalize())
-	data := buildPackageDetail(active, pkg, pkgs, snap.Overlay, modulePath, mode)
+	overviewScope := parseOverviewScope(r.URL.Query().Get("scope"))
+	data := buildPackageDetail(active, pkg, pkgs, snap.Overlay, modulePath, mode, overviewScope)
 	data.pageData = s.basePageData(r, "Package "+pkg.Path, "/packages")
 	data.Partial = isHTMX(r)
 	// Dependencies graph direction (#89). Distinct query param from the
@@ -236,7 +237,7 @@ func renderPackageD2(ctx context.Context, pkg domain.PackageModel, mode d2adapte
 	if strings.TrimSpace(source) == "" {
 		return nil, fmt.Errorf("render: empty package")
 	}
-	return renderD2(ctx, source)
+	return d2adapter.RenderSVG(ctx, source)
 }
 
 // quoteD2 quotes an identifier for D2 if it contains characters that

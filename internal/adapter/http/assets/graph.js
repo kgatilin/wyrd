@@ -48,6 +48,14 @@
 (function () {
     'use strict';
 
+    if (window.__archaiGraphRuntimeLoaded) {
+        if (window.__archaiGraphInit) {
+            window.__archaiGraphInit(document);
+        }
+        return;
+    }
+    window.__archaiGraphRuntimeLoaded = true;
+
     // registry[view] -> { style, layoutOpts, onTap? } used by render().
     var registry = {};
 
@@ -524,8 +532,9 @@
         };
     });
 
-    // Package overview (M8): subject package at centre with exported
-    // types as children, inbound/outbound packages around it.
+    // Package overview (M8): subject package with visible public/full
+    // symbols as children. Cross-package in/out peers live in the
+    // separate package-deps view so the overview stays readable.
     registerView('package-overview', function () {
         return {
             layout: extendStyle({ name: pickLayout('dagre'), rankDir: 'LR', padding: 10 }, graphDisplay.layout.dagre),
@@ -879,6 +888,11 @@
                 currentCy.destroy();
                 currentCy = null;
                 clearZoomOverlay(el);
+                delete el.__archaiCy;
+            }
+            if (el.__archaiCy) {
+                el.__archaiCy.destroy();
+                clearZoomOverlay(el);
             }
             var elements = hydrateElements(payload);
             var preset = makePreset();
@@ -897,6 +911,7 @@
                 ])
             });
             currentCy = cy;
+            el.__archaiCy = cy;
             attachInteractions(cy, el, interactive);
             attachToolbar(el, cy, view, function () {
                 if (currentPayload) {
@@ -936,16 +951,90 @@
             });
     }
 
-    function init() {
-        var nodes = document.querySelectorAll('.cy-graph');
-        for (var i = 0; i < nodes.length; i++) {
-            renderGraph(nodes[i]);
+    function findSequenceFrame(toolbar) {
+        var node = toolbar.nextElementSibling;
+        while (node) {
+            if (node.classList.contains('sequence-frame')) {
+                return node;
+            }
+            if (node.classList.contains('sequence-toolbar') || /^H[1-6]$/.test(node.tagName || '')) {
+                return null;
+            }
+            node = node.nextElementSibling;
+        }
+        return null;
+    }
+
+    function sequenceCurrentWidth(svg) {
+        var rect = svg.getBoundingClientRect();
+        if (rect && rect.width) { return rect.width; }
+        var viewBox = svg.viewBox && svg.viewBox.baseVal;
+        if (viewBox && viewBox.width) { return viewBox.width; }
+        return parseFloat(svg.getAttribute('width')) || 600;
+    }
+
+    function setSequenceZoom(frame, svg, widthPx) {
+        frame.classList.add('is-zoomed');
+        svg.style.width = Math.max(160, Math.min(widthPx, 6000)) + 'px';
+        svg.style.maxWidth = 'none';
+        svg.style.maxHeight = 'none';
+    }
+
+    function fitSequence(frame, svg) {
+        frame.classList.remove('is-zoomed');
+        svg.style.width = '';
+        svg.style.maxWidth = '';
+        svg.style.maxHeight = '';
+        frame.scrollLeft = 0;
+        frame.scrollTop = 0;
+    }
+
+    function initSequenceZoom(root) {
+        var scope = root || document;
+        var toolbars = scope.querySelectorAll ? scope.querySelectorAll('.sequence-toolbar') : [];
+        for (var i = 0; i < toolbars.length; i++) {
+            (function (toolbar) {
+                if (toolbar.__archaiSequenceZoom) { return; }
+                toolbar.__archaiSequenceZoom = true;
+                toolbar.addEventListener('click', function (ev) {
+                    var btn = ev.target && ev.target.closest ? ev.target.closest('[data-sequence-action]') : null;
+                    if (!btn) { return; }
+                    ev.preventDefault();
+                    var frame = findSequenceFrame(toolbar);
+                    var svg = frame && frame.querySelector ? frame.querySelector('svg') : null;
+                    if (!frame || !svg) { return; }
+                    var action = btn.getAttribute('data-sequence-action');
+                    if (action === 'fit') {
+                        fitSequence(frame, svg);
+                        return;
+                    }
+                    var width = sequenceCurrentWidth(svg);
+                    setSequenceZoom(frame, svg, action === 'zoom-out' ? width / 1.25 : width * 1.25);
+                });
+            })(toolbars[i]);
         }
     }
 
+    function init(root) {
+        var scope = root || document;
+        var nodes = scope.querySelectorAll ? scope.querySelectorAll('.cy-graph') : [];
+        for (var i = 0; i < nodes.length; i++) {
+            renderGraph(nodes[i]);
+        }
+        initSequenceZoom(scope);
+    }
+    window.__archaiGraphInit = init;
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', function () { init(document); });
     } else {
-        init();
+        init(document);
+    }
+
+    if (document.body) {
+        document.body.addEventListener('htmx:afterSwap', function (ev) {
+            var root = ev.detail && ev.detail.target ? ev.detail.target : document;
+            init(root);
+        });
     }
 })();

@@ -1,4 +1,4 @@
-package http
+package d2
 
 import (
 	"context"
@@ -15,17 +15,14 @@ import (
 	"oss.terrastruct.com/util-go/go2"
 )
 
-var d2RenderLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
+var renderLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
-// renderD2 compiles the given D2 source into an SVG byte slice using the
-// bundled dagre layout engine. It is intentionally small and
-// self-contained so M7b-f can call it from any handler that needs a
-// server-side diagram render.
-func renderD2(ctx context.Context, source string) ([]byte, error) {
+// RenderSVG compiles D2 source into SVG using the bundled dagre layout.
+func RenderSVG(ctx context.Context, source string) ([]byte, error) {
 	if source == "" {
 		return nil, fmt.Errorf("render: empty d2 source")
 	}
-	ctx = d2log.With(ctx, d2RenderLogger)
+	ctx = d2log.With(ctx, renderLogger)
 
 	ruler, err := textmeasure.NewRuler()
 	if err != nil {

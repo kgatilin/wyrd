@@ -198,27 +198,23 @@ func TestBuildPackageOverviewGraph_IncludesTypesAndInternalDeps(t *testing.T) {
 		"type:internal/foo.Greeter",
 		"type:internal/foo.Hello",
 		"fn:internal/foo.New",
-		"pkg:internal/bar",
 	} {
 		if !ids[want] {
 			t.Errorf("missing node %q in %v", want, ids)
 		}
 	}
-	// Must have an outbound edge foo->bar and inbound bar->foo.
-	var out, in int
+	if ids["pkg:internal/bar"] {
+		t.Errorf("package-only overview leaked cross-package peer node pkg:internal/bar")
+	}
+	// Cross-package edges live in the dedicated package-deps graph, not
+	// in the symbol overview.
 	for _, e := range g.Edges {
 		if e.Source == "pkg:internal/foo" && e.Target == "pkg:internal/bar" {
-			out++
+			t.Errorf("package-only overview leaked outbound edge foo -> bar")
 		}
 		if e.Source == "pkg:internal/bar" && e.Target == "pkg:internal/foo" {
-			in++
+			t.Errorf("package-only overview leaked inbound edge bar -> foo")
 		}
-	}
-	if out == 0 {
-		t.Error("missing outbound edge foo -> bar")
-	}
-	if in == 0 {
-		t.Error("missing inbound edge bar -> foo")
 	}
 	if !hasGraphEdge(g, "fn:internal/foo.New", "type:internal/foo.Hello", "returns") {
 		t.Error("missing same-package New -> Hello return edge")

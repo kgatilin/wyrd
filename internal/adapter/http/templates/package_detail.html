@@ -68,6 +68,23 @@
 {{define "tab-overview"}}
 <div class="tab-overview">
     <div class="cy-toolbar" role="toolbar" aria-label="Diagram controls">
+        <div class="cy-mode-toggle" role="group" aria-label="Diagram scope">
+            <a href="/packages/{{.Pkg.Path}}?tab=overview{{if eq .Mode "full"}}&amp;mode=full{{end}}"
+               hx-get="/packages/{{.Pkg.Path}}?tab=overview{{if eq .Mode "full"}}&amp;mode=full{{end}}"
+               hx-target="#pkg-tab-content"
+               hx-swap="outerHTML"
+               hx-push-url="true"
+               class="cy-btn cy-btn-mode{{if ne .OverviewScope "deps"}} is-active{{end}}"
+               aria-pressed="{{if ne .OverviewScope "deps"}}true{{else}}false{{end}}">Package only</a>
+            <a href="/packages/{{.Pkg.Path}}?tab=overview&amp;scope=deps"
+               hx-get="/packages/{{.Pkg.Path}}?tab=overview&amp;scope=deps"
+               hx-target="#pkg-tab-content"
+               hx-swap="outerHTML"
+               hx-push-url="true"
+               class="cy-btn cy-btn-mode{{if eq .OverviewScope "deps"}} is-active{{end}}"
+               aria-pressed="{{if eq .OverviewScope "deps"}}true{{else}}false{{end}}">Package deps</a>
+        </div>
+        {{if ne .OverviewScope "deps"}}
         <div class="cy-mode-toggle" role="group" aria-label="Diagram detail mode">
             <button type="button" class="cy-btn cy-btn-mode{{if ne .Mode "full"}} is-active{{end}}"
                     data-cy-action="set-mode" data-mode="public"
@@ -76,15 +93,29 @@
                     data-cy-action="set-mode" data-mode="full"
                     aria-pressed="{{if eq .Mode "full"}}true{{else}}false{{end}}">Full detail</button>
         </div>
+        {{end}}
         <span class="cy-toolbar-spacer"></span>
         <button type="button" class="cy-btn" data-cy-action="fit">Fit</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-in" aria-label="Zoom in">+</button>
         <button type="button" class="cy-btn" data-cy-action="zoom-out" aria-label="Zoom out">-</button>
+        {{if ne .OverviewScope "deps"}}
         <span class="cy-toolbar-spacer"></span>
         <a class="cy-btn cy-export-d2" href="/view/packages/{{.Pkg.Path}}/d2{{if eq .Mode "full"}}?mode=full{{end}}" download>Export D2</a>
         <a class="cy-btn cy-export-svg" href="/view/packages/{{.Pkg.Path}}/svg{{if eq .Mode "full"}}?mode=full{{end}}" download>Export SVG</a>
         <button type="button" class="cy-btn" data-cy-action="export-png">Export PNG</button>
+        {{else}}
+        <button type="button" class="cy-btn" data-cy-action="export-png">Export PNG</button>
+        {{end}}
     </div>
+    {{if eq .OverviewScope "deps"}}
+    <div class="cy-graph package-deps"
+         data-api="/api/packages/{{.Pkg.Path}}/deps/graph?mode=both"
+         data-api-base="/api/packages/{{.Pkg.Path}}/deps/graph"
+         data-view="package-deps"
+         data-layout="dagre"
+         data-mode="both"
+         data-height="420"></div>
+    {{else}}
     <div class="cy-graph package-overview"
          data-api="/api/packages/{{.Pkg.Path}}/graph{{if eq .Mode "full"}}?mode=full{{end}}"
          data-api-base="/api/packages/{{.Pkg.Path}}/graph"
@@ -94,6 +125,7 @@
          data-layout="dagre"
          data-mode="{{.Mode}}"
          data-height="420"></div>
+    {{end}}
     <dl class="pkg-meta-list">
         <dt>Path</dt><dd><code>{{.Pkg.Path}}</code></dd>
         <dt>Name</dt><dd><code>{{.Pkg.Name}}</code></dd>
@@ -105,12 +137,17 @@
             {{range .Pkg.SourceFiles}}<code>{{.}}</code> {{end}}
         </dd>
     </dl>
-    {{if .HasSequences}}
+    {{if and (ne .OverviewScope "deps") .HasSequences}}
     <section class="card pkg-sequences">
         <h2>Sequence diagrams from entry points</h2>
         <p class="muted">Static call sequences rooted at {{if eq .Mode "full"}}functions and methods{{else}}exported functions and methods{{end}} with recorded call edges.</p>
         {{range $i, $seq := .Sequences}}
             <h3>{{$seq.Label}}</h3>
+            <div class="sequence-toolbar" role="toolbar" aria-label="Sequence diagram controls">
+                <button type="button" class="cy-btn" data-sequence-action="fit">Fit</button>
+                <button type="button" class="cy-btn" data-sequence-action="zoom-in" aria-label="Zoom in">+</button>
+                <button type="button" class="cy-btn" data-sequence-action="zoom-out" aria-label="Zoom out">-</button>
+            </div>
             {{if $seq.SVG}}
                 <div class="d2-frame sequence-frame">{{$seq.SVG}}</div>
             {{else if $seq.SVGError}}

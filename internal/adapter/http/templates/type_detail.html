@@ -105,6 +105,11 @@
     {{range $i, $seq := .Sequences}}
         <h3>{{$seq.Label}}</h3>
         {{if $seq.HasM6}}
+            <div class="sequence-toolbar" role="toolbar" aria-label="Sequence diagram controls">
+                <button type="button" class="cy-btn" data-sequence-action="fit">Fit</button>
+                <button type="button" class="cy-btn" data-sequence-action="zoom-in" aria-label="Zoom in">+</button>
+                <button type="button" class="cy-btn" data-sequence-action="zoom-out" aria-label="Zoom out">-</button>
+            </div>
             {{if $seq.SVG}}
                 <div class="d2-frame sequence-frame">{{$seq.SVG}}</div>
             {{else if $seq.SVGError}}

@@ -230,6 +230,10 @@ type packageDetailData struct {
 	// control which graph payload is fetched and which export links are
 	// shown.
 	Mode string
+	// OverviewScope selects which Overview diagram is shown:
+	// "package" renders only symbols inside this package; "deps"
+	// renders this package as one node with inbound/outbound packages.
+	OverviewScope string
 
 	// Sequences are pre-computed call trees for the candidate entry
 	// points (constructors, exported methods, exported functions) of
@@ -286,21 +290,25 @@ func buildPackageDetail(
 	cfg *overlay.Config,
 	modulePath string,
 	mode string,
+	overviewScope string,
 ) *packageDetailData {
 	data := &packageDetailData{
-		Pkg:         pkg,
-		Active:      active,
-		Tabs:        buildTabs(active),
-		Stereotypes: collectStereotypes(pkg),
-		LayerBadge:  pkg.Layer,
-		BCName:      findBCForPackage(pkg, cfg),
-		Mode:        mode,
+		Pkg:           pkg,
+		Active:        active,
+		Tabs:          buildTabs(active),
+		Stereotypes:   collectStereotypes(pkg),
+		LayerBadge:    pkg.Layer,
+		BCName:        findBCForPackage(pkg, cfg),
+		Mode:          mode,
+		OverviewScope: parseOverviewScope(overviewScope),
 	}
 
 	switch active {
 	case tabOverview:
-		data.Sequences = buildPackageSequenceEntries(allPkgs, pkg, mode)
-		data.HasSequences = len(data.Sequences) > 0
+		if data.OverviewScope == overviewScopePackage {
+			data.Sequences = buildPackageSequenceEntries(allPkgs, pkg, mode)
+			data.HasSequences = len(data.Sequences) > 0
+		}
 	case tabPublicAPI:
 		data.Interfaces = pkg.ExportedInterfaces()
 		data.Structs = pkg.ExportedStructs()
@@ -336,6 +344,18 @@ func buildPackageDetail(
 		data.ConfigTypes = buildConfigTypes(pkg, cfg, modulePath)
 	}
 	return data
+}
+
+const (
+	overviewScopePackage = "package"
+	overviewScopeDeps    = "deps"
+)
+
+func parseOverviewScope(s string) string {
+	if s == overviewScopeDeps {
+		return overviewScopeDeps
+	}
+	return overviewScopePackage
 }
 
 // unexported* helpers: symmetric with the Exported* methods on

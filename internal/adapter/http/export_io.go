@@ -5,6 +5,8 @@ import (
 	"fmt"
 	nethttp "net/http"
 	"strings"
+
+	d2adapter "github.com/kgatilin/archai/internal/adapter/d2"
 )
 
 // writeText sends text/plain with a Content-Disposition attachment so
@@ -17,7 +19,7 @@ func writeText(w nethttp.ResponseWriter, filename, body string) {
 
 // writeSVG renders D2 source to SVG and sends it as an attachment.
 func writeSVG(w nethttp.ResponseWriter, ctx context.Context, filename, source string) {
-	svg, err := renderD2(ctx, source)
+	svg, err := d2adapter.RenderSVG(ctx, source)
 	if err != nil {
 		nethttp.Error(w, "render: "+err.Error(), nethttp.StatusUnprocessableEntity)
 		return

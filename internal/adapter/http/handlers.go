@@ -8,6 +8,7 @@ import (
 	"io"
 	nethttp "net/http"
 
+	d2adapter "github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/buildinfo"
 	"github.com/kgatilin/archai/internal/plugin"
 )
@@ -303,7 +304,7 @@ func (s *Server) handleRender(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
-	svg, err := renderD2(r.Context(), source)
+	svg, err := d2adapter.RenderSVG(r.Context(), source)
 	if err != nil {
 		nethttp.Error(w, "render: "+err.Error(), nethttp.StatusUnprocessableEntity)
 		return

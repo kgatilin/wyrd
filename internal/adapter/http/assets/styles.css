@@ -965,6 +965,19 @@ nav.pkg-tabs {
     margin: 0 auto;
 }
 
+.sequence-frame.is-zoomed svg {
+    max-width: none;
+    max-height: none;
+}
+
+.sequence-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.25rem 0 0.5rem;
+}
+
 .error-banner {
     padding: 0.5rem 0.75rem;
     border: 1px solid var(--border);

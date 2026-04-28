@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	d2adapter "github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/sequence"
 )
@@ -513,23 +514,11 @@ func buildRelationshipGraph(ref typeRef, impls, implBy []relatedView, usedBy []u
 // Methods with no captured Calls still produce a root-only tree which
 // the template renders as "(no recorded calls)".
 func buildSequenceEntries(packages []domain.PackageModel, ref typeRef, meths []domain.MethodDef) []sequenceEntry {
-	const maxDepth = 4
 	resolver := newSequenceLinkResolver(packages)
-	var out []sequenceEntry
-	for _, m := range meths {
-		if !m.IsExported {
-			continue
-		}
-		start := domain.SymbolRef{Package: ref.Package, Symbol: ref.Name + "." + m.Name}
-		node := sequence.Build(packages, start, maxDepth)
-		entry := sequenceEntry{
-			Method: m.Name,
-			Label:  ref.Name + "." + m.Name,
-			Graph:  sequenceNodeToGraph(node, resolver),
-			D2:     sequence.FormatD2(node),
-			HasM6:  len(m.Calls) > 0,
-		}
-		out = append(out, entry)
+	diagrams := d2adapter.BuildTypeSequenceSources(packages, ref.Package, ref.Name, meths, 4)
+	out := make([]sequenceEntry, 0, len(diagrams))
+	for _, diagram := range diagrams {
+		out = append(out, sequenceDiagramToEntry(diagram, resolver))
 	}
 	return out
 }
@@ -548,79 +537,34 @@ func buildSequenceEntries(packages []domain.PackageModel, ref typeRef, meths []d
 // skipped for the package Overview: a root-only tree is not a useful
 // sequence diagram.
 func buildPackageSequenceEntries(packages []domain.PackageModel, pkg domain.PackageModel, mode string) []sequenceEntry {
-	const maxDepth = 4
-	includeUnexported := mode == "full"
 	resolver := newSequenceLinkResolver(packages)
-
-	type candidate struct {
-		entry    sequenceEntry
-		priority int // 0 = constructor/factory, 1 = function, 2 = method
-	}
-	var cands []candidate
-
-	for _, fn := range pkg.Functions {
-		if !fn.IsExported && !includeUnexported {
-			continue
-		}
-		if len(fn.Calls) == 0 {
-			continue
-		}
-		start := domain.SymbolRef{Package: pkg.Path, Symbol: fn.Name}
-		node := sequence.Build(packages, start, maxDepth)
-		priority := 1
-		if fn.Stereotype == domain.StereotypeFactory || strings.HasPrefix(fn.Name, "New") {
-			priority = 0
-		}
-		cands = append(cands, candidate{
-			entry: sequenceEntry{
-				Method: fn.Name,
-				Label:  fn.Name,
-				Graph:  sequenceNodeToGraph(node, resolver),
-				D2:     sequence.FormatD2(node),
-				HasM6:  len(fn.Calls) > 0,
-			},
-			priority: priority,
-		})
-	}
-
-	for _, st := range pkg.Structs {
-		if !st.IsExported && !includeUnexported {
-			continue
-		}
-		for _, m := range st.Methods {
-			if !m.IsExported && !includeUnexported {
-				continue
-			}
-			if len(m.Calls) == 0 {
-				continue
-			}
-			start := domain.SymbolRef{Package: pkg.Path, Symbol: st.Name + "." + m.Name}
-			node := sequence.Build(packages, start, maxDepth)
-			cands = append(cands, candidate{
-				entry: sequenceEntry{
-					Method: st.Name + "." + m.Name,
-					Label:  st.Name + "." + m.Name,
-					Graph:  sequenceNodeToGraph(node, resolver),
-					D2:     sequence.FormatD2(node),
-					HasM6:  len(m.Calls) > 0,
-				},
-				priority: 2,
-			})
-		}
-	}
-
-	sort.SliceStable(cands, func(i, j int) bool {
-		if cands[i].priority != cands[j].priority {
-			return cands[i].priority < cands[j].priority
-		}
-		return cands[i].entry.Label < cands[j].entry.Label
+	diagrams := d2adapter.BuildPackageSequenceSources(packages, pkg, d2adapter.SequenceOptions{
+		Mode:     d2adapter.ParseOverviewMode(mode),
+		MaxDepth: 4,
 	})
-
-	out := make([]sequenceEntry, 0, len(cands))
-	for _, c := range cands {
-		out = append(out, c.entry)
+	out := make([]sequenceEntry, 0, len(diagrams))
+	for _, diagram := range diagrams {
+		out = append(out, sequenceDiagramToEntry(diagram, resolver))
 	}
 	return out
+}
+
+func sequenceDiagramToEntry(diagram d2adapter.SequenceDiagram, resolver *sequenceLinkResolver) sequenceEntry {
+	return sequenceEntry{
+		Method: strings.TrimPrefix(diagram.Label, sequenceTypePrefix(diagram.Start.Symbol)),
+		Label:  diagram.Label,
+		Graph:  sequenceNodeToGraph(diagram.Tree, resolver),
+		D2:     diagram.Source,
+		HasM6:  diagram.HasCalls,
+	}
+}
+
+func sequenceTypePrefix(symbol string) string {
+	dot := strings.LastIndex(symbol, ".")
+	if dot < 0 {
+		return ""
+	}
+	return symbol[:dot+1]
 }
 
 func renderSequenceSVGs(ctx context.Context, entries []sequenceEntry) {
@@ -628,7 +572,7 @@ func renderSequenceSVGs(ctx context.Context, entries []sequenceEntry) {
 		if !entries[i].HasM6 || strings.TrimSpace(entries[i].D2) == "" {
 			continue
 		}
-		svg, err := renderD2(ctx, entries[i].D2)
+		svg, err := d2adapter.RenderSVG(ctx, entries[i].D2)
 		if err != nil {
 			entries[i].SVGError = err.Error()
 			continue

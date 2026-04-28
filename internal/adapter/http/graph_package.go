@@ -9,10 +9,12 @@ import (
 	"github.com/kgatilin/archai/internal/domain"
 )
 
-// buildPackageOverviewGraph builds the client-side graph for the
-// Package Overview tab. The subject package sits at the centre with its
-// types/functions as children; immediate internal dependency targets
-// (inbound + outbound packages) appear around it.
+// buildPackageOverviewGraph builds the package-only client-side graph
+// for the Package Overview tab. The subject package contains its
+// visible types/functions as children, with same-package symbol
+// dependency edges between them. Cross-package inbound/outbound peers
+// intentionally live in buildPackageDepsGraph so the two concerns do
+// not make one unreadable mixed diagram.
 //
 // In OverviewModePublic (the default) only exported symbols are
 // rendered, and entry-point functions (factories / `New<Type>`
@@ -96,71 +98,6 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 	}
 
 	addPackageOverviewSymbolEdges(&out, pkg, mode, symbolNodes)
-
-	// Outbound dep packages (internal only) — each becomes a top-level
-	// package node with an edge from the subject package.
-	known := knownPackagePaths(allPkgs)
-	seenOut := make(map[string]struct{})
-	for _, d := range pkg.Dependencies {
-		if d.To.External || d.To.Package == "" {
-			continue
-		}
-		if d.To.Package == pkg.Path {
-			continue
-		}
-		// Normalize when dep includes module prefix — the existing
-		// Overview relies on same-path matching so we skip unknowns.
-		if _, ok := known[d.To.Package]; !ok {
-			continue
-		}
-		if _, dup := seenOut[d.To.Package]; dup {
-			continue
-		}
-		seenOut[d.To.Package] = struct{}{}
-		out.Nodes = append(out.Nodes, graphNode{
-			ID:    "pkg:" + d.To.Package,
-			Label: shortName(d.To.Package),
-			Kind:  "package-out",
-		})
-		out.Edges = append(out.Edges, graphEdge{
-			Source: rootID,
-			Target: "pkg:" + d.To.Package,
-			Kind:   "outbound",
-		})
-	}
-
-	// Inbound dep packages — every other pkg that targets ours.
-	seenIn := make(map[string]struct{})
-	for _, src := range allPkgs {
-		if src.Path == pkg.Path {
-			continue
-		}
-		for _, d := range src.Dependencies {
-			if d.To.Package != pkg.Path {
-				continue
-			}
-			if _, dup := seenIn[src.Path]; dup {
-				continue
-			}
-			seenIn[src.Path] = struct{}{}
-			if _, dup := seenOut[src.Path]; dup {
-				// Symmetric: already present as outbound; the edge below
-				// still makes sense (A uses B and B uses A).
-			} else {
-				out.Nodes = append(out.Nodes, graphNode{
-					ID:    "pkg:" + src.Path,
-					Label: shortName(src.Path),
-					Kind:  "package-in",
-				})
-			}
-			out.Edges = append(out.Edges, graphEdge{
-				Source: "pkg:" + src.Path,
-				Target: rootID,
-				Kind:   "inbound",
-			})
-			break
-		}
-	}
 
 	return out
 }
