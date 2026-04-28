@@ -44,40 +44,23 @@ func BuildSequenceSource(root *sequence.Node) string {
 	if root == nil {
 		return ""
 	}
-	return buildSequenceSource(root, nil, false)
+	return buildSequenceSource(root, nil)
 }
 
 // BuildSequenceSourceForModels renders an enriched D2 sequence_diagram source.
-// Compared with BuildSequenceSource it includes an explicit caller -> entry
-// call and return arrows when signature metadata is available in models.
+// Compared with BuildSequenceSource it includes argument lists and return
+// arrows for calls when signature metadata is available in models.
 func BuildSequenceSourceForModels(models []domain.PackageModel, root *sequence.Node) string {
 	if root == nil {
 		return ""
 	}
-	return buildSequenceSource(root, buildSequenceSymbolIndex(models), true)
+	return buildSequenceSource(root, buildSequenceSymbolIndex(models))
 }
 
-func buildSequenceSource(root *sequence.Node, symbols map[string]sequenceSymbolInfo, includeEntry bool) string {
+func buildSequenceSource(root *sequence.Node, symbols map[string]sequenceSymbolInfo) string {
 	var sb strings.Builder
 	sb.WriteString("shape: sequence_diagram\n")
-	if includeEntry {
-		rootActor := sequenceActorName(root.Symbol)
-		fmt.Fprintf(&sb, "%s -> %s: %s\n",
-			sequenceD2Ident("caller"),
-			sequenceD2Ident(rootActor),
-			sequenceD2Label(sequenceCallLabel(root.Symbol, symbols)),
-		)
-		writeSequenceD2Edges(&sb, root, symbols)
-		if ret := sequenceReturnLabel(root.Symbol, symbols); ret != "" {
-			fmt.Fprintf(&sb, "%s -> %s: %s\n",
-				sequenceD2Ident(rootActor),
-				sequenceD2Ident("caller"),
-				sequenceD2Label(ret),
-			)
-		}
-		return sb.String()
-	}
-	writeSequenceD2Edges(&sb, root, nil)
+	writeSequenceD2Edges(&sb, root, symbols)
 	return sb.String()
 }
 
@@ -117,7 +100,7 @@ func BuildTypeSequenceSources(models []domain.PackageModel, pkgPath, typeName st
 			Label:    typeName + "." + m.Name,
 			Start:    start,
 			Tree:     tree,
-			Source:   buildSequenceSource(tree, symbols, true),
+			Source:   buildSequenceSource(tree, symbols),
 			HasCalls: len(tree.Children) > 0,
 		})
 	}
@@ -159,7 +142,7 @@ func BuildPackageSequenceSources(models []domain.PackageModel, pkg domain.Packag
 				Label:    fn.Name,
 				Start:    start,
 				Tree:     tree,
-				Source:   buildSequenceSource(tree, symbols, true),
+				Source:   buildSequenceSource(tree, symbols),
 				HasCalls: tree != nil && len(tree.Children) > 0,
 			},
 			priority: priority,
@@ -188,7 +171,7 @@ func BuildPackageSequenceSources(models []domain.PackageModel, pkg domain.Packag
 					Label:    st.Name + "." + m.Name,
 					Start:    start,
 					Tree:     tree,
-					Source:   buildSequenceSource(tree, symbols, true),
+					Source:   buildSequenceSource(tree, symbols),
 					HasCalls: tree != nil && len(tree.Children) > 0,
 				},
 				priority: 2,
@@ -370,7 +353,21 @@ func sequenceReturnLabel(ref domain.SymbolRef, symbols map[string]sequenceSymbol
 }
 
 func sequenceCallSignature(name string, params []domain.ParamDef) string {
-	return domain.MethodDef{Name: name, Params: params}.Signature()
+	var sb strings.Builder
+	sb.WriteString(name)
+	sb.WriteString("(")
+	for i, p := range params {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		if p.Name != "" {
+			sb.WriteString(p.Name)
+			sb.WriteByte(' ')
+		}
+		sb.WriteString(sequenceTypeString(p.Type))
+	}
+	sb.WriteString(")")
+	return sb.String()
 }
 
 func sequenceReturns(returns []domain.TypeRef) string {
@@ -379,9 +376,36 @@ func sequenceReturns(returns []domain.TypeRef) string {
 	}
 	parts := make([]string, 0, len(returns))
 	for _, ret := range returns {
-		parts = append(parts, ret.String())
+		parts = append(parts, sequenceTypeString(ret))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func sequenceTypeString(t domain.TypeRef) string {
+	var sb strings.Builder
+	if t.IsSlice {
+		sb.WriteString("[]")
+	}
+	if t.IsMap {
+		sb.WriteString("map[")
+		if t.KeyType != nil {
+			sb.WriteString(sequenceTypeString(*t.KeyType))
+		}
+		sb.WriteString("]")
+		if t.ValueType != nil {
+			sb.WriteString(sequenceTypeString(*t.ValueType))
+		}
+		return sb.String()
+	}
+	if t.IsPointer {
+		sb.WriteString("*")
+	}
+	if t.Package != "" {
+		sb.WriteString(sequencePkgLeaf(t.Package))
+		sb.WriteString(".")
+	}
+	sb.WriteString(t.Name)
+	return sb.String()
 }
 
 func sequenceSplitMethodSymbol(sym string) (typ, method string) {

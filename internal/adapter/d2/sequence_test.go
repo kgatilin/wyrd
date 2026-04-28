@@ -117,7 +117,7 @@ func TestBuildSequenceSourceNilSafe(t *testing.T) {
 	}
 }
 
-func TestBuildPackageSequenceSourcesIncludesEntrySignatureAndReturns(t *testing.T) {
+func TestBuildPackageSequenceSourcesIncludesShortCallLabelsAndReturns(t *testing.T) {
 	pkg := domain.PackageModel{
 		Path: "internal/apply",
 		Functions: []domain.FunctionDef{{
@@ -132,7 +132,50 @@ func TestBuildPackageSequenceSourcesIncludesEntrySignatureAndReturns(t *testing.
 				{Name: "PackageModel", Package: "domain", IsSlice: true},
 				{Name: "error"},
 			},
-			Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/domain", Symbol: "SymbolRef.String"}}},
+			Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Service.Run"}}},
+		}},
+	}
+	svcPkg := domain.PackageModel{
+		Path: "internal/svc",
+		Structs: []domain.StructDef{{
+			Name:       "Service",
+			IsExported: true,
+			Methods: []domain.MethodDef{{
+				Name:       "Run",
+				IsExported: true,
+				Params: []domain.ParamDef{{
+					Name: "ctx",
+					Type: domain.TypeRef{Name: "Context", Package: "context"},
+				}},
+				Returns: []domain.TypeRef{{Name: "error"}},
+			}},
+		}},
+	}
+
+	got := BuildPackageSequenceSources([]domain.PackageModel{pkg, svcPkg}, pkg, SequenceOptions{Mode: OverviewModePublic})
+	if len(got) != 1 {
+		t.Fatalf("entries = %d, want 1: %+v", len(got), got)
+	}
+	for _, want := range []string{
+		`"apply.Apply" -> "svc.Service": "Run(ctx context.Context)"`,
+		`"svc.Service" -> "apply.Apply": "return error"`,
+	} {
+		if !strings.Contains(got[0].Source, want) {
+			t.Fatalf("source missing %q:\n%s", want, got[0].Source)
+		}
+	}
+	if strings.Contains(got[0].Source, "caller") || strings.Contains(got[0].Source, "currentModels") {
+		t.Fatalf("source should not include artificial caller or full entry signature:\n%s", got[0].Source)
+	}
+}
+
+func TestBuildPackageSequenceSourcesKeepsPublicStructMethodCalls(t *testing.T) {
+	pkg := domain.PackageModel{
+		Path: "internal/apply",
+		Functions: []domain.FunctionDef{{
+			Name:       "Apply",
+			IsExported: true,
+			Calls:      []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/domain", Symbol: "SymbolRef.String"}}},
 		}},
 	}
 	domainPkg := domain.PackageModel{
@@ -153,14 +196,15 @@ func TestBuildPackageSequenceSourcesIncludesEntrySignatureAndReturns(t *testing.
 		t.Fatalf("entries = %d, want 1: %+v", len(got), got)
 	}
 	for _, want := range []string{
-		`caller -> "apply.Apply": "Apply(d *diff.Diff, currentModels []domain.PackageModel, targetModels []domain.PackageModel)"`,
 		`"apply.Apply" -> "domain.SymbolRef": "String()"`,
 		`"domain.SymbolRef" -> "apply.Apply": "return string"`,
-		`"apply.Apply" -> caller: "return []domain.PackageModel, error"`,
 	} {
 		if !strings.Contains(got[0].Source, want) {
 			t.Fatalf("source missing %q:\n%s", want, got[0].Source)
 		}
+	}
+	if strings.Contains(got[0].Source, "caller") {
+		t.Fatalf("source should not include artificial caller:\n%s", got[0].Source)
 	}
 }
 
