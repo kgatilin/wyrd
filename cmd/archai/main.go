@@ -683,9 +683,9 @@ func runSequence(cmd *cobra.Command, args []string) error {
 	case "", "text":
 		rendered = []byte(sequence.FormatText(tree))
 	case "d2":
-		rendered = []byte(d2.BuildSequenceSource(tree))
+		rendered = []byte(d2.BuildSequenceSourceForModels(models, tree))
 	case "svg":
-		source := d2.BuildSequenceSource(tree)
+		source := d2.BuildSequenceSourceForModels(models, tree)
 		svg, err := d2.RenderSVG(ctx, source)
 		if err != nil {
 			return err

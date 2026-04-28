@@ -27,6 +27,8 @@ type SequenceDiagram struct {
 
 type sequenceSymbolInfo struct {
 	Exported bool
+	Call     string
+	Returns  string
 }
 
 func normalizeSequenceOptions(opts SequenceOptions) SequenceOptions {
@@ -42,9 +44,40 @@ func BuildSequenceSource(root *sequence.Node) string {
 	if root == nil {
 		return ""
 	}
+	return buildSequenceSource(root, nil, false)
+}
+
+// BuildSequenceSourceForModels renders an enriched D2 sequence_diagram source.
+// Compared with BuildSequenceSource it includes an explicit caller -> entry
+// call and return arrows when signature metadata is available in models.
+func BuildSequenceSourceForModels(models []domain.PackageModel, root *sequence.Node) string {
+	if root == nil {
+		return ""
+	}
+	return buildSequenceSource(root, buildSequenceSymbolIndex(models), true)
+}
+
+func buildSequenceSource(root *sequence.Node, symbols map[string]sequenceSymbolInfo, includeEntry bool) string {
 	var sb strings.Builder
 	sb.WriteString("shape: sequence_diagram\n")
-	writeSequenceD2Edges(&sb, root)
+	if includeEntry {
+		rootActor := sequenceActorName(root.Symbol)
+		fmt.Fprintf(&sb, "%s -> %s: %s\n",
+			sequenceD2Ident("caller"),
+			sequenceD2Ident(rootActor),
+			sequenceD2Label(sequenceCallLabel(root.Symbol, symbols)),
+		)
+		writeSequenceD2Edges(&sb, root, symbols)
+		if ret := sequenceReturnLabel(root.Symbol, symbols); ret != "" {
+			fmt.Fprintf(&sb, "%s -> %s: %s\n",
+				sequenceD2Ident(rootActor),
+				sequenceD2Ident("caller"),
+				sequenceD2Label(ret),
+			)
+		}
+		return sb.String()
+	}
+	writeSequenceD2Edges(&sb, root, nil)
 	return sb.String()
 }
 
@@ -58,7 +91,7 @@ func BuildSequenceForTarget(models []domain.PackageModel, start domain.SymbolRef
 		Label:    start.Symbol,
 		Start:    start,
 		Tree:     tree,
-		Source:   BuildSequenceSource(tree),
+		Source:   BuildSequenceSourceForModels(models, tree),
 		HasCalls: tree != nil && len(tree.Children) > 0,
 	}
 }
@@ -84,7 +117,7 @@ func BuildTypeSequenceSources(models []domain.PackageModel, pkgPath, typeName st
 			Label:    typeName + "." + m.Name,
 			Start:    start,
 			Tree:     tree,
-			Source:   BuildSequenceSource(tree),
+			Source:   buildSequenceSource(tree, symbols, true),
 			HasCalls: len(tree.Children) > 0,
 		})
 	}
@@ -126,7 +159,7 @@ func BuildPackageSequenceSources(models []domain.PackageModel, pkg domain.Packag
 				Label:    fn.Name,
 				Start:    start,
 				Tree:     tree,
-				Source:   BuildSequenceSource(tree),
+				Source:   buildSequenceSource(tree, symbols, true),
 				HasCalls: tree != nil && len(tree.Children) > 0,
 			},
 			priority: priority,
@@ -155,7 +188,7 @@ func BuildPackageSequenceSources(models []domain.PackageModel, pkg domain.Packag
 					Label:    st.Name + "." + m.Name,
 					Start:    start,
 					Tree:     tree,
-					Source:   BuildSequenceSource(tree),
+					Source:   buildSequenceSource(tree, symbols, true),
 					HasCalls: tree != nil && len(tree.Children) > 0,
 				},
 				priority: 2,
@@ -197,12 +230,16 @@ func buildSequenceSymbolIndex(models []domain.PackageModel) map[string]sequenceS
 		for _, fn := range model.Functions {
 			idx[sequenceSymbolKey(domain.SymbolRef{Package: model.Path, Symbol: fn.Name})] = sequenceSymbolInfo{
 				Exported: fn.IsExported,
+				Call:     sequenceCallSignature(fn.Name, fn.Params),
+				Returns:  sequenceReturns(fn.Returns),
 			}
 		}
 		for _, st := range model.Structs {
 			for _, m := range st.Methods {
 				idx[sequenceSymbolKey(domain.SymbolRef{Package: model.Path, Symbol: st.Name + "." + m.Name})] = sequenceSymbolInfo{
 					Exported: st.IsExported && m.IsExported,
+					Call:     sequenceCallSignature(m.Name, m.Params),
+					Returns:  sequenceReturns(m.Returns),
 				}
 			}
 		}
@@ -258,11 +295,11 @@ func sequenceSymbolKey(ref domain.SymbolRef) string {
 	return ref.Package + "|" + ref.Symbol
 }
 
-func writeSequenceD2Edges(sb *strings.Builder, n *sequence.Node) {
+func writeSequenceD2Edges(sb *strings.Builder, n *sequence.Node, symbols map[string]sequenceSymbolInfo) {
 	caller := sequenceActorName(n.Symbol)
 	for _, c := range n.Children {
 		callee := sequenceActorName(c.Symbol)
-		label := sequenceMethodLabel(c.Symbol)
+		label := sequenceCallLabel(c.Symbol, symbols)
 		if c.Via != "" {
 			label += " [via " + c.Via + "]"
 		}
@@ -277,7 +314,11 @@ func writeSequenceD2Edges(sb *strings.Builder, n *sequence.Node) {
 		fmt.Fprintf(sb, "%s -> %s: %s\n",
 			sequenceD2Ident(caller), sequenceD2Ident(callee), sequenceD2Label(label))
 		if !c.Cycle && !c.NotFound && !c.DepthLimit {
-			writeSequenceD2Edges(sb, c)
+			writeSequenceD2Edges(sb, c, symbols)
+		}
+		if ret := sequenceReturnLabel(c.Symbol, symbols); ret != "" {
+			fmt.Fprintf(sb, "%s -> %s: %s\n",
+				sequenceD2Ident(callee), sequenceD2Ident(caller), sequenceD2Label(ret))
 		}
 	}
 }
@@ -297,7 +338,7 @@ func sequenceActorName(ref domain.SymbolRef) string {
 		}
 		return ref.Symbol
 	}
-	return leaf
+	return leaf + "." + ref.Symbol
 }
 
 func sequenceMethodLabel(ref domain.SymbolRef) string {
@@ -306,6 +347,41 @@ func sequenceMethodLabel(ref domain.SymbolRef) string {
 		return method
 	}
 	return ref.Symbol
+}
+
+func sequenceCallLabel(ref domain.SymbolRef, symbols map[string]sequenceSymbolInfo) string {
+	if symbols != nil {
+		if info, ok := symbols[sequenceSymbolKey(ref)]; ok && info.Call != "" {
+			return info.Call
+		}
+	}
+	return sequenceMethodLabel(ref)
+}
+
+func sequenceReturnLabel(ref domain.SymbolRef, symbols map[string]sequenceSymbolInfo) string {
+	if symbols == nil {
+		return ""
+	}
+	info, ok := symbols[sequenceSymbolKey(ref)]
+	if !ok || info.Returns == "" {
+		return ""
+	}
+	return "return " + info.Returns
+}
+
+func sequenceCallSignature(name string, params []domain.ParamDef) string {
+	return domain.MethodDef{Name: name, Params: params}.Signature()
+}
+
+func sequenceReturns(returns []domain.TypeRef) string {
+	if len(returns) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(returns))
+	for _, ret := range returns {
+		parts = append(parts, ret.String())
+	}
+	return strings.Join(parts, ", ")
 }
 
 func sequenceSplitMethodSymbol(sym string) (typ, method string) {

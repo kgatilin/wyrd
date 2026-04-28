@@ -368,8 +368,8 @@ func TestBuildPackageSequenceEntries_FullMode(t *testing.T) {
 		},
 	}
 	got := buildPackageSequenceEntries([]domain.PackageModel{pkg}, pkg, "full")
-	if len(got) != 2 {
-		t.Fatalf("full mode entries = %d, want 2: %+v", len(got), got)
+	if len(got) != 4 {
+		t.Fatalf("full mode entries = %d, want 4: %+v", len(got), got)
 	}
 }
 
@@ -411,7 +411,7 @@ func TestBuildPackageSequenceEntries_SkipsRootOnlyEntries(t *testing.T) {
 	if _, ok := by["Bare"]; ok {
 		t.Fatalf("Bare should be skipped because it has no recorded calls: %+v", by["Bare"])
 	}
-	if !strings.Contains(by["Run"].D2, `svc -> "svc.Service": Do`) {
+	if !strings.Contains(by["Run"].D2, `"svc.Run" -> "svc.Service": "Do()"`) {
 		t.Fatalf("Run D2 does not look like a sequence edge: %q", by["Run"].D2)
 	}
 }

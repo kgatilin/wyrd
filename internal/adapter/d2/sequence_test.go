@@ -70,8 +70,8 @@ func TestBuildSequenceSourceSimpleChainArrows(t *testing.T) {
 	out := BuildSequenceSource(sequence.Build(models, start, 5))
 
 	for _, want := range []string{
-		"a -> b: Beta",
-		"b -> c: Gamma",
+		`"a.Alpha" -> "b.Beta": Beta`,
+		`"b.Beta" -> "c.Gamma": Gamma`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected arrow %q in output:\n%s", want, out)
@@ -117,6 +117,53 @@ func TestBuildSequenceSourceNilSafe(t *testing.T) {
 	}
 }
 
+func TestBuildPackageSequenceSourcesIncludesEntrySignatureAndReturns(t *testing.T) {
+	pkg := domain.PackageModel{
+		Path: "internal/apply",
+		Functions: []domain.FunctionDef{{
+			Name:       "Apply",
+			IsExported: true,
+			Params: []domain.ParamDef{
+				{Name: "d", Type: domain.TypeRef{Name: "Diff", Package: "diff", IsPointer: true}},
+				{Name: "currentModels", Type: domain.TypeRef{Name: "PackageModel", Package: "domain", IsSlice: true}},
+				{Name: "targetModels", Type: domain.TypeRef{Name: "PackageModel", Package: "domain", IsSlice: true}},
+			},
+			Returns: []domain.TypeRef{
+				{Name: "PackageModel", Package: "domain", IsSlice: true},
+				{Name: "error"},
+			},
+			Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/domain", Symbol: "SymbolRef.String"}}},
+		}},
+	}
+	domainPkg := domain.PackageModel{
+		Path: "internal/domain",
+		Structs: []domain.StructDef{{
+			Name:       "SymbolRef",
+			IsExported: true,
+			Methods: []domain.MethodDef{{
+				Name:       "String",
+				IsExported: true,
+				Returns:    []domain.TypeRef{{Name: "string"}},
+			}},
+		}},
+	}
+
+	got := BuildPackageSequenceSources([]domain.PackageModel{pkg, domainPkg}, pkg, SequenceOptions{Mode: OverviewModePublic})
+	if len(got) != 1 {
+		t.Fatalf("entries = %d, want 1: %+v", len(got), got)
+	}
+	for _, want := range []string{
+		`caller -> "apply.Apply": "Apply(d *diff.Diff, currentModels []domain.PackageModel, targetModels []domain.PackageModel)"`,
+		`"apply.Apply" -> "domain.SymbolRef": "String()"`,
+		`"domain.SymbolRef" -> "apply.Apply": "return string"`,
+		`"apply.Apply" -> caller: "return []domain.PackageModel, error"`,
+	} {
+		if !strings.Contains(got[0].Source, want) {
+			t.Fatalf("source missing %q:\n%s", want, got[0].Source)
+		}
+	}
+}
+
 func TestBuildPackageSequenceSources(t *testing.T) {
 	pkg := domain.PackageModel{
 		Path: "internal/svc",
@@ -158,10 +205,10 @@ func TestBuildPackageSequenceSources(t *testing.T) {
 			t.Fatalf("%s missing D2 sequence source: %q", entry.Label, entry.Source)
 		}
 	}
-	if !strings.Contains(got[0].Source, `svc -> "svc.Service": Run`) {
+	if !strings.Contains(got[0].Source, `"svc.NewService" -> "svc.Service": "Run()"`) {
 		t.Fatalf("constructor sequence should show package-to-type call: %q", got[0].Source)
 	}
-	if !strings.Contains(got[1].Source, `"svc.Service" -> svc: Helper`) {
+	if !strings.Contains(got[1].Source, `"svc.Service" -> "svc.Helper": "Helper()"`) {
 		t.Fatalf("method sequence should show type-to-package call: %q", got[1].Source)
 	}
 }
@@ -191,7 +238,7 @@ func TestBuildPackageSequenceSourcesFullModeAndSkipsRootOnly(t *testing.T) {
 	if len(got) != 1 || got[0].Label != "internal" {
 		t.Fatalf("full mode entries = %+v, want internal only", got)
 	}
-	if !strings.Contains(got[0].Source, `svc -> "svc.worker": Run`) {
+	if !strings.Contains(got[0].Source, `"svc.internal" -> "svc.worker": "Run()"`) {
 		t.Fatalf("full mode sequence should include hidden type interaction: %q", got[0].Source)
 	}
 }
@@ -238,7 +285,7 @@ func TestBuildPackageSequenceSourcesCollapsesSameActorHelpers(t *testing.T) {
 	if strings.Contains(got[0].Source, "step") {
 		t.Fatalf("same-actor helper should be collapsed out of D2 source: %q", got[0].Source)
 	}
-	if !strings.Contains(got[0].Source, `"svc.Service" -> "svc.Repo": Get`) {
+	if !strings.Contains(got[0].Source, `"svc.Service" -> "svc.Repo": "Get()"`) {
 		t.Fatalf("sequence should show the public inter-type call: %q", got[0].Source)
 	}
 }
