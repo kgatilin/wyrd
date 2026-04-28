@@ -1,8 +1,10 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	nethttp "net/http"
 	"sort"
 	"strings"
@@ -140,10 +142,13 @@ type graphEdge struct {
 // sequenceEntry is one public-method entry point for which a static
 // call tree is pre-computed on page load.
 type sequenceEntry struct {
-	Method string    // MethodDef.Name
-	Label  string    // "TypeName.Method"
-	Graph  graphJSON // cytoscape nodes/edges for the tree
-	HasM6  bool      // true when CallEdge data was available
+	Method   string        // MethodDef.Name
+	Label    string        // "TypeName.Method"
+	Graph    graphJSON     // cytoscape nodes/edges for type-detail fallback/tests
+	D2       string        // D2 sequence_diagram source
+	SVG      template.HTML // rendered D2 SVG, populated by the HTTP handler
+	SVGError string        // render error, if D2 failed
+	HasM6    bool          // true when CallEdge data was available
 }
 
 // typePageData is the page model for /types/{id}.
@@ -195,6 +200,7 @@ func (s *Server) handleType(w nethttp.ResponseWriter, r *nethttp.Request) {
 		nethttp.NotFound(w, r)
 		return
 	}
+	renderSequenceSVGs(r.Context(), data.Sequences)
 	data.pageData = s.basePageData(r, ref.Name+" — Types", "/packages")
 
 	s.renderPage(w, "type_detail.html", data)
@@ -520,6 +526,7 @@ func buildSequenceEntries(packages []domain.PackageModel, ref typeRef, meths []d
 			Method: m.Name,
 			Label:  ref.Name + "." + m.Name,
 			Graph:  sequenceNodeToGraph(node, resolver),
+			D2:     sequence.FormatD2(node),
 			HasM6:  len(m.Calls) > 0,
 		}
 		out = append(out, entry)
@@ -537,8 +544,9 @@ func buildSequenceEntries(packages []domain.PackageModel, ref typeRef, meths []d
 //   - "full": same plus unexported variants, useful for full-detail
 //     mode of the Overview graph.
 //
-// Depth is capped at 4. Methods/functions with no captured Calls still
-// produce a root-only entry so the template can show the entry point.
+// Depth is capped at 4. Methods/functions with no captured Calls are
+// skipped for the package Overview: a root-only tree is not a useful
+// sequence diagram.
 func buildPackageSequenceEntries(packages []domain.PackageModel, pkg domain.PackageModel, mode string) []sequenceEntry {
 	const maxDepth = 4
 	includeUnexported := mode == "full"
@@ -554,6 +562,9 @@ func buildPackageSequenceEntries(packages []domain.PackageModel, pkg domain.Pack
 		if !fn.IsExported && !includeUnexported {
 			continue
 		}
+		if len(fn.Calls) == 0 {
+			continue
+		}
 		start := domain.SymbolRef{Package: pkg.Path, Symbol: fn.Name}
 		node := sequence.Build(packages, start, maxDepth)
 		priority := 1
@@ -565,6 +576,7 @@ func buildPackageSequenceEntries(packages []domain.PackageModel, pkg domain.Pack
 				Method: fn.Name,
 				Label:  fn.Name,
 				Graph:  sequenceNodeToGraph(node, resolver),
+				D2:     sequence.FormatD2(node),
 				HasM6:  len(fn.Calls) > 0,
 			},
 			priority: priority,
@@ -579,6 +591,9 @@ func buildPackageSequenceEntries(packages []domain.PackageModel, pkg domain.Pack
 			if !m.IsExported && !includeUnexported {
 				continue
 			}
+			if len(m.Calls) == 0 {
+				continue
+			}
 			start := domain.SymbolRef{Package: pkg.Path, Symbol: st.Name + "." + m.Name}
 			node := sequence.Build(packages, start, maxDepth)
 			cands = append(cands, candidate{
@@ -586,6 +601,7 @@ func buildPackageSequenceEntries(packages []domain.PackageModel, pkg domain.Pack
 					Method: st.Name + "." + m.Name,
 					Label:  st.Name + "." + m.Name,
 					Graph:  sequenceNodeToGraph(node, resolver),
+					D2:     sequence.FormatD2(node),
 					HasM6:  len(m.Calls) > 0,
 				},
 				priority: 2,
@@ -605,6 +621,20 @@ func buildPackageSequenceEntries(packages []domain.PackageModel, pkg domain.Pack
 		out = append(out, c.entry)
 	}
 	return out
+}
+
+func renderSequenceSVGs(ctx context.Context, entries []sequenceEntry) {
+	for i := range entries {
+		if !entries[i].HasM6 || strings.TrimSpace(entries[i].D2) == "" {
+			continue
+		}
+		svg, err := renderD2(ctx, entries[i].D2)
+		if err != nil {
+			entries[i].SVGError = err.Error()
+			continue
+		}
+		entries[i].SVG = template.HTML(string(svg))
+	}
 }
 
 // sequenceLinkResolver decides whether a sequence-node symbol should be

@@ -3,14 +3,19 @@ package http
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 
 	"oss.terrastruct.com/d2/d2graph"
 	"oss.terrastruct.com/d2/d2layouts/d2dagrelayout"
 	"oss.terrastruct.com/d2/d2lib"
 	"oss.terrastruct.com/d2/d2renderers/d2svg"
+	d2log "oss.terrastruct.com/d2/lib/log"
 	"oss.terrastruct.com/d2/lib/textmeasure"
 	"oss.terrastruct.com/util-go/go2"
 )
+
+var d2RenderLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 // renderD2 compiles the given D2 source into an SVG byte slice using the
 // bundled dagre layout engine. It is intentionally small and
@@ -20,6 +25,7 @@ func renderD2(ctx context.Context, source string) ([]byte, error) {
 	if source == "" {
 		return nil, fmt.Errorf("render: empty d2 source")
 	}
+	ctx = d2log.With(ctx, d2RenderLogger)
 
 	ruler, err := textmeasure.NewRuler()
 	if err != nil {

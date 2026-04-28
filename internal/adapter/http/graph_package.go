@@ -32,6 +32,7 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 
 	rootID := "pkg:" + pkg.Path
 	typeIndex := buildOverviewTypeIndex(allPkgs)
+	symbolNodes := make(map[string]string)
 	out.Nodes = append(out.Nodes, graphNode{
 		ID:    rootID,
 		Label: pkg.Name,
@@ -55,8 +56,10 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 
 	sort.Slice(ifaces, func(i, j int) bool { return ifaces[i].Name < ifaces[j].Name })
 	for _, i := range ifaces {
+		id := "type:" + pkg.Path + "." + i.Name
+		symbolNodes[i.Name] = id
 		out.Nodes = append(out.Nodes, graphNode{
-			ID:     "type:" + pkg.Path + "." + i.Name,
+			ID:     id,
 			Label:  interfaceOverviewLabel(i, mode, pkg.Path, typeIndex),
 			Kind:   "interface",
 			Parent: rootID,
@@ -64,8 +67,10 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 	}
 	sort.Slice(structs, func(i, j int) bool { return structs[i].Name < structs[j].Name })
 	for _, s := range structs {
+		id := "type:" + pkg.Path + "." + s.Name
+		symbolNodes[s.Name] = id
 		out.Nodes = append(out.Nodes, graphNode{
-			ID:     "type:" + pkg.Path + "." + s.Name,
+			ID:     id,
 			Label:  structOverviewLabel(s, mode, pkg.Path, typeIndex),
 			Kind:   "struct",
 			Parent: rootID,
@@ -73,6 +78,8 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 	}
 	sort.Slice(fns, func(i, j int) bool { return fns[i].Name < fns[j].Name })
 	for _, f := range fns {
+		id := "fn:" + pkg.Path + "." + f.Name
+		symbolNodes[f.Name] = id
 		kind := "function"
 		// Entry-point detection: factories + `New<Type>` constructors.
 		// We only mark exported entry points; unexported helpers stay
@@ -81,12 +88,14 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 			kind = "entry-point"
 		}
 		out.Nodes = append(out.Nodes, graphNode{
-			ID:     "fn:" + pkg.Path + "." + f.Name,
+			ID:     id,
 			Label:  functionOverviewLabel(f, pkg.Path, typeIndex),
 			Kind:   kind,
 			Parent: rootID,
 		})
 	}
+
+	addPackageOverviewSymbolEdges(&out, pkg, mode, symbolNodes)
 
 	// Outbound dep packages (internal only) — each becomes a top-level
 	// package node with an edge from the subject package.
@@ -154,6 +163,52 @@ func buildPackageOverviewGraph(pkg domain.PackageModel, allPkgs []domain.Package
 	}
 
 	return out
+}
+
+func addPackageOverviewSymbolEdges(out *graphPayload, pkg domain.PackageModel, mode d2adapter.OverviewMode, symbolNodes map[string]string) {
+	seen := make(map[string]struct{})
+	for _, dep := range pkg.Dependencies {
+		if dep.From.Package != pkg.Path || dep.To.Package != pkg.Path || dep.To.External {
+			continue
+		}
+		if mode.Normalize() != d2adapter.OverviewModeFull && !dep.ThroughExported {
+			continue
+		}
+		source, ok := overviewSymbolNodeID(symbolNodes, dep.From.Symbol)
+		if !ok {
+			continue
+		}
+		target, ok := overviewSymbolNodeID(symbolNodes, dep.To.Symbol)
+		if !ok || source == target {
+			continue
+		}
+		kind := strings.TrimSpace(dep.Kind.String())
+		if kind == "" {
+			kind = "uses"
+		}
+		key := source + "\x00" + target + "\x00" + kind
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out.Edges = append(out.Edges, graphEdge{
+			Source: source,
+			Target: target,
+			Label:  kind,
+			Kind:   kind,
+		})
+	}
+}
+
+func overviewSymbolNodeID(symbolNodes map[string]string, symbol string) (string, bool) {
+	if id, ok := symbolNodes[symbol]; ok {
+		return id, true
+	}
+	if dot := strings.Index(symbol, "."); dot > 0 {
+		id, ok := symbolNodes[symbol[:dot]]
+		return id, ok
+	}
+	return "", false
 }
 
 func interfaceOverviewLabel(iface domain.InterfaceDef, mode d2adapter.OverviewMode, currentPkg string, typeIndex map[string]map[string]string) string {

@@ -165,7 +165,21 @@ func TestBuildPackageOverviewGraph_IncludesTypesAndInternalDeps(t *testing.T) {
 			},
 		},
 		Dependencies: []domain.Dependency{
-			{To: domain.SymbolRef{Package: "internal/bar", Symbol: "Bar"}},
+			{
+				From: domain.SymbolRef{Package: "internal/foo", Symbol: "New"},
+				To:   domain.SymbolRef{Package: "internal/foo", Symbol: "Hello"},
+				Kind: domain.DependencyReturns, ThroughExported: true,
+			},
+			{
+				From: domain.SymbolRef{Package: "internal/foo", Symbol: "Hello.Say"},
+				To:   domain.SymbolRef{Package: "internal/foo", Symbol: "Greeter"},
+				Kind: domain.DependencyUses, ThroughExported: true,
+			},
+			{
+				From: domain.SymbolRef{Package: "internal/foo", Symbol: "New"},
+				To:   domain.SymbolRef{Package: "internal/bar", Symbol: "Bar"},
+				Kind: domain.DependencyReturns, ThroughExported: true,
+			},
 		},
 	}
 	bar := domain.PackageModel{
@@ -205,6 +219,12 @@ func TestBuildPackageOverviewGraph_IncludesTypesAndInternalDeps(t *testing.T) {
 	}
 	if in == 0 {
 		t.Error("missing inbound edge bar -> foo")
+	}
+	if !hasGraphEdge(g, "fn:internal/foo.New", "type:internal/foo.Hello", "returns") {
+		t.Error("missing same-package New -> Hello return edge")
+	}
+	if !hasGraphEdge(g, "type:internal/foo.Hello", "type:internal/foo.Greeter", "uses") {
+		t.Error("missing same-package Hello -> Greeter uses edge")
 	}
 	for id, want := range map[string][]string{
 		"type:internal/foo.Greeter": {"Greeter", "interface", "methods:", "+ Greet(name: string): string"},
@@ -261,6 +281,13 @@ func TestBuildPackageOverviewGraph_ModeFiltering(t *testing.T) {
 			},
 			{Name: "internalFn", IsExported: false},
 		},
+		Dependencies: []domain.Dependency{
+			{
+				From: domain.SymbolRef{Package: "internal/foo", Symbol: "NewService"},
+				To:   domain.SymbolRef{Package: "internal/foo", Symbol: "PublicAPI"},
+				Kind: domain.DependencyUses, ThroughExported: false,
+			},
+		},
 	}
 
 	t.Run("public mode omits unexported", func(t *testing.T) {
@@ -308,6 +335,9 @@ func TestBuildPackageOverviewGraph_ModeFiltering(t *testing.T) {
 		if label := nodeLabel(g, "fn:internal/foo.NewService"); !strings.Contains(label, "constructor") || !strings.Contains(label, "cfg: Config") || !strings.Contains(label, "returns:") || !strings.Contains(label, "*Service") {
 			t.Errorf("factory label = %q, want constructor params and return", label)
 		}
+		if hasGraphEdge(g, "fn:internal/foo.NewService", "type:internal/foo.PublicAPI", "uses") {
+			t.Errorf("public graph leaked non-exported dependency edge")
+		}
 	})
 
 	t.Run("full mode includes unexported", func(t *testing.T) {
@@ -332,6 +362,9 @@ func TestBuildPackageOverviewGraph_ModeFiltering(t *testing.T) {
 		}
 		if label := nodeLabel(g, "type:internal/foo.Public"); !strings.Contains(label, "- secret: string") {
 			t.Errorf("full struct label = %q, want unexported fields", label)
+		}
+		if !hasGraphEdge(g, "fn:internal/foo.NewService", "type:internal/foo.PublicAPI", "uses") {
+			t.Errorf("full graph missing non-exported dependency edge between visible nodes")
 		}
 	})
 }
@@ -734,6 +767,15 @@ func nodeLabel(g graphPayload, id string) string {
 		}
 	}
 	return ""
+}
+
+func hasGraphEdge(g graphPayload, source, target, kind string) bool {
+	for _, e := range g.Edges {
+		if e.Source == source && e.Target == target && e.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 // M9 (#61): per-package D2 source must respect mode and stay deterministic.

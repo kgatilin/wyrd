@@ -105,7 +105,13 @@
     {{range $i, $seq := .Sequences}}
         <h3>{{$seq.Label}}</h3>
         {{if $seq.HasM6}}
-            <div class="cy-graph cy-sequence" id="seq-graph-{{$i}}" data-graph="{{toJSON $seq.Graph}}"></div>
+            {{if $seq.SVG}}
+                <div class="d2-frame sequence-frame">{{$seq.SVG}}</div>
+            {{else if $seq.SVGError}}
+                <p class="error-banner">Could not render sequence diagram: {{$seq.SVGError}}</p>
+            {{else}}
+                <p class="muted">No renderable call sequence recorded for this method.</p>
+            {{end}}
         {{else}}
             <p class="muted">No static call edges recorded for this method (M6 may not have been run, or the method body has no inter-package calls).</p>
         {{end}}

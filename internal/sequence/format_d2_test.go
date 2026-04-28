@@ -39,8 +39,8 @@ func TestFormatD2MethodActorsShareType(t *testing.T) {
 	// fileReader.Read it should be "rd.fileReader"; arrow label is
 	// just "Read" with a [via io.Reader] annotation.
 	for _, want := range []string{
-		"svc.Service -> rd.fileReader: Read [via io.Reader]",
-		"svc.Service -> rd.memReader: Read [via io.Reader]",
+		`svc.Service -> rd.fileReader: "Read [via io.Reader]"`,
+		`svc.Service -> rd.memReader: "Read [via io.Reader]"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in D2 output:\n%s", want, out)

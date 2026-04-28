@@ -107,15 +107,16 @@
     </dl>
     {{if .HasSequences}}
     <section class="card pkg-sequences">
-        <h2>Sequences from entry points</h2>
-        <p class="muted">Static call trees rooted at each {{if eq .Mode "full"}}function and method{{else}}exported function and method{{end}} in this package. Linked nodes navigate to the relevant type or package.</p>
+        <h2>Sequence diagrams from entry points</h2>
+        <p class="muted">Static call sequences rooted at {{if eq .Mode "full"}}functions and methods{{else}}exported functions and methods{{end}} with recorded call edges.</p>
         {{range $i, $seq := .Sequences}}
             <h3>{{$seq.Label}}</h3>
-            {{if $seq.HasM6}}
-                <div class="cy-graph cy-sequence" id="pkg-seq-graph-{{$i}}" data-graph="{{toJSON $seq.Graph}}" data-view="sequence" data-layout="dagre" data-height="320"></div>
+            {{if $seq.SVG}}
+                <div class="d2-frame sequence-frame">{{$seq.SVG}}</div>
+            {{else if $seq.SVGError}}
+                <p class="error-banner">Could not render sequence diagram: {{$seq.SVGError}}</p>
             {{else}}
-                <p class="muted">No static call edges recorded for this entry point — the renderer shows only the root.</p>
-                <div class="cy-graph cy-sequence" id="pkg-seq-graph-{{$i}}" data-graph="{{toJSON $seq.Graph}}" data-view="sequence" data-layout="dagre" data-height="160"></div>
+                <p class="muted">No renderable call sequence recorded for this entry point.</p>
             {{end}}
         {{end}}
     </section>

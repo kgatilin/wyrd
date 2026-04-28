@@ -48,7 +48,7 @@ func writeD2Edges(sb *strings.Builder, n *Node) {
 			label += " (depth limit)"
 		}
 		fmt.Fprintf(sb, "%s -> %s: %s\n",
-			d2Ident(caller), d2Ident(callee), label)
+			d2Ident(caller), d2Ident(callee), d2Label(label))
 		if !c.Cycle && !c.NotFound && !c.DepthLimit {
 			writeD2Edges(sb, c)
 		}
@@ -113,6 +113,23 @@ func pkgLeaf(pkg string) string {
 // digits, underscore, and "." are fine bare; anything else triggers
 // quoting.
 func d2Ident(s string) string {
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '.':
+		default:
+			return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+		}
+	}
+	return s
+}
+
+func d2Label(s string) string {
+	if s == "" {
+		return `""`
+	}
 	for _, r := range s {
 		switch {
 		case r >= 'a' && r <= 'z':

@@ -294,15 +294,24 @@ func TestBuildPackageSequenceEntries_PublicMode(t *testing.T) {
 	pkg := domain.PackageModel{
 		Path: "internal/svc",
 		Functions: []domain.FunctionDef{
-			{Name: "NewService", IsExported: true, Stereotype: domain.StereotypeFactory},
-			{Name: "Helper", IsExported: true},
+			{
+				Name: "NewService", IsExported: true, Stereotype: domain.StereotypeFactory,
+				Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Helper"}}},
+			},
+			{
+				Name: "Helper", IsExported: true,
+				Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "internal"}}},
+			},
 			{Name: "internal", IsExported: false},
 		},
 		Structs: []domain.StructDef{
 			{
 				Name: "Service", IsExported: true,
 				Methods: []domain.MethodDef{
-					{Name: "Run", IsExported: true},
+					{
+						Name: "Run", IsExported: true,
+						Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Helper"}}},
+					},
 					{Name: "step", IsExported: false},
 				},
 			},
@@ -325,19 +334,36 @@ func TestBuildPackageSequenceEntries_PublicMode(t *testing.T) {
 			t.Fatalf("unexpected label %q in %+v", l, labels)
 		}
 	}
+	for _, entry := range got {
+		if !strings.Contains(entry.D2, "shape: sequence_diagram") {
+			t.Fatalf("%s missing D2 sequence source: %q", entry.Label, entry.D2)
+		}
+	}
 }
 
 func TestBuildPackageSequenceEntries_FullMode(t *testing.T) {
 	pkg := domain.PackageModel{
 		Path: "internal/svc",
 		Functions: []domain.FunctionDef{
-			{Name: "Helper", IsExported: true},
-			{Name: "internal", IsExported: false},
+			{
+				Name: "Helper", IsExported: true,
+				Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "internal"}}},
+			},
+			{
+				Name: "internal", IsExported: false,
+				Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Helper"}}},
+			},
 		},
 		Structs: []domain.StructDef{
 			{Name: "hidden", IsExported: false, Methods: []domain.MethodDef{
-				{Name: "Do", IsExported: true},
-				{Name: "step", IsExported: false},
+				{
+					Name: "Do", IsExported: true,
+					Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "Helper"}}},
+				},
+				{
+					Name: "step", IsExported: false,
+					Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/svc", Symbol: "internal"}}},
+				},
 			}},
 		},
 	}
@@ -354,7 +380,7 @@ func TestBuildPackageSequenceEntries_Empty(t *testing.T) {
 	}
 }
 
-func TestBuildPackageSequenceEntries_RootGraphHasM6Flag(t *testing.T) {
+func TestBuildPackageSequenceEntries_SkipsRootOnlyEntries(t *testing.T) {
 	pkg := domain.PackageModel{
 		Path: "internal/svc",
 		Functions: []domain.FunctionDef{
@@ -376,8 +402,11 @@ func TestBuildPackageSequenceEntries_RootGraphHasM6Flag(t *testing.T) {
 	if !by["Run"].HasM6 {
 		t.Fatalf("Run should have HasM6=true: %+v", by["Run"])
 	}
-	if by["Bare"].HasM6 {
-		t.Fatalf("Bare should have HasM6=false: %+v", by["Bare"])
+	if _, ok := by["Bare"]; ok {
+		t.Fatalf("Bare should be skipped because it has no recorded calls: %+v", by["Bare"])
+	}
+	if !strings.Contains(by["Run"].D2, "svc.Run -> svc.helper: helper") {
+		t.Fatalf("Run D2 does not look like a sequence edge: %q", by["Run"].D2)
 	}
 }
 
@@ -444,6 +473,21 @@ func TestSequenceNodeToGraph_PopulatesHref(t *testing.T) {
 	}
 	if g.Nodes[1].Href != "/packages/internal/svc" {
 		t.Fatalf("child href = %q", g.Nodes[1].Href)
+	}
+}
+
+func TestRenderSequenceSVGs_RendersD2Sequence(t *testing.T) {
+	entries := []sequenceEntry{{
+		Label: "Run",
+		D2:    "shape: sequence_diagram\na -> b: call\n",
+		HasM6: true,
+	}}
+	renderSequenceSVGs(context.Background(), entries)
+	if entries[0].SVGError != "" {
+		t.Fatalf("unexpected render error: %s", entries[0].SVGError)
+	}
+	if !strings.Contains(string(entries[0].SVG), "<svg") {
+		t.Fatalf("rendered SVG missing <svg: %s", entries[0].SVG)
 	}
 }
 

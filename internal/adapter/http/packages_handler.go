@@ -107,6 +107,9 @@ func (s *Server) handlePackageDetail(w nethttp.ResponseWriter, r *nethttp.Reques
 	// Dependencies graph direction (#89). Distinct query param from the
 	// overview Mode so toggling one tab doesn't perturb the other.
 	data.DepsMode = parseDepsMode(r.URL.Query().Get("deps"))
+	if active == tabOverview {
+		renderSequenceSVGs(r.Context(), data.Sequences)
+	}
 
 	// M13: surface plugin extra tabs + injected scripts.
 	if reg := s.UIRegistry(); reg != nil {

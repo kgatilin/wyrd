@@ -949,6 +949,22 @@ nav.pkg-tabs {
     margin-bottom: 1rem;
 }
 .d2-frame svg { max-width: 100%; height: auto; }
+
+.sequence-frame {
+    padding: 0.75rem;
+    max-height: min(76vh, 900px);
+    overflow: auto;
+}
+
+.sequence-frame svg {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    max-height: min(72vh, 860px);
+    height: auto;
+    margin: 0 auto;
+}
+
 .error-banner {
     padding: 0.5rem 0.75rem;
     border: 1px solid var(--border);
