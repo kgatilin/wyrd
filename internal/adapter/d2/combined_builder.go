@@ -61,17 +61,22 @@ type combinedBuilder struct {
 	buf    strings.Builder
 	indent int
 	mode   OverviewMode
+	style  StyleConfig
 }
 
 // newCombinedBuilder creates a new combined builder defaulted to public-only mode.
 func newCombinedBuilder() *combinedBuilder {
-	return &combinedBuilder{mode: OverviewModePublic}
+	return newCombinedBuilderWithMode(OverviewModePublic)
 }
 
 // newCombinedBuilderWithMode returns a builder configured for the given
 // mode. Empty/unknown modes fall back to OverviewModePublic.
 func newCombinedBuilderWithMode(mode OverviewMode) *combinedBuilder {
-	return &combinedBuilder{mode: mode.Normalize()}
+	return newCombinedBuilderWithStyle(mode, StyleConfig{})
+}
+
+func newCombinedBuilderWithStyle(mode OverviewMode, style StyleConfig) *combinedBuilder {
+	return &combinedBuilder{mode: mode.Normalize(), style: style.withDefaults()}
 }
 
 // Build generates D2 diagram content from multiple packages using the
@@ -88,12 +93,12 @@ func (b *combinedBuilder) Build(packages []domain.PackageModel) string {
 
 	// 2. Write reusable style classes
 	b.writeComment("Style classes")
-	b.writeRaw(classesTemplate())
+	b.writeRaw(classesTemplate(b.style))
 	b.writeLine("")
 
 	// 3. Write legend
 	b.writeComment("Legend")
-	b.writeRaw(legendTemplate())
+	b.writeRaw(legendTemplate(b.style))
 	b.writeLine("")
 	b.writeLine("")
 
@@ -321,6 +326,7 @@ func (b *combinedBuilder) writeInterface(iface domain.InterfaceDef) {
 	b.indent++
 
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", stereotypeSymbolClass(interfaceSymbolStereotype(iface))))
 	b.writeLine(`stereotype: "<<interface>>"`)
 
 	methods := b.visibleMethods(iface.Methods)
@@ -342,6 +348,7 @@ func (b *combinedBuilder) writeStruct(s domain.StructDef) {
 	b.indent++
 
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", stereotypeSymbolClass(structSymbolStereotype(s))))
 	b.writeLine(`stereotype: "<<struct>>"`)
 
 	fields := b.visibleFields(s.Fields)
@@ -372,6 +379,7 @@ func (b *combinedBuilder) writeFunction(fn domain.FunctionDef) {
 	b.indent++
 
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", stereotypeSymbolClass(functionSymbolStereotype(fn))))
 
 	entry := IsEntryPoint(fn)
 
@@ -383,10 +391,9 @@ func (b *combinedBuilder) writeFunction(fn domain.FunctionDef) {
 	}
 
 	// Distinct styling for entry points: explicit class assignment plus
-	// a visual marker. The class name resolves to the existing
-	// "factory" colour palette already declared at the top of the file.
+	// a visual marker. The function class above uses the symbol palette,
+	// where style.fill is dark enough for D2 class member names.
 	if entry {
-		b.writeLine(fmt.Sprintf(`class: %s`, ClassFactory))
 		b.writeLine(`style.bold: true`)
 		b.writeLine(`style.stroke-width: 2`)
 		b.writeLine(fmt.Sprintf(`"%s": ""`, EntryPointStereotype))
@@ -417,6 +424,7 @@ func (b *combinedBuilder) writeTypeDef(td domain.TypeDef) {
 	b.indent++
 
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", stereotypeSymbolClass(typeDefSymbolStereotype(td))))
 
 	label := stereotypeLabel(td.Stereotype)
 	if label != "" {
@@ -444,6 +452,7 @@ func (b *combinedBuilder) writeConstantsBlock(consts []domain.ConstDef) {
 	b.writeLine("Constants: {")
 	b.indent++
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", ClassValueSymbol))
 	b.writeLine(`stereotype: "<<const>>"`)
 	b.writeLine("")
 	for _, c := range consts {
@@ -465,6 +474,7 @@ func (b *combinedBuilder) writeVariablesBlock(vars []domain.VarDef) {
 	b.writeLine("Variables: {")
 	b.indent++
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", ClassValueSymbol))
 	b.writeLine(`stereotype: "<<var>>"`)
 	b.writeLine("")
 	for _, v := range vars {
@@ -483,6 +493,7 @@ func (b *combinedBuilder) writeErrorsBlock(errs []domain.ErrorDef) {
 	b.writeLine("Errors: {")
 	b.indent++
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", ClassValueSymbol))
 	b.writeLine(`stereotype: "<<error>>"`)
 	b.writeLine("")
 	for _, e := range errs {

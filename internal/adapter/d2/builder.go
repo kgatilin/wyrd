@@ -12,11 +12,16 @@ import (
 type d2TextBuilder struct {
 	buf    strings.Builder
 	indent int
+	style  StyleConfig
 }
 
 // newD2TextBuilder creates a new D2 text builder.
 func newD2TextBuilder() *d2TextBuilder {
-	return &d2TextBuilder{}
+	return newD2TextBuilderWithStyle(StyleConfig{})
+}
+
+func newD2TextBuilderWithStyle(style StyleConfig) *d2TextBuilder {
+	return &d2TextBuilder{style: style.withDefaults()}
 }
 
 // Build generates D2 diagram content from a package model.
@@ -30,12 +35,12 @@ func (b *d2TextBuilder) Build(pkg domain.PackageModel, publicOnly bool) string {
 
 	// 2. Write reusable style classes
 	b.writeComment("Style classes")
-	b.writeRaw(classesTemplate())
+	b.writeRaw(classesTemplate(b.style))
 	b.writeLine("")
 
 	// 3. Write legend
 	b.writeComment("Legend")
-	b.writeRaw(legendTemplate())
+	b.writeRaw(legendTemplate(b.style))
 	b.writeLine("")
 	b.writeLine("")
 
@@ -244,6 +249,7 @@ func (b *d2TextBuilder) writeConstantsBlock(consts []domain.ConstDef) {
 	b.writeLine("Constants: {")
 	b.indent++
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", ClassValueSymbol))
 	b.writeLine(`stereotype: "<<const>>"`)
 	b.writeLine("")
 	for _, c := range consts {
@@ -266,6 +272,7 @@ func (b *d2TextBuilder) writeVariablesBlock(vars []domain.VarDef) {
 	b.writeLine("Variables: {")
 	b.indent++
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", ClassValueSymbol))
 	b.writeLine(`stereotype: "<<var>>"`)
 	b.writeLine("")
 	for _, v := range vars {
@@ -285,6 +292,7 @@ func (b *d2TextBuilder) writeErrorsBlock(errs []domain.ErrorDef) {
 	b.writeLine("Errors: {")
 	b.indent++
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", ClassValueSymbol))
 	b.writeLine(`stereotype: "<<error>>"`)
 	b.writeLine("")
 	for _, e := range errs {
@@ -342,8 +350,8 @@ func (b *d2TextBuilder) writeInterface(iface domain.InterfaceDef, publicOnly boo
 	b.indent++
 
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", stereotypeSymbolClass(interfaceSymbolStereotype(iface))))
 	b.writeLine(`stereotype: "<<interface>>"`)
-
 
 	// Write methods
 	if len(iface.Methods) > 0 {
@@ -366,8 +374,8 @@ func (b *d2TextBuilder) writeStruct(s domain.StructDef, publicOnly bool) {
 	b.indent++
 
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", stereotypeSymbolClass(structSymbolStereotype(s))))
 	b.writeLine(`stereotype: "<<struct>>"`)
-
 
 	// Write fields
 	hasVisibleFields := false
@@ -430,6 +438,7 @@ func (b *d2TextBuilder) writeFunctionAsClass(fn domain.FunctionDef) {
 	b.indent++
 
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", stereotypeSymbolClass(functionSymbolStereotype(fn))))
 
 	// Write stereotype - use <<factory>> if detected, otherwise <<function>>
 	if fn.Stereotype == domain.StereotypeFactory {
@@ -464,6 +473,7 @@ func (b *d2TextBuilder) writeTypeDef(td domain.TypeDef) {
 	b.indent++
 
 	b.writeLine("shape: class")
+	b.writeLine(fmt.Sprintf("class: %s", stereotypeSymbolClass(typeDefSymbolStereotype(td))))
 
 	label := stereotypeLabel(td.Stereotype)
 	if label != "" {

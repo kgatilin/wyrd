@@ -989,6 +989,54 @@ func resolveOverlay(explicitPath string) (overlayPath, goModPath string) {
 	return candidate, gm
 }
 
+func loadD2StyleConfig(overlayPath string) (d2.StyleConfig, error) {
+	if overlayPath == "" {
+		return d2.StyleConfig{}, nil
+	}
+	cfg, err := overlay.LoadComposed(overlayPath)
+	if err != nil {
+		return d2.StyleConfig{}, fmt.Errorf("loading overlay %s: %w", overlayPath, err)
+	}
+	return d2StyleConfigFromOverlay(cfg), nil
+}
+
+func d2StyleConfigFromOverlay(cfg *overlay.Config) d2.StyleConfig {
+	if cfg == nil {
+		return d2.StyleConfig{}
+	}
+	styles := cfg.Diagrams.D2.Styles
+	return d2.StyleConfig{
+		Domain: d2.SemanticStyle{
+			ContainerFill:      styles.Domain.ContainerFill,
+			ContainerFontColor: styles.Domain.ContainerFontColor,
+			ClassFill:          styles.Domain.ClassFill,
+			ClassFontColor:     styles.Domain.ClassFontColor,
+		},
+		Service: d2.SemanticStyle{
+			ContainerFill:      styles.Service.ContainerFill,
+			ContainerFontColor: styles.Service.ContainerFontColor,
+			ClassFill:          styles.Service.ClassFill,
+			ClassFontColor:     styles.Service.ClassFontColor,
+		},
+		Factory: d2.SemanticStyle{
+			ContainerFill:      styles.Factory.ContainerFill,
+			ContainerFontColor: styles.Factory.ContainerFontColor,
+			ClassFill:          styles.Factory.ClassFill,
+			ClassFontColor:     styles.Factory.ClassFontColor,
+		},
+		Value: d2.SemanticStyle{
+			ContainerFill:      styles.Value.ContainerFill,
+			ContainerFontColor: styles.Value.ContainerFontColor,
+			ClassFill:          styles.Value.ClassFill,
+			ClassFontColor:     styles.Value.ClassFontColor,
+		},
+		Legend: d2.LegendStyle{
+			Fill:   styles.Legend.Fill,
+			Stroke: styles.Legend.Stroke,
+		},
+	}
+}
+
 // runGenerate executes the diagram generation command.
 func runGenerate(cmd *cobra.Command, args []string) error {
 	// Build options from flags
@@ -1003,6 +1051,10 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	// Resolve overlay path: explicit flag wins; otherwise auto-detect
 	// archai.yaml in the current working directory.
 	overlayPath, goModPath := resolveOverlay(overlayFlag)
+	d2Style, err := loadD2StyleConfig(overlayPath)
+	if err != nil {
+		return err
+	}
 
 	// Wire up dependencies based on format
 	goReader := golang.NewReader()
@@ -1015,7 +1067,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		writer = yamlAdapter.NewWriter()
 		fileExt = ".yaml"
 	case "d2":
-		writer = d2.NewWriter()
+		writer = d2.NewWriterWithStyle(d2Style)
 		fileExt = ".d2"
 	default:
 		return fmt.Errorf("unsupported format %q (use d2 or yaml)", format)

@@ -23,14 +23,51 @@ package overlay
 //   - Configs: fully-qualified type names to surface as configuration
 //     entry points.
 type Config struct {
-	Module          string                     `yaml:"module"`
-	Layers          map[string][]string        `yaml:"layers"`
-	LayerRules      map[string][]string        `yaml:"layer_rules"`
-	Aggregates      map[string]Aggregate       `yaml:"aggregates"`
-	Configs         []string                   `yaml:"configs"`
-	BoundedContexts map[string]BoundedContext  `yaml:"bounded_contexts,omitempty"`
-	Adapters        map[string]Adapter         `yaml:"adapters,omitempty"`
-	Serve           ServeConfig                `yaml:"serve,omitempty"`
+	Module          string                    `yaml:"module"`
+	Layers          map[string][]string       `yaml:"layers"`
+	LayerRules      map[string][]string       `yaml:"layer_rules"`
+	Aggregates      map[string]Aggregate      `yaml:"aggregates"`
+	Configs         []string                  `yaml:"configs"`
+	BoundedContexts map[string]BoundedContext `yaml:"bounded_contexts,omitempty"`
+	Adapters        map[string]Adapter        `yaml:"adapters,omitempty"`
+	Serve           ServeConfig               `yaml:"serve,omitempty"`
+	Diagrams        DiagramConfig             `yaml:"diagrams,omitempty"`
+}
+
+// DiagramConfig captures project-level presentation settings for generated
+// diagrams. Empty fields fall through to adapter defaults.
+type DiagramConfig struct {
+	D2 D2DiagramConfig `yaml:"d2,omitempty"`
+}
+
+// D2DiagramConfig contains settings for generated D2 source.
+type D2DiagramConfig struct {
+	Styles D2StylesConfig `yaml:"styles,omitempty"`
+}
+
+// D2StylesConfig overrides the semantic palette used by the D2 adapter.
+type D2StylesConfig struct {
+	Domain  D2SemanticStyle `yaml:"domain,omitempty"`
+	Service D2SemanticStyle `yaml:"service,omitempty"`
+	Factory D2SemanticStyle `yaml:"factory,omitempty"`
+	Value   D2SemanticStyle `yaml:"value,omitempty"`
+	Legend  D2LegendStyle   `yaml:"legend,omitempty"`
+}
+
+// D2SemanticStyle overrides one semantic style category. Container fields
+// apply to package/file containers and legend samples. Class fields apply to
+// D2 class-shaped symbols, where style.fill is also used for member-name text.
+type D2SemanticStyle struct {
+	ContainerFill      string `yaml:"container_fill,omitempty"`
+	ContainerFontColor string `yaml:"container_font_color,omitempty"`
+	ClassFill          string `yaml:"class_fill,omitempty"`
+	ClassFontColor     string `yaml:"class_font_color,omitempty"`
+}
+
+// D2LegendStyle overrides the generated D2 legend container.
+type D2LegendStyle struct {
+	Fill   string `yaml:"fill,omitempty"`
+	Stroke string `yaml:"stroke,omitempty"`
 }
 
 // ServeConfig captures persistent settings for `archai serve`. Each

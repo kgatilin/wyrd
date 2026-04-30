@@ -1,23 +1,40 @@
 package d2
 
 // classesTemplate returns the D2 classes block for reusable styles.
-func classesTemplate() string {
+func classesTemplate(style StyleConfig) string {
+	style = style.withDefaults()
 	return `classes: {
   ` + ClassDomain + `: {
-    style.fill: "` + ColorBlue + `"
-    style.font-color: "#000"
+    style.fill: "` + style.Domain.ContainerFill + `"
+    style.font-color: "` + style.Domain.ContainerFontColor + `"
   }
   ` + ClassService + `: {
-    style.fill: "` + ColorPurple + `"
-    style.font-color: "#000"
+    style.fill: "` + style.Service.ContainerFill + `"
+    style.font-color: "` + style.Service.ContainerFontColor + `"
   }
   ` + ClassFactory + `: {
-    style.fill: "` + ColorGreen + `"
-    style.font-color: "#000"
+    style.fill: "` + style.Factory.ContainerFill + `"
+    style.font-color: "` + style.Factory.ContainerFontColor + `"
   }
   ` + ClassValue + `: {
-    style.fill: "` + ColorGray + `"
-    style.font-color: "#000"
+    style.fill: "` + style.Value.ContainerFill + `"
+    style.font-color: "` + style.Value.ContainerFontColor + `"
+  }
+  ` + ClassDomainSymbol + `: {
+    style.fill: "` + style.Domain.ClassFill + `"
+    style.font-color: "` + style.Domain.ClassFontColor + `"
+  }
+  ` + ClassServiceSymbol + `: {
+    style.fill: "` + style.Service.ClassFill + `"
+    style.font-color: "` + style.Service.ClassFontColor + `"
+  }
+  ` + ClassFactorySymbol + `: {
+    style.fill: "` + style.Factory.ClassFill + `"
+    style.font-color: "` + style.Factory.ClassFontColor + `"
+  }
+  ` + ClassValueSymbol + `: {
+    style.fill: "` + style.Value.ClassFill + `"
+    style.font-color: "` + style.Value.ClassFontColor + `"
   }
 }
 `
@@ -25,11 +42,12 @@ func classesTemplate() string {
 
 // legendTemplate returns the D2 legend block content.
 // The legend is positioned at top-right and shows the DDD color coding.
-func legendTemplate() string {
+func legendTemplate(style StyleConfig) string {
+	style = style.withDefaults()
 	return `legend: {
   label: "Color Legend (DDD)"
-  style.stroke: "` + ColorLegendBorder + `"
-  style.fill: "` + ColorLegendFill + `"
+  style.stroke: "` + style.Legend.Stroke + `"
+  style.fill: "` + style.Legend.Fill + `"
   near: top-right
 
   aggregate: {

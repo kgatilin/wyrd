@@ -11,19 +11,35 @@ Copy this template to start a new diagram:
 classes: {
   domain: {
     style.fill: "#e8f4fc"
-    style.font-color: "#000"
+    style.font-color: "#111827"
   }
   service: {
     style.fill: "#f0e8fc"
-    style.font-color: "#000"
+    style.font-color: "#111827"
   }
   factory: {
     style.fill: "#e8fce8"
-    style.font-color: "#000"
+    style.font-color: "#111827"
   }
   value: {
     style.fill: "#f8f8f8"
-    style.font-color: "#000"
+    style.font-color: "#111827"
+  }
+  domain_symbol: {
+    style.fill: "#1d4ed8"
+    style.font-color: "#ffffff"
+  }
+  service_symbol: {
+    style.fill: "#6d28d9"
+    style.font-color: "#ffffff"
+  }
+  factory_symbol: {
+    style.fill: "#166534"
+    style.font-color: "#ffffff"
+  }
+  value_symbol: {
+    style.fill: "#374151"
+    style.font-color: "#ffffff"
   }
 }
 
@@ -73,6 +89,10 @@ your.package: {
 | `service` | Purple | `#f0e8fc` | Interfaces, services, repositories, ports |
 | `factory` | Green | `#e8fce8` | Factory functions (`New*` prefix) |
 | `value` | Gray | `#f8f8f8` | Value objects, options, results, enums |
+
+Use `*_symbol` classes on D2 class-shaped symbols. D2 uses `style.fill` as
+member-name text color inside class bodies, so these symbol colors are darker
+than the container fills.
 
 ### Highlighting New Elements
 
@@ -126,6 +146,7 @@ internal.domain: {
 ```d2
 ModelReader: {
   shape: class
+  class: service_symbol
   stereotype: "<<interface>>"
 
   "+Read(ctx context.Context, paths []string)": "([]PackageModel, error)"
@@ -138,6 +159,7 @@ ModelReader: {
 ```d2
 PackageModel: {
   shape: class
+  class: domain_symbol
   stereotype: "<<struct>>"
 
   "+Path string": ""
@@ -154,6 +176,7 @@ PackageModel: {
 ```d2
 NewService: {
   shape: class
+  class: factory_symbol
   stereotype: "<<factory>>"
 
   "goReader": "ModelReader"
@@ -168,6 +191,7 @@ NewService: {
 ```d2
 ComposeMode: {
   shape: class
+  class: value_symbol
   stereotype: "<<enum>>"
 
   "type": "int"
@@ -218,6 +242,7 @@ For factory functions, show dependencies as fields and return type:
 ```d2
 NewService: {
   shape: class
+  class: factory_symbol
   stereotype: "<<factory>>"
 
   "reader": "ModelReader"      # dependency
@@ -287,10 +312,14 @@ The `new` class uses font color and stroke (no fill), which renders cleanly for 
 
 ```d2
 classes: {
-  domain: { style.fill: "#e8f4fc"; style.font-color: "#000" }
-  service: { style.fill: "#f0e8fc"; style.font-color: "#000" }
-  factory: { style.fill: "#e8fce8"; style.font-color: "#000" }
-  value: { style.fill: "#f8f8f8"; style.font-color: "#000" }
+  domain: { style.fill: "#e8f4fc"; style.font-color: "#111827" }
+  service: { style.fill: "#f0e8fc"; style.font-color: "#111827" }
+  factory: { style.fill: "#e8fce8"; style.font-color: "#111827" }
+  value: { style.fill: "#f8f8f8"; style.font-color: "#111827" }
+  domain_symbol: { style.fill: "#1d4ed8"; style.font-color: "#ffffff" }
+  service_symbol: { style.fill: "#6d28d9"; style.font-color: "#ffffff" }
+  factory_symbol: { style.fill: "#166534"; style.font-color: "#ffffff" }
+  value_symbol: { style.fill: "#374151"; style.font-color: "#ffffff" }
   new: { style.font-color: "#d4edda"; style.stroke: "#d4edda" }
   new-arrow: { style.stroke: "#28a745" }
 }
@@ -314,6 +343,7 @@ pkg.core: {
 
   Entity: {
     shape: class
+    class: domain_symbol
     stereotype: "<<struct>>"
     "+ID string": ""
     "+Name string": ""
@@ -321,6 +351,7 @@ pkg.core: {
 
   Repository: {
     shape: class
+    class: service_symbol
     stereotype: "<<interface>>"
     "+Get(id string)": "(*Entity, error)"
     "+Save(entity *Entity)": "error"
@@ -333,12 +364,14 @@ pkg.service: {
 
   Service: {
     shape: class
+    class: value_symbol
     stereotype: "<<struct>>"
     "+Process(id string)": "error"
   }
 
   NewService: {
     shape: class
+    class: factory_symbol
     stereotype: "<<factory>>"
     "repo": "Repository"
     "return": "*Service"

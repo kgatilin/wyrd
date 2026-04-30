@@ -11,11 +11,18 @@ import (
 )
 
 // writer writes domain.PackageModel structures as D2 diagram files.
-type writer struct{}
+type writer struct {
+	style StyleConfig
+}
 
 // NewWriter creates a new D2 diagram writer that implements service.ModelWriter.
 func NewWriter() service.ModelWriter {
-	return &writer{}
+	return NewWriterWithStyle(StyleConfig{})
+}
+
+// NewWriterWithStyle creates a new D2 diagram writer with style overrides.
+func NewWriterWithStyle(style StyleConfig) service.ModelWriter {
+	return &writer{style: style.withDefaults()}
 }
 
 // Write generates a D2 diagram from a package model and writes it to the output.
@@ -28,7 +35,7 @@ func (w *writer) Write(ctx context.Context, model domain.PackageModel, opts doma
 	}
 
 	// Build D2 content
-	builder := newD2TextBuilder()
+	builder := newD2TextBuilderWithStyle(w.style)
 	content := builder.Build(model, opts.PublicOnly)
 
 	// Write to stdout if requested
@@ -75,7 +82,7 @@ func (w *writer) WriteCombinedWithMode(ctx context.Context, models []domain.Pack
 	}
 
 	// Build combined D2 content using the requested mode.
-	builder := newCombinedBuilderWithMode(mode)
+	builder := newCombinedBuilderWithStyle(mode, w.style)
 	content := builder.Build(models)
 
 	// Ensure parent directory exists

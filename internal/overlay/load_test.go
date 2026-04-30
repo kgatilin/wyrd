@@ -154,6 +154,48 @@ func TestLoad_ServeHTTPAddr_Absent(t *testing.T) {
 	}
 }
 
+func TestLoad_D2Styles(t *testing.T) {
+	yaml := `module: github.com/example/app
+
+layers:
+  domain:
+    - internal/domain/...
+
+layer_rules:
+  domain: []
+
+aggregates: {}
+configs: []
+
+diagrams:
+  d2:
+    styles:
+      service:
+        container_fill: "#f7edff"
+        container_font_color: "#111827"
+        class_fill: "#5b21b6"
+        class_font_color: "#ffffff"
+      legend:
+        fill: "#ffffff"
+        stroke: "#d1d5db"
+`
+	path := writeTempFile(t, "archai.yaml", yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	style := cfg.Diagrams.D2.Styles.Service
+	if style.ContainerFill != "#f7edff" {
+		t.Errorf("service.container_fill = %q, want #f7edff", style.ContainerFill)
+	}
+	if style.ClassFill != "#5b21b6" {
+		t.Errorf("service.class_fill = %q, want #5b21b6", style.ClassFill)
+	}
+	if cfg.Diagrams.D2.Styles.Legend.Stroke != "#d1d5db" {
+		t.Errorf("legend.stroke = %q, want #d1d5db", cfg.Diagrams.D2.Styles.Legend.Stroke)
+	}
+}
+
 func TestLoad_SingleBCOverlay(t *testing.T) {
 	// A single-bounded-context overlay with a human-readable name and an
 	// adapters block must round-trip cleanly through the loader.

@@ -92,6 +92,7 @@ internal.service: {
 
   Service: {
     shape: class
+    class: service_symbol
     stereotype: "<<interface>>"
 
     "+Generate(ctx context.Context, opts GenerateOptions)": "([]GenerateResult, error)"
@@ -99,6 +100,7 @@ internal.service: {
 
   NewService: {
     shape: class
+    class: factory_symbol
     stereotype: "<<factory>>"
 
     "reader": "ModelReader"
@@ -106,6 +108,21 @@ internal.service: {
     "return": "*Service"
   }
 }
+```
+
+Generated D2 styles can be overridden in `archai.yaml`. Container colors and
+class-shaped symbol colors are separate because D2 uses `style.fill` as member
+text color inside class bodies:
+
+```yaml
+diagrams:
+  d2:
+    styles:
+      factory:
+        container_fill: "#e8fce8"
+        container_font_color: "#111827"
+        class_fill: "#166534"
+        class_font_color: "#ffffff"
 ```
 
 ## Viewing Diagrams

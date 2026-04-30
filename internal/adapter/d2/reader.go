@@ -581,6 +581,13 @@ func (r *reader) parseSymbol(name string, m *d2ast.Map) (any, symbolKind) {
 	}
 }
 
+func isClassMetadataKey(keyName string) bool {
+	return keyName == "shape" ||
+		keyName == "stereotype" ||
+		keyName == "class" ||
+		strings.HasPrefix(keyName, "style.")
+}
+
 // parseInterface extracts an InterfaceDef from a D2 class shape.
 func (r *reader) parseInterface(name string, m *d2ast.Map) domain.InterfaceDef {
 	iface := domain.InterfaceDef{
@@ -596,8 +603,8 @@ func (r *reader) parseInterface(name string, m *d2ast.Map) domain.InterfaceDef {
 
 		keyName := getKeyPathString(node.MapKey.Key)
 
-		// Skip shape, stereotype, and style properties
-		if keyName == "shape" || keyName == "stereotype" || strings.HasPrefix(keyName, "style.") {
+		// Skip D2 metadata properties.
+		if isClassMetadataKey(keyName) {
 			continue
 		}
 
@@ -626,8 +633,8 @@ func (r *reader) parseStruct(name string, m *d2ast.Map) domain.StructDef {
 
 		keyName := getKeyPathString(node.MapKey.Key)
 
-		// Skip shape, stereotype, and style properties
-		if keyName == "shape" || keyName == "stereotype" || strings.HasPrefix(keyName, "style.") {
+		// Skip D2 metadata properties.
+		if isClassMetadataKey(keyName) {
 			continue
 		}
 
@@ -668,8 +675,8 @@ func (r *reader) parseFunction(name string, m *d2ast.Map, stereotype string) dom
 
 		keyName := getKeyPathString(node.MapKey.Key)
 
-		// Skip shape, stereotype, and style properties
-		if keyName == "shape" || keyName == "stereotype" || strings.HasPrefix(keyName, "style.") {
+		// Skip D2 metadata properties.
+		if isClassMetadataKey(keyName) {
 			continue
 		}
 
@@ -707,8 +714,8 @@ func (r *reader) parseTypeDef(name string, m *d2ast.Map, stereotype domain.Stere
 
 		keyName := getKeyPathString(node.MapKey.Key)
 
-		// Skip shape, stereotype, and style properties
-		if keyName == "shape" || keyName == "stereotype" || strings.HasPrefix(keyName, "style.") {
+		// Skip D2 metadata properties.
+		if isClassMetadataKey(keyName) {
 			continue
 		}
 
