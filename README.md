@@ -119,10 +119,10 @@ diagrams:
   d2:
     styles:
       factory:
-        container_fill: "#e8fce8"
+        container_fill: "#edf8ed"
         container_font_color: "#111827"
-        class_fill: "#166534"
-        class_font_color: "#ffffff"
+        class_fill: "#256d3f"
+        class_font_color: "#fff"
 ```
 
 ## Viewing Diagrams

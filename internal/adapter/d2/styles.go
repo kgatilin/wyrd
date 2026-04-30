@@ -13,8 +13,8 @@ const (
 	ColorPurpleClass = "#6d28d9"
 
 	// ColorGreen is used for factory functions.
-	ColorGreen      = "#e8fce8"
-	ColorGreenClass = "#166534"
+	ColorGreen      = "#edf8ed"
+	ColorGreenClass = "#256d3f"
 
 	// ColorBlue is used for aggregates and entities.
 	ColorBlue      = "#e8f4fc"
@@ -93,7 +93,7 @@ func DefaultStyleConfig() StyleConfig {
 			ContainerFill:      ColorGreen,
 			ContainerFontColor: ColorText,
 			ClassFill:          ColorGreenClass,
-			ClassFontColor:     ColorClassTitle,
+			ClassFontColor:     "#fff",
 		},
 		Value: SemanticStyle{
 			ContainerFill:      ColorGray,

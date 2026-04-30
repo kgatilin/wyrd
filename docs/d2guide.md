@@ -18,7 +18,7 @@ classes: {
     style.font-color: "#111827"
   }
   factory: {
-    style.fill: "#e8fce8"
+    style.fill: "#edf8ed"
     style.font-color: "#111827"
   }
   value: {
@@ -34,8 +34,8 @@ classes: {
     style.font-color: "#ffffff"
   }
   factory_symbol: {
-    style.fill: "#166534"
-    style.font-color: "#ffffff"
+    style.fill: "#256d3f"
+    style.font-color: "#fff"
   }
   value_symbol: {
     style.fill: "#374151"
@@ -87,7 +87,7 @@ your.package: {
 |-------|-------|-----|---------|
 | `domain` | Blue | `#e8f4fc` | Aggregates, entities, core domain models |
 | `service` | Purple | `#f0e8fc` | Interfaces, services, repositories, ports |
-| `factory` | Green | `#e8fce8` | Factory functions (`New*` prefix) |
+| `factory` | Green | `#edf8ed` | Factory packages and containers |
 | `value` | Gray | `#f8f8f8` | Value objects, options, results, enums |
 
 Use `*_symbol` classes on D2 class-shaped symbols. D2 uses `style.fill` as
@@ -314,11 +314,11 @@ The `new` class uses font color and stroke (no fill), which renders cleanly for 
 classes: {
   domain: { style.fill: "#e8f4fc"; style.font-color: "#111827" }
   service: { style.fill: "#f0e8fc"; style.font-color: "#111827" }
-  factory: { style.fill: "#e8fce8"; style.font-color: "#111827" }
+  factory: { style.fill: "#edf8ed"; style.font-color: "#111827" }
   value: { style.fill: "#f8f8f8"; style.font-color: "#111827" }
   domain_symbol: { style.fill: "#1d4ed8"; style.font-color: "#ffffff" }
   service_symbol: { style.fill: "#6d28d9"; style.font-color: "#ffffff" }
-  factory_symbol: { style.fill: "#166534"; style.font-color: "#ffffff" }
+  factory_symbol: { style.fill: "#256d3f"; style.font-color: "#fff" }
   value_symbol: { style.fill: "#374151"; style.font-color: "#ffffff" }
   new: { style.font-color: "#d4edda"; style.stroke: "#d4edda" }
   new-arrow: { style.stroke: "#28a745" }
