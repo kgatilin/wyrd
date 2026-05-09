@@ -1,5 +1,5 @@
 .PHONY: build build-all test clean install version \
-        java-analyzer java-analyzer-test java-analyzer-clean \
+        java-analyzer java-analyzer-build java-analyzer-test java-analyzer-clean \
         archai-generate archai-baseline archai-check archai-smoke
 
 # VERSION is stamped into the binary at build time via -ldflags. By
@@ -17,18 +17,28 @@ ARCHAI_TARGET ?= self-hosted
 # build` stays Go-only — Go-only users don't need a JVM.
 JAVA_ANALYZER_DIR := tools/archai-java-analyzer
 JAVA_ANALYZER_JAR := $(JAVA_ANALYZER_DIR)/target/archai-java-analyzer.jar
+# Sibling-binary distribution path: #102's default exec resolver looks here.
+JAVA_ANALYZER_BIN_JAR := bin/archai-java-analyzer.jar
 MVN ?= mvn
 
 build:
 	@mkdir -p bin
 	go build -ldflags "$(LDFLAGS)" -o bin/archai ./cmd/archai
 
-# build-all: Go binary + Java analyzer JAR. Use this on releases that bundle
-# the JAR alongside the binary; CI invokes it for tagged builds.
+# build-all: Go binary + Java analyzer JAR copied next to bin/archai. Use this
+# on releases that bundle the JAR alongside the binary; CI invokes it for
+# tagged builds. The sibling-binary location matches #102's default resolver.
 build-all: build java-analyzer
-	@echo "built: bin/archai + $(JAVA_ANALYZER_JAR)"
+	@cp $(JAVA_ANALYZER_JAR) $(JAVA_ANALYZER_BIN_JAR)
+	@echo "built: bin/archai + $(JAVA_ANALYZER_BIN_JAR)"
 
-java-analyzer:
+# java-analyzer: build + run the JAR's tests. Issue #101 acceptance requires
+# this target builds AND tests; if you only want a fast build (skip tests),
+# use `make java-analyzer-build`.
+java-analyzer: java-analyzer-build java-analyzer-test
+	@echo "built + tested: $(JAVA_ANALYZER_JAR)"
+
+java-analyzer-build:
 	$(MVN) -f $(JAVA_ANALYZER_DIR)/pom.xml -DskipTests package
 	@echo "built: $(JAVA_ANALYZER_JAR)"
 
@@ -72,3 +82,4 @@ archai-smoke: build
 clean:
 	rm -rf bin/
 	rm -rf $(JAVA_ANALYZER_DIR)/target/
+	rm -f $(JAVA_ANALYZER_BIN_JAR)

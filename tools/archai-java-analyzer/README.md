@@ -28,15 +28,18 @@ mvn -f tools/archai-java-analyzer/pom.xml package
 # → tools/archai-java-analyzer/target/archai-java-analyzer.jar
 ```
 
-From the archai repo root, the convenience target is:
+From the archai repo root, the convenience targets are:
 
 ```sh
-make java-analyzer        # build only
-make build-all            # build Go binary + JAR side-by-side
+make java-analyzer        # build + run JAR tests (issue #101 acceptance)
+make java-analyzer-build  # build only (skip tests; faster)
+make build-all            # Go binary + JAR copied to bin/archai-java-analyzer.jar
 ```
 
 The default `make build` stays Go-only (preserves «no JVM needed for Go-only
-users»).
+users»). `make build-all` deposits the JAR next to `bin/archai` so the
+sibling-binary resolver in #102's exec wrapper picks it up without extra
+configuration.
 
 ## Run
 
@@ -111,13 +114,14 @@ Re-running without the flag confirms determinism.
 
 Current fixtures:
 
-| Fixture                      | What it covers                                |
-|------------------------------|-----------------------------------------------|
-| `simple-class`               | Single class, fields, methods, calls, imports |
-| `interface-with-default`     | Interface modifiers + default method bodies   |
-| `record`                     | Record kind, components-as-fields             |
-| `sealed-and-enums`           | `sealed`, `permits`, enum constants           |
-| `inheritance`                | `extends`, `implements`, multi-file package   |
+| Fixture                      | What it covers                                                  |
+|------------------------------|-----------------------------------------------------------------|
+| `simple-class`               | Single class, fields, methods, calls, imports                   |
+| `interface-with-default`     | Interface modifiers + default method bodies                     |
+| `record`                     | Record kind, components-as-fields                               |
+| `sealed-and-enums`           | `sealed`, `permits`, enum constants                             |
+| `inheritance`                | `extends`, `implements`, multi-file package                     |
+| `call-resolution`            | `JavaCall.target_fqn` resolution + lambda/anonymous-class boundary |
 
 ## Layout
 
@@ -142,11 +146,17 @@ tools/archai-java-analyzer/
 - The JAR exits 1 only on hard failure. Empty `classes` + non-empty
   `parse_warnings` always means «every file failed»; the Go side does not
   need to second-guess this.
-- `to_class` on calls is best-effort textual scope. The Go translator can
-  resolve to module-relative FQNs by joining with the analyzed package set.
-- `external: true` on a `JavaCall` is reserved for future use; v1 always
-  emits `false`. The translator decides external-ness based on the analyzed
-  set.
+- `JavaCall.target_fqn` is the canonical edge target. It is non-empty only
+  when JavaParser's symbol solver bound the receiver to a class declared in
+  the analyzed source set; build `domain.CallEdge`s from those calls. Calls
+  with `external: true` carry the textual receiver/method under
+  `unresolved` for diagnostics — drop them from the graph.
+- `to_class` on calls is the raw textual receiver scope as written; kept
+  for backward compatibility and human inspection. Use `target_fqn` /
+  `unresolved` instead for routing decisions.
+- Default JAR distribution location: `bin/archai-java-analyzer.jar` next to
+  the Go binary (deposited by `make build-all`). #102's exec wrapper looks
+  there first.
 - Field/method/parameter ordering inside a class is source-order — stable
   because JavaParser parses deterministically. Cross-class order is
-  alphabetical FQN.
+  alphabetical FQN. Parse warnings are sorted by `(file, message)`.
