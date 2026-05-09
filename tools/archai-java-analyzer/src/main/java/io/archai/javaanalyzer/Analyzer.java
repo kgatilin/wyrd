@@ -21,17 +21,25 @@ import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MemberValuePair;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
+import com.github.javaparser.ast.stmt.LocalClassDeclarationStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.ReferenceType;
 import com.github.javaparser.ast.type.TypeParameter;
-import com.github.javaparser.utils.SourceRoot;
+import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
+import com.github.javaparser.symbolsolver.JavaSymbolSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 
 import io.archai.javaanalyzer.facts.JavaAnnotation;
 import io.archai.javaanalyzer.facts.JavaCall;
+import io.archai.javaanalyzer.facts.JavaCallUnresolved;
 import io.archai.javaanalyzer.facts.JavaClass;
 import io.archai.javaanalyzer.facts.JavaFacts;
 import io.archai.javaanalyzer.facts.JavaField;
@@ -45,10 +53,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Walks one or more source roots with JavaParser and collects {@link
@@ -58,15 +69,21 @@ import java.util.stream.Collectors;
  * tells it. Schema interpretation (stereotypes, archai-domain mapping) lives
  * in the Go translator, never here.
  *
- * <p>JavaParser's symbol solver is configured per-root with a {@link
- * com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver}
- * + {@link com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver}
- * so resolution works inside the analyzed source set and falls back to
- * runtime-classpath types (i.e. {@code java.*}). Anything outside both is
- * left as the textual form and marked {@link JavaCall#isExternal()}.
+ * <p>JavaParser's symbol solver is configured per-run with a
+ * {@link CombinedTypeSolver} that combines a {@link ReflectionTypeSolver} with
+ * one {@link JavaParserTypeSolver} per src-root. This enables resolution
+ * inside the analyzed source set (so {@code repo.save()} on a {@code Repo}
+ * field declared in another in-set class can be tied to its owning class) and
+ * falls back to runtime-classpath types for {@code java.*}. Anything else
+ * stays unresolved — {@link JavaCall#isExternal()} flips to {@code true}, the
+ * raw textual receiver scope and method name land in
+ * {@link JavaCall#getUnresolved()}, and {@link JavaCall#getTargetFqn()} stays
+ * empty. Solver failures (timeout, crash inside a single resolution) are
+ * caught and treated identically to "unresolved".
  *
  * <p>Output ordering: classes sorted by FQN, members within a class kept in
- * source order (deterministic per file), imports sorted, packages sorted.
+ * source order (deterministic per file), imports sorted, packages sorted,
+ * parse warnings sorted by (file, message).
  */
 public final class Analyzer {
 
@@ -107,37 +124,59 @@ public final class Analyzer {
         List<JavaImport> imports = new ArrayList<>();
         List<ParseWarning> warnings = new ArrayList<>();
 
-        ParserConfiguration parserConfig = new ParserConfiguration()
-            .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
+        // Build a combined type solver covering every src-root plus
+        // reflection (for java.*). Used by JavaSymbolSolver to bind receiver
+        // types in extractCalls. Failures inside any single resolution are
+        // caught locally in extractCalls.
+        CombinedTypeSolver typeSolver = new CombinedTypeSolver();
+        typeSolver.add(new ReflectionTypeSolver());
+        for (int i = 0; i < srcRoots.size(); i++) {
+            Path root = srcRoots.get(i);
+            if (Files.isDirectory(root)) {
+                typeSolver.add(new JavaParserTypeSolver(root.toFile()));
+            }
+        }
+        JavaSymbolSolver symbolSolver = new JavaSymbolSolver(typeSolver);
 
+        ParserConfiguration parserConfig = new ParserConfiguration()
+            .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17)
+            .setSymbolResolver(symbolSolver);
+
+        JavaParser parser = new JavaParser(parserConfig);
+
+        // First pass: walk every src-root, collect all .java files. We parse
+        // per-file (not via SourceRoot.tryToParseParallelized) so a parse
+        // warning always carries the original file path — see #104 review.
         for (int i = 0; i < srcRoots.size(); i++) {
             Path root = srcRoots.get(i);
             if (!Files.isDirectory(root)) {
                 warnings.add(new ParseWarning(root.toString(), "src-root is not a directory"));
                 continue;
             }
-
-            SourceRoot sourceRoot = new SourceRoot(root, parserConfig);
-            // Don't re-write input on close.
-            sourceRoot.setPrinter(cu -> cu.toString());
-
-            List<ParseResult<CompilationUnit>> results = sourceRoot.tryToParseParallelized();
-
             Path rootAbs = rootsAbs.get(i);
 
-            for (ParseResult<CompilationUnit> result : results) {
+            List<Path> javaFiles = collectJavaFiles(root);
+
+            for (Path javaFile : javaFiles) {
+                String fileForWarning = relativisePath(javaFile, rootAbs);
+
+                ParseResult<CompilationUnit> result;
+                try {
+                    result = parser.parse(javaFile);
+                } catch (IOException ioe) {
+                    warnings.add(new ParseWarning(fileForWarning,
+                        "read failed: " + ioe.getMessage()));
+                    continue;
+                }
+
                 if (!result.isSuccessful() || result.getResult().isEmpty()) {
-                    String file = result.getResult()
-                        .flatMap(CompilationUnit::getStorage)
-                        .map(s -> s.getPath().toString())
-                        .orElse("<unknown>");
                     String msg = result.getProblems().stream()
                         .map(p -> p.getMessage())
                         .collect(Collectors.joining("; "));
                     if (msg.isEmpty()) {
                         msg = "parse failed";
                     }
-                    warnings.add(new ParseWarning(file, msg));
+                    warnings.add(new ParseWarning(fileForWarning, msg));
                     continue;
                 }
 
@@ -146,12 +185,48 @@ public final class Analyzer {
             }
         }
 
-        // Deterministic ordering — classes by FQN, imports by (from, to_class, kind).
+        // Compute the set of in-source FQNs — needed to mark calls as
+        // external when their resolved owner is not in the current parse set.
+        Set<String> inSourceFqns = new HashSet<>();
+        for (JavaClass jc : classes) {
+            inSourceFqns.add(jc.getFqn());
+        }
+
+        // Second pass over collected classes: resolve calls now that the full
+        // type set is known. We rebuild the calls list per method by
+        // re-walking the original AST nodes via the Node references we kept
+        // in the JavaMethod metadata… except we don't keep them. The cleanest
+        // approach for v1 is to resolve during the AST walk above; the second
+        // pass here only flips `external` for any same-source resolution that
+        // happens to land outside the current class set (defensive — should
+        // be unreachable since the solver is configured to *this* set).
+        for (JavaClass jc : classes) {
+            for (JavaMethod jm : jc.getMethods()) {
+                for (JavaCall jcall : jm.getCalls()) {
+                    if (!jcall.getTargetFqn().isEmpty()
+                        && !inSourceFqns.contains(jcall.getTargetFqn())) {
+                        // Resolved owner not in our parse set — treat as
+                        // external. Keep targetFqn empty so the Go side has
+                        // a single signal.
+                        jcall.setExternal(true);
+                        jcall.setUnresolved(new JavaCallUnresolved(
+                            jcall.getToClass(), jcall.getToMethod()));
+                        jcall.setTargetFqn("");
+                    }
+                }
+            }
+        }
+
+        // Deterministic ordering — classes by FQN, imports by (from, to_class, kind),
+        // parse warnings by (file, message).
         classes.sort(Comparator.comparing(JavaClass::getFqn));
         imports.sort(Comparator
             .comparing(JavaImport::getFrom)
             .thenComparing(JavaImport::getToClass)
             .thenComparing(JavaImport::getKind));
+        warnings.sort(Comparator
+            .comparing(ParseWarning::getFile)
+            .thenComparing(ParseWarning::getMessage));
 
         facts.getPackages().addAll(packages);
         facts.getClasses().addAll(classes);
@@ -159,6 +234,29 @@ public final class Analyzer {
         facts.getParseWarnings().addAll(warnings);
 
         return facts;
+    }
+
+    private static List<Path> collectJavaFiles(Path root) throws IOException {
+        List<Path> out = new ArrayList<>();
+        try (Stream<Path> stream = Files.walk(root)) {
+            stream
+                .filter(Files::isRegularFile)
+                .filter(p -> p.getFileName().toString().endsWith(".java"))
+                .sorted()
+                .forEach(out::add);
+        }
+        return out;
+    }
+
+    private static String relativisePath(Path file, Path rootAbs) {
+        Path abs = file.toAbsolutePath().normalize();
+        String s;
+        try {
+            s = rootAbs.relativize(abs).toString();
+        } catch (IllegalArgumentException e) {
+            s = abs.toString();
+        }
+        return s.replace(java.io.File.separatorChar, '/');
     }
 
     private void processCompilationUnit(
@@ -391,40 +489,94 @@ public final class Analyzer {
     }
 
     /**
-     * Extract method calls from a method body. Resolution is best-effort:
-     * if the symbol solver is not configured (the default in v1), the call
-     * receiver is captured textually and {@link JavaCall#isExternal()} is
-     * left {@code false} — Go side decides.
+     * Extract method calls from a method body. Resolution is best-effort
+     * same-source-only via {@link JavaSymbolSolver}: if the receiver type
+     * resolves to a class declared in the analyzed source set,
+     * {@link JavaCall#getTargetFqn()} carries the resolved owner FQN and
+     * {@link JavaCall#isExternal()} is {@code false}; otherwise the call is
+     * marked external and the textual receiver scope is recorded under
+     * {@link JavaCall#getUnresolved()}. Any solver failure (exception during
+     * resolve) is treated as "unresolved" — never crashes the analyzer.
      *
-     * <p>TODO: wire JavaParser symbol solver in a follow-up so {@code
-     * to_class} is the resolved FQN when the receiver type lives in the
-     * analyzed source set. For v1 the textual scope is enough to enable the
-     * Go translator to do same-package matching.
+     * <p>Recursion stops at lexical executable boundaries — calls inside an
+     * anonymous-class body, a lambda, or a local class declaration belong to
+     * those nested executables, not to the method we started from. They will
+     * be visited when their owning {@code MethodDeclaration} /
+     * {@code ConstructorDeclaration} is processed (or skipped, if anonymous /
+     * lambda — those are out of scope for v1).
      */
     private List<JavaCall> extractCalls(Node bodyOwner) {
         List<JavaCall> out = new ArrayList<>();
-        bodyOwner.findAll(MethodCallExpr.class).forEach(call -> {
-            JavaCall jc = new JavaCall();
-            jc.setToMethod(call.getNameAsString());
-            jc.setToClass(call.getScope()
-                .map(Object::toString)
-                .orElse(""));
-            // Static-ness: best-effort textual heuristic — if the receiver
-            // looks like a Type (starts uppercase) treat as static. The Go
-            // side can refine this once #102 wires symbol resolution.
-            String scope = jc.getToClass();
-            jc.setStatic(!scope.isEmpty()
-                && Character.isUpperCase(scope.charAt(0))
-                && scope.indexOf('.') < 0);
-            // External flag: left false in v1 since we do not resolve. The
-            // translator (Go side) can flip it based on the analyzed
-            // package set.
-            jc.setExternal(false);
-            out.add(jc);
-        });
-        // Calls follow source order (findAll is depth-first, document order)
-        // — keeps output deterministic without further sorting.
+        collectCallsBounded(bodyOwner, out, /*atRoot=*/true);
         return out;
+    }
+
+    private void collectCallsBounded(Node node, List<JavaCall> out, boolean atRoot) {
+        // Stop descent into nested executable scopes — their calls are not
+        // ours. atRoot guards against immediately rejecting the body owner
+        // itself when it happens to be a LambdaExpr (caller passes a method
+        // body, not a lambda, but be defensive).
+        if (!atRoot) {
+            if (node instanceof LambdaExpr) return;
+            if (node instanceof LocalClassDeclarationStmt) return;
+            if (node instanceof ObjectCreationExpr oce
+                && oce.getAnonymousClassBody().isPresent()) {
+                return;
+            }
+        }
+
+        if (node instanceof MethodCallExpr call) {
+            out.add(buildCall(call));
+        }
+
+        for (Node child : node.getChildNodes()) {
+            collectCallsBounded(child, out, false);
+        }
+    }
+
+    private JavaCall buildCall(MethodCallExpr call) {
+        JavaCall jc = new JavaCall();
+        jc.setToMethod(call.getNameAsString());
+
+        String scope = call.getScope().map(Object::toString).orElse("");
+        jc.setToClass(scope);
+        // Static-ness: best-effort textual heuristic — if the receiver
+        // looks like a Type (starts uppercase, no dot) treat as static.
+        // Symbol-solver can refine this in a follow-up; the textual
+        // heuristic is good enough for #102 to consume.
+        jc.setStatic(!scope.isEmpty()
+            && Character.isUpperCase(scope.charAt(0))
+            && scope.indexOf('.') < 0);
+
+        // Resolution attempt — same-source via the configured symbol solver.
+        // Any failure => external/unresolved.
+        String resolvedFqn = "";
+        try {
+            ResolvedMethodDeclaration rmd = call.resolve();
+            String declaringTypeQName = rmd.declaringType().getQualifiedName();
+            if (declaringTypeQName != null && !declaringTypeQName.isEmpty()
+                && !declaringTypeQName.startsWith("java.")
+                && !declaringTypeQName.startsWith("javax.")) {
+                // Same-source candidate. The second pass in `analyze` will
+                // flip external=true if the FQN turns out not to be in the
+                // parse set.
+                resolvedFqn = declaringTypeQName;
+            }
+        } catch (Throwable t) { // NOSONAR — solver throws a varied set
+            // Unresolved — leave resolvedFqn empty, fall through.
+        }
+
+        if (!resolvedFqn.isEmpty()) {
+            jc.setTargetFqn(resolvedFqn);
+            jc.setExternal(false);
+            // Unresolved block stays at default empty values — see
+            // JavaCallUnresolved Javadoc.
+        } else {
+            jc.setTargetFqn("");
+            jc.setExternal(true);
+            jc.setUnresolved(new JavaCallUnresolved(scope, call.getNameAsString()));
+        }
+        return jc;
     }
 
     private List<JavaAnnotation> annotationsOf(NodeList<AnnotationExpr> nodeList) {

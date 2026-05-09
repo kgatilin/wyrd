@@ -60,7 +60,12 @@
               "to_class" : "Objects",
               "to_method" : "requireNonNull",
               "static" : true,
-              "external" : false
+              "external" : true,
+              "target_fqn" : "",
+              "unresolved" : {
+                "receiver_text" : "Objects",
+                "method_name" : "requireNonNull"
+              }
             }
           ]
         },

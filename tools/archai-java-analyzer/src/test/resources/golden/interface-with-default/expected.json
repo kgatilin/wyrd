@@ -61,13 +61,23 @@
               "to_class" : "voice()",
               "to_method" : "toUpperCase",
               "static" : false,
-              "external" : false
+              "external" : true,
+              "target_fqn" : "",
+              "unresolved" : {
+                "receiver_text" : "voice()",
+                "method_name" : "toUpperCase"
+              }
             },
             {
               "to_class" : "",
               "to_method" : "voice",
               "static" : false,
-              "external" : false
+              "external" : false,
+              "target_fqn" : "com.example.Talker",
+              "unresolved" : {
+                "receiver_text" : "",
+                "method_name" : ""
+              }
             }
           ]
         }

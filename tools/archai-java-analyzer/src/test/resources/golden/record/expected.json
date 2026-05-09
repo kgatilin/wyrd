@@ -70,7 +70,12 @@
               "to_class" : "Math",
               "to_method" : "sqrt",
               "static" : true,
-              "external" : false
+              "external" : true,
+              "target_fqn" : "",
+              "unresolved" : {
+                "receiver_text" : "Math",
+                "method_name" : "sqrt"
+              }
             }
           ]
         }

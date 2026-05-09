@@ -90,7 +90,12 @@
               "to_class" : "",
               "to_method" : "sound",
               "static" : false,
-              "external" : false
+              "external" : false,
+              "target_fqn" : "com.example.Animal",
+              "unresolved" : {
+                "receiver_text" : "",
+                "method_name" : ""
+              }
             }
           ]
         }
@@ -187,7 +192,12 @@
               "to_class" : "System.out",
               "to_method" : "println",
               "static" : false,
-              "external" : false
+              "external" : true,
+              "target_fqn" : "",
+              "unresolved" : {
+                "receiver_text" : "System.out",
+                "method_name" : "println"
+              }
             }
           ]
         }

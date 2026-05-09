@@ -15,10 +15,16 @@ breaking change to this contract.
 3. **Deterministic ordering.** Classes sort by FQN. Imports sort by
    `(from, to_class, kind)`. Members within a class follow source order
    (already deterministic per parsed file). Packages sort alphabetically.
-4. **Best-effort resolution.** Where JavaParser's symbol solver succeeds the
-   `to_class` and annotation `fqn` fields carry resolved fully-qualified
-   names; otherwise the textual form as written is preserved. The Go
-   translator decides what to do with unresolved references.
+   Parse warnings sort by `(file, message)`.
+4. **Same-source-only resolution.** JavaParser's symbol solver is wired with
+   a `JavaParserTypeSolver` per src-root plus a `ReflectionTypeSolver` for
+   `java.*`. A `JavaCall` is treated as resolved only when its receiver
+   binds to a class declared in the analyzed source set; that FQN lands in
+   `target_fqn` and `external=false`. Anything else (stdlib, third-party,
+   solver failure) is `external=true` with `target_fqn=""` and the textual
+   receiver/method captured under `unresolved`. Annotation `fqn` and
+   `extends`/`implements` fields stay textual — those are reserved for a
+   later pass.
 
 ## Top-level shape
 
@@ -126,15 +132,39 @@ Varargs parameters set `"varargs": true`; the `type` is the element type
 ## `JavaCall`
 
 ```json
-{ "to_class": "Math", "to_method": "sqrt", "static": true, "external": false }
+{
+  "to_class": "this",
+  "to_method": "save",
+  "static": false,
+  "external": false,
+  "target_fqn": "com.example.UserService",
+  "unresolved": { "receiver_text": "", "method_name": "" }
+}
 ```
 
-| Field       | Meaning                                                                              |
-|-------------|--------------------------------------------------------------------------------------|
-| `to_class`  | Receiver textual scope (resolved FQN if symbol solver succeeded). Empty for unqualified calls. |
-| `to_method` | Method name as written.                                                              |
-| `static`    | Heuristic — `true` when `to_class` looks like a Type (uppercase, no dot).            |
-| `external`  | `true` when the receiver couldn't be resolved to the analyzed source set. v1 leaves this `false`; the Go translator may flip it after applying the analyzed-package set. |
+```json
+{
+  "to_class": "System.out",
+  "to_method": "println",
+  "static": false,
+  "external": true,
+  "target_fqn": "",
+  "unresolved": { "receiver_text": "System.out", "method_name": "println" }
+}
+```
+
+| Field          | Meaning                                                                                                            |
+|----------------|--------------------------------------------------------------------------------------------------------------------|
+| `to_class`     | Receiver textual scope as written. Empty for unqualified calls. Always present for backward compatibility.         |
+| `to_method`    | Method name as written.                                                                                            |
+| `static`       | Textual heuristic — `true` when `to_class` looks like a Type (uppercase, no dot). Not driven by symbol resolution. |
+| `external`     | `true` when the call's owner type is **not** a class declared in the analyzed source set (stdlib, third-party, unresolved). `false` only when `target_fqn` is non-empty and points into the parse set. |
+| `target_fqn`   | Resolved owner FQN — populated only when JavaParser's symbol solver bound the receiver to an in-source class. Empty when `external` is `true`. |
+| `unresolved`   | `{receiver_text, method_name}` — populated when `external` is `true`. `receiver_text` mirrors `to_class`, `method_name` mirrors `to_method`. Both empty strings when the call resolved.              |
+
+The Go translator (#102) builds `domain.CallEdge` entries only from calls with
+non-empty `target_fqn`. Unresolved calls are dropped from the graph but stay
+visible in the JavaFacts document for diagnostics and future enrichment.
 
 ## `JavaImport`
 
@@ -172,12 +202,21 @@ with code 1 and prints the warnings to stderr instead.
 
 ## What's not in v1
 
-- Static initialiser blocks
-- Resolved annotation argument values (only textual)
-- Cross-JAR type resolution (only same-source-set resolution attempted)
+- Static initialiser blocks (TODO: emit synthetic `<clinit>` method).
+- Anonymous-class / lambda / local-class bodies — `JavaCall` extraction stops
+  at these lexical boundaries; their calls are not attributed to the
+  enclosing method, and the nested executables themselves are not emitted.
+  TODO: emit anonymous classes as synthetic types in a follow-up.
+- Resolved annotation argument values (only textual).
+- Resolved annotation `fqn` and class `extends` / `implements` — these stay
+  textual (TODO: extend the symbol-solver pass to types, not just calls).
+- Cross-JAR type resolution beyond `java.*` (only same-source-set resolution
+  attempted; stdlib resolves but is treated as external).
 - Method-body fact other than method calls (no field reads, control flow,
-  lambda targets)
-- Generic type substitutions (parameter types stay as written, e.g.
-  `List<String>` rather than `java.util.List<java.lang.String>`)
+  lambda targets).
+- Generic type substitutions and complex bounded generics (parameter types
+  stay as written, e.g. `List<String>` rather than
+  `java.util.List<java.lang.String>`). TODO: dedicated generics fixture.
 
-These are explicit follow-ups, captured as TODOs in code where relevant.
+These are explicit follow-ups; the analyzer will not silently change schema
+to deliver any of them — anything new bumps the schema version.
