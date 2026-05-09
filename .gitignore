@@ -8,3 +8,6 @@
 # Per-worktree runtime state (M9): CURRENT pointer + serve.json record
 # live here so parallel worktrees don't collide on ports or target ids.
 .arch/.worktree/
+
+# Java analyzer (issue #101) build output
+tools/archai-java-analyzer/target/

@@ -1,4 +1,6 @@
-.PHONY: build test clean install version archai-generate archai-baseline archai-check archai-smoke
+.PHONY: build build-all test clean install version \
+        java-analyzer java-analyzer-test java-analyzer-clean \
+        archai-generate archai-baseline archai-check archai-smoke
 
 # VERSION is stamped into the binary at build time via -ldflags. By
 # default it is derived from `git describe` so unreleased builds show
@@ -10,9 +12,31 @@ ARCHAI ?= bin/archai
 ARCHAI_PACKAGES ?= ./...
 ARCHAI_TARGET ?= self-hosted
 
+# Java analyzer (issue #101): separate sub-project under tools/, only built
+# explicitly via `make java-analyzer` or `make build-all`. Default `make
+# build` stays Go-only — Go-only users don't need a JVM.
+JAVA_ANALYZER_DIR := tools/archai-java-analyzer
+JAVA_ANALYZER_JAR := $(JAVA_ANALYZER_DIR)/target/archai-java-analyzer.jar
+MVN ?= mvn
+
 build:
 	@mkdir -p bin
 	go build -ldflags "$(LDFLAGS)" -o bin/archai ./cmd/archai
+
+# build-all: Go binary + Java analyzer JAR. Use this on releases that bundle
+# the JAR alongside the binary; CI invokes it for tagged builds.
+build-all: build java-analyzer
+	@echo "built: bin/archai + $(JAVA_ANALYZER_JAR)"
+
+java-analyzer:
+	$(MVN) -f $(JAVA_ANALYZER_DIR)/pom.xml -DskipTests package
+	@echo "built: $(JAVA_ANALYZER_JAR)"
+
+java-analyzer-test:
+	$(MVN) -f $(JAVA_ANALYZER_DIR)/pom.xml test
+
+java-analyzer-clean:
+	$(MVN) -f $(JAVA_ANALYZER_DIR)/pom.xml clean
 
 install:
 	go install -ldflags "$(LDFLAGS)" ./cmd/archai
@@ -47,3 +71,4 @@ archai-smoke: build
 
 clean:
 	rm -rf bin/
+	rm -rf $(JAVA_ANALYZER_DIR)/target/

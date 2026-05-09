@@ -1,0 +1,83 @@
+{
+  "schema" : "javafacts/v1",
+  "src_roots" : [
+    "src"
+  ],
+  "packages" : [
+    "com.example"
+  ],
+  "classes" : [
+    {
+      "fqn" : "com.example.Point",
+      "package" : "com.example",
+      "name" : "Point",
+      "kind" : "record",
+      "modifiers" : [
+        "public"
+      ],
+      "type_parameters" : [ ],
+      "extends" : "",
+      "implements" : [ ],
+      "permits" : [ ],
+      "source_file" : "com/example/Point.java",
+      "doc" : "2D point — records expose components as fields.",
+      "annotations" : [ ],
+      "fields" : [
+        {
+          "name" : "x",
+          "type" : "double",
+          "modifiers" : [
+            "final",
+            "private"
+          ],
+          "annotations" : [ ],
+          "doc" : ""
+        },
+        {
+          "name" : "y",
+          "type" : "double",
+          "modifiers" : [
+            "final",
+            "private"
+          ],
+          "annotations" : [ ],
+          "doc" : ""
+        }
+      ],
+      "methods" : [
+        {
+          "name" : "distance",
+          "kind" : "method",
+          "modifiers" : [
+            "public"
+          ],
+          "type_parameters" : [ ],
+          "params" : [
+            {
+              "name" : "other",
+              "type" : "Point",
+              "varargs" : false,
+              "modifiers" : [ ],
+              "annotations" : [ ]
+            }
+          ],
+          "returns" : "double",
+          "throws" : [ ],
+          "annotations" : [ ],
+          "doc" : "",
+          "calls" : [
+            {
+              "to_class" : "Math",
+              "to_method" : "sqrt",
+              "static" : true,
+              "external" : false
+            }
+          ]
+        }
+      ],
+      "enum_constants" : [ ]
+    }
+  ],
+  "imports" : [ ],
+  "parse_warnings" : [ ]
+}

@@ -1,0 +1,80 @@
+{
+  "schema" : "javafacts/v1",
+  "src_roots" : [
+    "src"
+  ],
+  "packages" : [
+    "com.example"
+  ],
+  "classes" : [
+    {
+      "fqn" : "com.example.Talker",
+      "package" : "com.example",
+      "name" : "Talker",
+      "kind" : "interface",
+      "modifiers" : [
+        "public"
+      ],
+      "type_parameters" : [ ],
+      "extends" : "",
+      "implements" : [ ],
+      "permits" : [ ],
+      "source_file" : "com/example/Talker.java",
+      "doc" : "Interface with a default method — exercises method modifiers and\ninterface-level dispatch.",
+      "annotations" : [ ],
+      "fields" : [ ],
+      "methods" : [
+        {
+          "name" : "voice",
+          "kind" : "method",
+          "modifiers" : [ ],
+          "type_parameters" : [ ],
+          "params" : [ ],
+          "returns" : "String",
+          "throws" : [ ],
+          "annotations" : [ ],
+          "doc" : "",
+          "calls" : [ ]
+        },
+        {
+          "name" : "shout",
+          "kind" : "method",
+          "modifiers" : [
+            "default"
+          ],
+          "type_parameters" : [ ],
+          "params" : [
+            {
+              "name" : "msg",
+              "type" : "String",
+              "varargs" : false,
+              "modifiers" : [ ],
+              "annotations" : [ ]
+            }
+          ],
+          "returns" : "String",
+          "throws" : [ ],
+          "annotations" : [ ],
+          "doc" : "",
+          "calls" : [
+            {
+              "to_class" : "voice()",
+              "to_method" : "toUpperCase",
+              "static" : false,
+              "external" : false
+            },
+            {
+              "to_class" : "",
+              "to_method" : "voice",
+              "static" : false,
+              "external" : false
+            }
+          ]
+        }
+      ],
+      "enum_constants" : [ ]
+    }
+  ],
+  "imports" : [ ],
+  "parse_warnings" : [ ]
+}
