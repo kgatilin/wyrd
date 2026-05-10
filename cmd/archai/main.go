@@ -92,6 +92,7 @@ Examples:
 	generateCmd.Flags().Bool("debug", false, "Print debug information about packages and dependencies")
 	generateCmd.Flags().String("overlay", "", "Path to archai.yaml overlay (default: auto-detect in current directory)")
 	generateCmd.Flags().String("mode", "public", "Combined-mode overview detail: 'public' (default) or 'full'")
+	generateCmd.Flags().String("java-jar", "", "Path to archai-java-analyzer.jar (defaults to ARCHAI_JAVA_JAR env or sibling-of-binary)")
 
 	diagramCmd.AddCommand(generateCmd)
 
@@ -1047,6 +1048,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	debug, _ := cmd.Flags().GetBool("debug")
 	overlayFlag, _ := cmd.Flags().GetString("overlay")
 	modeFlag, _ := cmd.Flags().GetString("mode")
+	javaJarFlag, _ := cmd.Flags().GetString("java-jar")
 
 	// Resolve overlay path: explicit flag wins; otherwise auto-detect
 	// archai.yaml in the current working directory.
@@ -1075,7 +1077,19 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 
 	yamlReader := yamlAdapter.NewReader()
 	yamlWriter := yamlAdapter.NewWriter()
-	svc := service.NewService(goReader, d2Reader, writer, service.WithYAML(yamlReader, yamlWriter))
+
+	// Java support is opt-in by environment: only attach the Java reader
+	// when both `java` is on PATH AND a JAR can be resolved. Pure-Go
+	// users pay no cost (the Java reader's match predicate skips paths
+	// without .java files anyway, but we belt-and-brace by not even
+	// registering the reader when the toolchain is incomplete).
+	options := []service.Option{service.WithYAML(yamlReader, yamlWriter)}
+	if javaReader, note := tryAssembleJavaReader(javaJarFlag); javaReader != nil {
+		options = append(options, service.WithJavaReader(javaReader))
+	} else if note != "" {
+		fmt.Fprintln(os.Stderr, note)
+	}
+	svc := service.NewService(goReader, d2Reader, writer, options...)
 
 	// Validate flags
 	if pubOnly && internalOnly {
@@ -1113,7 +1127,9 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			if !ok {
 				return fmt.Errorf("writer does not support full-mode combined output (use --format=d2)")
 			}
-			packages, err := goReader.Read(ctx, args)
+			// Use the service so the Java/Go multi-language dispatch is
+			// honoured here too, not just on the per-package path.
+			packages, err := svc.ReadModels(ctx, args)
 			if err != nil {
 				return fmt.Errorf("generation failed: reading packages: %w", err)
 			}

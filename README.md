@@ -46,6 +46,29 @@ Output goes to `.arch/` folder in each package:
 - `pub.d2` - exported symbols only (public API)
 - `internal.d2` - all symbols (full implementation)
 
+### Java Sources (experimental)
+
+Archai can also analyse Java source code via a companion JAR
+(`archai-java-analyzer.jar`, see `tools/archai-java-analyzer/`). Java
+support is opt-in:
+
+- Requires JRE 21+ on `PATH`.
+- Requires the JAR. Build it from source with `make java-analyzer` (Maven 3.9+ required), then point archai at it via `--java-jar` or the `ARCHAI_JAVA_JAR` environment variable. `make build-all` copies the JAR next to `bin/archai`, which the CLI auto-discovers.
+
+```bash
+# Build the JAR (one-time)
+make java-analyzer
+
+# Generate diagrams for a Java project
+archai diagram generate ./mysrc --java-jar tools/archai-java-analyzer/target/archai-java-analyzer.jar
+```
+
+Polyglot trees work too — `archai diagram generate ./...` will run the
+Go reader on `*.go` subtrees and the Java reader on `*.java` subtrees
+in the same invocation. Pure-Go projects pay no cost: when neither the
+flag nor `ARCHAI_JAVA_JAR` is set and no JAR sits next to the binary,
+archai silently skips Java detection.
+
 ### Split Combined Diagrams
 
 Split a combined diagram into per-package specification files:
