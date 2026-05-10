@@ -1,0 +1,106 @@
+{
+  "schema" : "javafacts/v1",
+  "src_roots" : [
+    "src"
+  ],
+  "packages" : [
+    "com.example"
+  ],
+  "classes" : [
+    {
+      "fqn" : "com.example.Greeter",
+      "package" : "com.example",
+      "name" : "Greeter",
+      "kind" : "class",
+      "modifiers" : [
+        "public"
+      ],
+      "type_parameters" : [ ],
+      "extends" : "",
+      "implements" : [ ],
+      "permits" : [ ],
+      "source_file" : "com/example/Greeter.java",
+      "doc" : "Simple greeter — single class, single field, single method.",
+      "annotations" : [ ],
+      "fields" : [
+        {
+          "name" : "prefix",
+          "type" : "String",
+          "modifiers" : [
+            "private",
+            "final"
+          ],
+          "annotations" : [ ],
+          "doc" : ""
+        }
+      ],
+      "methods" : [
+        {
+          "name" : "Greeter",
+          "kind" : "constructor",
+          "modifiers" : [
+            "public"
+          ],
+          "type_parameters" : [ ],
+          "params" : [
+            {
+              "name" : "prefix",
+              "type" : "String",
+              "varargs" : false,
+              "modifiers" : [ ],
+              "annotations" : [ ]
+            }
+          ],
+          "returns" : "void",
+          "throws" : [ ],
+          "annotations" : [ ],
+          "doc" : "",
+          "calls" : [
+            {
+              "to_class" : "Objects",
+              "to_method" : "requireNonNull",
+              "static" : true,
+              "external" : true,
+              "target_fqn" : "",
+              "unresolved" : {
+                "receiver_text" : "Objects",
+                "method_name" : "requireNonNull"
+              }
+            }
+          ]
+        },
+        {
+          "name" : "greet",
+          "kind" : "method",
+          "modifiers" : [
+            "public"
+          ],
+          "type_parameters" : [ ],
+          "params" : [
+            {
+              "name" : "name",
+              "type" : "String",
+              "varargs" : false,
+              "modifiers" : [ ],
+              "annotations" : [ ]
+            }
+          ],
+          "returns" : "String",
+          "throws" : [ ],
+          "annotations" : [ ],
+          "doc" : "",
+          "calls" : [ ]
+        }
+      ],
+      "enum_constants" : [ ]
+    }
+  ],
+  "imports" : [
+    {
+      "from" : "com.example.Greeter",
+      "to_class" : "java.util.Objects",
+      "kind" : "class"
+    }
+  ],
+  "parse_warnings" : [ ]
+}

@@ -1,0 +1,268 @@
+{
+  "schema" : "javafacts/v1",
+  "src_roots" : [
+    "src"
+  ],
+  "packages" : [
+    "com.example"
+  ],
+  "classes" : [
+    {
+      "fqn" : "com.example.Circle",
+      "package" : "com.example",
+      "name" : "Circle",
+      "kind" : "class",
+      "modifiers" : [
+        "public",
+        "final"
+      ],
+      "type_parameters" : [ ],
+      "extends" : "",
+      "implements" : [
+        "Shape"
+      ],
+      "permits" : [ ],
+      "source_file" : "com/example/Circle.java",
+      "doc" : "",
+      "annotations" : [ ],
+      "fields" : [
+        {
+          "name" : "radius",
+          "type" : "double",
+          "modifiers" : [
+            "private",
+            "final"
+          ],
+          "annotations" : [ ],
+          "doc" : ""
+        }
+      ],
+      "methods" : [
+        {
+          "name" : "Circle",
+          "kind" : "constructor",
+          "modifiers" : [
+            "public"
+          ],
+          "type_parameters" : [ ],
+          "params" : [
+            {
+              "name" : "radius",
+              "type" : "double",
+              "varargs" : false,
+              "modifiers" : [ ],
+              "annotations" : [ ]
+            }
+          ],
+          "returns" : "void",
+          "throws" : [ ],
+          "annotations" : [ ],
+          "doc" : "",
+          "calls" : [ ]
+        },
+        {
+          "name" : "area",
+          "kind" : "method",
+          "modifiers" : [
+            "public"
+          ],
+          "type_parameters" : [ ],
+          "params" : [ ],
+          "returns" : "double",
+          "throws" : [ ],
+          "annotations" : [
+            {
+              "fqn" : "Override",
+              "args" : [ ]
+            }
+          ],
+          "doc" : "",
+          "calls" : [ ]
+        }
+      ],
+      "enum_constants" : [ ]
+    },
+    {
+      "fqn" : "com.example.Color",
+      "package" : "com.example",
+      "name" : "Color",
+      "kind" : "enum",
+      "modifiers" : [
+        "public"
+      ],
+      "type_parameters" : [ ],
+      "extends" : "",
+      "implements" : [ ],
+      "permits" : [ ],
+      "source_file" : "com/example/Color.java",
+      "doc" : "Enum with explicit constructor — exercises enum kind + enum_constants.",
+      "annotations" : [ ],
+      "fields" : [
+        {
+          "name" : "hex",
+          "type" : "String",
+          "modifiers" : [
+            "private",
+            "final"
+          ],
+          "annotations" : [ ],
+          "doc" : ""
+        }
+      ],
+      "methods" : [
+        {
+          "name" : "Color",
+          "kind" : "constructor",
+          "modifiers" : [ ],
+          "type_parameters" : [ ],
+          "params" : [
+            {
+              "name" : "hex",
+              "type" : "String",
+              "varargs" : false,
+              "modifiers" : [ ],
+              "annotations" : [ ]
+            }
+          ],
+          "returns" : "void",
+          "throws" : [ ],
+          "annotations" : [ ],
+          "doc" : "",
+          "calls" : [ ]
+        },
+        {
+          "name" : "hex",
+          "kind" : "method",
+          "modifiers" : [
+            "public"
+          ],
+          "type_parameters" : [ ],
+          "params" : [ ],
+          "returns" : "String",
+          "throws" : [ ],
+          "annotations" : [ ],
+          "doc" : "",
+          "calls" : [ ]
+        }
+      ],
+      "enum_constants" : [
+        "RED",
+        "GREEN",
+        "BLUE"
+      ]
+    },
+    {
+      "fqn" : "com.example.Shape",
+      "package" : "com.example",
+      "name" : "Shape",
+      "kind" : "interface",
+      "modifiers" : [
+        "public",
+        "sealed"
+      ],
+      "type_parameters" : [ ],
+      "extends" : "",
+      "implements" : [ ],
+      "permits" : [
+        "Circle",
+        "Square"
+      ],
+      "source_file" : "com/example/Shape.java",
+      "doc" : "Sealed interface — exercises permits + interface declaration.",
+      "annotations" : [ ],
+      "fields" : [ ],
+      "methods" : [
+        {
+          "name" : "area",
+          "kind" : "method",
+          "modifiers" : [ ],
+          "type_parameters" : [ ],
+          "params" : [ ],
+          "returns" : "double",
+          "throws" : [ ],
+          "annotations" : [ ],
+          "doc" : "",
+          "calls" : [ ]
+        }
+      ],
+      "enum_constants" : [ ]
+    },
+    {
+      "fqn" : "com.example.Square",
+      "package" : "com.example",
+      "name" : "Square",
+      "kind" : "class",
+      "modifiers" : [
+        "public",
+        "final"
+      ],
+      "type_parameters" : [ ],
+      "extends" : "",
+      "implements" : [
+        "Shape"
+      ],
+      "permits" : [ ],
+      "source_file" : "com/example/Square.java",
+      "doc" : "",
+      "annotations" : [ ],
+      "fields" : [
+        {
+          "name" : "side",
+          "type" : "double",
+          "modifiers" : [
+            "private",
+            "final"
+          ],
+          "annotations" : [ ],
+          "doc" : ""
+        }
+      ],
+      "methods" : [
+        {
+          "name" : "Square",
+          "kind" : "constructor",
+          "modifiers" : [
+            "public"
+          ],
+          "type_parameters" : [ ],
+          "params" : [
+            {
+              "name" : "side",
+              "type" : "double",
+              "varargs" : false,
+              "modifiers" : [ ],
+              "annotations" : [ ]
+            }
+          ],
+          "returns" : "void",
+          "throws" : [ ],
+          "annotations" : [ ],
+          "doc" : "",
+          "calls" : [ ]
+        },
+        {
+          "name" : "area",
+          "kind" : "method",
+          "modifiers" : [
+            "public"
+          ],
+          "type_parameters" : [ ],
+          "params" : [ ],
+          "returns" : "double",
+          "throws" : [ ],
+          "annotations" : [
+            {
+              "fqn" : "Override",
+              "args" : [ ]
+            }
+          ],
+          "doc" : "",
+          "calls" : [ ]
+        }
+      ],
+      "enum_constants" : [ ]
+    }
+  ],
+  "imports" : [ ],
+  "parse_warnings" : [ ]
+}

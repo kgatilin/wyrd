@@ -14,6 +14,11 @@ const (
 
 	// DependencyImplements indicates a struct implements an interface.
 	DependencyImplements DependencyKind = "implements"
+
+	// DependencyExtends indicates a class extends another class
+	// (Java-style inheritance). Emitted by adapter/java; the Go
+	// adapter does not produce this kind.
+	DependencyExtends DependencyKind = "extends"
 )
 
 // String returns the string representation of the dependency kind.
