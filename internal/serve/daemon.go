@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kgatilin/archai/internal/plugin"
+	"github.com/kgatilin/archai/internal/service"
 	"github.com/kgatilin/archai/internal/worktree"
 )
 
@@ -82,6 +83,13 @@ type Options struct {
 	// nil, HTTPServerFactory is used and plugin routes are not mounted
 	// onto the HTTP transport.
 	PluginHTTPFactory func(state *State, plugins plugin.BootstrapResult) (HTTPTransport, error)
+
+	// Reader, when non-nil, replaces the default Go-only model reader.
+	// Pass a multi-language reader here (e.g. one that wraps a
+	// service.Service with WithJavaReader) so `archai serve` works on
+	// pure-Java projects without tripping the Go loader's "directory
+	// prefix . does not contain main module" error.
+	Reader service.ModelReader
 }
 
 // HTTPTransport is the minimal contract the serve daemon needs from an
@@ -132,7 +140,11 @@ func Serve(ctx context.Context, opts Options) error {
 	var state *State
 	if opts.MultiState == nil {
 		fmt.Fprintf(logOut, "serve: loading model from %s\n", absRoot)
-		state = NewState(absRoot)
+		var stateOpts []StateOption
+		if opts.Reader != nil {
+			stateOpts = append(stateOpts, WithReader(opts.Reader))
+		}
+		state = NewState(absRoot, stateOpts...)
 		if err := state.Load(ctx); err != nil {
 			return err
 		}

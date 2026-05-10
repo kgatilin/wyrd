@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 
 	javaAdapter "github.com/kgatilin/archai/internal/adapter/java"
+	"github.com/kgatilin/archai/internal/adapter/golang"
+	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/archai/internal/service"
 )
 
 // tryAssembleJavaReader returns a Java ModelReader if the toolchain is
@@ -47,4 +52,52 @@ func tryAssembleJavaReader(jarFlag string) (*javaAdapter.Reader, string) {
 	}
 
 	return javaAdapter.NewReader(jarPath), ""
+}
+
+// dispatcherReader adapts a *service.Service into the
+// service.ModelReader interface so callers (notably internal/serve)
+// can plug the multi-language read pipeline behind a single
+// Read(ctx, paths) call.
+type dispatcherReader struct {
+	svc *service.Service
+}
+
+// Read forwards to svc.ReadModels, which honours the multi-language
+// dispatch (Go / Java / future readers) wired through service.Options.
+func (d dispatcherReader) Read(ctx context.Context, paths []string) ([]domain.PackageModel, error) {
+	return d.svc.ReadModels(ctx, paths)
+}
+
+// assembleServeReader builds a multi-language reader for `archai serve`
+// using the same wiring as `archai diagram generate`. The Java reader
+// is registered when the toolchain is available; the Go reader gets a
+// match predicate so pure-Java projects don't trip over the Go loader's
+// "directory prefix . does not contain main module" failure.
+//
+// The optional note is the same toolchain advisory surfaced by
+// tryAssembleJavaReader; callers may print it to stderr.
+func assembleServeReader() (service.ModelReader, string) {
+	javaReader, note := tryAssembleJavaReader("")
+	opts := []service.Option{}
+	if javaReader != nil {
+		opts = append(opts,
+			service.WithJavaReader(javaReader),
+			service.WithGoLanguageMatcher(service.MatchSubtreeHasExt(".go")),
+		)
+	}
+	svc := service.NewService(golang.NewReader(), nil, nil, opts...)
+	return dispatcherReader{svc: svc}, note
+}
+
+// newServeStateLoader returns a serve.StateLoader that constructs each
+// worktree's State with the supplied multi-language reader. Mirrors
+// serve.DefaultStateLoader's behaviour otherwise.
+func newServeStateLoader(reader service.ModelReader) serve.StateLoader {
+	return func(ctx context.Context, _, path string) (*serve.State, error) {
+		state := serve.NewState(path, serve.WithReader(reader))
+		if err := state.Load(ctx); err != nil {
+			return nil, err
+		}
+		return state, nil
+	}
 }

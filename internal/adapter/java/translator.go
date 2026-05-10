@@ -22,6 +22,12 @@ import (
 //	implements                  → Dependency{Kind: "implements"} +
 //	                              domain.Implementation when the interface
 //	                              is in the parsed source set
+//	nested class                → flat top-level type using the leaf name
+//	                              ("Outer.Inner" → "Inner") + Dependency
+//	                              {Kind: "nested-in"} from inner to outer.
+//	                              Keeps the domain model uniform with Go
+//	                              (no nested types) so the D2 emitter
+//	                              never has to handle dotted symbol IDs.
 //	imports                     → Dependency{Kind: "uses"}
 //	calls (target_fqn != "")    → CallEdge on the source method
 //	modifiers contains "public" → IsExported = true
@@ -127,17 +133,18 @@ func appendClass(
 	case "annotation":
 		model.TypeDefs = append(model.TypeDefs, buildAnnotation(c))
 	default: // class, record
-		model.Structs = append(model.Structs, buildStruct(c))
+		model.Structs = append(model.Structs, buildStruct(c, classByFQN))
 	}
 
+	addNestingEdges(model, c, classByFQN)
 	addInheritanceEdges(model, c, classByFQN)
-	addImportEdges(model, c, imports)
+	addImportEdges(model, c, imports, classByFQN)
 }
 
 func buildInterface(c javaClass) domain.InterfaceDef {
 	return domain.InterfaceDef{
-		Name:       c.Name,
-		Methods:    convertMethods(c.Methods, c.Package),
+		Name:       leafName(c.Name),
+		Methods:    convertMethods(c.Methods, c.Package, nil),
 		IsExported: containsModifier(c.Modifiers, "public"),
 		SourceFile: c.SourceFile,
 		Doc:        c.Doc,
@@ -145,9 +152,9 @@ func buildInterface(c javaClass) domain.InterfaceDef {
 	}
 }
 
-func buildStruct(c javaClass) domain.StructDef {
+func buildStruct(c javaClass, classByFQN map[string]javaClass) domain.StructDef {
 	stereotype := detectClassStereotype(c)
-	methods := convertMethods(c.Methods, c.Package)
+	methods := convertMethods(c.Methods, c.Package, classByFQN)
 	for i := range methods {
 		// If the class itself has no stereotype, look for a factory method
 		// to bubble up to the type level — matches the Go adapter's
@@ -161,7 +168,7 @@ func buildStruct(c javaClass) domain.StructDef {
 		}
 	}
 	return domain.StructDef{
-		Name:       c.Name,
+		Name:       leafName(c.Name),
 		Fields:     convertFields(c.Fields, c.Package),
 		Methods:    methods,
 		IsExported: containsModifier(c.Modifiers, "public"),
@@ -173,7 +180,7 @@ func buildStruct(c javaClass) domain.StructDef {
 
 func buildEnum(c javaClass) domain.TypeDef {
 	return domain.TypeDef{
-		Name:           c.Name,
+		Name:           leafName(c.Name),
 		UnderlyingType: domain.TypeRef{Name: "enum"},
 		Constants:      append([]string(nil), c.EnumConstants...),
 		IsExported:     containsModifier(c.Modifiers, "public"),
@@ -185,12 +192,41 @@ func buildEnum(c javaClass) domain.TypeDef {
 
 func buildAnnotation(c javaClass) domain.TypeDef {
 	return domain.TypeDef{
-		Name:           c.Name,
+		Name:           leafName(c.Name),
 		UnderlyingType: domain.TypeRef{Name: "annotation"},
 		IsExported:     containsModifier(c.Modifiers, "public"),
 		SourceFile:     c.SourceFile,
 		Doc:            c.Doc,
 	}
+}
+
+// addNestingEdges emits Dependency{nested-in} for any class whose JAR-
+// reported name contains a dot (Java nested / inner classes). The
+// translator flattens such classes to their leaf simple name in the
+// domain model — this edge keeps the enclosing relationship visible.
+//
+// The outer class is resolved against the parsed source set when
+// possible (so the edge is internal); otherwise it falls back to an
+// External SymbolRef. That matches how `extends` / `implements` resolve.
+func addNestingEdges(model *domain.PackageModel, c javaClass, classByFQN map[string]javaClass) {
+	if !strings.Contains(c.Name, ".") {
+		return
+	}
+	dot := strings.LastIndex(c.Name, ".")
+	outerSimple := c.Name[:dot]
+	outerFQN := c.Package + "." + outerSimple
+
+	from := classRef(c)
+	var to domain.SymbolRef
+	if outer, ok := classByFQN[outerFQN]; ok {
+		to = classRef(outer)
+	} else {
+		to = fqnRef(outerFQN)
+	}
+
+	model.Dependencies = append(model.Dependencies, domain.Dependency{
+		From: from, To: to, Kind: domain.DependencyNestedIn, ThroughExported: true,
+	})
 }
 
 // addInheritanceEdges emits Dependency{extends} for `extends` and
@@ -228,7 +264,7 @@ func addInheritanceEdges(model *domain.PackageModel, c javaClass, classByFQN map
 // Dependency{uses} edge. Kept out of the per-class struct because imports
 // are a unit-level concept; from the diagram's perspective they belong to
 // the importing class.
-func addImportEdges(model *domain.PackageModel, c javaClass, imports []javaImport) {
+func addImportEdges(model *domain.PackageModel, c javaClass, imports []javaImport, classByFQN map[string]javaClass) {
 	from := classRef(c)
 	for _, imp := range imports {
 		// Wildcard imports have no concrete target symbol; skip them.
@@ -236,7 +272,7 @@ func addImportEdges(model *domain.PackageModel, c javaClass, imports []javaImpor
 			continue
 		}
 		model.Dependencies = append(model.Dependencies, domain.Dependency{
-			From: from, To: fqnRef(imp.ToClass), Kind: domain.DependencyUses,
+			From: from, To: resolveFQNRef(imp.ToClass, classByFQN), Kind: domain.DependencyUses,
 		})
 	}
 }
@@ -253,14 +289,14 @@ func convertFields(in []javaField, pkgPath string) []domain.FieldDef {
 	return out
 }
 
-func convertMethods(in []javaMethod, pkgPath string) []domain.MethodDef {
+func convertMethods(in []javaMethod, pkgPath string, classByFQN map[string]javaClass) []domain.MethodDef {
 	out := make([]domain.MethodDef, 0, len(in))
 	for _, m := range in {
 		method := domain.MethodDef{
 			Name:       m.Name,
 			Params:     convertParams(m.Params, pkgPath),
 			IsExported: containsModifier(m.Modifiers, "public"),
-			Calls:      convertCalls(m.Calls),
+			Calls:      convertCalls(m.Calls, classByFQN),
 		}
 		// Constructors return their enclosing type implicitly — modelling
 		// `void` here would lie. We follow the JAR's choice (`returns:
@@ -289,7 +325,7 @@ func convertParams(in []javaParam, pkgPath string) []domain.ParamDef {
 // convertCalls keeps only resolved calls — those that bound to a class in
 // the analyzed source set (target_fqn != ""). External / unresolved calls
 // would render as edges to nothing, so we drop them per SCHEMA.md.
-func convertCalls(in []javaCall) []domain.CallEdge {
+func convertCalls(in []javaCall, classByFQN map[string]javaClass) []domain.CallEdge {
 	if len(in) == 0 {
 		return nil
 	}
@@ -298,7 +334,7 @@ func convertCalls(in []javaCall) []domain.CallEdge {
 		if c.External || c.TargetFQN == "" {
 			continue
 		}
-		out = append(out, domain.CallEdge{To: fqnMethodRef(c.TargetFQN, c.ToMethod)})
+		out = append(out, domain.CallEdge{To: fqnMethodRef(c.TargetFQN, c.ToMethod, classByFQN)})
 	}
 	if len(out) == 0 {
 		return nil
@@ -346,9 +382,11 @@ func parseTypeRef(raw, pkgPath string) domain.TypeRef {
 }
 
 // classRef returns a SymbolRef for an in-source class, populated for the
-// translator's edge construction.
+// translator's edge construction. For Java nested classes (c.Name like
+// "Outer.Inner") the symbol is flattened to the leaf simple name; the
+// enclosing relationship is recorded as a Dependency{nested-in} edge.
 func classRef(c javaClass) domain.SymbolRef {
-	return domain.SymbolRef{Package: c.Package, File: c.SourceFile, Symbol: c.Name}
+	return domain.SymbolRef{Package: c.Package, File: c.SourceFile, Symbol: leafName(c.Name)}
 }
 
 // refForName resolves a textual `extends` / `implements` target. If the
@@ -382,9 +420,29 @@ func fqnRef(fqn string) domain.SymbolRef {
 	return domain.SymbolRef{Package: pkg, Symbol: sym, External: true}
 }
 
+// resolveFQNRef builds a SymbolRef for an FQN, treating it as in-source
+// when classByFQN knows it (so nested-class FQNs get flattened to their
+// leaf name in the package, matching how their declarations land).
+// Falls back to fqnRef for FQNs outside the parsed source set.
+func resolveFQNRef(fqn string, classByFQN map[string]javaClass) domain.SymbolRef {
+	if class, ok := classByFQN[fqn]; ok {
+		return classRef(class)
+	}
+	return fqnRef(fqn)
+}
+
 // fqnMethodRef builds a SymbolRef pointing at a specific method on an
-// in-source class.
-func fqnMethodRef(targetFQN, method string) domain.SymbolRef {
+// in-source class. When targetFQN names a Java nested class, the class
+// segment is flattened to its leaf name so the call edge lines up with
+// the flattened class declaration.
+func fqnMethodRef(targetFQN, method string, classByFQN map[string]javaClass) domain.SymbolRef {
+	if class, ok := classByFQN[targetFQN]; ok {
+		return domain.SymbolRef{
+			Package: class.Package,
+			File:    class.SourceFile,
+			Symbol:  leafName(class.Name) + "." + method,
+		}
+	}
 	pkg, cls := splitFQN(targetFQN)
 	return domain.SymbolRef{Package: pkg, Symbol: cls + "." + method}
 }
@@ -397,6 +455,17 @@ func splitFQN(fqn string) (pkg, simple string) {
 		return fqn[:dot], fqn[dot+1:]
 	}
 	return "", fqn
+}
+
+// leafName strips any outer-class prefix from a JAR-reported class name.
+// Java nested classes arrive as "Outer.Inner" or "Outer.Mid.Inner"; the
+// translator flattens them into top-level types using just the leaf
+// segment so the domain model never carries dotted symbol identifiers.
+func leafName(name string) string {
+	if dot := strings.LastIndex(name, "."); dot >= 0 {
+		return name[dot+1:]
+	}
+	return name
 }
 
 // simpleName returns the last dot-separated segment of a Java package

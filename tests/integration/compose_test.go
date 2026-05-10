@@ -76,11 +76,11 @@ func TestComposeIntegration(t *testing.T) {
 	contentStr := string(content)
 
 	// Should contain both packages
-	if !strings.Contains(contentStr, "pkg.a") {
-		t.Error("Output should contain pkg.a")
+	if !strings.Contains(contentStr, "pkg_pkg.pkg_a") {
+		t.Error("Output should contain pkg.a container")
 	}
-	if !strings.Contains(contentStr, "pkg.b") {
-		t.Error("Output should contain pkg.b")
+	if !strings.Contains(contentStr, "pkg_pkg.pkg_b") {
+		t.Error("Output should contain pkg.b container")
 	}
 	if !strings.Contains(contentStr, "Service") {
 		t.Error("Output should contain Service interface")

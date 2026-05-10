@@ -151,3 +151,26 @@ func TestMatchSubtreeHasExt_HonoursGoPattern(t *testing.T) {
 		t.Errorf("`./...` patterns should be stripped before walking")
 	}
 }
+
+// TestMatchSubtreeHasExt_RootDot guards against a regression where the
+// hidden-directory skip rejected the literal cwd shorthand "." (its
+// DirEntry.Name() is "."). Without the explicit root-dir bypass the
+// matcher would skip the entire tree, breaking `archai serve` whenever
+// readAll hands the dispatcher its cwd-relative input.
+func TestMatchSubtreeHasExt_RootDot(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "X.java"), []byte("class X {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatal(err)
+	}
+	if !matchSubtreeHasExt(".java")(".") {
+		t.Errorf(`matcher must descend when path is "." (the cwd shorthand)`)
+	}
+}

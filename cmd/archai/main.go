@@ -491,6 +491,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		// clearing HTTPAddr. The MCP stdio callback owns the session
 		// lifetime. Plugin bootstrap runs so plugin tools surface in
 		// the stdio tools/list.
+		oneShotReader, note := assembleServeReader()
+		if note != "" {
+			fmt.Fprintln(os.Stderr, note)
+		}
 		return serve.Serve(ctx, serve.Options{
 			Root:     root,
 			MCPStdio: true,
@@ -500,8 +504,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 			HTTPAddr:        "",
 			Debug:           debug,
 			PluginBootstrap: bootstrapDaemonPlugins,
+			Reader:          oneShotReader,
 		})
 	}
+
+	// Build a multi-language reader once and share it across every State
+	// the daemon may construct (single-state and per-worktree multi-state
+	// loads alike). The note, if any, is surfaced to stderr so users see
+	// when Java was unwired.
+	serveReader, note := assembleServeReader()
+	if note != "" {
+		fmt.Fprintln(os.Stderr, note)
+	}
+	stateLoader := newServeStateLoader(serveReader)
 
 	opts := serve.Options{
 		Root:        root,
@@ -509,6 +524,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		HTTPAddr:    httpAddr,
 		Debug:       debug,
 		IdleTimeout: idleTimeout,
+		Reader:      serveReader,
 	}
 
 	if multi {
@@ -519,7 +535,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		if absRoot == "" {
 			absRoot = "."
 		}
-		multiState := serve.NewMultiState(absRoot, serve.DefaultStateLoader)
+		multiState := serve.NewMultiState(absRoot, stateLoader)
 		if err := multiState.Refresh(); err != nil {
 			return fmt.Errorf("serve: refresh worktrees: %w", err)
 		}

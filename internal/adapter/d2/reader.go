@@ -330,9 +330,15 @@ func stripFileGroupPrefix(ref domain.SymbolRef, pkgPath string) domain.SymbolRef
 	return ref
 }
 
-// parseSymbolRef parses a symbol reference string like "internal.service.Service" or "Service".
+// parseSymbolRef parses a symbol reference string like
+// "pkg_internal.pkg_service.Service" or "Service".
+//
+// The writer prefixes every package-path segment with pkgIDSegmentPrefix
+// (see sanitizePackageID) to avoid case-insensitive collisions between
+// class names and sub-package names; this function inverts that
+// prefixing and converts the dotted segments back to a "/"-separated
+// Go-style package path on the SymbolRef.
 func parseSymbolRef(s string) domain.SymbolRef {
-	// Handle qualified names like "internal.service.Service"
 	lastDot := strings.LastIndex(s, ".")
 	if lastDot == -1 {
 		return domain.SymbolRef{Symbol: s}
@@ -341,9 +347,11 @@ func parseSymbolRef(s string) domain.SymbolRef {
 	pkg := s[:lastDot]
 	symbol := s[lastDot+1:]
 
-	// Convert D2 path format (dots) to Go package path (slashes)
-	// e.g., "internal.service" -> "internal/service"
-	pkg = strings.ReplaceAll(pkg, ".", "/")
+	segments := strings.Split(pkg, ".")
+	for i, seg := range segments {
+		segments[i] = strings.TrimPrefix(seg, pkgIDSegmentPrefix)
+	}
+	pkg = strings.Join(segments, "/")
 
 	return domain.SymbolRef{
 		Package: pkg,

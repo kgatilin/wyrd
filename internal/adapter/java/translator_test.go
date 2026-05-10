@@ -3,6 +3,7 @@ package java
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kgatilin/archai/internal/domain"
@@ -287,6 +288,82 @@ func TestParseTypeRef(t *testing.T) {
 				t.Errorf("got %+v", ref)
 			}
 		})
+	}
+}
+
+// TestTranslate_NestedClassesFlattened checks that Java nested classes
+// (Outer.Inner / Outer.Mode) land as flat top-level types named after
+// their leaf segment, with a Dependency{nested-in} edge from inner to
+// outer. The flattening keeps the domain model aligned with Go-style
+// flat type sets so the D2 emitter never has to handle dotted symbol
+// IDs (which D2 misparses as path traversals).
+func TestTranslate_NestedClassesFlattened(t *testing.T) {
+	facts := loadFixture(t, "facts_nested.json")
+	models := translate(facts)
+	if len(models) != 1 {
+		t.Fatalf("want 1 package, got %d", len(models))
+	}
+	pkg := models[0]
+
+	// Outer struct + Inner struct land as flat top-level Structs by leaf name.
+	wantStructs := map[string]bool{"Outer": true, "Inner": true}
+	gotStructs := map[string]bool{}
+	for _, s := range pkg.Structs {
+		gotStructs[s.Name] = true
+		if strings.Contains(s.Name, ".") {
+			t.Errorf("struct name %q still contains dot — translator should flatten", s.Name)
+		}
+	}
+	for name := range wantStructs {
+		if !gotStructs[name] {
+			t.Errorf("missing struct %q (got %v)", name, gotStructs)
+		}
+	}
+
+	// Outer.Mode enum lands as a flat TypeDef named "Mode".
+	if len(pkg.TypeDefs) != 1 || pkg.TypeDefs[0].Name != "Mode" {
+		t.Fatalf("want one TypeDef named Mode, got %+v", pkg.TypeDefs)
+	}
+
+	// Two nested-in edges: Inner→Outer and Mode→Outer, both internal
+	// (External=false) and pointing at the parsed Outer class.
+	want := map[string]bool{"Inner→Outer": true, "Mode→Outer": true}
+	got := map[string]bool{}
+	for _, dep := range pkg.Dependencies {
+		if dep.Kind != domain.DependencyNestedIn {
+			continue
+		}
+		if dep.To.External {
+			t.Errorf("nested-in target should be in-source for parsed outer: %+v", dep)
+		}
+		got[dep.From.Symbol+"→"+dep.To.Symbol] = true
+	}
+	for k := range want {
+		if !got[k] {
+			t.Errorf("missing nested-in edge %s (got %v)", k, got)
+		}
+	}
+
+	// Call edges that target a nested class get its method symbol
+	// flattened too: "Outer.Inner.leaf" → "Inner.leaf".
+	var sawCall bool
+	for _, s := range pkg.Structs {
+		if s.Name != "Outer" {
+			continue
+		}
+		for _, m := range s.Methods {
+			for _, call := range m.Calls {
+				if call.To.Symbol == "Inner.leaf" && !call.To.External {
+					sawCall = true
+				}
+				if strings.HasPrefix(call.To.Symbol, "Outer.Inner.") {
+					t.Errorf("call edge symbol %q not flattened", call.To.Symbol)
+				}
+			}
+		}
+	}
+	if !sawCall {
+		t.Errorf("expected Outer.build → Inner.leaf call edge, got: %+v", pkg.Structs)
 	}
 }
 

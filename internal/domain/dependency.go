@@ -19,6 +19,13 @@ const (
 	// (Java-style inheritance). Emitted by adapter/java; the Go
 	// adapter does not produce this kind.
 	DependencyExtends DependencyKind = "extends"
+
+	// DependencyNestedIn indicates an inner class is lexically nested
+	// inside an outer class (Java nested / inner classes). Java nested
+	// classes are flattened to leaf names in the domain model, and this
+	// edge preserves the enclosing relationship that name flattening
+	// drops. Only adapter/java emits this kind.
+	DependencyNestedIn DependencyKind = "nested-in"
 )
 
 // String returns the string representation of the dependency kind.

@@ -53,10 +53,10 @@ func TestCombinedBuilder_Build(t *testing.T) {
 				},
 			},
 			wantParts: []string{
-				"internal.service: {",
+				"pkg_internal.pkg_service: {",
 				`label: "internal/service"`,
 				"Service: {",
-				"internal.domain: {",
+				"pkg_internal.pkg_domain: {",
 				`label: "internal/domain"`,
 				"Entity: {",
 			},
@@ -154,7 +154,7 @@ func TestCombinedBuilder_Build(t *testing.T) {
 				},
 			},
 			wantParts: []string{
-				"internal.adapter.golang: {",
+				"pkg_internal.pkg_adapter.pkg_golang: {",
 				`label: "internal/adapter/golang"`,
 			},
 		},
@@ -351,7 +351,7 @@ func TestCombinedBuilder_CrossPackageDependencies(t *testing.T) {
 			},
 			wantParts: []string{
 				"# Cross-package dependencies",
-				`internal.service.NewService -> internal.domain.Entity: "returns"`,
+				`pkg_internal.pkg_service.NewService -> pkg_internal.pkg_domain.Entity: "returns"`,
 			},
 		},
 		{
@@ -442,7 +442,7 @@ func TestCombinedBuilder_CrossPackageDependencies(t *testing.T) {
 				},
 			},
 			wantParts: []string{
-				`internal.service.NewService -> internal.domain.Entity: "returns"`,
+				`pkg_internal.pkg_service.NewService -> pkg_internal.pkg_domain.Entity: "returns"`,
 			},
 		},
 	}
@@ -466,7 +466,7 @@ func TestCombinedBuilder_CrossPackageDependencies(t *testing.T) {
 
 			// Count occurrences to verify deduplication
 			if tt.name == "deduplicates dependencies" {
-				count := strings.Count(got, `internal.service.NewService -> internal.domain.Entity`)
+				count := strings.Count(got, `pkg_internal.pkg_service.NewService -> pkg_internal.pkg_domain.Entity`)
 				if count != 1 {
 					t.Errorf("Expected exactly 1 dependency arrow, found %d", count)
 				}
@@ -615,6 +615,58 @@ func TestCombinedBuilder_DeterministicAcrossModes(t *testing.T) {
 		out2 := newCombinedBuilderWithMode(mode).Build([]domain.PackageModel{pkg})
 		if out1 != out2 {
 			t.Errorf("mode %q output is not deterministic", mode)
+		}
+	}
+}
+
+// TestCombinedBuilder_QuotesReservedKeywords guards against symbol names
+// that collide with D2 grammar keywords (Direction, Width, Class, …).
+// Such names must be emitted in double quotes; an unquoted "Direction:"
+// is parsed as the layout direction attribute and rejects child shapes
+// with "reserved field Direction does not accept composite".
+func TestCombinedBuilder_QuotesReservedKeywords(t *testing.T) {
+	packages := []domain.PackageModel{
+		{
+			Name: "strategy",
+			Path: "vibe/bidder/strategy",
+			TypeDefs: []domain.TypeDef{
+				{Name: "Direction", IsExported: true, SourceFile: "Strategy.java", Stereotype: domain.StereotypeEnum},
+			},
+			Structs: []domain.StructDef{
+				{Name: "Width", IsExported: true, SourceFile: "Layout.java"},
+			},
+			Dependencies: []domain.Dependency{
+				{
+					From:            domain.SymbolRef{Package: "vibe/bidder/strategy", Symbol: "Width"},
+					To:              domain.SymbolRef{Package: "vibe/bidder/strategy", Symbol: "Direction"},
+					Kind:            domain.DependencyUses,
+					ThroughExported: true,
+				},
+			},
+		},
+	}
+
+	got := newCombinedBuilder().Build(packages)
+
+	wantParts := []string{
+		`"Direction": {`,
+		`"Width": {`,
+		`"Width" -> "Direction": "uses"`,
+	}
+	for _, part := range wantParts {
+		if !strings.Contains(got, part) {
+			t.Errorf("Build() output missing expected part: %q\n\nGot:\n%s", part, got)
+		}
+	}
+
+	// Bare unquoted forms would re-trigger the D2 reserved-keyword bug.
+	unwanted := []string{
+		"\n  Direction: {",
+		"\n  Width: {",
+	}
+	for _, part := range unwanted {
+		if strings.Contains(got, part) {
+			t.Errorf("Build() output contains unquoted reserved keyword: %q\n\nGot:\n%s", part, got)
 		}
 	}
 }

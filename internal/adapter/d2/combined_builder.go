@@ -322,7 +322,7 @@ func IsEntryPoint(fn domain.FunctionDef) bool {
 // writeInterface writes a D2 class shape for an interface, including
 // methods filtered by the current mode.
 func (b *combinedBuilder) writeInterface(iface domain.InterfaceDef) {
-	b.writeLine(fmt.Sprintf("%s: {", iface.Name))
+	b.writeLine(fmt.Sprintf("%s: {", d2SafeKey(iface.Name)))
 	b.indent++
 
 	b.writeLine("shape: class")
@@ -344,7 +344,7 @@ func (b *combinedBuilder) writeInterface(iface domain.InterfaceDef) {
 // writeStruct writes a D2 class shape for a struct. Field & method
 // visibility honours the builder mode (public-only vs full).
 func (b *combinedBuilder) writeStruct(s domain.StructDef) {
-	b.writeLine(fmt.Sprintf("%s: {", s.Name))
+	b.writeLine(fmt.Sprintf("%s: {", d2SafeKey(s.Name)))
 	b.indent++
 
 	b.writeLine("shape: class")
@@ -375,7 +375,7 @@ func (b *combinedBuilder) writeStruct(s domain.StructDef) {
 // factories / constructors get the dedicated factory style + an
 // "<<entry-point>>" marker line so they stand out in the overview.
 func (b *combinedBuilder) writeFunction(fn domain.FunctionDef) {
-	b.writeLine(fmt.Sprintf("%s: {", fn.Name))
+	b.writeLine(fmt.Sprintf("%s: {", d2SafeKey(fn.Name)))
 	b.indent++
 
 	b.writeLine("shape: class")
@@ -420,7 +420,7 @@ func (b *combinedBuilder) writeFunction(fn domain.FunctionDef) {
 
 // writeTypeDef writes a D2 class shape for an exported type definition.
 func (b *combinedBuilder) writeTypeDef(td domain.TypeDef) {
-	b.writeLine(fmt.Sprintf("%s: {", td.Name))
+	b.writeLine(fmt.Sprintf("%s: {", d2SafeKey(td.Name)))
 	b.indent++
 
 	b.writeLine("shape: class")
@@ -763,23 +763,48 @@ func (b *combinedBuilder) collectCrossPackageDeps(packages []domain.PackageModel
 
 // writeIntraPackageDep writes a D2 dependency arrow within a package (no package prefix).
 func (b *combinedBuilder) writeIntraPackageDep(dep depInfo) {
-	b.writeLine(fmt.Sprintf(`%s -> %s: "%s"`, dep.fromSymbol, dep.toSymbol, dep.kind))
+	b.writeLine(fmt.Sprintf(`%s -> %s: "%s"`, d2SafeKey(dep.fromSymbol), d2SafeKey(dep.toSymbol), dep.kind))
 }
 
 // writeCrossPackageDep writes a D2 dependency arrow for a cross-package dependency.
 func (b *combinedBuilder) writeCrossPackageDep(dep depInfo) {
-	fromID := fmt.Sprintf("%s.%s", sanitizePackageID(dep.fromPkg), dep.fromSymbol)
-	toID := fmt.Sprintf("%s.%s", sanitizePackageID(dep.toPkg), dep.toSymbol)
+	fromID := d2QualifiedPath(sanitizePackageID(dep.fromPkg), dep.fromSymbol)
+	toID := d2QualifiedPath(sanitizePackageID(dep.toPkg), dep.toSymbol)
 	b.writeLine(fmt.Sprintf(`%s -> %s: "%s"`, fromID, toID, dep.kind))
 }
 
-// sanitizePackageID converts a package path to a valid D2 identifier.
-// It replaces "/" with "." so "internal/service" becomes "internal.service".
+// pkgIDSegmentPrefix is prefixed to every package-path segment when
+// converting the path to a D2 identifier. It keeps each segment
+// distinct from class names, which D2 matches case-insensitively.
+//
+// Without the prefix, a Java class `Strategy` declared in package
+// `vibe.bidder` blocks the sub-package `vibe.bidder.strategy` from
+// being added as a container — D2 treats `strategy` as a child of the
+// existing class shape `Strategy` and rejects the merge with
+// "class fields cannot have children". Prefixing every segment shifts
+// the package namespace away from the class namespace.
+const pkgIDSegmentPrefix = "pkg_"
+
+// sanitizePackageID converts a package path to a D2 identifier. Path
+// segments are separated with "." (so D2 still nests them as
+// containers), and each segment is prefixed with pkgIDSegmentPrefix
+// to avoid case-insensitive collisions with class shape names at any
+// level. The original path is preserved on the `label:` attribute, so
+// the rendered diagram still reads "vibe.bidder.strategy".
+//
+// The reader inverts this in unprefixSegment when parsing edge paths.
 func sanitizePackageID(path string) string {
 	if path == "" || path == "." {
 		return "root"
 	}
-	return strings.ReplaceAll(path, "/", ".")
+	// Java packages already use ".", Go packages come in with "/".
+	// Both collapse to "." segments here.
+	normalised := strings.ReplaceAll(path, "/", ".")
+	segments := strings.Split(normalised, ".")
+	for i, s := range segments {
+		segments[i] = pkgIDSegmentPrefix + s
+	}
+	return strings.Join(segments, ".")
 }
 
 // writeComment writes a D2 comment line.

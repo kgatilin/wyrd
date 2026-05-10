@@ -346,7 +346,7 @@ func (b *d2TextBuilder) fileContainerID(filename string) string {
 
 // writeInterface writes a D2 class shape for an interface.
 func (b *d2TextBuilder) writeInterface(iface domain.InterfaceDef, publicOnly bool) {
-	b.writeLine(fmt.Sprintf("%s: {", iface.Name))
+	b.writeLine(fmt.Sprintf("%s: {", d2SafeKey(iface.Name)))
 	b.indent++
 
 	b.writeLine("shape: class")
@@ -370,7 +370,7 @@ func (b *d2TextBuilder) writeInterface(iface domain.InterfaceDef, publicOnly boo
 
 // writeStruct writes a D2 class shape for a struct.
 func (b *d2TextBuilder) writeStruct(s domain.StructDef, publicOnly bool) {
-	b.writeLine(fmt.Sprintf("%s: {", s.Name))
+	b.writeLine(fmt.Sprintf("%s: {", d2SafeKey(s.Name)))
 	b.indent++
 
 	b.writeLine("shape: class")
@@ -434,7 +434,7 @@ func (b *d2TextBuilder) writeFunctions(functions []domain.FunctionDef, publicOnl
 // writeFunctionAsClass writes a function as its own D2 class shape.
 // Parameters are rendered as fields, and return types as a special "return" field.
 func (b *d2TextBuilder) writeFunctionAsClass(fn domain.FunctionDef) {
-	b.writeLine(fmt.Sprintf("%s: {", fn.Name))
+	b.writeLine(fmt.Sprintf("%s: {", d2SafeKey(fn.Name)))
 	b.indent++
 
 	b.writeLine("shape: class")
@@ -469,7 +469,7 @@ func (b *d2TextBuilder) writeFunctionAsClass(fn domain.FunctionDef) {
 
 // writeTypeDef writes a D2 class shape for a type definition.
 func (b *d2TextBuilder) writeTypeDef(td domain.TypeDef) {
-	b.writeLine(fmt.Sprintf("%s: {", td.Name))
+	b.writeLine(fmt.Sprintf("%s: {", d2SafeKey(td.Name)))
 	b.indent++
 
 	b.writeLine("shape: class")
@@ -741,10 +741,9 @@ func (b *d2TextBuilder) writeImplementation(impl domain.Implementation) {
 // toD2Path converts a SymbolRef to a D2 container path.
 func (b *d2TextBuilder) toD2Path(ref domain.SymbolRef) string {
 	if ref.External {
-		return ref.Package + "." + ref.Symbol
+		return d2QualifiedPath(ref.Package, ref.Symbol)
 	}
-	fileID := b.fileContainerID(ref.File)
-	return fileID + "." + ref.Symbol
+	return d2QualifiedPath(b.fileContainerID(ref.File), ref.Symbol)
 }
 
 // writeComment writes a D2 comment line.

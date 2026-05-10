@@ -132,14 +132,33 @@ func (s *State) CurrentTarget() string {
 	return s.currentTarget
 }
 
+// StateOption configures optional fields on a freshly-constructed State.
+type StateOption func(*State)
+
+// WithReader replaces the default Go-only reader with a multi-language
+// reader. Used by the CLI to wire `archai serve` through the same
+// service.Service-based dispatch as `archai diagram generate`, so Java
+// (and any other future language) projects load correctly.
+func WithReader(r service.ModelReader) StateOption {
+	return func(s *State) { s.reader = r }
+}
+
 // NewState returns an empty State rooted at root. Callers must invoke
 // Load before querying the state.
-func NewState(root string) *State {
-	return &State{
+//
+// The default reader is the Go-only reader from adapter/golang, which
+// preserves existing behaviour for tests and Go projects. Pass
+// WithReader to swap in a multi-language pipeline.
+func NewState(root string, opts ...StateOption) *State {
+	s := &State{
 		root:     root,
 		reader:   golang.NewReader(),
 		packages: make(map[string]domain.PackageModel),
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Snapshot is a read-only view of the State. All slices/maps are

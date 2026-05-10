@@ -70,6 +70,13 @@ func (s *Service) readPackages(ctx context.Context, paths []string) ([]domain.Pa
 				continue
 			}
 		}
+		// Non-Go readers don't understand Go's "./..." package pattern;
+		// strip it so the reader receives a plain directory path.
+		// The Go reader keeps the pattern as-is — packages.Load needs it
+		// to discover sub-packages.
+		if lr.name != "go" {
+			matched = stripGoPatternFromAll(matched)
+		}
 		pkgs, err := lr.reader.Read(ctx, matched)
 		if err != nil {
 			return nil, fmt.Errorf("%s reader: %w", lr.name, err)
@@ -119,6 +126,13 @@ func matchSubtreeHasExt(ext string) func(string) bool {
 				return nil // skip unreadable subtrees rather than failing detection
 			}
 			if d.IsDir() {
+				// Always descend into the root we were given (its Name
+				// can be "." when callers pass the cwd shorthand, and
+				// the hidden-dir prefix check below would otherwise
+				// skip the entire tree).
+				if p == root {
+					return nil
+				}
 				if strings.HasPrefix(d.Name(), ".") || d.Name() == "node_modules" || d.Name() == "target" {
 					return fs.SkipDir
 				}
@@ -144,4 +158,13 @@ func stripGoPattern(path string) string {
 		return "."
 	}
 	return path
+}
+
+// stripGoPatternFromAll applies stripGoPattern to every input path.
+func stripGoPatternFromAll(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = stripGoPattern(p)
+	}
+	return out
 }
