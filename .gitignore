@@ -11,3 +11,7 @@
 
 # Java analyzer (issue #101) build output
 tools/archai-java-analyzer/target/
+
+# Local go.work overrides (dev-only; not part of the PR contract)
+go.work
+go.work.sum
