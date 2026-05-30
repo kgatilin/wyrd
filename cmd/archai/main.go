@@ -421,6 +421,9 @@ Examples:
 	// extract — dumps per-package YAML/JSON (mirror of the MCP extract tool).
 	rootCmd.AddCommand(newExtractCmd())
 
+	// export — exports architecture data in various formats (POC: UIGraph JSON).
+	rootCmd.AddCommand(newExportCmd())
+
 	// M12: in-process plugin contract. Built-in plugins register
 	// themselves via init(); wirePlugins runs the bootstrap once
 	// against a CLI-scoped Host and mounts every plugin-contributed

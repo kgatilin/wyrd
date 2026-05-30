@@ -1,0 +1,1926 @@
+{
+  "schema": "archai.uigraph/v0",
+  "boundedContexts": [
+    {
+      "id": "model",
+      "name": "Model"
+    }
+  ],
+  "components": [
+    {
+      "id": "internal/adapter/uigraph",
+      "name": "uigraph",
+      "tech": "Go",
+      "desc": "",
+      "bc": "all",
+      "internals": [
+        {
+          "id": "internal/adapter/uigraph.BoundedContext",
+          "kind": "class",
+          "name": "BoundedContext",
+          "members": [
+            {
+              "id": "internal/adapter/uigraph.BoundedContext.ID",
+              "kind": "prop",
+              "name": "ID : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.BoundedContext.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/adapter/uigraph.Comment",
+          "kind": "class",
+          "name": "Comment",
+          "members": [
+            {
+              "id": "internal/adapter/uigraph.Comment.ID",
+              "kind": "prop",
+              "name": "ID : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Comment.Target",
+              "kind": "prop",
+              "name": "Target : internal/adapter/uigraph.CommentTarget"
+            },
+            {
+              "id": "internal/adapter/uigraph.Comment.Body",
+              "kind": "prop",
+              "name": "Body : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/adapter/uigraph.CommentTarget",
+          "kind": "class",
+          "name": "CommentTarget",
+          "members": [
+            {
+              "id": "internal/adapter/uigraph.CommentTarget.Type",
+              "kind": "prop",
+              "name": "Type : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.CommentTarget.ID",
+              "kind": "prop",
+              "name": "ID : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/adapter/uigraph.Component",
+          "kind": "class",
+          "name": "Component",
+          "members": [
+            {
+              "id": "internal/adapter/uigraph.Component.ID",
+              "kind": "prop",
+              "name": "ID : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Component.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Component.Tech",
+              "kind": "prop",
+              "name": "Tech : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Component.Desc",
+              "kind": "prop",
+              "name": "Desc : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Component.BC",
+              "kind": "prop",
+              "name": "BC : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Component.Diff",
+              "kind": "prop",
+              "name": "Diff : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Component.Internals",
+              "kind": "prop",
+              "name": "Internals : []internal/adapter/uigraph.Internal"
+            },
+            {
+              "id": "internal/adapter/uigraph.Component.Ports",
+              "kind": "prop",
+              "name": "Ports : []internal/adapter/uigraph.Port"
+            }
+          ]
+        },
+        {
+          "id": "internal/adapter/uigraph.Edge",
+          "kind": "class",
+          "name": "Edge",
+          "members": [
+            {
+              "id": "internal/adapter/uigraph.Edge.ID",
+              "kind": "prop",
+              "name": "ID : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Edge.From",
+              "kind": "prop",
+              "name": "From : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Edge.To",
+              "kind": "prop",
+              "name": "To : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Edge.FromPort",
+              "kind": "prop",
+              "name": "FromPort : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Edge.ToPort",
+              "kind": "prop",
+              "name": "ToPort : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Edge.Label",
+              "kind": "prop",
+              "name": "Label : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Edge.Diff",
+              "kind": "prop",
+              "name": "Diff : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/adapter/uigraph.Internal",
+          "kind": "class",
+          "name": "Internal",
+          "members": [
+            {
+              "id": "internal/adapter/uigraph.Internal.ID",
+              "kind": "prop",
+              "name": "ID : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Internal.Kind",
+              "kind": "prop",
+              "name": "Kind : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Internal.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Internal.Diff",
+              "kind": "prop",
+              "name": "Diff : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Internal.Members",
+              "kind": "prop",
+              "name": "Members : []internal/adapter/uigraph.Member"
+            }
+          ]
+        },
+        {
+          "id": "internal/adapter/uigraph.Member",
+          "kind": "class",
+          "name": "Member",
+          "members": [
+            {
+              "id": "internal/adapter/uigraph.Member.ID",
+              "kind": "prop",
+              "name": "ID : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Member.Kind",
+              "kind": "prop",
+              "name": "Kind : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Member.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Member.Diff",
+              "kind": "prop",
+              "name": "Diff : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/adapter/uigraph.PR",
+          "kind": "class",
+          "name": "PR",
+          "members": [
+            {
+              "id": "internal/adapter/uigraph.PR.Title",
+              "kind": "prop",
+              "name": "Title : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.PR.Branch",
+              "kind": "prop",
+              "name": "Branch : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.PR.Agent",
+              "kind": "prop",
+              "name": "Agent : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.PR.Summary",
+              "kind": "prop",
+              "name": "Summary : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.PR.Stats",
+              "kind": "prop",
+              "name": "Stats : internal/adapter/uigraph.Stats"
+            }
+          ]
+        },
+        {
+          "id": "internal/adapter/uigraph.Port",
+          "kind": "class",
+          "name": "Port",
+          "members": [
+            {
+              "id": "internal/adapter/uigraph.Port.ID",
+              "kind": "prop",
+              "name": "ID : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Port.Side",
+              "kind": "prop",
+              "name": "Side : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Port.Kind",
+              "kind": "prop",
+              "name": "Kind : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Port.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.Port.Diff",
+              "kind": "prop",
+              "name": "Diff : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/adapter/uigraph.Stats",
+          "kind": "class",
+          "name": "Stats",
+          "members": [
+            {
+              "id": "internal/adapter/uigraph.Stats.Added",
+              "kind": "prop",
+              "name": "Added : int"
+            },
+            {
+              "id": "internal/adapter/uigraph.Stats.Removed",
+              "kind": "prop",
+              "name": "Removed : int"
+            },
+            {
+              "id": "internal/adapter/uigraph.Stats.Changed",
+              "kind": "prop",
+              "name": "Changed : int"
+            },
+            {
+              "id": "internal/adapter/uigraph.Stats.Comments",
+              "kind": "prop",
+              "name": "Comments : int"
+            }
+          ]
+        },
+        {
+          "id": "internal/adapter/uigraph.UIGraph",
+          "kind": "class",
+          "name": "UIGraph",
+          "members": [
+            {
+              "id": "internal/adapter/uigraph.UIGraph.Schema",
+              "kind": "prop",
+              "name": "Schema : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.UIGraph.PR",
+              "kind": "prop",
+              "name": "PR : *internal/adapter/uigraph.PR"
+            },
+            {
+              "id": "internal/adapter/uigraph.UIGraph.BoundedContexts",
+              "kind": "prop",
+              "name": "BoundedContexts : []internal/adapter/uigraph.BoundedContext"
+            },
+            {
+              "id": "internal/adapter/uigraph.UIGraph.Components",
+              "kind": "prop",
+              "name": "Components : []internal/adapter/uigraph.Component"
+            },
+            {
+              "id": "internal/adapter/uigraph.UIGraph.Edges",
+              "kind": "prop",
+              "name": "Edges : []internal/adapter/uigraph.Edge"
+            },
+            {
+              "id": "internal/adapter/uigraph.UIGraph.Comments",
+              "kind": "prop",
+              "name": "Comments : []internal/adapter/uigraph.Comment"
+            }
+          ]
+        },
+        {
+          "id": "internal/adapter/uigraph.changePath",
+          "kind": "class",
+          "name": "changePath",
+          "members": [
+            {
+              "id": "internal/adapter/uigraph.changePath.Pkg",
+              "kind": "prop",
+              "name": "Pkg : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.changePath.Type",
+              "kind": "prop",
+              "name": "Type : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.changePath.Member",
+              "kind": "prop",
+              "name": "Member : string"
+            },
+            {
+              "id": "internal/adapter/uigraph.changePath.Level",
+              "kind": "prop",
+              "name": "Level : string"
+            }
+          ]
+        }
+      ],
+      "ports": [
+        {
+          "id": "internal/adapter/uigraph:out:internal/diff",
+          "side": "right",
+          "kind": "out",
+          "name": "use diff"
+        },
+        {
+          "id": "internal/adapter/uigraph:out:internal/domain",
+          "side": "right",
+          "kind": "out",
+          "name": "use domain"
+        },
+        {
+          "id": "internal/adapter/uigraph:out:internal/overlay",
+          "side": "right",
+          "kind": "out",
+          "name": "use overlay"
+        }
+      ]
+    },
+    {
+      "id": "internal/diff",
+      "name": "diff",
+      "tech": "Go",
+      "desc": "Change describes a single difference between two models.",
+      "bc": "all",
+      "internals": [
+        {
+          "id": "internal/diff.Change",
+          "kind": "class",
+          "name": "Change",
+          "members": [
+            {
+              "id": "internal/diff.Change.Op",
+              "kind": "prop",
+              "name": "Op : internal/diff.Op"
+            },
+            {
+              "id": "internal/diff.Change.Kind",
+              "kind": "prop",
+              "name": "Kind : internal/diff.Kind"
+            },
+            {
+              "id": "internal/diff.Change.Path",
+              "kind": "prop",
+              "name": "Path : string"
+            },
+            {
+              "id": "internal/diff.Change.Before",
+              "kind": "prop",
+              "name": "Before : any"
+            },
+            {
+              "id": "internal/diff.Change.After",
+              "kind": "prop",
+              "name": "After : any"
+            }
+          ]
+        },
+        {
+          "id": "internal/diff.Diff",
+          "kind": "class",
+          "name": "Diff",
+          "members": [
+            {
+              "id": "internal/diff.Diff.Changes",
+              "kind": "prop",
+              "name": "Changes : []internal/diff.Change"
+            },
+            {
+              "id": "internal/diff.Diff.IsEmpty",
+              "kind": "method",
+              "name": "IsEmpty()"
+            }
+          ]
+        }
+      ],
+      "ports": [
+        {
+          "id": "internal/diff:out:internal/domain",
+          "side": "right",
+          "kind": "out",
+          "name": "use domain"
+        }
+      ]
+    },
+    {
+      "id": "internal/domain",
+      "name": "domain",
+      "tech": "Go",
+      "desc": "CallEdge represents a behavioral edge from one function/method to another,",
+      "bc": "all",
+      "internals": [
+        {
+          "id": "internal/domain.CallEdge",
+          "kind": "class",
+          "name": "CallEdge",
+          "members": [
+            {
+              "id": "internal/domain.CallEdge.To",
+              "kind": "prop",
+              "name": "To : internal/domain.SymbolRef"
+            },
+            {
+              "id": "internal/domain.CallEdge.Via",
+              "kind": "prop",
+              "name": "Via : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.ConstDef",
+          "kind": "class",
+          "name": "ConstDef",
+          "members": [
+            {
+              "id": "internal/domain.ConstDef.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/domain.ConstDef.Type",
+              "kind": "prop",
+              "name": "Type : internal/domain.TypeRef"
+            },
+            {
+              "id": "internal/domain.ConstDef.Value",
+              "kind": "prop",
+              "name": "Value : string"
+            },
+            {
+              "id": "internal/domain.ConstDef.IsExported",
+              "kind": "prop",
+              "name": "IsExported : bool"
+            },
+            {
+              "id": "internal/domain.ConstDef.SourceFile",
+              "kind": "prop",
+              "name": "SourceFile : string"
+            },
+            {
+              "id": "internal/domain.ConstDef.Doc",
+              "kind": "prop",
+              "name": "Doc : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.Dependency",
+          "kind": "class",
+          "name": "Dependency",
+          "members": [
+            {
+              "id": "internal/domain.Dependency.From",
+              "kind": "prop",
+              "name": "From : internal/domain.SymbolRef"
+            },
+            {
+              "id": "internal/domain.Dependency.To",
+              "kind": "prop",
+              "name": "To : internal/domain.SymbolRef"
+            },
+            {
+              "id": "internal/domain.Dependency.Kind",
+              "kind": "prop",
+              "name": "Kind : internal/domain.DependencyKind"
+            },
+            {
+              "id": "internal/domain.Dependency.ThroughExported",
+              "kind": "prop",
+              "name": "ThroughExported : bool"
+            },
+            {
+              "id": "internal/domain.Dependency.String",
+              "kind": "method",
+              "name": "String()"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.ErrorDef",
+          "kind": "class",
+          "name": "ErrorDef",
+          "members": [
+            {
+              "id": "internal/domain.ErrorDef.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/domain.ErrorDef.Message",
+              "kind": "prop",
+              "name": "Message : string"
+            },
+            {
+              "id": "internal/domain.ErrorDef.IsExported",
+              "kind": "prop",
+              "name": "IsExported : bool"
+            },
+            {
+              "id": "internal/domain.ErrorDef.SourceFile",
+              "kind": "prop",
+              "name": "SourceFile : string"
+            },
+            {
+              "id": "internal/domain.ErrorDef.Doc",
+              "kind": "prop",
+              "name": "Doc : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.FieldDef",
+          "kind": "class",
+          "name": "FieldDef",
+          "members": [
+            {
+              "id": "internal/domain.FieldDef.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/domain.FieldDef.Type",
+              "kind": "prop",
+              "name": "Type : internal/domain.TypeRef"
+            },
+            {
+              "id": "internal/domain.FieldDef.IsExported",
+              "kind": "prop",
+              "name": "IsExported : bool"
+            },
+            {
+              "id": "internal/domain.FieldDef.Tag",
+              "kind": "prop",
+              "name": "Tag : string"
+            },
+            {
+              "id": "internal/domain.FieldDef.String",
+              "kind": "method",
+              "name": "String()"
+            },
+            {
+              "id": "internal/domain.FieldDef.StringWithVisibility",
+              "kind": "method",
+              "name": "StringWithVisibility()"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.FunctionDef",
+          "kind": "class",
+          "name": "FunctionDef",
+          "members": [
+            {
+              "id": "internal/domain.FunctionDef.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/domain.FunctionDef.Params",
+              "kind": "prop",
+              "name": "Params : []internal/domain.ParamDef"
+            },
+            {
+              "id": "internal/domain.FunctionDef.Returns",
+              "kind": "prop",
+              "name": "Returns : []internal/domain.TypeRef"
+            },
+            {
+              "id": "internal/domain.FunctionDef.IsExported",
+              "kind": "prop",
+              "name": "IsExported : bool"
+            },
+            {
+              "id": "internal/domain.FunctionDef.SourceFile",
+              "kind": "prop",
+              "name": "SourceFile : string"
+            },
+            {
+              "id": "internal/domain.FunctionDef.Doc",
+              "kind": "prop",
+              "name": "Doc : string"
+            },
+            {
+              "id": "internal/domain.FunctionDef.Stereotype",
+              "kind": "prop",
+              "name": "Stereotype : internal/domain.Stereotype"
+            },
+            {
+              "id": "internal/domain.FunctionDef.Calls",
+              "kind": "prop",
+              "name": "Calls : []internal/domain.CallEdge"
+            },
+            {
+              "id": "internal/domain.FunctionDef.Signature",
+              "kind": "method",
+              "name": "Signature()"
+            },
+            {
+              "id": "internal/domain.FunctionDef.SignatureWithVisibility",
+              "kind": "method",
+              "name": "SignatureWithVisibility()"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.Implementation",
+          "kind": "class",
+          "name": "Implementation",
+          "members": [
+            {
+              "id": "internal/domain.Implementation.Concrete",
+              "kind": "prop",
+              "name": "Concrete : internal/domain.SymbolRef"
+            },
+            {
+              "id": "internal/domain.Implementation.Interface",
+              "kind": "prop",
+              "name": "Interface : internal/domain.SymbolRef"
+            },
+            {
+              "id": "internal/domain.Implementation.IsPointer",
+              "kind": "prop",
+              "name": "IsPointer : bool"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.InterfaceDef",
+          "kind": "class",
+          "name": "InterfaceDef",
+          "members": [
+            {
+              "id": "internal/domain.InterfaceDef.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/domain.InterfaceDef.Methods",
+              "kind": "prop",
+              "name": "Methods : []internal/domain.MethodDef"
+            },
+            {
+              "id": "internal/domain.InterfaceDef.IsExported",
+              "kind": "prop",
+              "name": "IsExported : bool"
+            },
+            {
+              "id": "internal/domain.InterfaceDef.SourceFile",
+              "kind": "prop",
+              "name": "SourceFile : string"
+            },
+            {
+              "id": "internal/domain.InterfaceDef.Doc",
+              "kind": "prop",
+              "name": "Doc : string"
+            },
+            {
+              "id": "internal/domain.InterfaceDef.Stereotype",
+              "kind": "prop",
+              "name": "Stereotype : internal/domain.Stereotype"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.MethodDef",
+          "kind": "class",
+          "name": "MethodDef",
+          "members": [
+            {
+              "id": "internal/domain.MethodDef.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/domain.MethodDef.Params",
+              "kind": "prop",
+              "name": "Params : []internal/domain.ParamDef"
+            },
+            {
+              "id": "internal/domain.MethodDef.Returns",
+              "kind": "prop",
+              "name": "Returns : []internal/domain.TypeRef"
+            },
+            {
+              "id": "internal/domain.MethodDef.IsExported",
+              "kind": "prop",
+              "name": "IsExported : bool"
+            },
+            {
+              "id": "internal/domain.MethodDef.Calls",
+              "kind": "prop",
+              "name": "Calls : []internal/domain.CallEdge"
+            },
+            {
+              "id": "internal/domain.MethodDef.Signature",
+              "kind": "method",
+              "name": "Signature()"
+            },
+            {
+              "id": "internal/domain.MethodDef.SignatureWithVisibility",
+              "kind": "method",
+              "name": "SignatureWithVisibility()"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.Module",
+          "kind": "class",
+          "name": "Module",
+          "members": [
+            {
+              "id": "internal/domain.Module.Path",
+              "kind": "prop",
+              "name": "Path : string"
+            },
+            {
+              "id": "internal/domain.Module.Packages",
+              "kind": "prop",
+              "name": "Packages : []internal/domain.PackageModel"
+            },
+            {
+              "id": "internal/domain.Module.FindPackage",
+              "kind": "method",
+              "name": "FindPackage()"
+            },
+            {
+              "id": "internal/domain.Module.PackageCount",
+              "kind": "method",
+              "name": "PackageCount()"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.PackageModel",
+          "kind": "class",
+          "name": "PackageModel",
+          "members": [
+            {
+              "id": "internal/domain.PackageModel.Path",
+              "kind": "prop",
+              "name": "Path : string"
+            },
+            {
+              "id": "internal/domain.PackageModel.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/domain.PackageModel.Interfaces",
+              "kind": "prop",
+              "name": "Interfaces : []internal/domain.InterfaceDef"
+            },
+            {
+              "id": "internal/domain.PackageModel.Structs",
+              "kind": "prop",
+              "name": "Structs : []internal/domain.StructDef"
+            },
+            {
+              "id": "internal/domain.PackageModel.Functions",
+              "kind": "prop",
+              "name": "Functions : []internal/domain.FunctionDef"
+            },
+            {
+              "id": "internal/domain.PackageModel.TypeDefs",
+              "kind": "prop",
+              "name": "TypeDefs : []internal/domain.TypeDef"
+            },
+            {
+              "id": "internal/domain.PackageModel.Constants",
+              "kind": "prop",
+              "name": "Constants : []internal/domain.ConstDef"
+            },
+            {
+              "id": "internal/domain.PackageModel.Variables",
+              "kind": "prop",
+              "name": "Variables : []internal/domain.VarDef"
+            },
+            {
+              "id": "internal/domain.PackageModel.Errors",
+              "kind": "prop",
+              "name": "Errors : []internal/domain.ErrorDef"
+            },
+            {
+              "id": "internal/domain.PackageModel.Dependencies",
+              "kind": "prop",
+              "name": "Dependencies : []internal/domain.Dependency"
+            },
+            {
+              "id": "internal/domain.PackageModel.Layer",
+              "kind": "prop",
+              "name": "Layer : string"
+            },
+            {
+              "id": "internal/domain.PackageModel.Aggregate",
+              "kind": "prop",
+              "name": "Aggregate : string"
+            },
+            {
+              "id": "internal/domain.PackageModel.Implementations",
+              "kind": "prop",
+              "name": "Implementations : []internal/domain.Implementation"
+            },
+            {
+              "id": "internal/domain.PackageModel.SourceFiles",
+              "kind": "method",
+              "name": "SourceFiles()"
+            },
+            {
+              "id": "internal/domain.PackageModel.ExportedInterfaces",
+              "kind": "method",
+              "name": "ExportedInterfaces()"
+            },
+            {
+              "id": "internal/domain.PackageModel.ExportedStructs",
+              "kind": "method",
+              "name": "ExportedStructs()"
+            },
+            {
+              "id": "internal/domain.PackageModel.ExportedFunctions",
+              "kind": "method",
+              "name": "ExportedFunctions()"
+            },
+            {
+              "id": "internal/domain.PackageModel.ExportedTypeDefs",
+              "kind": "method",
+              "name": "ExportedTypeDefs()"
+            },
+            {
+              "id": "internal/domain.PackageModel.ExportedConstants",
+              "kind": "method",
+              "name": "ExportedConstants()"
+            },
+            {
+              "id": "internal/domain.PackageModel.ExportedVariables",
+              "kind": "method",
+              "name": "ExportedVariables()"
+            },
+            {
+              "id": "internal/domain.PackageModel.ExportedErrors",
+              "kind": "method",
+              "name": "ExportedErrors()"
+            },
+            {
+              "id": "internal/domain.PackageModel.HasExportedSymbols",
+              "kind": "method",
+              "name": "HasExportedSymbols()"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.ParamDef",
+          "kind": "class",
+          "name": "ParamDef",
+          "members": [
+            {
+              "id": "internal/domain.ParamDef.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/domain.ParamDef.Type",
+              "kind": "prop",
+              "name": "Type : internal/domain.TypeRef"
+            },
+            {
+              "id": "internal/domain.ParamDef.String",
+              "kind": "method",
+              "name": "String()"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.StructDef",
+          "kind": "class",
+          "name": "StructDef",
+          "members": [
+            {
+              "id": "internal/domain.StructDef.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/domain.StructDef.Fields",
+              "kind": "prop",
+              "name": "Fields : []internal/domain.FieldDef"
+            },
+            {
+              "id": "internal/domain.StructDef.Methods",
+              "kind": "prop",
+              "name": "Methods : []internal/domain.MethodDef"
+            },
+            {
+              "id": "internal/domain.StructDef.IsExported",
+              "kind": "prop",
+              "name": "IsExported : bool"
+            },
+            {
+              "id": "internal/domain.StructDef.SourceFile",
+              "kind": "prop",
+              "name": "SourceFile : string"
+            },
+            {
+              "id": "internal/domain.StructDef.Doc",
+              "kind": "prop",
+              "name": "Doc : string"
+            },
+            {
+              "id": "internal/domain.StructDef.Stereotype",
+              "kind": "prop",
+              "name": "Stereotype : internal/domain.Stereotype"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.SymbolRef",
+          "kind": "class",
+          "name": "SymbolRef",
+          "members": [
+            {
+              "id": "internal/domain.SymbolRef.Package",
+              "kind": "prop",
+              "name": "Package : string"
+            },
+            {
+              "id": "internal/domain.SymbolRef.File",
+              "kind": "prop",
+              "name": "File : string"
+            },
+            {
+              "id": "internal/domain.SymbolRef.Symbol",
+              "kind": "prop",
+              "name": "Symbol : string"
+            },
+            {
+              "id": "internal/domain.SymbolRef.External",
+              "kind": "prop",
+              "name": "External : bool"
+            },
+            {
+              "id": "internal/domain.SymbolRef.String",
+              "kind": "method",
+              "name": "String()"
+            },
+            {
+              "id": "internal/domain.SymbolRef.QualifiedName",
+              "kind": "method",
+              "name": "QualifiedName()"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.TypeDef",
+          "kind": "class",
+          "name": "TypeDef",
+          "members": [
+            {
+              "id": "internal/domain.TypeDef.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/domain.TypeDef.UnderlyingType",
+              "kind": "prop",
+              "name": "UnderlyingType : internal/domain.TypeRef"
+            },
+            {
+              "id": "internal/domain.TypeDef.Constants",
+              "kind": "prop",
+              "name": "Constants : []string"
+            },
+            {
+              "id": "internal/domain.TypeDef.IsExported",
+              "kind": "prop",
+              "name": "IsExported : bool"
+            },
+            {
+              "id": "internal/domain.TypeDef.SourceFile",
+              "kind": "prop",
+              "name": "SourceFile : string"
+            },
+            {
+              "id": "internal/domain.TypeDef.Doc",
+              "kind": "prop",
+              "name": "Doc : string"
+            },
+            {
+              "id": "internal/domain.TypeDef.Stereotype",
+              "kind": "prop",
+              "name": "Stereotype : internal/domain.Stereotype"
+            },
+            {
+              "id": "internal/domain.TypeDef.IsEnum",
+              "kind": "method",
+              "name": "IsEnum()"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.TypeRef",
+          "kind": "class",
+          "name": "TypeRef",
+          "members": [
+            {
+              "id": "internal/domain.TypeRef.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/domain.TypeRef.Package",
+              "kind": "prop",
+              "name": "Package : string"
+            },
+            {
+              "id": "internal/domain.TypeRef.IsPointer",
+              "kind": "prop",
+              "name": "IsPointer : bool"
+            },
+            {
+              "id": "internal/domain.TypeRef.IsSlice",
+              "kind": "prop",
+              "name": "IsSlice : bool"
+            },
+            {
+              "id": "internal/domain.TypeRef.IsMap",
+              "kind": "prop",
+              "name": "IsMap : bool"
+            },
+            {
+              "id": "internal/domain.TypeRef.KeyType",
+              "kind": "prop",
+              "name": "KeyType : *internal/domain.TypeRef"
+            },
+            {
+              "id": "internal/domain.TypeRef.ValueType",
+              "kind": "prop",
+              "name": "ValueType : *internal/domain.TypeRef"
+            },
+            {
+              "id": "internal/domain.TypeRef.String",
+              "kind": "method",
+              "name": "String()"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.VarDef",
+          "kind": "class",
+          "name": "VarDef",
+          "members": [
+            {
+              "id": "internal/domain.VarDef.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/domain.VarDef.Type",
+              "kind": "prop",
+              "name": "Type : internal/domain.TypeRef"
+            },
+            {
+              "id": "internal/domain.VarDef.IsExported",
+              "kind": "prop",
+              "name": "IsExported : bool"
+            },
+            {
+              "id": "internal/domain.VarDef.SourceFile",
+              "kind": "prop",
+              "name": "SourceFile : string"
+            },
+            {
+              "id": "internal/domain.VarDef.Doc",
+              "kind": "prop",
+              "name": "Doc : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/domain.WriteOptions",
+          "kind": "class",
+          "name": "WriteOptions",
+          "members": [
+            {
+              "id": "internal/domain.WriteOptions.OutputPath",
+              "kind": "prop",
+              "name": "OutputPath : string"
+            },
+            {
+              "id": "internal/domain.WriteOptions.PublicOnly",
+              "kind": "prop",
+              "name": "PublicOnly : bool"
+            },
+            {
+              "id": "internal/domain.WriteOptions.ToStdout",
+              "kind": "prop",
+              "name": "ToStdout : bool"
+            }
+          ]
+        }
+      ],
+      "ports": []
+    },
+    {
+      "id": "internal/overlay",
+      "name": "overlay",
+      "tech": "Go",
+      "desc": "Adapter describes a hexagonal-architecture adapter: a concrete",
+      "bc": "all",
+      "internals": [
+        {
+          "id": "internal/overlay.Adapter",
+          "kind": "class",
+          "name": "Adapter",
+          "members": [
+            {
+              "id": "internal/overlay.Adapter.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/overlay.Adapter.Direction",
+              "kind": "prop",
+              "name": "Direction : string"
+            },
+            {
+              "id": "internal/overlay.Adapter.Description",
+              "kind": "prop",
+              "name": "Description : string"
+            },
+            {
+              "id": "internal/overlay.Adapter.Packages",
+              "kind": "prop",
+              "name": "Packages : []string"
+            }
+          ]
+        },
+        {
+          "id": "internal/overlay.Aggregate",
+          "kind": "class",
+          "name": "Aggregate",
+          "members": [
+            {
+              "id": "internal/overlay.Aggregate.Root",
+              "kind": "prop",
+              "name": "Root : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/overlay.BoundedContext",
+          "kind": "class",
+          "name": "BoundedContext",
+          "members": [
+            {
+              "id": "internal/overlay.BoundedContext.Name",
+              "kind": "prop",
+              "name": "Name : string"
+            },
+            {
+              "id": "internal/overlay.BoundedContext.Description",
+              "kind": "prop",
+              "name": "Description : string"
+            },
+            {
+              "id": "internal/overlay.BoundedContext.Aggregates",
+              "kind": "prop",
+              "name": "Aggregates : []string"
+            },
+            {
+              "id": "internal/overlay.BoundedContext.Upstream",
+              "kind": "prop",
+              "name": "Upstream : []string"
+            },
+            {
+              "id": "internal/overlay.BoundedContext.Downstream",
+              "kind": "prop",
+              "name": "Downstream : []string"
+            },
+            {
+              "id": "internal/overlay.BoundedContext.Relationship",
+              "kind": "prop",
+              "name": "Relationship : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/overlay.Config",
+          "kind": "class",
+          "name": "Config",
+          "members": [
+            {
+              "id": "internal/overlay.Config.Module",
+              "kind": "prop",
+              "name": "Module : string"
+            },
+            {
+              "id": "internal/overlay.Config.Layers",
+              "kind": "prop",
+              "name": "Layers : map[string][]string"
+            },
+            {
+              "id": "internal/overlay.Config.LayerRules",
+              "kind": "prop",
+              "name": "LayerRules : map[string][]string"
+            },
+            {
+              "id": "internal/overlay.Config.Aggregates",
+              "kind": "prop",
+              "name": "Aggregates : map[string]internal/overlay.Aggregate"
+            },
+            {
+              "id": "internal/overlay.Config.Configs",
+              "kind": "prop",
+              "name": "Configs : []string"
+            },
+            {
+              "id": "internal/overlay.Config.BoundedContexts",
+              "kind": "prop",
+              "name": "BoundedContexts : map[string]internal/overlay.BoundedContext"
+            },
+            {
+              "id": "internal/overlay.Config.Adapters",
+              "kind": "prop",
+              "name": "Adapters : map[string]internal/overlay.Adapter"
+            },
+            {
+              "id": "internal/overlay.Config.Serve",
+              "kind": "prop",
+              "name": "Serve : internal/overlay.ServeConfig"
+            },
+            {
+              "id": "internal/overlay.Config.Diagrams",
+              "kind": "prop",
+              "name": "Diagrams : internal/overlay.DiagramConfig"
+            }
+          ]
+        },
+        {
+          "id": "internal/overlay.D2DiagramConfig",
+          "kind": "class",
+          "name": "D2DiagramConfig",
+          "members": [
+            {
+              "id": "internal/overlay.D2DiagramConfig.Styles",
+              "kind": "prop",
+              "name": "Styles : internal/overlay.D2StylesConfig"
+            }
+          ]
+        },
+        {
+          "id": "internal/overlay.D2LegendStyle",
+          "kind": "class",
+          "name": "D2LegendStyle",
+          "members": [
+            {
+              "id": "internal/overlay.D2LegendStyle.Fill",
+              "kind": "prop",
+              "name": "Fill : string"
+            },
+            {
+              "id": "internal/overlay.D2LegendStyle.Stroke",
+              "kind": "prop",
+              "name": "Stroke : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/overlay.D2SemanticStyle",
+          "kind": "class",
+          "name": "D2SemanticStyle",
+          "members": [
+            {
+              "id": "internal/overlay.D2SemanticStyle.ContainerFill",
+              "kind": "prop",
+              "name": "ContainerFill : string"
+            },
+            {
+              "id": "internal/overlay.D2SemanticStyle.ContainerFontColor",
+              "kind": "prop",
+              "name": "ContainerFontColor : string"
+            },
+            {
+              "id": "internal/overlay.D2SemanticStyle.ClassFill",
+              "kind": "prop",
+              "name": "ClassFill : string"
+            },
+            {
+              "id": "internal/overlay.D2SemanticStyle.ClassFontColor",
+              "kind": "prop",
+              "name": "ClassFontColor : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/overlay.D2StylesConfig",
+          "kind": "class",
+          "name": "D2StylesConfig",
+          "members": [
+            {
+              "id": "internal/overlay.D2StylesConfig.Domain",
+              "kind": "prop",
+              "name": "Domain : internal/overlay.D2SemanticStyle"
+            },
+            {
+              "id": "internal/overlay.D2StylesConfig.Service",
+              "kind": "prop",
+              "name": "Service : internal/overlay.D2SemanticStyle"
+            },
+            {
+              "id": "internal/overlay.D2StylesConfig.Factory",
+              "kind": "prop",
+              "name": "Factory : internal/overlay.D2SemanticStyle"
+            },
+            {
+              "id": "internal/overlay.D2StylesConfig.Value",
+              "kind": "prop",
+              "name": "Value : internal/overlay.D2SemanticStyle"
+            },
+            {
+              "id": "internal/overlay.D2StylesConfig.Legend",
+              "kind": "prop",
+              "name": "Legend : internal/overlay.D2LegendStyle"
+            }
+          ]
+        },
+        {
+          "id": "internal/overlay.DiagramConfig",
+          "kind": "class",
+          "name": "DiagramConfig",
+          "members": [
+            {
+              "id": "internal/overlay.DiagramConfig.D2",
+              "kind": "prop",
+              "name": "D2 : internal/overlay.D2DiagramConfig"
+            }
+          ]
+        },
+        {
+          "id": "internal/overlay.ServeConfig",
+          "kind": "class",
+          "name": "ServeConfig",
+          "members": [
+            {
+              "id": "internal/overlay.ServeConfig.HTTPAddr",
+              "kind": "prop",
+              "name": "HTTPAddr : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/overlay.Violation",
+          "kind": "class",
+          "name": "Violation",
+          "members": [
+            {
+              "id": "internal/overlay.Violation.Package",
+              "kind": "prop",
+              "name": "Package : string"
+            },
+            {
+              "id": "internal/overlay.Violation.Layer",
+              "kind": "prop",
+              "name": "Layer : string"
+            },
+            {
+              "id": "internal/overlay.Violation.Imports",
+              "kind": "prop",
+              "name": "Imports : []string"
+            }
+          ]
+        }
+      ],
+      "ports": [
+        {
+          "id": "internal/overlay:out:internal/domain",
+          "side": "right",
+          "kind": "out",
+          "name": "use domain"
+        }
+      ]
+    },
+    {
+      "id": "internal/service",
+      "name": "service",
+      "tech": "Go",
+      "desc": "ModelReader reads package models from a source (code or diagrams).",
+      "bc": "all",
+      "internals": [
+        {
+          "id": "internal/service.ModelReader",
+          "kind": "iface",
+          "name": "ModelReader",
+          "members": [
+            {
+              "id": "internal/service.ModelReader.Read",
+              "kind": "method",
+              "name": "Read()"
+            }
+          ]
+        },
+        {
+          "id": "internal/service.ModelWriter",
+          "kind": "iface",
+          "name": "ModelWriter",
+          "members": [
+            {
+              "id": "internal/service.ModelWriter.Write",
+              "kind": "method",
+              "name": "Write()"
+            },
+            {
+              "id": "internal/service.ModelWriter.WriteCombined",
+              "kind": "method",
+              "name": "WriteCombined()"
+            }
+          ]
+        },
+        {
+          "id": "internal/service.ComposeOptions",
+          "kind": "class",
+          "name": "ComposeOptions",
+          "members": [
+            {
+              "id": "internal/service.ComposeOptions.Paths",
+              "kind": "prop",
+              "name": "Paths : []string"
+            },
+            {
+              "id": "internal/service.ComposeOptions.OutputPath",
+              "kind": "prop",
+              "name": "OutputPath : string"
+            },
+            {
+              "id": "internal/service.ComposeOptions.Mode",
+              "kind": "prop",
+              "name": "Mode : internal/service.ComposeMode"
+            }
+          ]
+        },
+        {
+          "id": "internal/service.ComposeResult",
+          "kind": "class",
+          "name": "ComposeResult",
+          "members": [
+            {
+              "id": "internal/service.ComposeResult.OutputPath",
+              "kind": "prop",
+              "name": "OutputPath : string"
+            },
+            {
+              "id": "internal/service.ComposeResult.PackageCount",
+              "kind": "prop",
+              "name": "PackageCount : int"
+            },
+            {
+              "id": "internal/service.ComposeResult.SkippedPaths",
+              "kind": "prop",
+              "name": "SkippedPaths : []string"
+            }
+          ]
+        },
+        {
+          "id": "internal/service.GenerateCombinedOptions",
+          "kind": "class",
+          "name": "GenerateCombinedOptions",
+          "members": [
+            {
+              "id": "internal/service.GenerateCombinedOptions.Paths",
+              "kind": "prop",
+              "name": "Paths : []string"
+            },
+            {
+              "id": "internal/service.GenerateCombinedOptions.OutputPath",
+              "kind": "prop",
+              "name": "OutputPath : string"
+            },
+            {
+              "id": "internal/service.GenerateCombinedOptions.Debug",
+              "kind": "prop",
+              "name": "Debug : bool"
+            },
+            {
+              "id": "internal/service.GenerateCombinedOptions.DebugPrintf",
+              "kind": "prop",
+              "name": "DebugPrintf : func(format string, args ...any)"
+            }
+          ]
+        },
+        {
+          "id": "internal/service.GenerateCombinedResult",
+          "kind": "class",
+          "name": "GenerateCombinedResult",
+          "members": [
+            {
+              "id": "internal/service.GenerateCombinedResult.OutputPath",
+              "kind": "prop",
+              "name": "OutputPath : string"
+            },
+            {
+              "id": "internal/service.GenerateCombinedResult.PackageCount",
+              "kind": "prop",
+              "name": "PackageCount : int"
+            }
+          ]
+        },
+        {
+          "id": "internal/service.GenerateOptions",
+          "kind": "class",
+          "name": "GenerateOptions",
+          "members": [
+            {
+              "id": "internal/service.GenerateOptions.Paths",
+              "kind": "prop",
+              "name": "Paths : []string"
+            },
+            {
+              "id": "internal/service.GenerateOptions.PublicOnly",
+              "kind": "prop",
+              "name": "PublicOnly : bool"
+            },
+            {
+              "id": "internal/service.GenerateOptions.InternalOnly",
+              "kind": "prop",
+              "name": "InternalOnly : bool"
+            },
+            {
+              "id": "internal/service.GenerateOptions.FileExtension",
+              "kind": "prop",
+              "name": "FileExtension : string"
+            },
+            {
+              "id": "internal/service.GenerateOptions.Debug",
+              "kind": "prop",
+              "name": "Debug : bool"
+            },
+            {
+              "id": "internal/service.GenerateOptions.DebugPrintf",
+              "kind": "prop",
+              "name": "DebugPrintf : func(format string, args ...any)"
+            },
+            {
+              "id": "internal/service.GenerateOptions.OverlayPath",
+              "kind": "prop",
+              "name": "OverlayPath : string"
+            },
+            {
+              "id": "internal/service.GenerateOptions.GoModPath",
+              "kind": "prop",
+              "name": "GoModPath : string"
+            }
+          ]
+        },
+        {
+          "id": "internal/service.GenerateResult",
+          "kind": "class",
+          "name": "GenerateResult",
+          "members": [
+            {
+              "id": "internal/service.GenerateResult.PackagePath",
+              "kind": "prop",
+              "name": "PackagePath : string"
+            },
+            {
+              "id": "internal/service.GenerateResult.PubFile",
+              "kind": "prop",
+              "name": "PubFile : string"
+            },
+            {
+              "id": "internal/service.GenerateResult.InternalFile",
+              "kind": "prop",
+              "name": "InternalFile : string"
+            },
+            {
+              "id": "internal/service.GenerateResult.Error",
+              "kind": "prop",
+              "name": "Error : error"
+            }
+          ]
+        },
+        {
+          "id": "internal/service.Service",
+          "kind": "class",
+          "name": "Service",
+          "members": [
+            {
+              "id": "internal/service.Service.goReader",
+              "kind": "prop",
+              "name": "goReader : internal/service.ModelReader"
+            },
+            {
+              "id": "internal/service.Service.langReaders",
+              "kind": "prop",
+              "name": "langReaders : []internal/service.languageReader"
+            },
+            {
+              "id": "internal/service.Service.d2Reader",
+              "kind": "prop",
+              "name": "d2Reader : internal/service.ModelReader"
+            },
+            {
+              "id": "internal/service.Service.d2Writer",
+              "kind": "prop",
+              "name": "d2Writer : internal/service.ModelWriter"
+            },
+            {
+              "id": "internal/service.Service.yamlReader",
+              "kind": "prop",
+              "name": "yamlReader : internal/service.ModelReader"
+            },
+            {
+              "id": "internal/service.Service.yamlWriter",
+              "kind": "prop",
+              "name": "yamlWriter : internal/service.ModelWriter"
+            },
+            {
+              "id": "internal/service.Service.Compose",
+              "kind": "method",
+              "name": "Compose()"
+            },
+            {
+              "id": "internal/service.Service.ReadModels",
+              "kind": "method",
+              "name": "ReadModels()"
+            },
+            {
+              "id": "internal/service.Service.readPackages",
+              "kind": "method",
+              "name": "readPackages()"
+            },
+            {
+              "id": "internal/service.Service.Generate",
+              "kind": "method",
+              "name": "Generate()"
+            },
+            {
+              "id": "internal/service.Service.GenerateWithOverlay",
+              "kind": "method",
+              "name": "GenerateWithOverlay()"
+            },
+            {
+              "id": "internal/service.Service.generateInternal",
+              "kind": "method",
+              "name": "generateInternal()"
+            },
+            {
+              "id": "internal/service.Service.generatePackageDiagrams",
+              "kind": "method",
+              "name": "generatePackageDiagrams()"
+            },
+            {
+              "id": "internal/service.Service.resolveArchDir",
+              "kind": "method",
+              "name": "resolveArchDir()"
+            },
+            {
+              "id": "internal/service.Service.GenerateCombined",
+              "kind": "method",
+              "name": "GenerateCombined()"
+            },
+            {
+              "id": "internal/service.Service.Split",
+              "kind": "method",
+              "name": "Split()"
+            },
+            {
+              "id": "internal/service.Service.splitPackage",
+              "kind": "method",
+              "name": "splitPackage()"
+            }
+          ]
+        },
+        {
+          "id": "internal/service.SplitFileResult",
+          "kind": "class",
+          "name": "SplitFileResult",
+          "members": [
+            {
+              "id": "internal/service.SplitFileResult.PackagePath",
+              "kind": "prop",
+              "name": "PackagePath : string"
+            },
+            {
+              "id": "internal/service.SplitFileResult.FilePath",
+              "kind": "prop",
+              "name": "FilePath : string"
+            },
+            {
+              "id": "internal/service.SplitFileResult.Created",
+              "kind": "prop",
+              "name": "Created : bool"
+            },
+            {
+              "id": "internal/service.SplitFileResult.Error",
+              "kind": "prop",
+              "name": "Error : error"
+            }
+          ]
+        },
+        {
+          "id": "internal/service.SplitOptions",
+          "kind": "class",
+          "name": "SplitOptions",
+          "members": [
+            {
+              "id": "internal/service.SplitOptions.DiagramPath",
+              "kind": "prop",
+              "name": "DiagramPath : string"
+            },
+            {
+              "id": "internal/service.SplitOptions.DryRun",
+              "kind": "prop",
+              "name": "DryRun : bool"
+            }
+          ]
+        },
+        {
+          "id": "internal/service.SplitResult",
+          "kind": "class",
+          "name": "SplitResult",
+          "members": [
+            {
+              "id": "internal/service.SplitResult.Files",
+              "kind": "prop",
+              "name": "Files : []internal/service.SplitFileResult"
+            },
+            {
+              "id": "internal/service.SplitResult.DryRun",
+              "kind": "prop",
+              "name": "DryRun : bool"
+            }
+          ]
+        },
+        {
+          "id": "internal/service.languageReader",
+          "kind": "class",
+          "name": "languageReader",
+          "members": [
+            {
+              "id": "internal/service.languageReader.name",
+              "kind": "prop",
+              "name": "name : string"
+            },
+            {
+              "id": "internal/service.languageReader.reader",
+              "kind": "prop",
+              "name": "reader : internal/service.ModelReader"
+            },
+            {
+              "id": "internal/service.languageReader.match",
+              "kind": "prop",
+              "name": "match : func(path string) bool"
+            }
+          ]
+        }
+      ],
+      "ports": [
+        {
+          "id": "internal/service:in:ModelReader",
+          "side": "left",
+          "kind": "in",
+          "name": "ModelReader"
+        },
+        {
+          "id": "internal/service:in:ModelWriter",
+          "side": "left",
+          "kind": "in",
+          "name": "ModelWriter"
+        },
+        {
+          "id": "internal/service:out:context",
+          "side": "right",
+          "kind": "out",
+          "name": "use context"
+        },
+        {
+          "id": "internal/service:out:internal/domain",
+          "side": "right",
+          "kind": "out",
+          "name": "use domain"
+        },
+        {
+          "id": "internal/service:out:internal/overlay",
+          "side": "right",
+          "kind": "out",
+          "name": "use overlay"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:internal/adapter/uigraph-\u003einternal/diff",
+      "from": "internal/adapter/uigraph",
+      "to": "internal/diff",
+      "fromPort": "internal/adapter/uigraph:out:internal/diff",
+      "toPort": "internal/diff:in:...",
+      "label": "uses"
+    },
+    {
+      "id": "e:internal/adapter/uigraph-\u003einternal/domain",
+      "from": "internal/adapter/uigraph",
+      "to": "internal/domain",
+      "fromPort": "internal/adapter/uigraph:out:internal/domain",
+      "toPort": "internal/domain:in:...",
+      "label": "uses"
+    },
+    {
+      "id": "e:internal/adapter/uigraph-\u003einternal/overlay",
+      "from": "internal/adapter/uigraph",
+      "to": "internal/overlay",
+      "fromPort": "internal/adapter/uigraph:out:internal/overlay",
+      "toPort": "internal/overlay:in:...",
+      "label": "uses"
+    },
+    {
+      "id": "e:internal/diff-\u003einternal/domain",
+      "from": "internal/diff",
+      "to": "internal/domain",
+      "fromPort": "internal/diff:out:internal/domain",
+      "toPort": "internal/domain:in:...",
+      "label": "uses"
+    },
+    {
+      "id": "e:internal/overlay-\u003einternal/domain",
+      "from": "internal/overlay",
+      "to": "internal/domain",
+      "fromPort": "internal/overlay:out:internal/domain",
+      "toPort": "internal/domain:in:...",
+      "label": "uses"
+    },
+    {
+      "id": "e:internal/service-\u003einternal/domain",
+      "from": "internal/service",
+      "to": "internal/domain",
+      "fromPort": "internal/service:out:internal/domain",
+      "toPort": "internal/domain:in:...",
+      "label": "returns"
+    },
+    {
+      "id": "e:internal/service-\u003einternal/overlay",
+      "from": "internal/service",
+      "to": "internal/overlay",
+      "fromPort": "internal/service:out:internal/overlay",
+      "toPort": "internal/overlay:in:...",
+      "label": "returns"
+    }
+  ],
+  "comments": []
+}
