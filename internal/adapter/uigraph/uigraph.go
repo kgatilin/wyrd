@@ -145,7 +145,7 @@ func Project(models []domain.PackageModel, cfg *overlay.Config, d *diff.Diff) (U
 	}
 
 	// Build edges from dependencies
-	g.Edges = buildEdges(models, pkgSet, diffMap)
+	g.Edges = buildEdges(models, pkgSet)
 
 	// Build PR if diff is non-empty
 	if d != nil && !d.IsEmpty() {
@@ -316,7 +316,9 @@ func buildComponent(m domain.PackageModel, cfg *overlay.Config, diffMap map[stri
 	return comp
 }
 
-func buildEdges(models []domain.PackageModel, pkgSet map[string]bool, diffMap map[string]string) []Edge {
+// buildEdges creates edges from package dependencies.
+// NOTE: Edge-level and port-level diff annotation is a deliberate POC non-goal.
+func buildEdges(models []domain.PackageModel, pkgSet map[string]bool) []Edge {
 	// Collect unique edges
 	edgeMap := make(map[string]Edge)
 
@@ -369,12 +371,14 @@ func buildDiffMap(d *diff.Diff) map[string]string {
 func buildPR(d *diff.Diff) *PR {
 	stats := Stats{}
 	for _, c := range d.Changes {
-		switch c.Op {
-		case diff.OpAdd:
+		// Use diffWord to get the UI-perspective direction (inverted from diff.Op).
+		// This ensures PR stats match the per-element diff flags.
+		switch diffWord(string(c.Op)) {
+		case "added":
 			stats.Added++
-		case diff.OpRemove:
+		case "removed":
 			stats.Removed++
-		case diff.OpChange:
+		case "changed":
 			stats.Changed++
 		}
 	}
