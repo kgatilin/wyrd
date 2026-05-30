@@ -1,20 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import type { UIGraph } from './types';
 import { loadGraph } from './data/load';
 import { layout } from './layout/layout';
+import { useExpansion } from './state/hooks';
 import { AppBar } from './components/AppBar';
 import { PrHeader } from './components/PrHeader';
+import { BCGroups } from './components/BCGroups';
+import { Component } from './components/Component';
+import { EdgeLayer } from './components/EdgeLayer';
+import { Legend } from './components/Legend';
+import { CanvasToolbar } from './components/CanvasToolbar';
 
 /**
  * Main application component - V4 layout shell.
- * Loads the graph, applies layout, and renders the 3-pane stage.
+ * Loads the graph, applies layout, and renders the 3-pane stage with canvas.
  */
 export default function App() {
   const [graph, setGraph] = useState<UIGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [level, setLevel] = useState(2); // Default to L3/Component
-  const [commentCount] = useState(0); // Placeholder - will be wired to actual comments
 
   // Load and layout the graph
   useEffect(() => {
@@ -44,23 +49,95 @@ export default function App() {
   }
 
   return (
+    <AppContent
+      graph={graph}
+      theme={theme}
+      level={level}
+      onLevelChange={setLevel}
+      onThemeToggle={toggleTheme}
+    />
+  );
+}
+
+interface AppContentProps {
+  graph: UIGraph;
+  theme: 'dark' | 'light';
+  level: number;
+  onLevelChange: (level: number) => void;
+  onThemeToggle: () => void;
+}
+
+/**
+ * Inner component that renders the app once graph is loaded.
+ * Separated to ensure hooks can reference graph.
+ */
+function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppContentProps) {
+  // Determine if diff mode is active
+  const showDiff = graph.pr != null;
+
+  // Expansion hooks - initialize with first component expanded (or 'orders' if present)
+  const initialExpanded = useMemo(() => {
+    const orders = graph.components.find((c) => c.id === 'orders');
+    if (orders) return ['orders'];
+    if (graph.components.length > 0) return [graph.components[0].id];
+    return [];
+  }, [graph.components]);
+
+  const { expanded, toggle, internalExpanded, toggleInternal } = useExpansion(
+    graph,
+    initialExpanded
+  );
+
+  // Comment targets for highlighting (seeded from graph.comments)
+  const commentTargets = useMemo(
+    () => new Set(graph.comments.map((c) => c.target.id)),
+    [graph.comments]
+  );
+
+  // Calculate canvas dimensions based on content
+  const canvasDimensions = useMemo(() => {
+    let maxX = 1000;
+    let maxY = 600;
+
+    for (const bc of graph.boundedContexts) {
+      if (bc.x != null && bc.w != null) {
+        maxX = Math.max(maxX, bc.x + bc.w + 50);
+      }
+      if (bc.y != null && bc.h != null) {
+        maxY = Math.max(maxY, bc.y + bc.h + 50);
+      }
+    }
+
+    for (const c of graph.components) {
+      if (c.x != null && c.wx != null) {
+        maxX = Math.max(maxX, c.x + c.wx + 50);
+      }
+      if (c.y != null && c.hx != null) {
+        maxY = Math.max(maxY, c.y + c.hx + 100);
+      }
+    }
+
+    return { width: maxX, height: maxY };
+  }, [graph.boundedContexts, graph.components]);
+
+  return (
     <div
       className={`hifi v4 theme-${theme}`}
       style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column' }}
     >
       <AppBar
         level={level}
-        onLevelChange={setLevel}
+        onLevelChange={onLevelChange}
         theme={theme}
-        onThemeToggle={toggleTheme}
-        commentCount={graph.comments.length + commentCount}
+        onThemeToggle={onThemeToggle}
+        commentCount={graph.comments.length}
         pr={graph.pr}
       />
 
       {graph.pr && <PrHeader pr={graph.pr} />}
 
       <div className="hf-stage">
-        {/* LEFT PANE - placeholder */}
+        {/* LEFT PANE - placeholder for Phase D */}
         <div className="hf-side">
           <div className="hf-side-title">CONTEXTS</div>
           <div className="hf-tree">
@@ -74,26 +151,53 @@ export default function App() {
           </div>
         </div>
 
-        {/* CENTER PANE - canvas placeholder */}
-        <div className="hf-canvas-wrap">
-          <div className="hf-canvas" style={{ minWidth: 1000, minHeight: 600 }}>
-            {/* Canvas content will be added in Phase C */}
-            <div
-              style={{
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                color: 'var(--fg-2)',
-                fontFamily: 'var(--mono, monospace)',
-              }}
-            >
-              Canvas: {graph.components.length} components, {graph.edges.length} edges
-            </div>
+        {/* CENTER PANE - canvas */}
+        <div className="hf-canvas-wrap" style={{ flex: 1 }}>
+          <div
+            className="hf-canvas"
+            style={{
+              minWidth: canvasDimensions.width,
+              minHeight: canvasDimensions.height,
+            }}
+          >
+            {/* Bounded context groups */}
+            <BCGroups boundedContexts={graph.boundedContexts} show={true} />
+
+            {/* Edge layer (SVG) */}
+            <EdgeLayer
+              edges={graph.edges}
+              components={graph.components}
+              expandedSet={expanded}
+              expandedInternals={internalExpanded}
+              showDiff={showDiff}
+              focusId={null} // Focus mode is Phase D
+              flow={true}
+              commentTargets={commentTargets}
+            />
+
+            {/* Components */}
+            {graph.components.map((c) => (
+              <Component
+                key={c.id}
+                cmp={c}
+                expanded={expanded.has(c.id)}
+                onToggleExpand={toggle}
+                expandedInternals={internalExpanded}
+                onToggleInternal={toggleInternal}
+                showDiff={showDiff}
+                commentTargets={commentTargets}
+              />
+            ))}
           </div>
+
+          {/* Canvas toolbar */}
+          <CanvasToolbar />
+
+          {/* Legend */}
+          <Legend showDiff={showDiff} />
         </div>
 
-        {/* RIGHT PANE - placeholder */}
+        {/* RIGHT PANE - placeholder for Phase D */}
         <div className="hf-side right">
           <div className="hf-side-title">COMMENTS</div>
           <div className="hf-list">
