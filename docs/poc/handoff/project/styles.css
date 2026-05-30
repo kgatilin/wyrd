@@ -1,0 +1,804 @@
+/* archai wireframes — low-fi clean, sketchy vibe */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Caveat:wght@500;700&family=Kalam:wght@400;700&display=swap');
+
+:root {
+  --paper: oklch(0.985 0.004 85);
+  --paper-2: oklch(0.965 0.006 85);
+  --ink: oklch(0.22 0.01 250);
+  --ink-2: oklch(0.45 0.01 250);
+  --ink-3: oklch(0.65 0.008 250);
+  --rule: oklch(0.85 0.01 250);
+  --rule-2: oklch(0.9 0.01 250);
+  --accent: oklch(0.55 0.12 240);
+  --accent-soft: oklch(0.92 0.04 240);
+  --add: oklch(0.62 0.14 145);
+  --add-soft: oklch(0.94 0.05 145);
+  --rem: oklch(0.58 0.18 25);
+  --rem-soft: oklch(0.94 0.05 25);
+  --chg: oklch(0.7 0.14 75);
+  --chg-soft: oklch(0.94 0.06 75);
+
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --hand: 'Kalam', 'Caveat', cursive;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.4;
+  height: 100%;
+  overflow: hidden;
+}
+#root { height: 100vh; display: flex; flex-direction: column; }
+
+/* paper texture — very subtle */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(oklch(0.5 0.01 80 / 0.025) 1px, transparent 1px);
+  background-size: 4px 4px;
+  z-index: 0;
+}
+
+/* ─── top app bar (shared) ─────────────────────────────── */
+.appbar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1.5px solid var(--ink);
+  background: var(--paper);
+  position: relative; z-index: 5;
+}
+.appbar .brand {
+  font-family: var(--hand);
+  font-size: 22px; font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.appbar .brand::after {
+  content: '';
+  display: inline-block; width: 8px; height: 8px;
+  background: var(--ink); margin-left: 6px;
+  transform: rotate(45deg) translateY(-2px);
+}
+.appbar .crumbs {
+  font-size: 11px; color: var(--ink-2);
+  display: flex; gap: 6px; align-items: center;
+}
+.appbar .crumbs .sep { color: var(--ink-3); }
+.appbar .spacer { flex: 1; }
+.appbar .pill {
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: var(--paper);
+  cursor: pointer;
+  font-family: var(--mono);
+}
+.appbar .pill.active { background: var(--ink); color: var(--paper); }
+.appbar .pill.warn { border-color: var(--chg); color: var(--chg); }
+.appbar .submit {
+  border: 1.5px solid var(--ink);
+  background: var(--ink); color: var(--paper);
+  padding: 6px 14px; font-size: 11px; font-family: var(--mono);
+  cursor: pointer;
+  position: relative;
+}
+.appbar .submit .count {
+  background: var(--paper); color: var(--ink);
+  border-radius: 999px; padding: 0 6px; margin-left: 6px;
+  font-size: 10px;
+}
+
+/* ─── tabs strip ───────────────────────────────────────── */
+.tabs {
+  display: flex; gap: 0;
+  padding: 0 16px;
+  border-bottom: 1.5px solid var(--ink);
+  background: var(--paper-2);
+  position: relative; z-index: 4;
+}
+.tab {
+  padding: 8px 14px 9px;
+  font-size: 11px;
+  border: 1.5px solid transparent;
+  border-bottom: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  color: var(--ink-2);
+  position: relative;
+  top: 1.5px;
+  letter-spacing: 0.3px;
+}
+.tab .num {
+  font-family: var(--hand);
+  font-size: 14px;
+  margin-right: 6px;
+  color: var(--ink-3);
+}
+.tab:hover { color: var(--ink); }
+.tab.active {
+  background: var(--paper);
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+}
+.tab.active .num { color: var(--ink); }
+
+/* ─── canvas area ──────────────────────────────────────── */
+.stage {
+  flex: 1;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+  background: var(--paper);
+}
+.stage::before {
+  /* graph paper */
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(var(--rule-2) 1px, transparent 1px),
+    linear-gradient(90deg, var(--rule-2) 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ─── component blocks (shared) ────────────────────────── */
+.cmp {
+  position: absolute;
+  border: 1.75px solid var(--ink);
+  background: var(--paper);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  cursor: grab;
+  user-select: none;
+  transition: width 0.35s cubic-bezier(.4,1.4,.5,1),
+              height 0.35s cubic-bezier(.4,1.4,.5,1),
+              box-shadow 0.15s;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.cmp:hover { box-shadow: 3px 3px 0 var(--ink); }
+.cmp.selected { box-shadow: 3px 3px 0 var(--accent); border-color: var(--accent); }
+.cmp.focused {
+  box-shadow: 3px 3px 0 var(--accent), 0 0 0 2px var(--accent-soft);
+  border-color: var(--accent);
+  z-index: 5;
+}
+.cmp.dimmed {
+  opacity: 0.28;
+  filter: saturate(0.4);
+}
+.cmp.dimmed:hover { opacity: 0.55; }
+.edge-dimmed { opacity: 0.18; }
+.edge-focused .edge { stroke-width: 2.2px; }
+.edge-focused .edge-label { font-weight: 700; }
+.cmp .cmp-head {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 4px;
+}
+.cmp .cmp-name {
+  font-weight: 600; font-size: 13px;
+  flex: 1;
+}
+.cmp .cmp-tech {
+  font-size: 10px; color: var(--ink-2);
+  border: 1px dashed var(--ink-3);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+.cmp .cmp-desc {
+  font-size: 11px; color: var(--ink-2);
+  font-family: var(--mono);
+  line-height: 1.35;
+}
+.cmp .expand-btn {
+  width: 18px; height: 18px;
+  border: 1.25px solid var(--ink);
+  background: var(--paper);
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 12px; line-height: 1;
+  cursor: pointer;
+  font-family: var(--mono);
+  padding: 0;
+}
+.cmp .expand-btn:hover { background: var(--accent-soft); }
+
+/* diff variants */
+.cmp.added { border-color: var(--add); background: var(--add-soft); }
+.cmp.added::after, .cmp.removed::after, .cmp.changed::after {
+  position: absolute; top: -8px; right: 8px;
+  font-family: var(--hand); font-size: 14px; font-weight: 700;
+  background: var(--paper); padding: 0 6px;
+  letter-spacing: 0.5px;
+}
+.cmp.added::after { content: '+ added'; color: var(--add); }
+.cmp.removed { border-color: var(--rem); background: var(--rem-soft); opacity: 0.78; }
+.cmp.removed::after { content: '— removed'; color: var(--rem); }
+.cmp.removed .cmp-name { text-decoration: line-through; }
+.cmp.changed { border-color: var(--chg); background: var(--chg-soft); }
+.cmp.changed::after { content: '~ changed'; color: var(--chg); }
+
+/* expanded component — becomes a mini-canvas with classes/interfaces inside */
+.cmp.expanded {
+  background: oklch(0.99 0.004 85);
+  padding: 8px 10px 10px;
+  cursor: default;
+}
+.cmp.expanded .cmp-canvas {
+  position: relative;
+  margin-top: 6px;
+  border-top: 1px dashed var(--ink-3);
+  height: calc(100% - 32px);
+  background-image:
+    radial-gradient(oklch(0.5 0.01 80 / 0.06) 0.7px, transparent 0.7px);
+  background-size: 8px 8px;
+}
+.internal {
+  position: absolute;
+  border: 1.25px solid var(--ink);
+  background: var(--paper);
+  display: flex; flex-direction: column;
+  font-size: 10.5px;
+  font-family: var(--mono);
+  border-radius: 2px;
+  overflow: hidden;
+  transition: height 0.2s ease;
+}
+.internal .internal-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 6px;
+  height: 36px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.internal:hover { box-shadow: 1.5px 1.5px 0 var(--ink); }
+.internal .internal-kind {
+  font-family: var(--hand);
+  font-size: 11px; font-weight: 700;
+  color: var(--ink-2);
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  padding: 0 3px;
+  line-height: 1.2;
+}
+.internal.iface { border-style: dashed; }
+.internal.iface .internal-kind { color: var(--accent); }
+.internal .internal-name {
+  font-weight: 500; flex: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.internal .internal-toggle {
+  font-family: var(--mono); font-size: 11px;
+  width: 14px; height: 14px;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--paper);
+}
+.internal.added   { background: var(--add-soft); border-color: var(--add); color: var(--add); }
+.internal.removed { background: var(--rem-soft); border-color: var(--rem); color: var(--rem); }
+.internal.removed .internal-name { text-decoration: line-through; }
+.internal.changed { background: var(--chg-soft); border-color: var(--chg); color: var(--chg); }
+
+.internal .member-list {
+  border-top: 1px dashed var(--rule);
+  padding: 2px 0;
+  background: var(--paper);
+}
+.internal .member {
+  display: flex; align-items: center; gap: 5px;
+  padding: 0 8px;
+  height: 18px;
+  font-size: 10px;
+  color: var(--ink);
+}
+.internal .member:hover { background: var(--paper-2); }
+.internal .member-kind {
+  font-size: 9px; color: var(--ink-3);
+  font-weight: 600;
+  width: 12px;
+}
+.internal .member-name {
+  flex: 1; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.internal .member.added   { color: var(--add); background: var(--add-soft); }
+.internal .member.removed { color: var(--rem); text-decoration: line-through; }
+.internal .member.changed { color: var(--chg); background: var(--chg-soft); }
+
+/* clickable hover affordance — element is itself the click target */
+.cmp .cmp-head, .internal .internal-head, .internal .member, .port { cursor: pointer; }
+.cmp .cmp-head:hover { background: var(--paper-2); }
+.internal .internal-head:hover { background: var(--paper-2); }
+.port:hover .port-label { background: var(--paper-2); box-shadow: 1px 1px 0 var(--ink); }
+.edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14px;
+  cursor: pointer;
+  pointer-events: stroke;
+}
+.edge-hit:hover { stroke: rgba(0,0,0,0.05); }
+
+.has-cmt {
+  display: inline-grid; place-items: center;
+  width: 14px; height: 14px;
+  background: var(--chg);
+  border: 1px solid var(--ink);
+  border-radius: 50% 50% 50% 2px;
+  font-family: var(--hand); font-size: 10px; font-weight: 700;
+  color: var(--ink);
+}
+.has-cmt.sm { width: 12px; height: 12px; font-size: 9px; }
+
+/* ports — public interface dots on the outer wall */
+.port {
+  position: absolute;
+  display: flex; align-items: center; gap: 4px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--ink-2);
+  cursor: pointer;
+  z-index: 5;
+  white-space: nowrap;
+}
+.port .port-dot {
+  width: 8px; height: 8px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.port:hover .port-dot { background: var(--accent-soft); }
+.port .port-label { opacity: 0; transition: opacity 0.15s; }
+.port:hover .port-label { opacity: 1; }
+.port.left  { left: -4px; transform: translateY(-50%); flex-direction: row-reverse; }
+.port.right { right: -4px; transform: translateY(-50%); flex-direction: row; }
+.port.left .port-label  {
+  position: absolute; right: 100%; margin-right: 6px;
+  background: var(--paper); padding: 0 4px;
+  border: 1px solid var(--rule); z-index: 6;
+}
+.port.right .port-label {
+  position: absolute; left: 100%; margin-left: 6px;
+  background: var(--paper); padding: 0 4px;
+  border: 1px solid var(--rule); z-index: 6;
+}
+.port.added   .port-dot { background: var(--add); border-color: var(--add); }
+.port.removed .port-dot { background: var(--rem); border-color: var(--rem); }
+.port.changed .port-dot { background: var(--chg); border-color: var(--chg); }
+.port.added   .port-label { color: var(--add); }
+.port.removed .port-label { color: var(--rem); text-decoration: line-through; }
+.port.changed .port-label { color: var(--chg); }
+
+/* ─── edges (svg) ──────────────────────────────────────── */
+.edges-svg {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.edge { fill: none; stroke: var(--ink); stroke-width: 1.5; }
+.edge.added   { stroke: var(--add); }
+.edge.removed { stroke: var(--rem); stroke-dasharray: 4 3; }
+.edge.changed { stroke: var(--chg); }
+.edge-label {
+  font-family: var(--mono); font-size: 10px;
+  fill: var(--ink-2);
+}
+.edge-arrow { fill: var(--ink); }
+.edge-arrow.added { fill: var(--add); }
+.edge-arrow.removed { fill: var(--rem); }
+.edge-arrow.changed { fill: var(--chg); }
+
+/* ─── comment pin ──────────────────────────────────────── */
+.comment-pin {
+  position: absolute;
+  width: 22px; height: 22px;
+  background: var(--chg);
+  border: 1.5px solid var(--ink);
+  border-radius: 50% 50% 50% 2px;
+  transform: rotate(-12deg);
+  display: grid; place-items: center;
+  font-family: var(--hand); font-size: 12px; font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  z-index: 4;
+  box-shadow: 1px 1px 0 var(--ink);
+}
+.comment-pin:hover { background: var(--accent-soft); }
+
+/* ─── comment thread bubble ────────────────────────────── */
+.comment-bubble {
+  position: absolute;
+  width: 240px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  z-index: 6;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.comment-bubble .author {
+  font-weight: 600;
+  font-size: 10px;
+  display: flex; gap: 6px; align-items: center;
+}
+.comment-bubble .author .agent {
+  background: var(--ink); color: var(--paper);
+  padding: 0 5px; border-radius: 2px;
+  font-size: 9px;
+}
+.comment-bubble .body {
+  font-family: var(--hand);
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--ink);
+  margin: 4px 0 6px;
+}
+.comment-bubble .reply-row {
+  display: flex; gap: 4px;
+  border-top: 1px dashed var(--ink-3);
+  padding-top: 6px;
+}
+.comment-bubble .reply-row input {
+  flex: 1;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  padding: 3px 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.comment-bubble .reply-row button {
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  padding: 3px 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+/* ─── side panels ──────────────────────────────────────── */
+.side {
+  width: 240px;
+  border-right: 1.5px solid var(--ink);
+  background: var(--paper-2);
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-y: auto;
+  z-index: 3;
+  position: relative;
+  transition: width 0.25s ease, padding 0.25s ease;
+  flex-shrink: 0;
+}
+.side.right {
+  border-right: none;
+  border-left: 1.5px solid var(--ink);
+  width: 320px;
+}
+.side.collapsed {
+  width: 28px;
+  padding: 8px 0;
+  overflow: hidden;
+}
+.side.collapsed > *:not(.side-toggle) { display: none; }
+.side-toggle {
+  position: absolute; top: 6px;
+  width: 18px; height: 18px;
+  border: 1px solid var(--ink); background: var(--paper);
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: var(--mono); font-size: 11px;
+  cursor: pointer;
+  z-index: 2;
+}
+.side .side-toggle { right: 6px; }
+.side.right .side-toggle { left: 6px; right: auto; }
+.side.collapsed .side-toggle { left: 50%; transform: translateX(-50%); right: auto; }
+.side.collapsed .vlabel {
+  display: block;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  margin: 32px auto 0;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--ink-2);
+  text-transform: uppercase;
+}
+.side .vlabel { display: none; }
+
+/* tab strip inside right panel: comments / changes */
+.side .seg {
+  display: flex; gap: 0;
+  border: 1.5px solid var(--ink);
+  margin-bottom: 12px;
+}
+.side .seg button {
+  flex: 1; padding: 5px 8px; font-size: 10px;
+  background: var(--paper); border: none;
+  font-family: var(--mono); cursor: pointer;
+  border-right: 1px solid var(--rule);
+  letter-spacing: 0.5px;
+}
+.side .seg button:last-child { border-right: none; }
+.side .seg button.on { background: var(--ink); color: var(--paper); }
+
+.change-card {
+  border: 1px solid var(--rule);
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  background: var(--paper);
+  position: relative;
+}
+.change-card:hover { border-color: var(--ink); }
+.change-card.active { border: 1.5px solid var(--accent); box-shadow: 2px 2px 0 var(--accent); }
+.change-card .row1 {
+  display: flex; gap: 6px; align-items: center;
+  margin-bottom: 2px;
+}
+.change-card .badge {
+  font-family: var(--hand); font-size: 12px; font-weight: 700;
+  padding: 0 4px;
+}
+.change-card .badge.added   { color: var(--add); }
+.change-card .badge.removed { color: var(--rem); }
+.change-card .badge.changed { color: var(--chg); }
+.change-card .name { font-weight: 600; font-size: 11px; flex: 1; }
+.change-card .where { font-size: 10px; color: var(--ink-2); }
+.change-card .cmt-dot {
+  position: absolute; top: 4px; right: 4px;
+  width: 14px; height: 14px;
+  background: var(--chg); border: 1px solid var(--ink);
+  border-radius: 50% 50% 50% 2px;
+  font-family: var(--hand); font-size: 9px; font-weight: 700;
+  display: grid; place-items: center;
+}
+.comment-card {
+  border: 1px solid var(--rule);
+  padding: 8px;
+  margin-bottom: 6px;
+  background: var(--paper);
+}
+.comment-card.active { border: 1.5px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); }
+.comment-card .meta {
+  font-size: 9px; color: var(--ink-2);
+  display: flex; gap: 6px; margin-bottom: 3px;
+}
+.comment-card .target {
+  font-family: var(--mono);
+  background: var(--paper-2);
+  padding: 0 4px;
+  border: 1px solid var(--rule);
+}
+.comment-card .body {
+  font-family: var(--hand); font-size: 14px;
+  line-height: 1.25; color: var(--ink);
+}
+.add-comment {
+  border: 1.5px dashed var(--ink-3);
+  padding: 8px;
+  margin-top: 8px;
+  font-size: 10px; color: var(--ink-2);
+  text-align: center;
+}
+.side h4 {
+  margin: 0 0 6px; font-size: 10px;
+  letter-spacing: 1px; text-transform: uppercase;
+  color: var(--ink-2); font-weight: 600;
+}
+.side .group { margin-bottom: 16px; }
+.side .item {
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: flex; gap: 6px; align-items: center;
+}
+.side .item:hover { background: var(--paper); border-color: var(--rule); }
+.side .item .dot {
+  width: 8px; height: 8px; border: 1px solid var(--ink);
+  background: var(--paper);
+}
+.side .item.added .dot { background: var(--add); border-color: var(--add); }
+.side .item.removed .dot { background: var(--rem); border-color: var(--rem); }
+.side .item.changed .dot { background: var(--chg); border-color: var(--chg); }
+.side .nest { margin-left: 14px; border-left: 1px dashed var(--rule); padding-left: 8px; }
+
+/* ─── filter chips bar ─────────────────────────────────── */
+.chipbar {
+  position: absolute;
+  top: 12px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; gap: 6px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  padding: 4px 6px;
+  z-index: 5;
+  font-size: 10px;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.chipbar .chip {
+  padding: 3px 8px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  cursor: pointer;
+  font-family: var(--mono);
+}
+.chipbar .chip.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.chipbar .chip .x { margin-left: 4px; opacity: 0.6; }
+.chipbar .div { width: 1px; background: var(--rule); margin: 0 2px; }
+
+/* ─── PR / context header ─────────────────────────────── */
+.pr-header {
+  padding: 10px 16px;
+  border-bottom: 1.5px solid var(--rule);
+  background: var(--paper-2);
+  display: flex; gap: 14px; align-items: center;
+  font-size: 11px;
+}
+.pr-header .pr-title {
+  font-family: var(--hand); font-size: 18px; font-weight: 700;
+}
+.pr-header .pr-meta { color: var(--ink-2); }
+.pr-header .agent-tag {
+  background: var(--ink); color: var(--paper);
+  padding: 1px 6px; border-radius: 2px;
+  font-size: 10px; letter-spacing: 0.5px;
+}
+.pr-header .stat {
+  border: 1px solid var(--rule);
+  padding: 2px 8px;
+  font-size: 10px;
+}
+.pr-header .stat.add { color: var(--add); border-color: var(--add); }
+.pr-header .stat.rem { color: var(--rem); border-color: var(--rem); }
+.pr-header .stat.chg { color: var(--chg); border-color: var(--chg); }
+
+/* ─── bounded-context group lasso ─────────────────────── */
+.bc-group {
+  position: absolute;
+  border: 1.5px dashed var(--ink-3);
+  border-radius: 12px;
+  background: oklch(0.97 0.008 85 / 0.55);
+  pointer-events: none;
+  z-index: 0;
+}
+.bc-group .bc-label {
+  position: absolute;
+  top: -10px; left: 14px;
+  background: var(--paper);
+  font-family: var(--hand);
+  font-size: 14px; font-weight: 700;
+  color: var(--ink-2);
+  padding: 0 6px;
+  letter-spacing: 0.5px;
+}
+
+/* ─── bottom inspector drawer (W4) ────────────────────── */
+.drawer {
+  border-top: 1.5px solid var(--ink);
+  background: var(--paper-2);
+  height: 200px;
+  display: flex; flex-direction: column;
+  font-family: var(--mono);
+  z-index: 4;
+}
+.drawer .drawer-head {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--rule);
+  display: flex; gap: 12px; align-items: center;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--ink-2);
+}
+.drawer .change-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 1fr 100px 28px;
+  gap: 12px;
+  padding: 5px 12px;
+  font-size: 11px;
+  border-bottom: 1px dashed var(--rule-2);
+  cursor: pointer;
+  align-items: center;
+}
+.drawer .change-row:hover { background: var(--paper); }
+.drawer .change-row.active { background: var(--accent-soft); }
+.drawer .change-row .badge {
+  font-family: var(--hand); font-size: 13px; font-weight: 700;
+  text-align: center;
+}
+.drawer .change-row .badge.added   { color: var(--add); }
+.drawer .change-row .badge.removed { color: var(--rem); }
+.drawer .change-row .badge.changed { color: var(--chg); }
+.drawer .change-row .name { font-weight: 600; }
+.drawer .change-row .where { color: var(--ink-2); font-size: 10px; }
+.drawer .change-row .cmnt {
+  width: 22px; height: 22px;
+  background: var(--chg-soft); border: 1px solid var(--chg);
+  border-radius: 50% 50% 50% 2px;
+  display: grid; place-items: center;
+  font-family: var(--hand); font-size: 11px;
+}
+.drawer .body { flex: 1; overflow-y: auto; }
+
+/* ─── diff split (W3) ──────────────────────────────────── */
+.split {
+  flex: 1; display: flex;
+  position: relative;
+}
+.split-pane {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+.split-pane.left  { border-right: 2px solid var(--ink); }
+.split-pane .pane-label {
+  position: absolute;
+  top: 8px; left: 12px;
+  font-family: var(--hand);
+  font-size: 18px; font-weight: 700;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  padding: 1px 10px;
+  z-index: 5;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.split-pane .pane-label.before { color: var(--ink-2); }
+.split-pane .pane-label.after  { color: var(--ink); }
+
+/* ─── floating chrome (W2 whiteboard) ─────────────────── */
+.float-tl, .float-tr, .float-bl, .float-br {
+  position: absolute; z-index: 5;
+}
+.float-tl { top: 12px; left: 12px; }
+.float-tr { top: 12px; right: 12px; }
+.float-bl { bottom: 12px; left: 12px; }
+.float-br { bottom: 12px; right: 12px; }
+.floatcard {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  padding: 8px 10px;
+  box-shadow: 2px 2px 0 var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* ─── scrollbar styling ───────────────────────────────── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--ink-3); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* annotation labels (handwritten) */
+.handnote {
+  font-family: var(--hand);
+  font-size: 14px;
+  color: var(--ink-2);
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+}
+.handnote::before {
+  content: '↳'; margin-right: 4px;
+}
+
+/* small tag */
+.tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  border: 1px solid var(--ink-3);
+  color: var(--ink-2);
+  padding: 0 4px;
+  border-radius: 2px;
+  letter-spacing: 0.5px;
+}
+
+/* tweaks-panel overrides for our aesthetic — keep default */

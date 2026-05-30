@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>archai — wireframes</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="shared.jsx"></script>
+  <script type="text/babel" src="wireframes.jsx"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "diff": true,
+  "bc": true,
+  "changesOnly": false,
+  "commentStyle": "pinned"
+}/*EDITMODE-END*/;
+
+const TABS = [
+  { id: 'w1', n: '01', label: 'codebase IDE',  sub: 'collapsible panels · comments + changes',  comp: 'W1' },
+  { id: 'w2', n: '02', label: 'whiteboard',    sub: 'full-bleed · floating chrome',             comp: 'W2' },
+];
+
+function App() {
+  const [tab, setTab] = React.useState('w1');
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const Active = window[TABS.find(t => t.id === tab).comp];
+
+  return (
+    <>
+      <div className="tabs" data-screen-label={`tabs`}>
+        {TABS.map(t => (
+          <div key={t.id}
+               className={`tab ${tab === t.id ? 'active' : ''}`}
+               onClick={() => setTab(t.id)}
+               data-screen-label={`${t.n} ${t.label}`}>
+            <span className="num">{t.n}</span>
+            {t.label}
+            <span style={{ color: 'var(--ink-3)', marginLeft: 8, fontSize: 10 }}>
+              {t.sub}
+            </span>
+          </div>
+        ))}
+        <div style={{ flex: 1 }} />
+        <div style={{ padding: '8px 4px', fontSize: 10, color: 'var(--ink-3)', alignSelf: 'center' }}>
+          low-fi wireframes · same scenario across all four
+        </div>
+      </div>
+
+      <Active tweaks={tweaks} />
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection title="Mode">
+          <TweakToggle label="Diff coloring"
+            value={tweaks.diff}
+            onChange={(v) => setTweak('diff', v)} />
+          <TweakToggle label="Show bounded contexts"
+            value={tweaks.bc}
+            onChange={(v) => setTweak('bc', v)} />
+          <TweakToggle label="Filter: changes + neighbors only"
+            value={tweaks.changesOnly}
+            onChange={(v) => setTweak('changesOnly', v)} />
+        </TweakSection>
+        <TweakSection title="Jump to wireframe">
+          {TABS.map(t => (
+            <TweakButton key={t.id} label={`${t.n} · ${t.label}`}
+              onClick={() => setTab(t.id)} />
+          ))}
+        </TweakSection>
+      </TweaksPanel>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
