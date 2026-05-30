@@ -1,0 +1,15 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+
+# Generated UIGraph (real data) - gitignored; sample is committed
+public/archgraph.json
+
+# Editor
+.vscode
+*.swp
+
+# OS
+.DS_Store
