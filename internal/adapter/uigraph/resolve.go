@@ -31,15 +31,23 @@ func parseChangePath(p string) changePath {
 	return cp
 }
 
-// diffWord maps a diff.Op-derived string. Callers pass the op as produced by
-// the diff package's String()/marshalling. Keep mapping centralized here.
+// diffWord maps a diff.Op-derived string to UI diff status.
+//
+// The diff package semantics are from the TARGET's perspective:
+//   - OpAdd: symbol exists in target but not in current (must add to current)
+//   - OpRemove: symbol exists in current but not in target (must remove from current)
+//
+// The UI shows changes from the CURRENT code's perspective (what did we do?):
+//   - OpAdd in diff → current is missing something → "removed" in UI
+//   - OpRemove in diff → current has something new → "added" in UI
+//   - OpChange → symbol changed → "changed" in UI
 func diffWord(op string) string {
 	switch op {
-	case "add", "added", "Add":
-		return "added"
-	case "remove", "removed", "Remove":
-		return "removed"
-	case "change", "changed", "Change":
+	case "add", "Add":
+		return "removed" // target has it, current doesn't → current "removed" it
+	case "remove", "Remove":
+		return "added" // current has it, target doesn't → current "added" it
+	case "change", "Change":
 		return "changed"
 	default:
 		return ""
