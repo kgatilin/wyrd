@@ -1,20 +1,27 @@
 export interface CanvasToolbarProps {
-  /** Current zoom level as percentage (cosmetic only for POC) */
+  /** Current zoom as a fraction (1 = 100%). */
   zoom?: number;
+  /** Zoom out one step. */
+  onZoomOut?: () => void;
+  /** Zoom in one step. */
+  onZoomIn?: () => void;
+  /** Reset zoom to fit the diagram in the viewport. */
+  onFit?: () => void;
 }
 
 /**
- * Canvas toolbar with zoom controls.
- * Cosmetic only for POC - buttons are non-functional placeholders.
+ * Canvas toolbar with working zoom controls.
+ * Lives in the canvas viewport (not the scroller), so it stays pinned to the
+ * bottom-left while the diagram scrolls underneath it.
  */
-export function CanvasToolbar({ zoom = 100 }: CanvasToolbarProps) {
+export function CanvasToolbar({ zoom = 1, onZoomOut, onZoomIn, onFit }: CanvasToolbarProps) {
+  const pct = Math.round(zoom * 100);
   return (
     <div className="hf-canvas-toolbar">
-      <button title="Zoom out">−</button>
-      <button className="zoom">{zoom}%</button>
-      <button title="Zoom in">+</button>
-      <button title="Fit">⊡</button>
-      <button title="Mini-map">⊞</button>
+      <button title="Zoom out" onClick={onZoomOut}>−</button>
+      <button className="zoom" title="Reset to fit" onClick={onFit}>{pct}%</button>
+      <button title="Zoom in" onClick={onZoomIn}>+</button>
+      <button title="Fit" onClick={onFit}>⊡</button>
     </div>
   );
 }

@@ -9,8 +9,12 @@ const ELK_LAYOUT_OPTIONS: Record<string, string> = {
   'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
   'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
   'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
-  'elk.spacing.nodeNode': '42',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '96',
+  // Spacing between sibling components (and between BCs) — widened ~1.7x so
+  // components no longer crowd each other. Group-border padding (elk.padding
+  // below) and internal element spacing (INTERNAL_GAP) are deliberately left
+  // unchanged.
+  'elk.spacing.nodeNode': '72',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '144',
   'elk.spacing.edgeNode': '32',
   'elk.spacing.edgeEdge': '20',
   'elk.direction': 'RIGHT',
@@ -28,7 +32,12 @@ const INTERNAL_MEMBER_PADDING = 4;
 
 // Component layout constants
 const COMPONENT_HEADER_H = 36;
-const CANVAS_PADDING = 8;
+// Inner padding between the component border and its internal grid.
+// Internals are absolutely positioned, so CSS padding on .hf-cmp-canvas is
+// ignored for them — this padding is baked into the internal coordinates and
+// into the component's expanded width/height. Kept equal to INTERNAL_GAP so the
+// gap around the grid matches the gap between internal cards.
+const CANVAS_PADDING = 10;
 
 // Port layout within a component
 const PORT_SPACING = 24;
@@ -138,11 +147,21 @@ function computeExpandedDimensions(
     availableWidth
   );
 
+  // Offset the internal grid by CANVAS_PADDING so there is a top/left gap
+  // matching the spacing between cards. layoutInternals emits coords from
+  // (0,0); the padding can't come from CSS because the cards are absolutely
+  // positioned, so we bake it into the coordinates here.
+  const offsetInternals = laid.map((it) => ({
+    ...it,
+    x: (it.x ?? 0) + CANVAS_PADDING,
+    y: (it.y ?? 0) + CANVAS_PADDING,
+  }));
+
   // Calculate final dimensions - must be >= collapsed dimensions
   const w = Math.max(minWidth, contentW + 2 * CANVAS_PADDING);
   const h = Math.max(collapsedH, COMPONENT_HEADER_H + 2 * CANVAS_PADDING + contentH);
 
-  return { w, h, internals: laid };
+  return { w, h, internals: offsetInternals };
 }
 
 /**

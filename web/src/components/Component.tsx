@@ -86,47 +86,52 @@ export function Component({
       }}
       onClick={handleClick}
     >
-      {/* Header */}
-      <div
-        className="hf-cmp-head"
-        onClick={handleHeadClick}
-        onDoubleClick={handleHeadDoubleClick}
-      >
-        <div className="hf-cmp-icon">{cmp.name[0]}</div>
-        <div className="hf-cmp-name">{cmp.name}</div>
-        <span className="hf-cmp-tech">{cmp.tech}</span>
-        <span style={{ flex: 1 }} />
-        {showDiff && cmp.diff && (
-          <span className="hf-cmp-diff-tag">
-            {cmp.diff === 'added' ? 'NEW' : cmp.diff === 'removed' ? 'DEL' : 'MOD'}
-          </span>
+      {/* Clipped content layer: header + body are rounded-corner clipped here,
+          while ports (below) live outside this layer so their dots/labels are
+          never cut off by the card's overflow. */}
+      <div className="hf-cmp-inner">
+        {/* Header */}
+        <div
+          className="hf-cmp-head"
+          onClick={handleHeadClick}
+          onDoubleClick={handleHeadDoubleClick}
+        >
+          <div className="hf-cmp-icon">{cmp.name[0]}</div>
+          <div className="hf-cmp-name">{cmp.name}</div>
+          <span className="hf-cmp-tech">{cmp.tech}</span>
+          <span style={{ flex: 1 }} />
+          {showDiff && cmp.diff && (
+            <span className="hf-cmp-diff-tag">
+              {cmp.diff === 'added' ? 'NEW' : cmp.diff === 'removed' ? 'DEL' : 'MOD'}
+            </span>
+          )}
+          <button className="hf-cmp-expand" onClick={handleExpandClick}>
+            {expanded ? '−' : '+'}
+          </button>
+        </div>
+
+        {/* Description (collapsed only) */}
+        {!expanded && <div className="hf-cmp-desc">{cmp.desc}</div>}
+
+        {/* Internals mini-canvas (expanded only) */}
+        {expanded && (
+          <div className="hf-cmp-canvas">
+            {cmp.internals.map((internal) => (
+              <InternalCard
+                key={internal.id}
+                internal={internal}
+                showDiff={showDiff}
+                expanded={expandedInternals.has(internal.id)}
+                onToggle={() => onToggleInternal?.(internal.id)}
+                onAddComment={onAddComment}
+                hasComment={hasComment}
+              />
+            ))}
+          </div>
         )}
-        <button className="hf-cmp-expand" onClick={handleExpandClick}>
-          {expanded ? '−' : '+'}
-        </button>
       </div>
 
-      {/* Description (collapsed only) */}
-      {!expanded && <div className="hf-cmp-desc">{cmp.desc}</div>}
-
-      {/* Internals mini-canvas (expanded only) */}
-      {expanded && (
-        <div className="hf-cmp-canvas">
-          {cmp.internals.map((internal) => (
-            <InternalCard
-              key={internal.id}
-              internal={internal}
-              showDiff={showDiff}
-              expanded={expandedInternals.has(internal.id)}
-              onToggle={() => onToggleInternal?.(internal.id)}
-              onAddComment={onAddComment}
-              hasComment={hasComment}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Ports */}
+      {/* Ports — rendered outside .hf-cmp-inner so they are not clipped */}
       {cmp.ports.map((port) => (
         <PortDot
           key={port.id}
@@ -254,10 +259,10 @@ function PortDot({
 }: PortDotProps) {
   const diffCls = showDiff && port.diff ? port.diff : '';
 
-  // Use ELK-computed port.y directly with centering offset for the dot (10px dot, center it)
-  // ELK places ports within the actual node height, so no clamping needed
+  // Use ELK-computed port.y directly. The .hf-port row is 14px tall and centers
+  // its dot, so anchor the row at port.y - 7 to put the dot's center on port.y.
   const portY = port.y ?? 58;
-  const py = portY - 5; // Center the 10px dot at port.y
+  const py = portY - 7;
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();

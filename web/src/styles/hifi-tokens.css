@@ -298,14 +298,29 @@
 .hf-tree-row.changed .badge { background: var(--chg-bg); color: var(--chg-fg); }
 
 /* ───────────── Canvas ───────────── */
+/* Viewport is the non-scrolling flex child of the stage. The scroller lives
+   inside it, and canvas chrome (toolbar, legend) are absolute children of the
+   viewport so they stay pinned while the diagram scrolls. */
+.hf-canvas-viewport {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
 .hf-canvas-wrap {
   flex: 1;
+  min-width: 0;
   position: relative;
   overflow: auto;
   background: var(--bg-0);
   background-image: radial-gradient(circle, var(--line-1) 1px, transparent 1px);
   background-size: 20px 20px;
   background-position: 10px 10px;
+}
+/* Reserves the zoom-scaled footprint so scrollbars track the zoom level. */
+.hf-canvas-sizer {
+  position: relative;
 }
 .hf-canvas {
   position: relative;
@@ -350,9 +365,17 @@
   background: var(--bg-1);
   border: 1px solid var(--line-2);
   border-radius: 8px;
-  overflow: hidden;
+  /* overflow stays visible so ports (and their outward labels) are not clipped;
+     the .hf-cmp-inner layer does the rounded-corner clipping of the content. */
+  overflow: visible;
   box-shadow: var(--shadow-md);
   transition: left 0.3s ease, top 0.3s ease, opacity 0.18s, filter 0.18s, box-shadow 0.18s, transform 0.15s;
+}
+.hf-cmp-inner {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
 }
 .hf-cmp:hover { box-shadow: var(--shadow-lg); border-color: var(--line-3); }
 .hf-cmp.added   { border-color: var(--add-line); background: linear-gradient(180deg, var(--add-bg), var(--bg-1) 30%); }
@@ -449,8 +472,12 @@
   cursor: pointer;
   z-index: 2;
 }
-.hf-port.left  { left: -6px;  flex-direction: row; }
-.hf-port.right { right: -6px; flex-direction: row-reverse; }
+/* Left port: anchor the row's right edge on the card's left border, lay it out
+   [label][dot] so the dot sits on the border and the label flows OUTWARD (left).
+   translateX nudges the 10px dot so its center straddles the border. */
+.hf-port.left  { right: 100%; flex-direction: row-reverse; transform: translateX(5px); }
+/* Right port mirrors: anchor on the right border, label flows outward (right). */
+.hf-port.right { left: 100%;  flex-direction: row;         transform: translateX(-5px); }
 .hf-port-dot {
   width: 10px; height: 10px;
   border-radius: 50%;
@@ -481,7 +508,9 @@
 .hf-cmp-canvas {
   position: relative;
   height: calc(100% - 36px);
-  padding: 8px;
+  /* No padding here: internals are absolutely positioned, so the top/left gap
+     is baked into their coordinates by the layout (CANVAS_PADDING). */
+  padding: 0;
 }
 .hf-internal {
   position: absolute;
@@ -858,20 +887,27 @@
 .hf-side-toggle:hover { color: var(--fg-0); border-color: var(--accent); }
 .hf-side-toggle.left { right: 6px; }
 .hf-side-toggle.right { left: 6px; }
+/* The right panel's toggle sits at the top-left, where the COMMENTS title
+   begins — pad the title clear of the 20px toggle so they don't overlap. */
+.hf-side.right .hf-side-title { padding-left: 34px; }
 .hf-collapsible.collapsed .hf-side-toggle.left { right: 50%; transform: translateX(50%); }
 .hf-collapsible.collapsed .hf-side-toggle.right { left: 50%; transform: translateX(-50%); }
 
 .hf-side-vlabel {
-  display: block;
+  /* Center the vertical label horizontally in the 36px collapsed column.
+     A block element with vertical writing-mode hugs the left edge, so we
+     anchor at left:50% and translate back by half its own width instead. */
+  position: absolute;
+  top: 36px;
+  left: 50%;
+  transform: translateX(-50%) rotate(180deg);
   writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  margin-top: 40px;
   padding: 8px 0;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.18em;
   color: var(--fg-3);
-  text-align: center;
+  white-space: nowrap;
   font-family: 'JetBrains Mono', monospace;
   text-transform: uppercase;
 }

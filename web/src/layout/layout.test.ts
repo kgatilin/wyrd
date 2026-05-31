@@ -387,22 +387,24 @@ describe('layout', () => {
       }
     }
 
-    // Each internal must lie within the component's content box
-    // Content box = component minus header (36px) minus padding (8px on each side)
-    // Internals are positioned relative to canvas (origin at canvas content area)
-    const canvasHeight = cmp.h! - 36 - 16; // 36px header, 8px top + 8px bottom padding
-    const canvasWidth = cmp.w! - 16; // 8px left + 8px right padding
+    // Each internal must lie within the component's content box, with a
+    // CANVAS_PADDING gap on every side. Internal coords are canvas-relative
+    // (canvas = component height minus the 36px header). The top/left gap is
+    // the issue-2 fix: internals must NOT hug the top-left corner.
+    const PAD = 10; // CANVAS_PADDING in layout.ts
+    const canvasHeight = cmp.h! - 36;
+    const canvasWidth = cmp.w!;
     for (const internal of cmp.internals) {
-      expect(internal.x!, `${internal.id} left inside canvas`).toBeGreaterThanOrEqual(0);
-      expect(internal.y!, `${internal.id} top inside canvas`).toBeGreaterThanOrEqual(0);
+      expect(internal.x!, `${internal.id} left gap (x=${internal.x})`).toBeGreaterThanOrEqual(PAD - 1);
+      expect(internal.y!, `${internal.id} top gap (y=${internal.y})`).toBeGreaterThanOrEqual(PAD - 1);
       expect(
         internal.x! + internal.w!,
         `${internal.id} right inside canvas (x=${internal.x} w=${internal.w} canvasW=${canvasWidth})`
-      ).toBeLessThanOrEqual(canvasWidth + 1); // 1px tolerance
+      ).toBeLessThanOrEqual(canvasWidth - PAD + 1);
       expect(
         internal.y! + internal.h!,
         `${internal.id} bottom inside canvas (y=${internal.y} h=${internal.h} canvasH=${canvasHeight})`
-      ).toBeLessThanOrEqual(canvasHeight + 1); // 1px tolerance
+      ).toBeLessThanOrEqual(canvasHeight - PAD + 1);
     }
   });
 
@@ -446,9 +448,13 @@ describe('layout', () => {
       maxBottom = Math.max(maxBottom, (internal.y ?? 0) + (internal.h ?? 0));
     }
 
-    // Component size should accommodate internals + header + padding
-    expect(cmp.h!, 'height fits internals').toBeGreaterThanOrEqual(36 + 8 + maxBottom + 8);
-    expect(cmp.w!, 'width fits internals').toBeGreaterThanOrEqual(8 + maxRight + 8);
+    // Component size should accommodate internals + 36px header + a
+    // CANVAS_PADDING margin. maxRight/maxBottom are canvas-relative and already
+    // include the top/left padding, so add one PAD for the far-side margin
+    // (plus the header for height).
+    const PAD = 10; // CANVAS_PADDING in layout.ts
+    expect(cmp.h!, 'height fits internals').toBeGreaterThanOrEqual(36 + maxBottom + PAD);
+    expect(cmp.w!, 'width fits internals').toBeGreaterThanOrEqual(maxRight + PAD);
   });
 
   // --- synthesized inbound ports (Problem 2a) ---

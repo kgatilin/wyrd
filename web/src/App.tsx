@@ -152,6 +152,30 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
   // Canvas wrap ref for scroll operations
   const canvasWrapRef = useRef<HTMLDivElement>(null);
 
+  // ── Zoom ────────────────────────────────────────────────────────────────
+  // Applied as a CSS transform on .hf-canvas; a sizer reserves the scaled space
+  // so scrollbars track. Default 1 (100%).
+  const ZOOM_MIN = 0.4;
+  const ZOOM_MAX = 2;
+  const ZOOM_STEP = 0.1;
+  const [zoom, setZoom] = useState(1);
+  const zoomBy = (delta: number) =>
+    setZoom((z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((z + delta) * 100) / 100)));
+  const fitZoom = () => {
+    const wrap = canvasWrapRef.current;
+    if (!wrap) {
+      setZoom(1);
+      return;
+    }
+    const fit = Math.min(
+      wrap.clientWidth / canvasDimensions.width,
+      wrap.clientHeight / canvasDimensions.height,
+      1
+    );
+    setZoom(Math.max(ZOOM_MIN, Math.round(fit * 100) / 100));
+    wrap.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+  };
+
   // Comment state
   const [pendingComment, setPendingComment] = useState<PendingComment | null>(null);
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
@@ -233,14 +257,17 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
       const sx = canvasWrapRef.current.scrollLeft;
       const sy = canvasWrapRef.current.scrollTop;
 
+      // getBoundingClientRect + scrollLeft give coords in the SCALED content
+      // space; divide by zoom to convert to unscaled canvas coords (the space
+      // the popover and markers are positioned in, inside the scaled .hf-canvas).
       const currentTarget = evt.currentTarget as HTMLElement;
       if (currentTarget && currentTarget.getBoundingClientRect) {
         const rect = currentTarget.getBoundingClientRect();
-        x = rect.left - wrap.left + sx + rect.width / 2;
-        y = rect.bottom - wrap.top + sy + 8;
+        x = (rect.left - wrap.left + sx + rect.width / 2) / zoom;
+        y = (rect.bottom - wrap.top + sy) / zoom + 8;
       } else if (evt.clientX != null) {
-        x = evt.clientX - wrap.left + sx;
-        y = evt.clientY - wrap.top + sy + 8;
+        x = (evt.clientX - wrap.left + sx) / zoom;
+        y = (evt.clientY - wrap.top + sy) / zoom + 8;
       }
     }
 
@@ -289,9 +316,10 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
         const w = component.w ?? 220;
         const h = component.h ?? 86;
 
+        // Scroll positions are in scaled content space → multiply by zoom.
         canvasWrapRef.current.scrollTo({
-          left: x + w / 2 - canvasWrapRef.current.clientWidth / 2,
-          top: y + h / 2 - canvasWrapRef.current.clientHeight / 2,
+          left: (x + w / 2) * zoom - canvasWrapRef.current.clientWidth / 2,
+          top: (y + h / 2) * zoom - canvasWrapRef.current.clientHeight / 2,
           behavior: 'smooth',
         });
       }
@@ -316,8 +344,8 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     setActiveMarkerId(marker.id);
     if (canvasWrapRef.current) {
       canvasWrapRef.current.scrollTo({
-        left: marker.x - canvasWrapRef.current.clientWidth / 2,
-        top: marker.y - canvasWrapRef.current.clientHeight / 2,
+        left: marker.x * zoom - canvasWrapRef.current.clientWidth / 2,
+        top: marker.y * zoom - canvasWrapRef.current.clientHeight / 2,
         behavior: 'smooth',
       });
     }
@@ -433,11 +461,11 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
           )}
         </div>
 
-        {/* CENTER PANE - canvas */}
+        {/* CENTER PANE - canvas viewport (does not scroll; pins toolbar/legend) */}
+        <div className="hf-canvas-viewport">
         <div
           ref={canvasWrapRef}
           className="hf-canvas-wrap"
-          style={{ flex: 1 }}
           onClick={handleCanvasClick}
         >
           {/* Show loading placeholder until first ELK layout resolves.
@@ -452,11 +480,22 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
               }
             </div>
           ) : (
+          // Sizer reserves the scaled footprint so scrollbars track the zoom;
+          // the inner .hf-canvas is scaled from its top-left corner.
+          <div
+            className="hf-canvas-sizer"
+            style={{
+              width: canvasDimensions.width * zoom,
+              height: canvasDimensions.height * zoom,
+            }}
+          >
           <div
             className="hf-canvas"
             style={{
-              minWidth: canvasDimensions.width,
-              minHeight: canvasDimensions.height,
+              width: canvasDimensions.width,
+              height: canvasDimensions.height,
+              transform: `scale(${zoom})`,
+              transformOrigin: '0 0',
             }}
           >
             {/* Bounded context groups — geometry from laid */}
@@ -510,10 +549,17 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
               onSubmit={submitComment}
             />
           </div>
+          </div>
           )}
+        </div>
 
-          {/* Canvas toolbar */}
-          <CanvasToolbar />
+          {/* Canvas toolbar — pinned to the viewport, not the scroller */}
+          <CanvasToolbar
+            zoom={zoom}
+            onZoomOut={() => zoomBy(-ZOOM_STEP)}
+            onZoomIn={() => zoomBy(ZOOM_STEP)}
+            onFit={fitZoom}
+          />
 
           {/* Legend */}
           <Legend showDiff={showDiff} />
