@@ -108,6 +108,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
   // We intentionally DO NOT reset it to null on re-layout so the canvas
   // never flashes empty while ELK recomputes.
   const [laid, setLaid] = useState<UIGraph | null>(null);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
 
   useEffect(() => {
     // Race-guard: if this effect fires again before the previous ELK call
@@ -115,11 +116,20 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     // is silently discarded and never overwrites the fresher layout.
     let cancelled = false;
 
-    layout(graph, { expanded, internalExpanded }).then((result) => {
-      if (!cancelled) {
-        setLaid(result);
-      }
-    });
+    layout(graph, { expanded, internalExpanded })
+      .then((result) => {
+        if (!cancelled) {
+          setLayoutError(null);
+          setLaid(result);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('ELK layout failed:', err);
+          setLayoutError(msg);
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -432,10 +442,14 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
         >
           {/* Show loading placeholder until first ELK layout resolves.
               We keep the previous laid graph visible during re-layout so
-              the canvas never flashes empty. */}
+              the canvas never flashes empty. On an unrecoverable ELK error
+              we surface a message instead of hanging indefinitely. */}
           {laid == null ? (
             <div style={{ padding: 20 }}>
-              <p>Laying out…</p>
+              {layoutError != null
+                ? <p style={{ color: 'var(--rem-fg)' }}>Layout failed: {layoutError}</p>
+                : <p>Laying out…</p>
+              }
             </div>
           ) : (
           <div

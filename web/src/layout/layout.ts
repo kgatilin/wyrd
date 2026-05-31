@@ -98,12 +98,35 @@ export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
     };
   });
 
-  // Build ELK edges (between ports, scoped at root so ELK handles hierarchy)
-  const elkEdges: ElkExtendedEdge[] = graph.edges.map((edge) => ({
-    id: edge.id,
-    sources: [edge.fromPort],
-    targets: [edge.toPort],
-  }));
+  // Build sets of valid ELK references for resilient edge resolution.
+  // The real archai projection emits placeholder port ids (e.g. "<pkg>:in:...")
+  // that are never declared as actual ports. ELK rejects any reference to an
+  // undeclared shape, so we must fall back to the component id in that case.
+  const declaredPortIds = new Set<string>();
+  for (const c of graph.components) {
+    for (const p of c.ports) {
+      declaredPortIds.add(p.id);
+    }
+  }
+  const componentIds = new Set<string>(graph.components.map((c) => c.id));
+
+  // Build ELK edges (between ports, scoped at root so ELK handles hierarchy).
+  // For each endpoint: use the port id if declared, otherwise fall back to the
+  // component id. Drop the edge entirely if either endpoint cannot be resolved
+  // to a known ELK shape (port or component) — the renderer already handles
+  // edges without routed points via a bezier fallback.
+  const elkEdges: ElkExtendedEdge[] = [];
+  for (const edge of graph.edges) {
+    const src = declaredPortIds.has(edge.fromPort) ? edge.fromPort
+      : componentIds.has(edge.from) ? edge.from
+      : null;
+    const tgt = declaredPortIds.has(edge.toPort) ? edge.toPort
+      : componentIds.has(edge.to) ? edge.to
+      : null;
+    if (src !== null && tgt !== null) {
+      elkEdges.push({ id: edge.id, sources: [src], targets: [tgt] });
+    }
+  }
 
   const elkRoot: ElkNode = {
     id: 'root',

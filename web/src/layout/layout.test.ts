@@ -272,6 +272,65 @@ describe('layout', () => {
     expect(result1.edges).toEqual(result2.edges);
   });
 
+  // --- resilient edge: dangling toPort falls back to component node ---
+
+  it('resolves when an edge toPort does not exist (falls back to component node) and edge still gets points', async () => {
+    // Reproduce the real-data defect: fromPort is declared, toPort is a
+    // placeholder ":in:..." id that is NOT in any component's ports list.
+    const input = minimalGraph({
+      boundedContexts: [
+        { id: 'bc1', name: 'BC One' },
+        { id: 'bc2', name: 'BC Two' },
+      ],
+      components: [
+        {
+          id: 'internal/adapter/uigraph',
+          name: 'uigraph',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc1',
+          internals: [],
+          ports: [
+            { id: 'internal/adapter/uigraph:out:internal/diff', side: 'right', kind: 'out', name: 'out' },
+          ],
+        },
+        {
+          id: 'internal/diff',
+          name: 'diff',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc2',
+          internals: [],
+          ports: [
+            // Note: the ":in:..." port is intentionally NOT declared here
+            { id: 'internal/diff:out:something', side: 'right', kind: 'out', name: 'out' },
+          ],
+        },
+      ],
+      edges: [
+        {
+          id: 'e-dangling-toport',
+          from: 'internal/adapter/uigraph',
+          to: 'internal/diff',
+          fromPort: 'internal/adapter/uigraph:out:internal/diff', // valid, declared
+          toPort: 'internal/diff:in:internal/adapter/uigraph',   // INVALID — never declared
+          label: '',
+        },
+      ],
+    });
+
+    // Must resolve (not throw/reject)
+    const result = await layout(input);
+
+    // Edge must still exist in output
+    const edge = result.edges.find((e) => e.id === 'e-dangling-toport');
+    expect(edge).toBeDefined();
+
+    // Edge must have routed points (fell back to target component node)
+    expect(Array.isArray(edge!.points), 'edge has points array').toBe(true);
+    expect(edge!.points!.length, 'edge has >= 2 points').toBeGreaterThanOrEqual(2);
+  });
+
   // --- input not mutated ---
 
   it('does not mutate the input graph', async () => {
