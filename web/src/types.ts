@@ -86,6 +86,7 @@ export interface Edge {
   toPort: string;
   label: string;
   diff?: Diff;
+  points?: { x: number; y: number }[]; // ELK-routed polyline: start + bend points + end
 }
 
 export interface Comment {

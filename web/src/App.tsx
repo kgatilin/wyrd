@@ -28,7 +28,8 @@ export default function App() {
   // Load and layout the graph
   useEffect(() => {
     loadGraph()
-      .then((g) => setGraph(layout(g)))
+      .then((g) => layout(g))
+      .then((laid) => setGraph(laid))
       .catch((err) => setError(String(err)));
   }, []);
 

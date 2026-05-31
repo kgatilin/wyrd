@@ -1,26 +1,49 @@
-import type { UIGraph, BoundedContext, Component, Port } from '../types';
+import ELK from 'elkjs/lib/elk.bundled.js';
+import type { ElkNode, ElkPort, ElkExtendedEdge } from 'elkjs';
+import type { UIGraph, BoundedContext, Component, Port, Edge } from '../types';
+import { computeExpandedHeight } from '../state/hooks';
 
-// Layout constants
-const BC_PADDING = 30;
-const BC_GAP = 40;
-const BC_HEADER = 30;
-const COMPONENT_W = 220;
-const COMPONENT_H = 86;
-const COMPONENT_GAP = 20;
-const COMPONENTS_PER_ROW = 2;
-const INTERNAL_BASE_H = 36;
-const PORT_SPACING = 46;
-const PORT_START_Y = 58;
+// ELK layout options mirrored from internal/adapter/http/assets/graph.js
+const ELK_LAYOUT_OPTIONS: Record<string, string> = {
+  'elk.algorithm': 'layered',
+  'elk.edgeRouting': 'ORTHOGONAL',
+  'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
+  'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+  'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+  'elk.spacing.nodeNode': '42',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '96',
+  'elk.spacing.edgeNode': '32',
+  'elk.spacing.edgeEdge': '20',
+  'elk.direction': 'RIGHT',
+};
+
+// Collapsed component dimensions
+const DEFAULT_W = 220;
+const DEFAULT_H = 86;
+const DEFAULT_WX_EXTRA = 60; // expanded width = collapsed + this
+
+// Port layout within a component
+const PORT_SPACING = 24;
+const PORT_START_Y = 16;
+
+export interface LayoutOptions {
+  expanded: Set<string>;         // component ids currently expanded
+  internalExpanded: Set<string>; // internal ids currently expanded (affects expanded height)
+}
 
 /**
- * Computes deterministic layout for a UIGraph.
- * - BCs laid out left-to-right (wrap into rows if needed)
- * - Components in a grid inside their BC
- * - Ports stacked on left (in) / right (out) walls
- * - Preserves any geometry already present
+ * Compute layout for a UIGraph using ELK.
+ * Returns a NEW UIGraph with absolute canvas coordinates; input is not mutated.
+ * BCs → compound ELK nodes; components → child nodes; ports → ELK ports;
+ * internals are NOT given to ELK (opaque sized box).
  */
-export function layout(graph: UIGraph): UIGraph {
-  // Group components by BC
+export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
+  const expanded = opts?.expanded ?? new Set<string>();
+  const internalExpanded = opts?.internalExpanded ?? new Set<string>();
+
+  // --- 1. Build ELK input graph ---
+
+  // Index components by BC
   const compsByBc = new Map<string, Component[]>();
   for (const c of graph.components) {
     const bcId = c.bc || 'default';
@@ -28,147 +51,192 @@ export function layout(graph: UIGraph): UIGraph {
     compsByBc.get(bcId)!.push(c);
   }
 
-  // Ensure all BCs exist (create default if components have no BC)
-  const bcIds = new Set(graph.boundedContexts.map((bc) => bc.id));
+  // Ensure all BCs are represented
+  const allBcIds = new Set(graph.boundedContexts.map((bc) => bc.id));
   const allBcs: BoundedContext[] = [...graph.boundedContexts];
   for (const bcId of compsByBc.keys()) {
-    if (!bcIds.has(bcId)) {
+    if (!allBcIds.has(bcId)) {
       allBcs.push({ id: bcId, name: bcId === 'default' ? 'Default' : bcId });
-      bcIds.add(bcId);
     }
   }
 
-  // Layout BCs
-  const laidOutBcs: BoundedContext[] = [];
-  let bcX = BC_GAP;
-  const bcY = BC_GAP;
+  // Build ELK child nodes for each BC
+  const elkBcNodes: ElkNode[] = allBcs.map((bc) => {
+    const comps = compsByBc.get(bc.id) ?? [];
+    const children: ElkNode[] = comps.map((c) => {
+      const isExpanded = expanded.has(c.id);
+      const w = isExpanded ? (c.wx ?? (c.w ?? DEFAULT_W) + DEFAULT_WX_EXTRA) : (c.w ?? DEFAULT_W);
+      const h = isExpanded
+        ? computeExpandedHeight(c, internalExpanded)
+        : (c.h ?? DEFAULT_H);
 
-  for (const bc of allBcs) {
-    // If BC already has geometry, preserve it
-    if (hasGeometry(bc)) {
-      laidOutBcs.push({ ...bc });
-      continue;
-    }
+      // Build ELK ports
+      const ports: ElkPort[] = c.ports.map((p) => ({
+        id: p.id,
+        layoutOptions: {
+          'port.side': p.side === 'left' ? 'WEST' : 'EAST',
+        },
+      }));
 
-    const comps = compsByBc.get(bc.id) || [];
-    const rows = Math.ceil(comps.length / COMPONENTS_PER_ROW);
-    const cols = Math.min(comps.length, COMPONENTS_PER_ROW);
-
-    const bcW = BC_PADDING * 2 + cols * COMPONENT_W + (cols - 1) * COMPONENT_GAP;
-    const bcH = BC_PADDING + BC_HEADER + rows * COMPONENT_H + (rows - 1) * COMPONENT_GAP + BC_PADDING;
-
-    laidOutBcs.push({
-      ...bc,
-      x: bcX,
-      y: bcY,
-      w: Math.max(bcW, 200),
-      h: Math.max(bcH, 150),
+      return {
+        id: c.id,
+        width: w,
+        height: h,
+        ports,
+        layoutOptions: {
+          'elk.portConstraints': 'FIXED_SIDE',
+        },
+      };
     });
 
-    bcX += Math.max(bcW, 200) + BC_GAP;
-  }
+    return {
+      id: bc.id,
+      children,
+      layoutOptions: {
+        'elk.padding': '[top=30, left=30, bottom=30, right=30]',
+      },
+    };
+  });
 
-  // Create BC lookup by id
-  const bcLookup = new Map<string, BoundedContext>();
-  for (const bc of laidOutBcs) {
-    bcLookup.set(bc.id, bc);
-  }
+  // Build ELK edges (between ports, scoped at root so ELK handles hierarchy)
+  const elkEdges: ElkExtendedEdge[] = graph.edges.map((edge) => ({
+    id: edge.id,
+    sources: [edge.fromPort],
+    targets: [edge.toPort],
+  }));
 
-  // Layout components inside their BCs
-  const laidOutComponents: Component[] = [];
-  const compCountInBc = new Map<string, number>();
+  const elkRoot: ElkNode = {
+    id: 'root',
+    layoutOptions: ELK_LAYOUT_OPTIONS,
+    children: elkBcNodes,
+    edges: elkEdges,
+  };
 
-  for (const c of graph.components) {
-    // If component already has geometry, preserve it
-    if (hasComponentGeometry(c)) {
-      laidOutComponents.push(layoutPorts({ ...c }));
-      continue;
+  // --- 2. Run ELK ---
+
+  const elk = new ELK();
+
+  return elk.layout(elkRoot).then((laid) => {
+    // --- 3. Flatten ELK output to absolute coords ---
+
+    const laidBcMap = new Map<string, ElkNode>();
+    const laidCmpMap = new Map<string, { node: ElkNode; bcX: number; bcY: number }>();
+
+    for (const bcNode of (laid.children ?? [])) {
+      laidBcMap.set(bcNode.id, bcNode);
+      const bcAbsX = bcNode.x ?? 0;
+      const bcAbsY = bcNode.y ?? 0;
+
+      for (const cmpNode of (bcNode.children ?? [])) {
+        laidCmpMap.set(cmpNode.id, { node: cmpNode, bcX: bcAbsX, bcY: bcAbsY });
+      }
     }
 
-    const bcId = c.bc || 'default';
-    const bc = bcLookup.get(bcId);
-    if (!bc) {
-      // Should not happen, but fallback
-      laidOutComponents.push(
-        layoutPorts({
-          ...c,
-          x: 50,
-          y: 50,
-          w: COMPONENT_W,
-          h: COMPONENT_H,
-        })
-      );
-      continue;
-    }
+    // Build returned BCs with absolute coords
+    const returnedBcs: BoundedContext[] = allBcs.map((bc) => {
+      const elkBc = laidBcMap.get(bc.id);
+      return {
+        ...bc,
+        x: elkBc?.x ?? 0,
+        y: elkBc?.y ?? 0,
+        w: elkBc?.width ?? DEFAULT_W,
+        h: elkBc?.height ?? DEFAULT_H,
+      };
+    });
 
-    const idx = compCountInBc.get(bcId) || 0;
-    compCountInBc.set(bcId, idx + 1);
+    // Build returned components with absolute coords + port y values
+    const returnedComponents: Component[] = graph.components.map((c) => {
+      const info = laidCmpMap.get(c.id);
+      const cmpAbsX = (info?.bcX ?? 0) + (info?.node.x ?? 0);
+      const cmpAbsY = (info?.bcY ?? 0) + (info?.node.y ?? 0);
+      const cmpW = info?.node.width ?? (c.w ?? DEFAULT_W);
+      const cmpH = info?.node.height ?? (c.h ?? DEFAULT_H);
 
-    const row = Math.floor(idx / COMPONENTS_PER_ROW);
-    const col = idx % COMPONENTS_PER_ROW;
+      // Map port y-values: ELK port coords are relative to component; keep that convention
+      const elkPortMap = new Map<string, ElkPort>();
+      for (const ep of (info?.node.ports ?? [])) {
+        elkPortMap.set(ep.id, ep);
+      }
 
-    const compX = bc.x! + BC_PADDING + col * (COMPONENT_W + COMPONENT_GAP);
-    const compY = bc.y! + BC_HEADER + BC_PADDING + row * (COMPONENT_H + COMPONENT_GAP);
+      const returnedPorts: Port[] = c.ports.map((p, i) => {
+        const ep = elkPortMap.get(p.id);
+        let portY: number;
+        if (ep && typeof ep.y === 'number') {
+          portY = ep.y;
+        } else {
+          // Fallback: evenly spaced
+          portY = PORT_START_Y + i * PORT_SPACING;
+        }
+        return { ...p, y: portY };
+      });
 
-    laidOutComponents.push(
-      layoutPorts({
+      return {
         ...c,
-        x: compX,
-        y: compY,
-        w: COMPONENT_W,
-        h: COMPONENT_H,
-        wx: c.wx ?? COMPONENT_W + 60,
-        hx: c.hx ?? computeExpandedHeight(c),
-      })
-    );
+        x: cmpAbsX,
+        y: cmpAbsY,
+        w: cmpW,
+        h: cmpH,
+        ports: returnedPorts,
+      };
+    });
+
+    // Build returned edges with routed points (absolute coords)
+    // ELK edge sections are relative to the edge's containing node (root in our case).
+    // Root has no offset, so section coords are canvas-absolute.
+    const edgePointsMap = new Map<string, { x: number; y: number }[]>();
+    collectEdgePoints(laid, 0, 0, edgePointsMap);
+
+    const returnedEdges: Edge[] = graph.edges.map((edge) => ({
+      ...edge,
+      points: edgePointsMap.get(edge.id),
+    }));
+
+    return {
+      ...graph,
+      boundedContexts: returnedBcs,
+      components: returnedComponents,
+      edges: returnedEdges,
+    };
+  });
+}
+
+/**
+ * Recursively walk ELK output nodes, collecting edge routing sections.
+ * ELK edge section coordinates are relative to the node that contains the edge.
+ * Walk the containment tree accumulating absolute offsets.
+ */
+function collectEdgePoints(
+  node: ElkNode,
+  parentAbsX: number,
+  parentAbsY: number,
+  result: Map<string, { x: number; y: number }[]>
+): void {
+  const absX = parentAbsX + (node.x ?? 0);
+  const absY = parentAbsY + (node.y ?? 0);
+
+  for (const edge of (node.edges ?? []) as ElkExtendedEdge[]) {
+    const sections = (edge as any).sections;
+    if (!sections || sections.length === 0) continue;
+
+    const section = sections[0];
+    const points: { x: number; y: number }[] = [];
+
+    if (section.startPoint) {
+      points.push({ x: absX + section.startPoint.x, y: absY + section.startPoint.y });
+    }
+    for (const bp of (section.bendPoints ?? [])) {
+      points.push({ x: absX + bp.x, y: absY + bp.y });
+    }
+    if (section.endPoint) {
+      points.push({ x: absX + section.endPoint.x, y: absY + section.endPoint.y });
+    }
+
+    if (points.length >= 2) {
+      result.set(edge.id, points);
+    }
   }
 
-  return {
-    ...graph,
-    boundedContexts: laidOutBcs,
-    components: laidOutComponents,
-  };
-}
-
-function hasGeometry(bc: BoundedContext): boolean {
-  return (
-    typeof bc.x === 'number' &&
-    typeof bc.y === 'number' &&
-    typeof bc.w === 'number' &&
-    typeof bc.h === 'number'
-  );
-}
-
-function hasComponentGeometry(c: Component): boolean {
-  return (
-    typeof c.x === 'number' &&
-    typeof c.y === 'number' &&
-    typeof c.w === 'number' &&
-    typeof c.h === 'number'
-  );
-}
-
-function computeExpandedHeight(c: Component): number {
-  // Base height + space for internals
-  const internalRows = Math.ceil(c.internals.length / 2);
-  const internalHeight = internalRows * (INTERNAL_BASE_H + 10);
-  return COMPONENT_H + 50 + internalHeight;
-}
-
-function layoutPorts(c: Component): Component {
-  const leftPorts = c.ports.filter((p) => p.side === 'left');
-  const rightPorts = c.ports.filter((p) => p.side === 'right');
-
-  const assignY = (ports: Port[], startY: number): Port[] => {
-    return ports.map((p, i) => {
-      // Preserve existing y if set
-      if (typeof p.y === 'number') return p;
-      return { ...p, y: startY + i * PORT_SPACING };
-    });
-  };
-
-  return {
-    ...c,
-    ports: [...assignY(leftPorts, PORT_START_Y), ...assignY(rightPorts, PORT_START_Y)],
-  };
+  for (const child of (node.children ?? [])) {
+    collectEdgePoints(child, absX, absY, result);
+  }
 }
