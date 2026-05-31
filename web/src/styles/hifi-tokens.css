@@ -352,7 +352,7 @@
   border-radius: 8px;
   overflow: hidden;
   box-shadow: var(--shadow-md);
-  transition: opacity 0.18s, filter 0.18s, box-shadow 0.18s, transform 0.15s;
+  transition: left 0.3s ease, top 0.3s ease, opacity 0.18s, filter 0.18s, box-shadow 0.18s, transform 0.15s;
 }
 .hf-cmp:hover { box-shadow: var(--shadow-lg); border-color: var(--line-3); }
 .hf-cmp.added   { border-color: var(--add-line); background: linear-gradient(180deg, var(--add-bg), var(--bg-1) 30%); }

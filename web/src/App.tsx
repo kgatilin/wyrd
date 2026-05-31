@@ -17,7 +17,7 @@ import { PinnedMarker, Marker } from './components/PinnedMarker';
 
 /**
  * Main application component - V4 layout shell.
- * Loads the graph, applies layout, and renders the 3-pane stage with canvas.
+ * Loads the raw graph and passes it to AppContent which owns the layout lifecycle.
  */
 export default function App() {
   const [graph, setGraph] = useState<UIGraph | null>(null);
@@ -25,11 +25,10 @@ export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [level, setLevel] = useState(2); // Default to L3/Component
 
-  // Load and layout the graph
+  // Load the raw graph (no layout here — AppContent owns layout lifecycle)
   useEffect(() => {
     loadGraph()
-      .then((g) => layout(g))
-      .then((laid) => setGraph(laid))
+      .then((g) => setGraph(g))
       .catch((err) => setError(String(err)));
   }, []);
 
@@ -75,12 +74,20 @@ interface AppContentProps {
 /**
  * Inner component that renders the app once graph is loaded.
  * Separated to ensure hooks can reference graph.
+ *
+ * Data-flow:
+ *   graph (raw, from App) ──► semantic consumers (expansion, focus, diff, tree, changes)
+ *                         └──► layout effect ──► laid (UIGraph with ELK geometry)
+ *                                                  └──► geometry consumers (BCGroups, EdgeLayer,
+ *                                                       Component map, seedMarkers, canvasDimensions,
+ *                                                       goToChange scroll)
  */
 function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppContentProps) {
-  // Determine if diff mode is active
+  // Determine if diff mode is active (semantic — raw graph)
   const showDiff = graph.pr != null;
 
   // Expansion hooks - initialize with first component expanded (or 'orders' if present)
+  // These read IDs only — raw graph is correct here.
   const initialExpanded = useMemo(() => {
     const orders = graph.components.find((c) => c.id === 'orders');
     if (orders) return ['orders'];
@@ -93,8 +100,31 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     initialExpanded
   );
 
-  // Focus mode
+  // Focus mode (semantic — raw graph)
   const [focusId, setFocusId, related] = useFocus(graph);
+
+  // ── Async layout ──────────────────────────────────────────────────────────
+  // `laid` holds the last successfully computed laid-out graph.
+  // We intentionally DO NOT reset it to null on re-layout so the canvas
+  // never flashes empty while ELK recomputes.
+  const [laid, setLaid] = useState<UIGraph | null>(null);
+
+  useEffect(() => {
+    // Race-guard: if this effect fires again before the previous ELK call
+    // resolves, the cleanup sets `cancelled = true` so the stale result
+    // is silently discarded and never overwrites the fresher layout.
+    let cancelled = false;
+
+    layout(graph, { expanded, internalExpanded }).then((result) => {
+      if (!cancelled) {
+        setLaid(result);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [graph, expanded, internalExpanded]);
 
   // Left panel state: tab selection and collapse
   const [leftTab, setLeftTab] = useState<'changes' | 'tree'>(showDiff ? 'changes' : 'tree');
@@ -106,7 +136,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
   // Active change (highlighted in list)
   const [activeChangeId, setActiveChangeId] = useState<string | null>(null);
 
-  // Derive changes from graph
+  // Derive changes from graph (semantic — raw graph)
   const changes = useMemo(() => deriveChanges(graph), [graph]);
 
   // Canvas wrap ref for scroll operations
@@ -116,15 +146,21 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
   const [pendingComment, setPendingComment] = useState<PendingComment | null>(null);
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
 
-  // Seed markers from graph.comments, placing them near their targets
+  // Seed markers from graph.comments, placing them near their laid-out targets.
+  // Uses `laid` for x/y/w so marker positions are correct after layout.
   const seedMarkers = useMemo((): Marker[] => {
+    // Fall back to raw graph components for id-matching; use laid components
+    // for geometry so positions are accurate once layout is done.
+    const laidComponents = laid?.components ?? graph.components;
+    const laidEdges = laid?.edges ?? graph.edges;
+
     return graph.comments.map((cm, i) => {
-      // Find component containing this target
-      let host: ComponentType | undefined = graph.components.find(
+      // Find component containing this target (id-match against raw graph is equivalent)
+      let host: ComponentType | undefined = laidComponents.find(
         (c) => c.id === cm.target.id
       );
       if (!host) {
-        host = graph.components.find(
+        host = laidComponents.find(
           (c) =>
             c.internals.some(
               (it) =>
@@ -134,9 +170,9 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
         );
       }
       if (!host && cm.target.type === 'edge') {
-        const edge = graph.edges.find((e) => e.id === cm.target.id);
+        const edge = laidEdges.find((e) => e.id === cm.target.id);
         if (edge) {
-          host = graph.components.find((c) => c.id === edge.from);
+          host = laidComponents.find((c) => c.id === edge.from);
         }
       }
 
@@ -159,11 +195,11 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
         when: '2m',
       };
     });
-  }, [graph.comments, graph.components, graph.edges]);
+  }, [graph.comments, laid]);
 
   const [markers, setMarkers] = useState<Marker[]>(seedMarkers);
 
-  // Update markers when seed markers change (e.g., different graph loaded)
+  // Update markers when seed markers change (e.g., different graph loaded or re-laid-out)
   useEffect(() => {
     setMarkers(seedMarkers);
   }, [seedMarkers]);
@@ -223,6 +259,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
   };
 
   // Go to a change: focus + expand + scroll
+  // Uses `laid` for scroll math so coordinates match what's on screen.
   const goToChange = (ch: ChangeEntry) => {
     setActiveChangeId(ch.id);
     setFocusId(ch.cmp);
@@ -232,9 +269,10 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
       toggle(ch.cmp);
     }
 
-    // Smooth scroll to component
+    // Smooth scroll to component (geometry from laid)
     setTimeout(() => {
-      const component = graph.components.find((c) => c.id === ch.cmp);
+      const laidComponents = laid?.components ?? graph.components;
+      const component = laidComponents.find((c) => c.id === ch.cmp);
       if (component && canvasWrapRef.current) {
         const x = component.x ?? 0;
         const y = component.y ?? 0;
@@ -275,12 +313,17 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     }
   };
 
-  // Calculate canvas dimensions based on content
+  // Calculate canvas dimensions based on laid-out content (geometry)
   const canvasDimensions = useMemo(() => {
     let maxX = 1000;
     let maxY = 600;
 
-    for (const bc of graph.boundedContexts) {
+    // Use laid geometry; fall back to raw (pre-layout) values so canvas
+    // is not zero-sized on the initial render before ELK resolves.
+    const bcs = laid?.boundedContexts ?? graph.boundedContexts;
+    const cmps = laid?.components ?? graph.components;
+
+    for (const bc of bcs) {
       if (bc.x != null && bc.w != null) {
         maxX = Math.max(maxX, bc.x + bc.w + 50);
       }
@@ -289,7 +332,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
       }
     }
 
-    for (const c of graph.components) {
+    for (const c of cmps) {
       if (c.x != null && c.wx != null) {
         maxX = Math.max(maxX, c.x + c.wx + 50);
       }
@@ -299,13 +342,14 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     }
 
     return { width: maxX, height: maxY };
-  }, [graph.boundedContexts, graph.components]);
+  }, [laid, graph.boundedContexts, graph.components]);
 
   return (
     <div
       className={`hifi v4 theme-${theme}`}
       style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column' }}
     >
+      {/* AppBar / PrHeader use semantic data from raw graph */}
       <AppBar
         level={level}
         onLevelChange={onLevelChange}
@@ -319,6 +363,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
 
       <div className="hf-stage">
         {/* LEFT PANE - collapsible, 2 modes (CHANGES | CONTEXTS) */}
+        {/* Tree and ChangesPanel are semantic — raw graph */}
         <div className={`hf-side hf-collapsible ${leftCollapsed ? 'collapsed' : ''}`}>
           <button
             className="hf-side-toggle left"
@@ -385,6 +430,14 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
           style={{ flex: 1 }}
           onClick={handleCanvasClick}
         >
+          {/* Show loading placeholder until first ELK layout resolves.
+              We keep the previous laid graph visible during re-layout so
+              the canvas never flashes empty. */}
+          {laid == null ? (
+            <div style={{ padding: 20 }}>
+              <p>Laying out…</p>
+            </div>
+          ) : (
           <div
             className="hf-canvas"
             style={{
@@ -392,13 +445,13 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
               minHeight: canvasDimensions.height,
             }}
           >
-            {/* Bounded context groups */}
-            <BCGroups boundedContexts={graph.boundedContexts} show={true} />
+            {/* Bounded context groups — geometry from laid */}
+            <BCGroups boundedContexts={laid.boundedContexts} show={true} />
 
-            {/* Edge layer (SVG) */}
+            {/* Edge layer (SVG) — geometry from laid */}
             <EdgeLayer
-              edges={graph.edges}
-              components={graph.components}
+              edges={laid.edges}
+              components={laid.components}
               expandedSet={expanded}
               expandedInternals={internalExpanded}
               showDiff={showDiff}
@@ -408,8 +461,8 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
               onAddComment={startComment}
             />
 
-            {/* Components */}
-            {graph.components.map((c) => (
+            {/* Components — geometry from laid, expansion/focus from raw state */}
+            {laid.components.map((c) => (
               <Component
                 key={c.id}
                 cmp={c}
@@ -443,6 +496,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
               onSubmit={submitComment}
             />
           </div>
+          )}
 
           {/* Canvas toolbar */}
           <CanvasToolbar />
