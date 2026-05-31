@@ -1,5 +1,4 @@
 import type { Component as ComponentType, Internal, Member, Port } from '../types';
-import { computeExpandedHeight } from '../state/hooks';
 
 export interface ComponentProps {
   /** The component data with layout geometry */
@@ -46,8 +45,9 @@ export function Component({
   commentTargets,
 }: ComponentProps) {
   const diffCls = showDiff && cmp.diff ? cmp.diff : '';
-  const w = expanded ? cmp.wx ?? cmp.w : cmp.w;
-  const h = expanded ? computeExpandedHeight(cmp, expandedInternals) : cmp.h;
+  // Layout computes both collapsed and expanded dimensions in cmp.w/h
+  const w = cmp.w;
+  const h = cmp.h;
 
   const hasComment = (id: string) => commentTargets?.has(id) ?? false;
 
@@ -131,8 +131,6 @@ export function Component({
         <PortDot
           key={port.id}
           port={port}
-          componentExpanded={expanded}
-          componentHeight={h ?? 86}
           showDiff={showDiff}
           hasComment={hasComment(port.id)}
           onAddComment={onAddComment}
@@ -163,8 +161,10 @@ function InternalCard({
   hasComment,
 }: InternalCardProps) {
   const diffCls = showDiff && internal.diff ? internal.diff : '';
+  // Use layout-provided height if available, otherwise compute locally
+  // Layout sets internal.h based on expanded state at layout time
   const memberHeight = expanded ? (internal.members?.length ?? 0) * 18 + 4 : 0;
-  const h = 26 + memberHeight;
+  const h = internal.h ?? (26 + memberHeight);
 
   const handleHeadClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -241,8 +241,6 @@ function MemberRow({ member, showDiff, hasComment, onAddComment }: MemberRowProp
 
 interface PortDotProps {
   port: Port;
-  componentExpanded: boolean;
-  componentHeight: number;
   showDiff: boolean;
   hasComment: boolean;
   onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
@@ -250,18 +248,16 @@ interface PortDotProps {
 
 function PortDot({
   port,
-  componentExpanded,
-  componentHeight,
   showDiff,
   hasComment,
   onAddComment,
 }: PortDotProps) {
   const diffCls = showDiff && port.diff ? port.diff : '';
 
-  // Calculate port Y position
-  // When expanded, use the port's y directly; when collapsed, clamp to component height
+  // Use ELK-computed port.y directly with centering offset for the dot (10px dot, center it)
+  // ELK places ports within the actual node height, so no clamping needed
   const portY = port.y ?? 58;
-  const py = componentExpanded ? portY - 7 : Math.min(portY, componentHeight - 14) - 7;
+  const py = portY - 5; // Center the 10px dot at port.y
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();

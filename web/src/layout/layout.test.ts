@@ -331,6 +331,228 @@ describe('layout', () => {
     expect(edge!.points!.length, 'edge has >= 2 points').toBeGreaterThanOrEqual(2);
   });
 
+  // --- internals layout (Problem 1) ---
+
+  it('expanded component with >=2 internals: each internal has numeric x/y/w/h and internals do not overlap', async () => {
+    const input = minimalGraph({
+      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
+      components: [
+        {
+          id: 'c1',
+          name: 'C1',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc1',
+          internals: [
+            { id: 'int1', kind: 'class', name: 'Foo', members: [] },
+            { id: 'int2', kind: 'iface', name: 'Bar', members: [] },
+            { id: 'int3', kind: 'class', name: 'Baz', members: [{ id: 'm1', kind: 'method', name: 'DoIt' }] },
+          ],
+          ports: [],
+        },
+      ],
+    });
+
+    const result = await layout(input, {
+      expanded: new Set(['c1']),
+      internalExpanded: new Set(['int3']), // int3 is expanded, has members
+    });
+
+    const cmp = result.components.find((c) => c.id === 'c1')!;
+
+    // Each internal must have numeric x, y, w, h
+    for (const internal of cmp.internals) {
+      expect(typeof internal.x, `internal ${internal.id} x`).toBe('number');
+      expect(typeof internal.y, `internal ${internal.id} y`).toBe('number');
+      expect(typeof internal.w, `internal ${internal.id} w`).toBe('number');
+      expect(typeof internal.h, `internal ${internal.id} h`).toBe('number');
+      expect(internal.x!).toBeGreaterThanOrEqual(0);
+      expect(internal.y!).toBeGreaterThanOrEqual(0);
+      expect(internal.w!).toBeGreaterThan(0);
+      expect(internal.h!).toBeGreaterThan(0);
+    }
+
+    // Internals must not overlap
+    const internals = cmp.internals;
+    for (let i = 0; i < internals.length; i++) {
+      for (let j = i + 1; j < internals.length; j++) {
+        const a = internals[i];
+        const b = internals[j];
+        const overlaps =
+          a.x! < b.x! + b.w! - 1 &&
+          a.x! + a.w! - 1 > b.x! &&
+          a.y! < b.y! + b.h! - 1 &&
+          a.y! + a.h! - 1 > b.y!;
+        expect(overlaps, `${a.id} and ${b.id} must not overlap`).toBe(false);
+      }
+    }
+
+    // Each internal must lie within the component's content box
+    // Content box = component minus header (36px) minus padding (8px on each side)
+    // Internals are positioned relative to canvas (origin at canvas content area)
+    const canvasHeight = cmp.h! - 36 - 16; // 36px header, 8px top + 8px bottom padding
+    const canvasWidth = cmp.w! - 16; // 8px left + 8px right padding
+    for (const internal of cmp.internals) {
+      expect(internal.x!, `${internal.id} left inside canvas`).toBeGreaterThanOrEqual(0);
+      expect(internal.y!, `${internal.id} top inside canvas`).toBeGreaterThanOrEqual(0);
+      expect(
+        internal.x! + internal.w!,
+        `${internal.id} right inside canvas (x=${internal.x} w=${internal.w} canvasW=${canvasWidth})`
+      ).toBeLessThanOrEqual(canvasWidth + 1); // 1px tolerance
+      expect(
+        internal.y! + internal.h!,
+        `${internal.id} bottom inside canvas (y=${internal.y} h=${internal.h} canvasH=${canvasHeight})`
+      ).toBeLessThanOrEqual(canvasHeight + 1); // 1px tolerance
+    }
+  });
+
+  it('expanded component size is derived from internal layout, not heuristic', async () => {
+    // Component with 4 internals that would require significant space
+    const input = minimalGraph({
+      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
+      components: [
+        {
+          id: 'c1',
+          name: 'C1',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc1',
+          internals: [
+            { id: 'int1', kind: 'class', name: 'Foo', members: [{ id: 'm1', kind: 'method', name: 'A' }] },
+            { id: 'int2', kind: 'iface', name: 'Bar', members: [{ id: 'm2', kind: 'method', name: 'B' }] },
+            { id: 'int3', kind: 'class', name: 'Baz', members: [{ id: 'm3', kind: 'method', name: 'C' }] },
+            { id: 'int4', kind: 'class', name: 'Qux', members: [{ id: 'm4', kind: 'method', name: 'D' }] },
+          ],
+          ports: [],
+          hx: 100, // Tiny heuristic that would be too small
+        },
+      ],
+    });
+
+    const result = await layout(input, {
+      expanded: new Set(['c1']),
+      internalExpanded: new Set(['int1', 'int2', 'int3', 'int4']), // All expanded
+    });
+
+    const cmp = result.components.find((c) => c.id === 'c1')!;
+
+    // Component must be large enough to fit all internals
+    // Find bounding box of internals
+    const internals = cmp.internals;
+    let maxRight = 0;
+    let maxBottom = 0;
+    for (const internal of internals) {
+      maxRight = Math.max(maxRight, (internal.x ?? 0) + (internal.w ?? 0));
+      maxBottom = Math.max(maxBottom, (internal.y ?? 0) + (internal.h ?? 0));
+    }
+
+    // Component size should accommodate internals + header + padding
+    expect(cmp.h!, 'height fits internals').toBeGreaterThanOrEqual(36 + 8 + maxBottom + 8);
+    expect(cmp.w!, 'width fits internals').toBeGreaterThanOrEqual(8 + maxRight + 8);
+  });
+
+  // --- synthesized inbound ports (Problem 2a) ---
+
+  it('synthesizes inbound port when toPort is not declared, routes edge to it', async () => {
+    // Real-world scenario: fromPort is declared, toPort is a placeholder
+    const input = minimalGraph({
+      boundedContexts: [
+        { id: 'bc1', name: 'BC One' },
+        { id: 'bc2', name: 'BC Two' },
+      ],
+      components: [
+        {
+          id: 'source-cmp',
+          name: 'Source',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc1',
+          internals: [],
+          ports: [
+            { id: 'source-cmp:out:target-cmp', side: 'right', kind: 'out', name: 'out' },
+          ],
+        },
+        {
+          id: 'target-cmp',
+          name: 'Target',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc2',
+          internals: [],
+          ports: [
+            // NO inbound port declared - toPort below is a placeholder
+            { id: 'target-cmp:out:other', side: 'right', kind: 'out', name: 'other' },
+          ],
+        },
+      ],
+      edges: [
+        {
+          id: 'e1',
+          from: 'source-cmp',
+          to: 'target-cmp',
+          fromPort: 'source-cmp:out:target-cmp', // valid, declared
+          toPort: 'target-cmp:in:source-cmp',   // INVALID - not declared
+          label: 'uses',
+        },
+      ],
+    });
+
+    const result = await layout(input);
+
+    // Target component should now have a synthesized inbound port
+    const target = result.components.find((c) => c.id === 'target-cmp')!;
+    const synthPort = target.ports.find(
+      (p) => p.side === 'left' && p.kind === 'in' && p.id !== 'target-cmp:out:other'
+    );
+    expect(synthPort, 'synthesized inbound port exists').toBeDefined();
+    expect(synthPort!.side).toBe('left');
+    expect(synthPort!.kind).toBe('in');
+    expect(typeof synthPort!.y).toBe('number');
+
+    // Edge should have routed points (port-to-port routing worked)
+    const edge = result.edges.find((e) => e.id === 'e1')!;
+    expect(Array.isArray(edge.points), 'edge has points array').toBe(true);
+    expect(edge.points!.length, 'edge has >= 2 points').toBeGreaterThanOrEqual(2);
+  });
+
+  it('synthesizes multiple inbound ports for multiple inbound edges', async () => {
+    const input = minimalGraph({
+      boundedContexts: [{ id: 'bc1', name: 'BC' }],
+      components: [
+        {
+          id: 'a', name: 'A', tech: 'Go', desc: '', bc: 'bc1', internals: [],
+          ports: [{ id: 'a:out:domain', side: 'right', kind: 'out', name: 'out' }],
+        },
+        {
+          id: 'b', name: 'B', tech: 'Go', desc: '', bc: 'bc1', internals: [],
+          ports: [{ id: 'b:out:domain', side: 'right', kind: 'out', name: 'out' }],
+        },
+        {
+          id: 'domain', name: 'Domain', tech: 'Go', desc: '', bc: 'bc1', internals: [],
+          ports: [], // No declared ports - heavily depended on
+        },
+      ],
+      edges: [
+        { id: 'e1', from: 'a', to: 'domain', fromPort: 'a:out:domain', toPort: 'domain:in:a', label: '' },
+        { id: 'e2', from: 'b', to: 'domain', fromPort: 'b:out:domain', toPort: 'domain:in:b', label: '' },
+      ],
+    });
+
+    const result = await layout(input);
+
+    const domain = result.components.find((c) => c.id === 'domain')!;
+    const inboundPorts = domain.ports.filter((p) => p.side === 'left' && p.kind === 'in');
+
+    // Should have 2 synthesized inbound ports (one per inbound edge)
+    expect(inboundPorts.length).toBe(2);
+
+    // Both edges should have routed points
+    for (const edge of result.edges) {
+      expect(Array.isArray(edge.points), `edge ${edge.id} has points`).toBe(true);
+      expect(edge.points!.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
   // --- input not mutated ---
 
   it('does not mutate the input graph', async () => {
