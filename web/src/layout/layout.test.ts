@@ -610,4 +610,128 @@ describe('layout', () => {
     expect(result.components).toEqual([]);
     expect(result.edges).toEqual([]);
   });
+
+  // --- BUG 1: edge endpoints must align with port positions ---
+
+  it('edge first point aligns with source out-port absolute position (same BC)', async () => {
+    // Setup: One BC with two components, an edge from c1's out-port to c2's in-port.
+    // Both components in the same BC - this is where LCA offset was missing.
+    const input = minimalGraph({
+      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
+      components: [
+        {
+          id: 'c1',
+          name: 'Source',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc1',
+          internals: [],
+          ports: [{ id: 'c1:out:c2', side: 'right', kind: 'out', name: 'out' }],
+        },
+        {
+          id: 'c2',
+          name: 'Target',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc1',
+          internals: [],
+          ports: [{ id: 'c2:in:c1', side: 'left', kind: 'in', name: 'in' }],
+        },
+      ],
+      edges: [
+        {
+          id: 'e1',
+          from: 'c1',
+          to: 'c2',
+          fromPort: 'c1:out:c2',
+          toPort: 'c2:in:c1',
+          label: 'uses',
+        },
+      ],
+    });
+
+    const result = await layout(input);
+
+    const c1 = result.components.find((c) => c.id === 'c1')!;
+    const c2 = result.components.find((c) => c.id === 'c2')!;
+    const edge = result.edges.find((e) => e.id === 'e1')!;
+
+    // Source out-port is on the right side of c1
+    const srcPort = c1.ports.find((p) => p.id === 'c1:out:c2')!;
+    const srcPortAbsX = c1.x! + c1.w!; // right edge of component
+    const srcPortAbsY = c1.y! + srcPort.y!;
+
+    // Target in-port is on the left side of c2
+    const tgtPort = c2.ports.find((p) => p.id === 'c2:in:c1')!;
+    const tgtPortAbsX = c2.x!; // left edge of component
+    const tgtPortAbsY = c2.y! + tgtPort.y!;
+
+    expect(edge.points, 'edge should have points').toBeDefined();
+    expect(edge.points!.length).toBeGreaterThanOrEqual(2);
+
+    const firstPt = edge.points![0];
+    const lastPt = edge.points![edge.points!.length - 1];
+
+    // Edge first point should be at/near the source out-port (tolerance 3px)
+    expect(
+      Math.abs(firstPt.x - srcPortAbsX),
+      `edge start X (${firstPt.x}) should be near source port X (${srcPortAbsX})`
+    ).toBeLessThanOrEqual(3);
+    expect(
+      Math.abs(firstPt.y - srcPortAbsY),
+      `edge start Y (${firstPt.y}) should be near source port Y (${srcPortAbsY})`
+    ).toBeLessThanOrEqual(3);
+
+    // Edge last point should be at/near the target in-port (tolerance 3px)
+    expect(
+      Math.abs(lastPt.x - tgtPortAbsX),
+      `edge end X (${lastPt.x}) should be near target port X (${tgtPortAbsX})`
+    ).toBeLessThanOrEqual(3);
+    expect(
+      Math.abs(lastPt.y - tgtPortAbsY),
+      `edge end Y (${lastPt.y}) should be near target port Y (${tgtPortAbsY})`
+    ).toBeLessThanOrEqual(3);
+  });
+
+  // --- BUG 2: internals should use multi-column layout for n>=4 ---
+
+  it('expanded component with >=4 internals uses multiple columns', async () => {
+    // Component with 4 internals should NOT stack in a single column
+    const input = minimalGraph({
+      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
+      components: [
+        {
+          id: 'c1',
+          name: 'C1',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc1',
+          internals: [
+            { id: 'int1', kind: 'class', name: 'Foo', members: [] },
+            { id: 'int2', kind: 'class', name: 'Bar', members: [] },
+            { id: 'int3', kind: 'class', name: 'Baz', members: [] },
+            { id: 'int4', kind: 'class', name: 'Qux', members: [] },
+          ],
+          ports: [],
+        },
+      ],
+    });
+
+    const result = await layout(input, {
+      expanded: new Set(['c1']),
+      internalExpanded: new Set(),
+    });
+
+    const cmp = result.components.find((c) => c.id === 'c1')!;
+    const internals = cmp.internals;
+
+    // Count unique X positions to determine number of columns used
+    const uniqueXPositions = new Set(internals.map((int) => int.x));
+
+    // With 4 internals, should use at least 2 columns (not a single column)
+    expect(
+      uniqueXPositions.size,
+      `internals should use multiple columns (found ${uniqueXPositions.size} unique x positions)`
+    ).toBeGreaterThan(1);
+  });
 });

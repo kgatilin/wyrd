@@ -119,12 +119,23 @@ function computeExpandedDimensions(
   const collapsedW = component.w ?? DEFAULT_W;
   const collapsedH = component.h ?? DEFAULT_H;
   const minWidth = Math.max(collapsedW, DEFAULT_W);
+  const n = component.internals.length;
 
-  // Initial pass: try with minimum width to see content requirements
+  // Compute desired column count for a balanced grid:
+  // - Use sqrt(n) for rough balance, capped at 3 columns max
+  // - At least 1 column
+  const desiredCols = n > 0 ? Math.min(3, Math.ceil(Math.sqrt(n))) : 1;
+
+  // Compute available width to fit that many columns
+  // Each column is INTERNAL_W wide, with INTERNAL_GAP between columns
+  const gridWidth = desiredCols * INTERNAL_W + (desiredCols - 1) * INTERNAL_GAP;
+  const availableWidth = Math.max(minWidth - 2 * CANVAS_PADDING, gridWidth);
+
+  // Layout internals with the computed available width
   const { laid, contentW, contentH } = layoutInternals(
     component.internals,
     internalExpanded,
-    minWidth - 2 * CANVAS_PADDING
+    availableWidth
   );
 
   // Calculate final dimensions - must be >= collapsed dimensions
@@ -391,10 +402,68 @@ export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
     });
 
     // Build returned edges with routed points (absolute coords)
-    // ELK edge sections are relative to the edge's containing node (root in our case).
-    // Root has no offset, so section coords are canvas-absolute.
+    // With elk.hierarchyHandling: INCLUDE_CHILDREN, ELK expresses edge section
+    // coordinates relative to the LOWEST COMMON ANCESTOR (LCA) of the edge's
+    // two endpoints, NOT relative to the node whose .edges array holds the edge.
+    // For two components in the same BC, the LCA is that BC.
+    // For components in different BCs, the LCA is root (offset 0,0).
+
+    // Build componentId → bcId map
+    const componentToBc = new Map<string, string>();
+    for (const c of componentsWithSynthPorts) {
+      componentToBc.set(c.id, c.bc || 'default');
+    }
+
+    // Build bcId → absolute offset map
+    const bcAbsoluteOffset = new Map<string, { x: number; y: number }>();
+    for (const bcNode of laid.children ?? []) {
+      bcAbsoluteOffset.set(bcNode.id, { x: bcNode.x ?? 0, y: bcNode.y ?? 0 });
+    }
+
+    // Collect raw edge sections from ELK output (they live in root.edges)
+    const rawEdgeSections = new Map<string, { startPoint: { x: number; y: number }; bendPoints?: { x: number; y: number }[]; endPoint: { x: number; y: number } }>();
+    for (const edge of (laid.edges ?? []) as ElkExtendedEdge[]) {
+      const sections = (edge as any).sections;
+      if (sections && sections.length > 0) {
+        rawEdgeSections.set(edge.id, sections[0]);
+      }
+    }
+
+    // For each edge, compute the LCA offset and apply to section points
     const edgePointsMap = new Map<string, { x: number; y: number }[]>();
-    collectEdgePoints(laid, 0, 0, edgePointsMap);
+    for (const edge of graph.edges) {
+      const section = rawEdgeSections.get(edge.id);
+      if (!section) continue;
+
+      // Determine LCA offset: if source and target are in the same BC, use BC offset; else use (0,0)
+      const srcBc = componentToBc.get(edge.from);
+      const tgtBc = componentToBc.get(edge.to);
+      let offsetX = 0;
+      let offsetY = 0;
+      if (srcBc && tgtBc && srcBc === tgtBc) {
+        const bcOffset = bcAbsoluteOffset.get(srcBc);
+        if (bcOffset) {
+          offsetX = bcOffset.x;
+          offsetY = bcOffset.y;
+        }
+      }
+
+      // Build absolute points
+      const points: { x: number; y: number }[] = [];
+      if (section.startPoint) {
+        points.push({ x: offsetX + section.startPoint.x, y: offsetY + section.startPoint.y });
+      }
+      for (const bp of section.bendPoints ?? []) {
+        points.push({ x: offsetX + bp.x, y: offsetY + bp.y });
+      }
+      if (section.endPoint) {
+        points.push({ x: offsetX + section.endPoint.x, y: offsetY + section.endPoint.y });
+      }
+
+      if (points.length >= 2) {
+        edgePointsMap.set(edge.id, points);
+      }
+    }
 
     const returnedEdges: Edge[] = graph.edges.map((edge) => ({
       ...edge,
@@ -410,43 +479,3 @@ export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
   });
 }
 
-/**
- * Recursively walk ELK output nodes, collecting edge routing sections.
- * ELK edge section coordinates are relative to the node that contains the edge.
- * Walk the containment tree accumulating absolute offsets.
- */
-function collectEdgePoints(
-  node: ElkNode,
-  parentAbsX: number,
-  parentAbsY: number,
-  result: Map<string, { x: number; y: number }[]>
-): void {
-  const absX = parentAbsX + (node.x ?? 0);
-  const absY = parentAbsY + (node.y ?? 0);
-
-  for (const edge of (node.edges ?? []) as ElkExtendedEdge[]) {
-    const sections = (edge as any).sections;
-    if (!sections || sections.length === 0) continue;
-
-    const section = sections[0];
-    const points: { x: number; y: number }[] = [];
-
-    if (section.startPoint) {
-      points.push({ x: absX + section.startPoint.x, y: absY + section.startPoint.y });
-    }
-    for (const bp of (section.bendPoints ?? [])) {
-      points.push({ x: absX + bp.x, y: absY + bp.y });
-    }
-    if (section.endPoint) {
-      points.push({ x: absX + section.endPoint.x, y: absY + section.endPoint.y });
-    }
-
-    if (points.length >= 2) {
-      result.set(edge.id, points);
-    }
-  }
-
-  for (const child of (node.children ?? [])) {
-    collectEdgePoints(child, absX, absY, result);
-  }
-}
