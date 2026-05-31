@@ -30,7 +30,68 @@ interface EdgePath {
 }
 
 /**
- * Computes the bezier path between two component ports.
+ * Builds an SVG path string for an orthogonal polyline through the given points.
+ * Each bend gets a small rounded corner (quadratic bezier) with a 6px radius.
+ * Returns both the path string and the midpoint of the middle segment (for labels).
+ */
+function buildOrthogonalPath(pts: { x: number; y: number }[]): {
+  path: string;
+  mid: { x: number; y: number };
+} {
+  const r = 6; // corner radius in px
+  const n = pts.length;
+
+  // Build rounded-corner polyline using quadratic bezier at each interior vertex
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 1; i < n - 1; i++) {
+    const prev = pts[i - 1];
+    const cur = pts[i];
+    const next = pts[i + 1];
+
+    // Vector from prev→cur and cur→next
+    const dx1 = cur.x - prev.x;
+    const dy1 = cur.y - prev.y;
+    const dx2 = next.x - cur.x;
+    const dy2 = next.y - cur.y;
+    const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+    const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+
+    if (len1 === 0 || len2 === 0) {
+      // Degenerate segment — just line through the vertex
+      d += ` L ${cur.x} ${cur.y}`;
+      continue;
+    }
+
+    // Clamp radius so it never exceeds half of either adjacent segment
+    const actualR = Math.min(r, len1 / 2, len2 / 2);
+
+    // Point where the line approaches the corner
+    const approachX = cur.x - (dx1 / len1) * actualR;
+    const approachY = cur.y - (dy1 / len1) * actualR;
+    // Point where the line leaves the corner
+    const departX = cur.x + (dx2 / len2) * actualR;
+    const departY = cur.y + (dy2 / len2) * actualR;
+
+    d += ` L ${approachX} ${approachY} Q ${cur.x} ${cur.y} ${departX} ${departY}`;
+  }
+  d += ` L ${pts[n - 1].x} ${pts[n - 1].y}`;
+
+  // Mid: midpoint of the middle segment
+  const midIdx = Math.floor((n - 1) / 2); // index of middle segment start
+  const p0 = pts[midIdx];
+  const p1 = pts[midIdx + 1];
+  const mid = {
+    x: (p0.x + p1.x) / 2,
+    y: (p0.y + p1.y) / 2 - 6,
+  };
+
+  return { path: d, mid };
+}
+
+/**
+ * Computes the SVG path between two component ports.
+ * When the edge carries ELK-routed points (≥2), draws an orthogonal polyline.
+ * Otherwise falls back to a cubic bezier from port positions.
  */
 function computeEdgePath(
   edge: Edge,
@@ -38,6 +99,20 @@ function computeEdgePath(
   expandedSet: Set<string>,
   expandedInternals: Set<string>
 ): EdgePath | null {
+  // --- ELK-routed path ---
+  if (edge.points && edge.points.length >= 2) {
+    const { path, mid } = buildOrthogonalPath(edge.points);
+    const first = edge.points[0];
+    const last = edge.points[edge.points.length - 1];
+    return {
+      path,
+      s: { x: first.x, y: first.y, side: 'right' },
+      d: { x: last.x, y: last.y, side: 'left' },
+      mid,
+    };
+  }
+
+  // --- Fallback: bezier from port positions ---
   const src = components.find((c) => c.id === edge.from);
   const dst = components.find((c) => c.id === edge.to);
   if (!src || !dst) return null;
@@ -70,9 +145,9 @@ function computeEdgePath(
   };
 
   // Calculate bezier control points
-  const dx = Math.max(40, Math.abs(d.x - s.x) * 0.4);
-  const sx2 = s.side === 'right' ? s.x + dx : s.x - dx;
-  const dx2 = d.side === 'left' ? d.x - dx : d.x + dx;
+  const ddx = Math.max(40, Math.abs(d.x - s.x) * 0.4);
+  const sx2 = s.side === 'right' ? s.x + ddx : s.x - ddx;
+  const dx2 = d.side === 'left' ? d.x - ddx : d.x + ddx;
 
   return {
     path: `M ${s.x} ${s.y} C ${sx2} ${s.y}, ${dx2} ${d.y}, ${d.x} ${d.y}`,
