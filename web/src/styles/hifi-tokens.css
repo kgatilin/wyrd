@@ -468,6 +468,25 @@
 }
 .hf-cmp-expand:hover { background: var(--bg-active); color: var(--fg-0); }
 
+/* "Expand all" — widens every internal block to fit its text. Sits left of the
+   +/− expand button; auto width so the two-glyph «»/»« label fits. */
+.hf-cmp-expand-all {
+  height: 18px;
+  min-width: 18px;
+  padding: 0 4px;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--fg-2);
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: -1px;
+  border: 1px solid var(--line-2);
+}
+.hf-cmp-expand-all:hover { background: var(--bg-active); color: var(--fg-0); }
+
 /* Description info button — overlays the header top-right. Lives OUTSIDE
    .hf-cmp-inner (see Component.tsx) so its popover escapes the card clipping. */
 .hf-cmp-info { position: absolute; top: 9px; right: 38px; z-index: 7; }

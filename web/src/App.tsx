@@ -95,10 +95,8 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     return [];
   }, [graph.components]);
 
-  const { expanded, toggle, internalExpanded, internalWide, toggleInternalWide } = useExpansion(
-    graph,
-    initialExpanded
-  );
+  const { expanded, toggle, internalExpanded, internalWide, toggleInternalWide, setComponentWide } =
+    useExpansion(graph, initialExpanded);
 
   // Focus mode (semantic — raw graph)
   const [focusId, setFocusId, related] = useFocus(graph);
@@ -578,6 +576,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
                 expandedInternals={internalExpanded}
                 wideInternals={internalWide}
                 onToggleWide={toggleInternalWide}
+                onSetAllWide={setComponentWide}
                 showDiff={showDiff}
                 focused={focusId === c.id}
                 dimmed={!!(focusId && related && !related.has(c.id))}

@@ -13,6 +13,8 @@ export interface ComponentProps {
   wideInternals: Set<string>;
   /** Callback to toggle an internal's fit-width mode */
   onToggleWide?: (id: string) => void;
+  /** Callback to set ALL internals of this component to/from fit-width mode */
+  onSetAllWide?: (id: string, wide: boolean) => void;
   /** Whether to show diff styling */
   showDiff: boolean;
 
@@ -40,6 +42,7 @@ export function Component({
   expandedInternals,
   wideInternals,
   onToggleWide,
+  onSetAllWide,
   showDiff,
   onSelect,
   focused = false,
@@ -51,6 +54,10 @@ export function Component({
   // Layout computes both collapsed and expanded dimensions in cmp.w/h
   const w = cmp.w;
   const h = cmp.h;
+
+  // "Expand all" is satisfied when every internal is already in fit-width mode.
+  const hasInternals = cmp.internals.length > 0;
+  const allWide = hasInternals && cmp.internals.every((it) => wideInternals.has(it.id));
 
   const hasComment = (id: string) => commentTargets?.has(id) ?? false;
 
@@ -76,6 +83,11 @@ export function Component({
   const handleExpandClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onToggleExpand?.(cmp.id);
+  };
+
+  const handleExpandAllClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSetAllWide?.(cmp.id, !allWide);
   };
 
   return (
@@ -107,6 +119,17 @@ export function Component({
             <span className="hf-cmp-diff-tag">
               {cmp.diff === 'added' ? 'NEW' : cmp.diff === 'removed' ? 'DEL' : 'MOD'}
             </span>
+          )}
+          {/* Expand-all: widens every internal so all member text shows (or resets
+              them). Only meaningful while the component is open and has internals. */}
+          {expanded && hasInternals && (
+            <button
+              className="hf-cmp-expand-all"
+              onClick={handleExpandAllClick}
+              title={allWide ? 'Reset all blocks width' : 'Expand all blocks to fit text'}
+            >
+              {allWide ? '»«' : '«»'}
+            </button>
           )}
           <button className="hf-cmp-expand" onClick={handleExpandClick}>
             {expanded ? '−' : '+'}

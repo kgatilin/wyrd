@@ -62,11 +62,32 @@ export function useExpansion(graph: UIGraph, initialExpanded: string[] = []): {
   toggleInternal: (id: string) => void;
   internalWide: Set<string>;
   toggleInternalWide: (id: string) => void;
+  setComponentWide: (componentId: string, wide: boolean) => void;
 } {
   const [expanded, toggle] = useExpanded(initialExpanded);
   const [internalExpanded, toggleInternal, setInternalExpanded] = useExpanded([]);
   // Internals in "fit-width" mode — stretched so all member text is visible.
-  const [internalWide, toggleInternalWide] = useExpanded([]);
+  // Membership-based state: to make fit-width the default for every component
+  // in the future, seed this with all internal ids (e.g. useExpanded(allIds)).
+  const [internalWide, toggleInternalWide, setInternalWide] = useExpanded([]);
+
+  // Bulk-toggle every internal of one component into (or out of) fit-width mode.
+  // Backs the component header's "expand all" button.
+  const setComponentWide = useCallback(
+    (componentId: string, wide: boolean) => {
+      const comp = graph.components.find((c) => c.id === componentId);
+      if (!comp) return;
+      setInternalWide((prev) => {
+        const next = new Set(prev);
+        for (const internal of comp.internals) {
+          if (wide) next.add(internal.id);
+          else next.delete(internal.id);
+        }
+        return next;
+      });
+    },
+    [graph.components, setInternalWide]
+  );
 
   // Auto-expand internals when component expands
   useEffect(() => {
@@ -84,7 +105,15 @@ export function useExpansion(graph: UIGraph, initialExpanded: string[] = []): {
     });
   }, [expanded, graph.components, setInternalExpanded]);
 
-  return { expanded, toggle, internalExpanded, toggleInternal, internalWide, toggleInternalWide };
+  return {
+    expanded,
+    toggle,
+    internalExpanded,
+    toggleInternal,
+    internalWide,
+    toggleInternalWide,
+    setComponentWide,
+  };
 }
 
 /**
