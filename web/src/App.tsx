@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useState, useMemo, useRef } from 'react';
 import type { UIGraph, Component as ComponentType } from './types';
 import { loadGraph } from './data/load';
 import { layout } from './layout/layout';
@@ -10,7 +10,7 @@ import { Component } from './components/Component';
 import { EdgeLayer } from './components/EdgeLayer';
 import { Legend } from './components/Legend';
 import { CanvasToolbar } from './components/CanvasToolbar';
-import { Tree } from './components/Tree';
+import { Tree, TreeFocusTarget } from './components/Tree';
 import { ChangesPanel, deriveChanges, ChangeEntry } from './components/ChangesPanel';
 import { InlinePopover, PendingComment } from './components/InlinePopover';
 import { PinnedMarker, Marker } from './components/PinnedMarker';
@@ -176,6 +176,48 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     wrap.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
   };
 
+  // After a wheel-zoom changes `zoom`, re-anchor the scroll so the content point
+  // under the cursor stays put. Applied in a layout effect so the sizer has
+  // already grown/shrunk (otherwise scroll would clamp to the stale size).
+  const pendingScrollRef = useRef<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const wrap = canvasWrapRef.current;
+    if (wrap && pendingScrollRef.current) {
+      wrap.scrollLeft = pendingScrollRef.current.left;
+      wrap.scrollTop = pendingScrollRef.current.top;
+      pendingScrollRef.current = null;
+    }
+  }, [zoom]);
+
+  // Ctrl/Cmd + wheel (and trackpad pinch, which the browser reports as
+  // ctrl+wheel) zooms the diagram instead of the whole page. Attached natively
+  // with { passive: false } because React's onWheel is passive — preventDefault
+  // there is ignored. Plain wheel keeps scrolling the canvas as usual.
+  useEffect(() => {
+    const wrap = canvasWrapRef.current;
+    if (!wrap) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const step = e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP;
+      setZoom((z) => {
+        const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((z + step) * 100) / 100));
+        if (next === z) return z;
+        // Content point currently under the cursor (unscaled canvas coords)…
+        const contentX = (wrap.scrollLeft + cx) / z;
+        const contentY = (wrap.scrollTop + cy) / z;
+        // …should remain under the cursor after the new scale is applied.
+        pendingScrollRef.current = { left: contentX * next - cx, top: contentY * next - cy };
+        return next;
+      });
+    };
+    wrap.addEventListener('wheel', onWheel, { passive: false });
+    return () => wrap.removeEventListener('wheel', onWheel);
+  }, []);
+
   // Comment state
   const [pendingComment, setPendingComment] = useState<PendingComment | null>(null);
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
@@ -295,8 +337,26 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     setActiveMarkerId(marker.id);
   };
 
+  // Smooth-scroll a component to the center of the viewport.
+  // Uses `laid` geometry so coordinates match what's on screen; scroll positions
+  // are in scaled content space → multiply by zoom.
+  const scrollToComponent = (componentId: string) => {
+    const laidComponents = laid?.components ?? graph.components;
+    const component = laidComponents.find((c) => c.id === componentId);
+    if (component && canvasWrapRef.current) {
+      const x = component.x ?? 0;
+      const y = component.y ?? 0;
+      const w = component.w ?? 220;
+      const h = component.h ?? 86;
+      canvasWrapRef.current.scrollTo({
+        left: (x + w / 2) * zoom - canvasWrapRef.current.clientWidth / 2,
+        top: (y + h / 2) * zoom - canvasWrapRef.current.clientHeight / 2,
+        behavior: 'smooth',
+      });
+    }
+  };
+
   // Go to a change: focus + expand + scroll
-  // Uses `laid` for scroll math so coordinates match what's on screen.
   const goToChange = (ch: ChangeEntry) => {
     setActiveChangeId(ch.id);
     setFocusId(ch.cmp);
@@ -306,24 +366,22 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
       toggle(ch.cmp);
     }
 
-    // Smooth scroll to component (geometry from laid)
-    setTimeout(() => {
-      const laidComponents = laid?.components ?? graph.components;
-      const component = laidComponents.find((c) => c.id === ch.cmp);
-      if (component && canvasWrapRef.current) {
-        const x = component.x ?? 0;
-        const y = component.y ?? 0;
-        const w = component.w ?? 220;
-        const h = component.h ?? 86;
+    setTimeout(() => scrollToComponent(ch.cmp), 150);
+  };
 
-        // Scroll positions are in scaled content space → multiply by zoom.
-        canvasWrapRef.current.scrollTo({
-          left: (x + w / 2) * zoom - canvasWrapRef.current.clientWidth / 2,
-          top: (y + h / 2) * zoom - canvasWrapRef.current.clientHeight / 2,
-          behavior: 'smooth',
-        });
-      }
-    }, 150);
+  // Focus an object from the context tree: focus its component, expand the
+  // component when drilling into an internal/member so it's visible, then scroll.
+  const focusFromTree = (t: TreeFocusTarget) => {
+    setActiveChangeId(null);
+    setFocusId(t.componentId);
+    const drillIn = !!(t.internalId || t.memberId);
+    if (drillIn && !expanded.has(t.componentId)) {
+      toggle(t.componentId);
+      // Wait for the expansion re-layout before scrolling to the new geometry.
+      setTimeout(() => scrollToComponent(t.componentId), 200);
+    } else {
+      setTimeout(() => scrollToComponent(t.componentId), 0);
+    }
   };
 
   // Handle component selection (for focus mode)
@@ -448,12 +506,8 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
                     boundedContexts={graph.boundedContexts}
                     components={graph.components}
                     showDiff={showDiff}
-                    onComponentClick={(id) => {
-                      const cmp = graph.components.find((c) => c.id === id);
-                      if (cmp) {
-                        handleSelectComponent(cmp);
-                      }
-                    }}
+                    activeId={focusId}
+                    onFocus={focusFromTree}
                   />
                 </div>
               )}
@@ -580,24 +634,13 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
             <span className="hf-side-vlabel">COMMENTS - {markers.length}</span>
           ) : (
             <>
-              <div
-                className="hf-side-title"
-                style={{ display: 'flex', alignItems: 'center' }}
-              >
-                Comments
-                <span style={{ flex: 1 }} />
-                <span
-                  style={{
-                    fontSize: 10,
-                    color: 'var(--fg-3)',
-                    textTransform: 'none',
-                    letterSpacing: 0,
-                  }}
-                >
-                  {markers.length} thread{markers.length !== 1 ? 's' : ''}
-                </span>
+              {/* Header styled identically to the left panel's CONTEXTS tab. */}
+              <div className="hf-tabs" style={{ flexShrink: 0 }}>
+                <button className="on">
+                  COMMENTS<span className="count">{markers.length}</span>
+                </button>
               </div>
-              <div className="hf-list" style={{ paddingTop: 4 }}>
+              <div className="hf-list" style={{ paddingTop: 6 }}>
                 {markers.map((m) => (
                   <div
                     key={m.id}

@@ -296,6 +296,11 @@
 .hf-tree-row.added .badge   { background: var(--add-bg); color: var(--add-fg); }
 .hf-tree-row.removed .badge { background: var(--rem-bg); color: var(--rem-fg); }
 .hf-tree-row.changed .badge { background: var(--chg-bg); color: var(--chg-fg); }
+/* deeper tree levels: internals (class/iface) and their members */
+.hf-tree-row.internal .ico { color: var(--syn-cls); }
+.hf-tree-row.internal.iface .ico { color: var(--accent); }
+.hf-tree-row.member { font-size: 11px; color: var(--fg-2); }
+.hf-tree-row.member .ico { color: var(--fg-3); }
 
 /* ───────────── Canvas ───────────── */
 /* Viewport is the non-scrolling flex child of the stage. The scroller lives
@@ -377,7 +382,11 @@
   border-radius: inherit;
   overflow: hidden;
 }
-.hf-cmp:hover { box-shadow: var(--shadow-lg); border-color: var(--line-3); }
+/* Lift the hovered card (and its child ports/labels) above neighbouring cards.
+   Port labels flow OUTWARD toward adjacent cards and are only shown on hover, so
+   lifting the whole hovered card guarantees its labels paint over any neighbour's
+   port dots instead of being covered by them. */
+.hf-cmp:hover { box-shadow: var(--shadow-lg); border-color: var(--line-3); z-index: 6; }
 .hf-cmp.added   { border-color: var(--add-line); background: linear-gradient(180deg, var(--add-bg), var(--bg-1) 30%); }
 .hf-cmp.removed { border-color: var(--rem-line); background: linear-gradient(180deg, var(--rem-bg), var(--bg-1) 30%); }
 .hf-cmp.changed { border-color: var(--chg-line); background: linear-gradient(180deg, var(--chg-bg), var(--bg-1) 30%); }
@@ -478,6 +487,9 @@
 .hf-port.left  { right: 100%; flex-direction: row-reverse; transform: translateX(5px); }
 /* Right port mirrors: anchor on the right border, label flows outward (right). */
 .hf-port.right { left: 100%;  flex-direction: row;         transform: translateX(-5px); }
+/* The port row under the cursor wins over its siblings so its label is never
+   clipped behind an adjacent port's dot. */
+.hf-port:hover { z-index: 20; }
 .hf-port-dot {
   width: 10px; height: 10px;
   border-radius: 50%;
@@ -887,9 +899,9 @@
 .hf-side-toggle:hover { color: var(--fg-0); border-color: var(--accent); }
 .hf-side-toggle.left { right: 6px; }
 .hf-side-toggle.right { left: 6px; }
-/* The right panel's toggle sits at the top-left, where the COMMENTS title
-   begins — pad the title clear of the 20px toggle so they don't overlap. */
-.hf-side.right .hf-side-title { padding-left: 34px; }
+/* The right panel's toggle sits at the top-left, where the COMMENTS tab begins —
+   pad the first tab button clear of the 20px toggle so they don't overlap. */
+.hf-side.right .hf-tabs button:first-child { padding-left: 34px; }
 .hf-collapsible.collapsed .hf-side-toggle.left { right: 50%; transform: translateX(50%); }
 .hf-collapsible.collapsed .hf-side-toggle.right { left: 50%; transform: translateX(-50%); }
 

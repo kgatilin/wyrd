@@ -2,6 +2,14 @@ import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkNode, ElkPort, ElkExtendedEdge } from 'elkjs';
 import type { UIGraph, BoundedContext, Component, Port, Edge, Internal } from '../types';
 
+// Spacing between sibling components. These MUST be set on the node that owns the
+// components — i.e. each bounded-context compound node — not just on the root.
+// Root-level spacing only governs spacing *between* bounded contexts; the layered
+// layout *inside* a BC reads spacing from the BC node, so options left only on the
+// root fall back to ELK's ~20px defaults (which is why earlier bumps did nothing).
+const SPACING_NODE_NODE = '72'; // vertical gap between components in the same layer
+const SPACING_BETWEEN_LAYERS = '72'; // horizontal gap between component columns
+
 // ELK layout options mirrored from internal/adapter/http/assets/graph.js
 const ELK_LAYOUT_OPTIONS: Record<string, string> = {
   'elk.algorithm': 'layered',
@@ -9,12 +17,8 @@ const ELK_LAYOUT_OPTIONS: Record<string, string> = {
   'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
   'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
   'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
-  // Spacing between sibling components (and between BCs) — widened ~1.7x so
-  // components no longer crowd each other. Group-border padding (elk.padding
-  // below) and internal element spacing (INTERNAL_GAP) are deliberately left
-  // unchanged.
-  'elk.spacing.nodeNode': '72',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '144',
+  'elk.spacing.nodeNode': SPACING_NODE_NODE,
+  'elk.layered.spacing.nodeNodeBetweenLayers': SPACING_BETWEEN_LAYERS,
   'elk.spacing.edgeNode': '32',
   'elk.spacing.edgeEdge': '20',
   'elk.direction': 'RIGHT',
@@ -309,6 +313,9 @@ export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
       children,
       layoutOptions: {
         'elk.padding': '[top=30, left=30, bottom=30, right=30]',
+        // Spacing for the components laid out INSIDE this BC (see note above).
+        'elk.spacing.nodeNode': SPACING_NODE_NODE,
+        'elk.layered.spacing.nodeNodeBetweenLayers': SPACING_BETWEEN_LAYERS,
       },
     };
   });

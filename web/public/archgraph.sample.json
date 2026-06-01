@@ -12,7 +12,7 @@
       "name": "uigraph",
       "tech": "Go",
       "desc": "",
-      "bc": "all",
+      "bc": "model",
       "internals": [
         {
           "id": "internal/adapter/uigraph.BoundedContext",
@@ -400,7 +400,7 @@
       "name": "diff",
       "tech": "Go",
       "desc": "Change describes a single difference between two models.",
-      "bc": "all",
+      "bc": "model",
       "internals": [
         {
           "id": "internal/diff.Change",
@@ -466,7 +466,7 @@
       "name": "domain",
       "tech": "Go",
       "desc": "CallEdge represents a behavioral edge from one function/method to another,",
-      "bc": "all",
+      "bc": "model",
       "internals": [
         {
           "id": "internal/domain.CallEdge",
@@ -1182,7 +1182,7 @@
       "name": "overlay",
       "tech": "Go",
       "desc": "Adapter describes a hexagonal-architecture adapter: a concrete",
-      "bc": "all",
+      "bc": "model",
       "internals": [
         {
           "id": "internal/overlay.Adapter",
@@ -1461,7 +1461,7 @@
       "name": "service",
       "tech": "Go",
       "desc": "ModelReader reads package models from a source (code or diagrams).",
-      "bc": "all",
+      "bc": "model",
       "internals": [
         {
           "id": "internal/service.ModelReader",
