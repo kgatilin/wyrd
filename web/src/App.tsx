@@ -95,7 +95,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     return [];
   }, [graph.components]);
 
-  const { expanded, toggle, internalExpanded, toggleInternal } = useExpansion(
+  const { expanded, toggle, internalExpanded, internalWide, toggleInternalWide } = useExpansion(
     graph,
     initialExpanded
   );
@@ -116,7 +116,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     // is silently discarded and never overwrites the fresher layout.
     let cancelled = false;
 
-    layout(graph, { expanded, internalExpanded })
+    layout(graph, { expanded, internalExpanded, internalWide })
       .then((result) => {
         if (!cancelled) {
           setLayoutError(null);
@@ -134,7 +134,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     return () => {
       cancelled = true;
     };
-  }, [graph, expanded, internalExpanded]);
+  }, [graph, expanded, internalExpanded, internalWide]);
 
   // Left panel state: tab selection and collapse
   const [leftTab, setLeftTab] = useState<'changes' | 'tree'>(showDiff ? 'changes' : 'tree');
@@ -576,7 +576,8 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
                 expanded={expanded.has(c.id)}
                 onToggleExpand={toggle}
                 expandedInternals={internalExpanded}
-                onToggleInternal={toggleInternal}
+                wideInternals={internalWide}
+                onToggleWide={toggleInternalWide}
                 showDiff={showDiff}
                 focused={focusId === c.id}
                 dimmed={!!(focusId && related && !related.has(c.id))}

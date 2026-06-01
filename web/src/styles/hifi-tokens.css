@@ -484,7 +484,8 @@
 .hf-cmp-info:hover .hf-cmp-info-icon { color: var(--fg-0); border-color: var(--accent); }
 .hf-cmp-info-pop {
   position: absolute;
-  top: 24px; right: 0;
+  /* Above the info button, not below. */
+  bottom: calc(100% + 6px); right: 0;
   width: 240px;
   background: var(--bg-1);
   border: 1px solid var(--line-2);
@@ -499,7 +500,13 @@
 }
 .hf-cmp-info:hover .hf-cmp-info-pop { opacity: 1; visibility: visible; }
 .hf-cmp-desc {
-  padding: 8px 12px;
+  /* Fill the body area below the header and center the description both ways. */
+  position: absolute;
+  top: 36px; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center;
+  box-sizing: border-box;
+  padding: 8px 14px;
   font-size: 11px;
   color: var(--fg-2);
   line-height: 1.4;

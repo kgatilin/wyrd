@@ -72,6 +72,7 @@ function computeCollapsedHeight(component: Component): number {
 export interface LayoutOptions {
   expanded: Set<string>;         // component ids currently expanded
   internalExpanded: Set<string>; // internal ids currently expanded (affects expanded height)
+  internalWide?: Set<string>;    // internal ids in fit-width mode (stretch to fit member text)
 }
 
 /**
@@ -85,6 +86,33 @@ function computeInternalHeight(internal: Internal, internalExpanded: Set<string>
   return INTERNAL_HEADER_H;
 }
 
+// Width estimation for the "fit-width" internal mode. The internal text is
+// monospace (.hf-internal uses JetBrains Mono), so glyph advance is predictable.
+// Values slightly overestimate to guarantee the full text fits (no clipping).
+const MEMBER_CHAR_W = 6.2; // .hf-member font-size 10px (~0.6em), padded up
+const HEADER_CHAR_W = 6.8; // .hf-internal-head font-size 11px
+const MEMBER_CHROME_W = 40; // member row: left/right padding + kind col + gap
+const HEADER_CHROME_W = 72; // header: padding + kind tag + gaps + toggle button
+
+/**
+ * Width an internal needs to show its widest member name (and its header) in
+ * full. Never narrower than INTERNAL_W, so a card already fitting stays put.
+ */
+function computeInternalFitWidth(internal: Internal): number {
+  let maxMemberLen = 0;
+  for (const m of internal.members ?? []) {
+    if (m.name.length > maxMemberLen) maxMemberLen = m.name.length;
+  }
+  const memberW = maxMemberLen > 0 ? MEMBER_CHROME_W + maxMemberLen * MEMBER_CHAR_W : 0;
+  const headerW = HEADER_CHROME_W + internal.name.length * HEADER_CHAR_W;
+  return Math.ceil(Math.max(INTERNAL_W, memberW, headerW));
+}
+
+/** Width of a single internal: fit-to-content when in wide mode, else fixed. */
+function internalWidth(internal: Internal, internalWide: Set<string>): number {
+  return internalWide.has(internal.id) ? computeInternalFitWidth(internal) : INTERNAL_W;
+}
+
 /**
  * Layout internals within an expanded component using a simple grid/packing algorithm.
  * Returns the internals with x, y, w, h set, plus the required canvas content dimensions.
@@ -92,16 +120,17 @@ function computeInternalHeight(internal: Internal, internalExpanded: Set<string>
 function layoutInternals(
   internals: Internal[],
   internalExpanded: Set<string>,
+  internalWide: Set<string>,
   availableWidth: number
 ): { laid: Internal[]; contentW: number; contentH: number } {
   if (internals.length === 0) {
     return { laid: [], contentW: 0, contentH: 0 };
   }
 
-  // Compute heights for all internals
+  // Compute width (fixed or fit-to-content) and height for all internals
   const withHeights = internals.map((int) => ({
     internal: int,
-    w: INTERNAL_W,
+    w: internalWidth(int, internalWide),
     h: computeInternalHeight(int, internalExpanded),
   }));
 
@@ -145,7 +174,8 @@ function layoutInternals(
  */
 function computeExpandedDimensions(
   component: Component,
-  internalExpanded: Set<string>
+  internalExpanded: Set<string>,
+  internalWide: Set<string>
 ): { w: number; h: number; internals: Internal[] } {
   // For expanded component, we need to lay out internals first to determine size
   const collapsedW = component.w ?? DEFAULT_W;
@@ -162,12 +192,19 @@ function computeExpandedDimensions(
   // Compute available width to fit that many columns
   // Each column is INTERNAL_W wide, with INTERNAL_GAP between columns
   const gridWidth = desiredCols * INTERNAL_W + (desiredCols - 1) * INTERNAL_GAP;
-  const availableWidth = Math.max(minWidth - 2 * CANVAS_PADDING, gridWidth);
+  // A fit-mode internal can be wider than a column — the grid must be at least
+  // as wide as the widest internal so it isn't clipped.
+  const maxItemW = component.internals.reduce(
+    (mx, int) => Math.max(mx, internalWidth(int, internalWide)),
+    INTERNAL_W
+  );
+  const availableWidth = Math.max(minWidth - 2 * CANVAS_PADDING, gridWidth, maxItemW);
 
   // Layout internals with the computed available width
   const { laid, contentW, contentH } = layoutInternals(
     component.internals,
     internalExpanded,
+    internalWide,
     availableWidth
   );
 
@@ -206,6 +243,7 @@ function shortName(id: string): string {
 export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
   const expanded = opts?.expanded ?? new Set<string>();
   const internalExpanded = opts?.internalExpanded ?? new Set<string>();
+  const internalWide = opts?.internalWide ?? new Set<string>();
 
   // --- 0. Pre-compute expanded component dimensions and internal layouts ---
   // We need to know component sizes BEFORE building ELK input, and we need
@@ -214,7 +252,7 @@ export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
   const expandedLayouts = new Map<string, { w: number; h: number; internals: Internal[] }>();
   for (const c of graph.components) {
     if (expanded.has(c.id)) {
-      expandedLayouts.set(c.id, computeExpandedDimensions(c, internalExpanded));
+      expandedLayouts.set(c.id, computeExpandedDimensions(c, internalExpanded, internalWide));
     }
   }
 

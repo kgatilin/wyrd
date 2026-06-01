@@ -7,10 +7,12 @@ export interface ComponentProps {
   expanded: boolean;
   /** Callback to toggle expansion */
   onToggleExpand?: (id: string) => void;
-  /** Set of expanded internal IDs */
+  /** Set of expanded internal IDs (members visible) */
   expandedInternals: Set<string>;
-  /** Callback to toggle internal expansion */
-  onToggleInternal?: (id: string) => void;
+  /** Set of internal IDs in fit-width mode (stretched to show all member text) */
+  wideInternals: Set<string>;
+  /** Callback to toggle an internal's fit-width mode */
+  onToggleWide?: (id: string) => void;
   /** Whether to show diff styling */
   showDiff: boolean;
 
@@ -36,7 +38,8 @@ export function Component({
   expanded,
   onToggleExpand,
   expandedInternals,
-  onToggleInternal,
+  wideInternals,
+  onToggleWide,
   showDiff,
   onSelect,
   focused = false,
@@ -122,7 +125,8 @@ export function Component({
                 internal={internal}
                 showDiff={showDiff}
                 expanded={expandedInternals.has(internal.id)}
-                onToggle={() => onToggleInternal?.(internal.id)}
+                wide={wideInternals.has(internal.id)}
+                onToggleWide={() => onToggleWide?.(internal.id)}
                 onAddComment={onAddComment}
                 hasComment={hasComment}
               />
@@ -131,10 +135,10 @@ export function Component({
         )}
       </div>
 
-      {/* Description popover — rendered OUTSIDE .hf-cmp-inner so it escapes the
-          card's overflow clipping. Lets the description be read whether the card
-          is collapsed or expanded (hover the info button). */}
-      {cmp.desc && (
+      {/* Description popover — only when expanded (collapsed cards show the
+          description in the body). Rendered OUTSIDE .hf-cmp-inner so the popover
+          escapes the card's overflow clipping; it opens above the info button. */}
+      {cmp.desc && expanded && (
         <div className="hf-cmp-info">
           <span className="hf-cmp-info-icon">i</span>
           <div className="hf-cmp-info-pop">{cmp.desc}</div>
@@ -162,7 +166,9 @@ interface InternalCardProps {
   internal: Internal;
   showDiff: boolean;
   expanded: boolean;
-  onToggle: () => void;
+  /** Fit-width mode (card stretched to show all member text). Drives the +/− button. */
+  wide: boolean;
+  onToggleWide: () => void;
   onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
   hasComment: (id: string) => boolean;
 }
@@ -171,7 +177,8 @@ function InternalCard({
   internal,
   showDiff,
   expanded,
-  onToggle,
+  wide,
+  onToggleWide,
   onAddComment,
   hasComment,
 }: InternalCardProps) {
@@ -188,7 +195,7 @@ function InternalCard({
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onToggle();
+    onToggleWide();
   };
 
   return (
@@ -207,8 +214,12 @@ function InternalCard({
         </span>
         <span className="hf-internal-name" title={internal.name}>{internal.name}</span>
         {hasComment(internal.id) && <span className="hf-cmt-marker sm">!</span>}
-        <span className="hf-internal-toggle" onClick={handleToggleClick}>
-          {expanded ? '−' : '+'}
+        <span
+          className="hf-internal-toggle"
+          onClick={handleToggleClick}
+          title={wide ? 'Reset width' : 'Fit width to member text'}
+        >
+          {wide ? '−' : '+'}
         </span>
       </div>
       {expanded && (

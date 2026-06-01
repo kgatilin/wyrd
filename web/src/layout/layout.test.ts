@@ -457,6 +457,48 @@ describe('layout', () => {
     expect(cmp.w!, 'width fits internals').toBeGreaterThanOrEqual(maxRight + PAD);
   });
 
+  // --- fit-width mode for internals ---
+
+  it('widens an internal in fit-width mode to fit a long member, keeps others fixed', async () => {
+    const longMember = 'BoundedContexts : map[string]internal/overlay.BoundedContext';
+    const input = minimalGraph({
+      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
+      components: [
+        {
+          id: 'c1',
+          name: 'C1',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc1',
+          internals: [
+            { id: 'wide', kind: 'class', name: 'Wide', members: [{ id: 'm1', kind: 'prop', name: longMember }] },
+            { id: 'fixed', kind: 'class', name: 'Fixed', members: [{ id: 'm2', kind: 'prop', name: 'X : int' }] },
+          ],
+          ports: [],
+        },
+      ],
+    });
+
+    const opts = {
+      expanded: new Set(['c1']),
+      internalExpanded: new Set(['wide', 'fixed']),
+    };
+
+    const normal = await layout(input, opts);
+    const widened = await layout(input, { ...opts, internalWide: new Set(['wide']) });
+
+    const wideNormal = normal.components[0].internals.find((i) => i.id === 'wide')!;
+    const wideFit = widened.components[0].internals.find((i) => i.id === 'wide')!;
+    const fixedFit = widened.components[0].internals.find((i) => i.id === 'fixed')!;
+
+    // The fit-width internal grows past the default width…
+    expect(wideFit.w!).toBeGreaterThan(wideNormal.w!);
+    // …enough to fit the long member text (≈ 0.6em/char at 10px + chrome)…
+    expect(wideFit.w!).toBeGreaterThanOrEqual(longMember.length * 6);
+    // …while a non-wide internal keeps the fixed width.
+    expect(fixedFit.w!).toBe(wideNormal.w!);
+  });
+
   // --- synthesized inbound ports (Problem 2a) ---
 
   it('synthesizes inbound port when toPort is not declared, routes edge to it', async () => {

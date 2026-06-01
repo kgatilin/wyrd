@@ -60,9 +60,13 @@ export function useExpansion(graph: UIGraph, initialExpanded: string[] = []): {
   toggle: (id: string) => void;
   internalExpanded: Set<string>;
   toggleInternal: (id: string) => void;
+  internalWide: Set<string>;
+  toggleInternalWide: (id: string) => void;
 } {
   const [expanded, toggle] = useExpanded(initialExpanded);
   const [internalExpanded, toggleInternal, setInternalExpanded] = useExpanded([]);
+  // Internals in "fit-width" mode — stretched so all member text is visible.
+  const [internalWide, toggleInternalWide] = useExpanded([]);
 
   // Auto-expand internals when component expands
   useEffect(() => {
@@ -80,7 +84,7 @@ export function useExpansion(graph: UIGraph, initialExpanded: string[] = []): {
     });
   }, [expanded, graph.components, setInternalExpanded]);
 
-  return { expanded, toggle, internalExpanded, toggleInternal };
+  return { expanded, toggle, internalExpanded, toggleInternal, internalWide, toggleInternalWide };
 }
 
 /**
