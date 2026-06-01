@@ -15,6 +15,8 @@ export interface ComponentProps {
   onToggleWide?: (id: string) => void;
   /** Callback to set ALL internals of this component to/from fit-width mode */
   onSetAllWide?: (id: string, wide: boolean) => void;
+  /** Display name of the parent (bounded context); drives the header icon letter */
+  parentName?: string;
   /** Whether to show diff styling */
   showDiff: boolean;
 
@@ -43,6 +45,7 @@ export function Component({
   wideInternals,
   onToggleWide,
   onSetAllWide,
+  parentName,
   showDiff,
   onSelect,
   focused = false,
@@ -58,6 +61,10 @@ export function Component({
   // "Expand all" is satisfied when every internal is already in fit-width mode.
   const hasInternals = cmp.internals.length > 0;
   const allWide = hasInternals && cmp.internals.every((it) => wideInternals.has(it.id));
+
+  // Header icon shows the parent's (bounded context) initial, falling back to the
+  // component's own first letter when no parent name is supplied.
+  const parentInitial = (parentName || cmp.name).charAt(0).toUpperCase();
 
   const hasComment = (id: string) => commentTargets?.has(id) ?? false;
 
@@ -108,32 +115,13 @@ export function Component({
         {/* Header */}
         <div
           className="hf-cmp-head"
+          style={{ paddingRight: expanded ? 92 : 34 }}
           onClick={handleHeadClick}
           onDoubleClick={handleHeadDoubleClick}
         >
-          <div className="hf-cmp-icon">{cmp.name[0]}</div>
+          <div className="hf-cmp-icon">{parentInitial}</div>
           <div className="hf-cmp-name">{cmp.name}</div>
           <span className="hf-cmp-tech">{cmp.tech}</span>
-          <span style={{ flex: 1 }} />
-          {showDiff && cmp.diff && (
-            <span className="hf-cmp-diff-tag">
-              {cmp.diff === 'added' ? 'NEW' : cmp.diff === 'removed' ? 'DEL' : 'MOD'}
-            </span>
-          )}
-          {/* Expand-all: widens every internal so all member text shows (or resets
-              them). Only meaningful while the component is open and has internals. */}
-          {expanded && hasInternals && (
-            <button
-              className="hf-cmp-expand-all"
-              onClick={handleExpandAllClick}
-              title={allWide ? 'Reset all blocks width' : 'Expand all blocks to fit text'}
-            >
-              {allWide ? '»«' : '«»'}
-            </button>
-          )}
-          <button className="hf-cmp-expand" onClick={handleExpandClick}>
-            {expanded ? '−' : '+'}
-          </button>
         </div>
 
         {/* Description (collapsed only) */}
@@ -158,14 +146,41 @@ export function Component({
         )}
       </div>
 
-      {/* Description popover — only when expanded (collapsed cards show the
-          description in the body). Rendered OUTSIDE .hf-cmp-inner so the popover
-          escapes the card's overflow clipping; it opens above the info button. */}
-      {cmp.desc && expanded && (
-        <div className="hf-cmp-info">
-          <span className="hf-cmp-info-icon">i</span>
-          <div className="hf-cmp-info-pop">{cmp.desc}</div>
-        </div>
+      {/* Floating action group — kept OUTSIDE .hf-cmp-inner so the (i) popover
+          escapes the card's overflow clipping. Grouping the buttons stops the
+          (i) and expand-all buttons from overlapping each other. */}
+      <div className="hf-cmp-actions">
+        {/* Description info button — only when expanded (collapsed cards show
+            the description in the body); its popover opens above the button. */}
+        {cmp.desc && expanded && (
+          <div className="hf-cmp-info">
+            <span className="hf-cmp-info-icon">i</span>
+            <div className="hf-cmp-info-pop">{cmp.desc}</div>
+          </div>
+        )}
+        {/* Expand-all: widens every internal so all member text shows (or resets
+            them). Only meaningful while the component is open and has internals. */}
+        {expanded && hasInternals && (
+          <button
+            className="hf-cmp-expand-all"
+            onClick={handleExpandAllClick}
+            title={allWide ? 'Reset all blocks width' : 'Expand all blocks to fit text'}
+          >
+            {allWide ? '»«' : '«»'}
+          </button>
+        )}
+        <button className="hf-cmp-expand" onClick={handleExpandClick}>
+          {expanded ? '−' : '+'}
+        </button>
+      </div>
+
+      {/* Diff tag — bottom-right, only when expanded. Collapsed cards convey
+          their diff status through the card colour alone, so the tag is omitted
+          there (and never crowds the header button group). */}
+      {showDiff && cmp.diff && expanded && (
+        <span className="hf-cmp-diff-tag">
+          {cmp.diff === 'added' ? 'NEW' : cmp.diff === 'removed' ? 'DEL' : 'MOD'}
+        </span>
       )}
 
       {/* Ports — rendered outside .hf-cmp-inner so they are not clipped */}

@@ -322,6 +322,12 @@
   background-image: radial-gradient(circle, var(--line-1) 1px, transparent 1px);
   background-size: 20px 20px;
   background-position: 10px 10px;
+  /* Pannable: grab the empty background and drag (see drag-to-pan in App.tsx). */
+  cursor: grab;
+}
+.hf-canvas-wrap.panning {
+  cursor: grabbing;
+  user-select: none;
 }
 /* Reserves the zoom-scaled footprint so scrollbars track the zoom level. */
 .hf-canvas-sizer {
@@ -439,13 +445,17 @@
   border-radius: 3px;
 }
 .hf-cmp-diff-tag {
-  margin-left: auto;
+  /* Pinned to the card's bottom-right corner (was top-right in the header). */
+  position: absolute;
+  bottom: 8px; right: 10px;
+  z-index: 7;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.06em;
   padding: 2px 6px;
   border-radius: 3px;
   font-family: 'JetBrains Mono', monospace;
+  box-shadow: var(--shadow-md);
 }
 .hf-cmp.added .hf-cmp-diff-tag   { background: var(--add-fg); color: var(--bg-0); }
 .hf-cmp.removed .hf-cmp-diff-tag { background: var(--rem-fg); color: white; }
@@ -487,9 +497,17 @@
 }
 .hf-cmp-expand-all:hover { background: var(--bg-active); color: var(--fg-0); }
 
-/* Description info button — overlays the header top-right. Lives OUTSIDE
-   .hf-cmp-inner (see Component.tsx) so its popover escapes the card clipping. */
-.hf-cmp-info { position: absolute; top: 9px; right: 38px; z-index: 7; }
+/* Floating action button group: top-right of the card, OUTSIDE .hf-cmp-inner
+   (see Component.tsx) so the (i) popover escapes the card clipping. A flex row
+   so (i) / expand-all / +- never overlap. */
+.hf-cmp-actions {
+  position: absolute;
+  top: 9px; right: 10px;
+  z-index: 7;
+  display: flex; align-items: center; gap: 6px;
+}
+/* Anchor for the (i) popover, now positioned within the action group. */
+.hf-cmp-info { position: relative; }
 .hf-cmp-info-icon {
   display: grid; place-items: center;
   width: 18px; height: 18px;
@@ -574,7 +592,7 @@
 .hf-cmp:hover .hf-port-label,
 .hf-port:hover .hf-port-label { opacity: 1; }
 .hf-port.added   .hf-port-label { color: var(--add-fg); border-color: var(--add-line); }
-.hf-port.removed .hf-port-label { color: var(--rem-fg); border-color: var(--rem-line); text-decoration: line-through; }
+.hf-port.removed .hf-port-label { color: var(--rem-fg); border-color: var(--rem-line); }
 .hf-port.changed .hf-port-label { color: var(--chg-fg); border-color: var(--chg-line); }
 
 /* internals */

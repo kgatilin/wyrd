@@ -86,6 +86,14 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
   // Determine if diff mode is active (semantic — raw graph)
   const showDiff = graph.pr != null;
 
+  // Map bounded-context id → display name, so each component's header icon can
+  // show its parent (BC) initial instead of its own.
+  const bcNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const bc of graph.boundedContexts) m.set(bc.id, bc.name);
+    return m;
+  }, [graph.boundedContexts]);
+
   // Expansion hooks - initialize with first component expanded (or 'orders' if present)
   // These read IDs only — raw graph is correct here.
   const initialExpanded = useMemo(() => {
@@ -150,6 +158,15 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
   // Canvas wrap ref for scroll operations
   const canvasWrapRef = useRef<HTMLDivElement>(null);
 
+  // Empty slack (unscaled px) reserved around the diagram on every side so the
+  // canvas feels "borderless": you can drag/scroll well past the diagram in any
+  // direction (≈ one screen). The diagram content is shifted right/down by this
+  // much, so all viewport↔content scroll math below adds PAN_MARGIN.
+  const PAN_MARGIN = 1200;
+  // True when the last pointer interaction was a pan-drag, so the click that
+  // follows mouseup doesn't also clear focus/selection.
+  const didPanRef = useRef(false);
+
   // ── Zoom ────────────────────────────────────────────────────────────────
   // Applied as a CSS transform on .hf-canvas; a sizer reserves the scaled space
   // so scrollbars track. Default 1 (100%).
@@ -170,8 +187,11 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
       wrap.clientHeight / canvasDimensions.height,
       1
     );
-    setZoom(Math.max(ZOOM_MIN, Math.round(fit * 100) / 100));
-    wrap.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+    const z = Math.max(ZOOM_MIN, Math.round(fit * 100) / 100);
+    // Land the diagram's top-left near the viewport corner (past the margin).
+    // Applied via pendingScrollRef so it runs after the sizer resizes for `z`.
+    pendingScrollRef.current = { left: PAN_MARGIN * z - 40, top: PAN_MARGIN * z - 40 };
+    setZoom(z);
   };
 
   // After a wheel-zoom changes `zoom`, re-anchor the scroll so the content point
@@ -204,17 +224,70 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
       setZoom((z) => {
         const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((z + step) * 100) / 100));
         if (next === z) return z;
-        // Content point currently under the cursor (unscaled canvas coords)…
-        const contentX = (wrap.scrollLeft + cx) / z;
-        const contentY = (wrap.scrollTop + cy) / z;
-        // …should remain under the cursor after the new scale is applied.
-        pendingScrollRef.current = { left: contentX * next - cx, top: contentY * next - cy };
+        // Content point currently under the cursor (unscaled canvas coords);
+        // the diagram is shifted by PAN_MARGIN, so subtract it here…
+        const contentX = (wrap.scrollLeft + cx) / z - PAN_MARGIN;
+        const contentY = (wrap.scrollTop + cy) / z - PAN_MARGIN;
+        // …and add it back so that point remains under the cursor at `next`.
+        pendingScrollRef.current = {
+          left: (contentX + PAN_MARGIN) * next - cx,
+          top: (contentY + PAN_MARGIN) * next - cy,
+        };
         return next;
       });
     };
     wrap.addEventListener('wheel', onWheel, { passive: false });
     return () => wrap.removeEventListener('wheel', onWheel);
   }, []);
+
+  // Drag-to-pan: grab empty canvas background and drag to scroll the diagram in
+  // any direction. Drags that start on an interactive node (component, port,
+  // edge, marker, chrome) are ignored so clicks/selection still work there.
+  useEffect(() => {
+    const wrap = canvasWrapRef.current;
+    if (!wrap) return;
+    let pan: { x: number; y: number; left: number; top: number; moved: boolean } | null = null;
+    const INTERACTIVE = '.hf-cmp, .hf-port, .hf-pin-marker, .hf-popover, .edges-svg g, .hf-canvas-toolbar, .hf-canvas-legend';
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const t = e.target as HTMLElement;
+      if (t.closest && t.closest(INTERACTIVE)) return;
+      pan = { x: e.clientX, y: e.clientY, left: wrap.scrollLeft, top: wrap.scrollTop, moved: false };
+      wrap.classList.add('panning');
+    };
+    const onMove = (e: MouseEvent) => {
+      if (!pan) return;
+      const dx = e.clientX - pan.x;
+      const dy = e.clientY - pan.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) pan.moved = true;
+      wrap.scrollLeft = pan.left - dx;
+      wrap.scrollTop = pan.top - dy;
+    };
+    const onUp = () => {
+      if (pan && pan.moved) didPanRef.current = true;
+      pan = null;
+      wrap.classList.remove('panning');
+    };
+    wrap.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      wrap.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  // After the first layout resolves, scroll the diagram into view (it sits one
+  // PAN_MARGIN in from the top-left of the oversized scroll area).
+  const didInitScrollRef = useRef(false);
+  useLayoutEffect(() => {
+    if (laid && !didInitScrollRef.current && canvasWrapRef.current) {
+      didInitScrollRef.current = true;
+      canvasWrapRef.current.scrollLeft = PAN_MARGIN * zoom - 40;
+      canvasWrapRef.current.scrollTop = PAN_MARGIN * zoom - 40;
+    }
+  }, [laid, zoom]);
 
   // Comment state
   const [pendingComment, setPendingComment] = useState<PendingComment | null>(null);
@@ -303,11 +376,11 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
       const currentTarget = evt.currentTarget as HTMLElement;
       if (currentTarget && currentTarget.getBoundingClientRect) {
         const rect = currentTarget.getBoundingClientRect();
-        x = (rect.left - wrap.left + sx + rect.width / 2) / zoom;
-        y = (rect.bottom - wrap.top + sy) / zoom + 8;
+        x = (rect.left - wrap.left + sx + rect.width / 2) / zoom - PAN_MARGIN;
+        y = (rect.bottom - wrap.top + sy) / zoom - PAN_MARGIN + 8;
       } else if (evt.clientX != null) {
-        x = (evt.clientX - wrap.left + sx) / zoom;
-        y = (evt.clientY - wrap.top + sy) / zoom + 8;
+        x = (evt.clientX - wrap.left + sx) / zoom - PAN_MARGIN;
+        y = (evt.clientY - wrap.top + sy) / zoom - PAN_MARGIN + 8;
       }
     }
 
@@ -347,8 +420,8 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
       const w = component.w ?? 220;
       const h = component.h ?? 86;
       canvasWrapRef.current.scrollTo({
-        left: (x + w / 2) * zoom - canvasWrapRef.current.clientWidth / 2,
-        top: (y + h / 2) * zoom - canvasWrapRef.current.clientHeight / 2,
+        left: (PAN_MARGIN + x + w / 2) * zoom - canvasWrapRef.current.clientWidth / 2,
+        top: (PAN_MARGIN + y + h / 2) * zoom - canvasWrapRef.current.clientHeight / 2,
         behavior: 'smooth',
       });
     }
@@ -388,8 +461,13 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     setFocusId(focusId === cmp.id ? null : cmp.id);
   };
 
-  // Handle canvas background click (clear focus + pending comment)
+  // Handle canvas background click (clear focus + pending comment). Skipped right
+  // after a pan-drag so dragging the canvas doesn't also clear the selection.
   const handleCanvasClick = () => {
+    if (didPanRef.current) {
+      didPanRef.current = false;
+      return;
+    }
     setFocusId(null);
     setPendingComment(null);
     setActiveMarkerId(null);
@@ -400,8 +478,8 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     setActiveMarkerId(marker.id);
     if (canvasWrapRef.current) {
       canvasWrapRef.current.scrollTo({
-        left: marker.x * zoom - canvasWrapRef.current.clientWidth / 2,
-        top: marker.y * zoom - canvasWrapRef.current.clientHeight / 2,
+        left: (PAN_MARGIN + marker.x) * zoom - canvasWrapRef.current.clientWidth / 2,
+        top: (PAN_MARGIN + marker.y) * zoom - canvasWrapRef.current.clientHeight / 2,
         behavior: 'smooth',
       });
     }
@@ -537,8 +615,8 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
           <div
             className="hf-canvas-sizer"
             style={{
-              width: canvasDimensions.width * zoom,
-              height: canvasDimensions.height * zoom,
+              width: (canvasDimensions.width + 2 * PAN_MARGIN) * zoom,
+              height: (canvasDimensions.height + 2 * PAN_MARGIN) * zoom,
             }}
           >
           <div
@@ -546,7 +624,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
             style={{
               width: canvasDimensions.width,
               height: canvasDimensions.height,
-              transform: `scale(${zoom})`,
+              transform: `translate(${PAN_MARGIN * zoom}px, ${PAN_MARGIN * zoom}px) scale(${zoom})`,
               transformOrigin: '0 0',
             }}
           >
@@ -577,6 +655,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
                 wideInternals={internalWide}
                 onToggleWide={toggleInternalWide}
                 onSetAllWide={setComponentWide}
+                parentName={bcNameById.get(c.bc)}
                 showDiff={showDiff}
                 focused={focusId === c.id}
                 dimmed={!!(focusId && related && !related.has(c.id))}
