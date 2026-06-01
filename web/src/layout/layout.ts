@@ -50,6 +50,25 @@ const PORT_START_Y = 16;
 // Internal grid layout spacing
 const INTERNAL_GAP = 10;
 
+// Collapsed-card height. Grows to fit the full description so long text is never
+// clipped, with a minimum of ~1.5x the old default (86) for breathing room.
+const COLLAPSED_MIN_H = 129; // ≈ 1.5 * DEFAULT_H
+const DESC_LINE_H = 16; // approx line box of .hf-cmp-desc (11px × 1.4)
+const DESC_PAD_V = 16; // .hf-cmp-desc top + bottom padding
+const DESC_CHARS_PER_LINE = 30; // conservative wrap width (~196px) → overestimates lines
+
+/**
+ * Height of a collapsed component: header + enough room for the whole
+ * description, floored at COLLAPSED_MIN_H so short/empty descriptions still get
+ * a comfortably tall card.
+ */
+function computeCollapsedHeight(component: Component): number {
+  const desc = component.desc ?? '';
+  const lines = desc.length > 0 ? Math.ceil(desc.length / DESC_CHARS_PER_LINE) : 0;
+  const descH = lines > 0 ? DESC_PAD_V + lines * DESC_LINE_H : 0;
+  return Math.max(COLLAPSED_MIN_H, COMPONENT_HEADER_H + descH);
+}
+
 export interface LayoutOptions {
   expanded: Set<string>;         // component ids currently expanded
   internalExpanded: Set<string>; // internal ids currently expanded (affects expanded height)
@@ -130,7 +149,8 @@ function computeExpandedDimensions(
 ): { w: number; h: number; internals: Internal[] } {
   // For expanded component, we need to lay out internals first to determine size
   const collapsedW = component.w ?? DEFAULT_W;
-  const collapsedH = component.h ?? DEFAULT_H;
+  // Floor expanded height at the collapsed height so expanding never shrinks a card.
+  const collapsedH = computeCollapsedHeight(component);
   const minWidth = Math.max(collapsedW, DEFAULT_W);
   const n = component.internals.length;
 
@@ -287,7 +307,7 @@ export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
       const expandedLayout = expandedLayouts.get(c.id);
 
       const w = isExpanded && expandedLayout ? expandedLayout.w : (c.w ?? DEFAULT_W);
-      const h = isExpanded && expandedLayout ? expandedLayout.h : (c.h ?? DEFAULT_H);
+      const h = isExpanded && expandedLayout ? expandedLayout.h : computeCollapsedHeight(c);
 
       // Build ELK ports
       const ports: ElkPort[] = c.ports.map((p) => ({
@@ -386,7 +406,7 @@ export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
       const cmpAbsX = (info?.bcX ?? 0) + (info?.node.x ?? 0);
       const cmpAbsY = (info?.bcY ?? 0) + (info?.node.y ?? 0);
       const cmpW = info?.node.width ?? (c.w ?? DEFAULT_W);
-      const cmpH = info?.node.height ?? (c.h ?? DEFAULT_H);
+      const cmpH = info?.node.height ?? c.h ?? computeCollapsedHeight(c);
 
       // Get original ports + synthesized ports
       const componentWithSynth = componentsWithSynthPorts.find((cws) => cws.id === c.id)!;

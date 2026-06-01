@@ -453,16 +453,51 @@
 
 .hf-cmp-expand {
   width: 18px; height: 18px;
-  display: grid; place-items: center;
+  /* flex + line-height:1 + padding:0 keeps the +/− glyph dead-centered; the old
+     grid+inherited-line-height pushed it above center. */
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+  padding: 0;
   border-radius: 4px;
   background: var(--bg-3);
   color: var(--fg-2);
   cursor: pointer;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
+  font-size: 14px;
   border: 1px solid var(--line-2);
 }
 .hf-cmp-expand:hover { background: var(--bg-active); color: var(--fg-0); }
+
+/* Description info button — overlays the header top-right. Lives OUTSIDE
+   .hf-cmp-inner (see Component.tsx) so its popover escapes the card clipping. */
+.hf-cmp-info { position: absolute; top: 9px; right: 38px; z-index: 7; }
+.hf-cmp-info-icon {
+  display: grid; place-items: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  color: var(--fg-2);
+  font: italic 700 11px/1 'Inter', serif;
+  cursor: help;
+}
+.hf-cmp-info:hover .hf-cmp-info-icon { color: var(--fg-0); border-color: var(--accent); }
+.hf-cmp-info-pop {
+  position: absolute;
+  top: 24px; right: 0;
+  width: 240px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  box-shadow: var(--shadow-lg);
+  padding: 8px 10px;
+  font-size: 11px; line-height: 1.45;
+  color: var(--fg-1);
+  opacity: 0; visibility: hidden;
+  transition: opacity 0.12s;
+  pointer-events: none;
+}
+.hf-cmp-info:hover .hf-cmp-info-pop { opacity: 1; visibility: visible; }
 .hf-cmp-desc {
   padding: 8px 12px;
   font-size: 11px;
@@ -759,6 +794,8 @@
   color: var(--fg-2);
   max-width: 50%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* Left-truncate so the meaningful tail of long ids stays visible. */
+  direction: rtl;
 }
 .hf-card-body {
   font-size: 12px;
@@ -963,6 +1000,14 @@
 .hf-popover-target {
   color: var(--fg-2);
   font-size: 10px;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Truncate on the LEFT so the meaningful tail of long ids
+     (e.g. "…uigraph.Internal.Members") stays visible, not the common prefix. */
+  direction: rtl;
 }
 .hf-popover textarea {
   width: 100%;

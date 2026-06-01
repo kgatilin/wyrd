@@ -131,6 +131,16 @@ export function Component({
         )}
       </div>
 
+      {/* Description popover — rendered OUTSIDE .hf-cmp-inner so it escapes the
+          card's overflow clipping. Lets the description be read whether the card
+          is collapsed or expanded (hover the info button). */}
+      {cmp.desc && (
+        <div className="hf-cmp-info">
+          <span className="hf-cmp-info-icon">i</span>
+          <div className="hf-cmp-info-pop">{cmp.desc}</div>
+        </div>
+      )}
+
       {/* Ports — rendered outside .hf-cmp-inner so they are not clipped */}
       {cmp.ports.map((port) => (
         <PortDot
@@ -195,7 +205,7 @@ function InternalCard({
         <span className="hf-internal-kind">
           {internal.kind === 'iface' ? 'iface' : 'class'}
         </span>
-        <span className="hf-internal-name">{internal.name}</span>
+        <span className="hf-internal-name" title={internal.name}>{internal.name}</span>
         {hasComment(internal.id) && <span className="hf-cmt-marker sm">!</span>}
         <span className="hf-internal-toggle" onClick={handleToggleClick}>
           {expanded ? '−' : '+'}
@@ -234,7 +244,7 @@ function MemberRow({ member, showDiff, hasComment, onAddComment }: MemberRowProp
   };
 
   return (
-    <div className={`hf-member ${diffCls}`} onClick={handleClick}>
+    <div className={`hf-member ${diffCls}`} onClick={handleClick} title={member.name}>
       <span className={`hf-member-kind ${member.kind === 'method' ? 'fn' : 'prop'}`}>
         {member.kind === 'method' ? 'fn' : ':'}
       </span>
