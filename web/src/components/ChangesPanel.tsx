@@ -127,81 +127,29 @@ export function ChangesPanel({
   activeChangeId,
   onChangeClick,
 }: ChangesPanelProps) {
-  const pr = graph.pr;
-  if (!pr) return null;
+  // PR title/agent/stats already live in the global PrHeader, so this panel
+  // shows only the change list (no duplicated PR summary block).
+  if (!graph.pr) return null;
 
   return (
-    <>
-      {/* PR Summary block */}
-      <div
-        style={{
-          padding: '12px 14px 8px',
-          borderBottom: '1px solid var(--line-1)',
-        }}
-      >
+    <div className="hf-list">
+      {changes.map((ch) => (
         <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            marginBottom: 6,
-          }}
+          key={ch.id}
+          className={`hf-card ${activeChangeId === ch.id ? 'active' : ''}`}
+          onClick={() => onChangeClick(ch)}
         >
-          <span className="hf-pr-tag">AGENT PR</span>
-          <span
-            style={{
-              fontSize: 10,
-              color: 'var(--fg-2)',
-              fontFamily: 'JetBrains Mono, monospace',
-            }}
-          >
-            {pr.agent}
-          </span>
-        </div>
-        <div
-          style={{
-            fontWeight: 600,
-            fontSize: 12.5,
-            color: 'var(--fg-0)',
-            lineHeight: 1.35,
-          }}
-        >
-          {pr.title}
-        </div>
-        <div
-          style={{
-            display: 'flex',
-            gap: 4,
-            marginTop: 8,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span className="hf-stat add">+{pr.stats.added}</span>
-          <span className="hf-stat rem">-{pr.stats.removed}</span>
-          <span className="hf-stat chg">~{pr.stats.changed}</span>
-        </div>
-      </div>
-
-      {/* Change list */}
-      <div className="hf-list">
-        {changes.map((ch) => (
-          <div
-            key={ch.id}
-            className={`hf-card ${activeChangeId === ch.id ? 'active' : ''}`}
-            onClick={() => onChangeClick(ch)}
-          >
-            <div className="hf-change-card">
-              <div className="hf-change-row1">
-                <span className={`hf-change-badge ${ch.kind}`}>
-                  {ch.kind === 'added' ? '+' : ch.kind === 'removed' ? '-' : '~'}
-                </span>
-                <span className="hf-change-name">{ch.name}</span>
-              </div>
-              <div className="hf-change-where">{ch.where}</div>
+          <div className="hf-change-card">
+            <div className="hf-change-row1">
+              <span className={`hf-change-badge ${ch.kind}`}>
+                {ch.kind === 'added' ? '+' : ch.kind === 'removed' ? '-' : '~'}
+              </span>
+              <span className="hf-change-name">{ch.name}</span>
             </div>
+            <div className="hf-change-where">{ch.where}</div>
           </div>
-        ))}
-      </div>
-    </>
+        </div>
+      ))}
+    </div>
   );
 }

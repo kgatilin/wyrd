@@ -435,6 +435,11 @@
   font-weight: 600;
   font-size: 12.5px;
   color: var(--fg-0);
+  /* Keep the name on one line; the card is sized to fit it (computeCollapsedWidth). */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .hf-cmp-tech {
   font-size: 10px;
@@ -443,24 +448,10 @@
   background: var(--bg-3);
   padding: 1px 6px;
   border-radius: 3px;
+  /* Never wrap the tech tag (e.g. "Go - gRPC") to a second line. */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
-.hf-cmp-diff-tag {
-  /* Pinned to the card's bottom-right corner (was top-right in the header). */
-  position: absolute;
-  bottom: 8px; right: 10px;
-  z-index: 7;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-family: 'JetBrains Mono', monospace;
-  box-shadow: var(--shadow-md);
-}
-.hf-cmp.added .hf-cmp-diff-tag   { background: var(--add-fg); color: var(--bg-0); }
-.hf-cmp.removed .hf-cmp-diff-tag { background: var(--rem-fg); color: white; }
-.hf-cmp.changed .hf-cmp-diff-tag { background: var(--chg-fg); color: var(--bg-0); }
-
 .hf-cmp-expand {
   width: 18px; height: 18px;
   /* flex + line-height:1 + padding:0 keeps the +/− glyph dead-centered; the old
@@ -667,7 +658,7 @@
 .hf-member-kind.prop { color: var(--syn-num); }
 .hf-member-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hf-member.added   { color: var(--add-fg); background: var(--add-bg); }
-.hf-member.removed { color: var(--rem-fg); text-decoration: line-through; }
+.hf-member.removed { color: var(--rem-fg); }
 .hf-member.changed { color: var(--chg-fg); background: var(--chg-bg); }
 
 /* edges */

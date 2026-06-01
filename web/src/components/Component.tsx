@@ -1,4 +1,32 @@
-import type { Component as ComponentType, Internal, Member, Port } from '../types';
+import type { Component as ComponentType, Diff, Internal, Member, Port } from '../types';
+
+/**
+ * Effective diff state of an internal: its own flag if set, otherwise "changed"
+ * when any of its members carry a diff. Lets a block whose members were
+ * added/removed read as changed even when the source didn't flag the block.
+ */
+function deriveInternalDiff(internal: Internal): Diff | undefined {
+  if (internal.diff) return internal.diff;
+  for (const m of internal.members ?? []) {
+    if (m.diff) return 'changed';
+  }
+  return undefined;
+}
+
+/**
+ * Effective diff state of a component: its own flag, otherwise "changed" when
+ * any internal (derived) or port carries a diff.
+ */
+function deriveComponentDiff(cmp: ComponentType): Diff | undefined {
+  if (cmp.diff) return cmp.diff;
+  for (const it of cmp.internals) {
+    if (deriveInternalDiff(it)) return 'changed';
+  }
+  for (const p of cmp.ports) {
+    if (p.diff) return 'changed';
+  }
+  return undefined;
+}
 
 export interface ComponentProps {
   /** The component data with layout geometry */
@@ -53,7 +81,8 @@ export function Component({
   onAddComment,
   commentTargets,
 }: ComponentProps) {
-  const diffCls = showDiff && cmp.diff ? cmp.diff : '';
+  const effectiveDiff = deriveComponentDiff(cmp);
+  const diffCls = showDiff && effectiveDiff ? effectiveDiff : '';
   // Layout computes both collapsed and expanded dimensions in cmp.w/h
   const w = cmp.w;
   const h = cmp.h;
@@ -174,15 +203,6 @@ export function Component({
         </button>
       </div>
 
-      {/* Diff tag — bottom-right, only when expanded. Collapsed cards convey
-          their diff status through the card colour alone, so the tag is omitted
-          there (and never crowds the header button group). */}
-      {showDiff && cmp.diff && expanded && (
-        <span className="hf-cmp-diff-tag">
-          {cmp.diff === 'added' ? 'NEW' : cmp.diff === 'removed' ? 'DEL' : 'MOD'}
-        </span>
-      )}
-
       {/* Ports — rendered outside .hf-cmp-inner so they are not clipped */}
       {cmp.ports.map((port) => (
         <PortDot
@@ -220,7 +240,7 @@ function InternalCard({
   onAddComment,
   hasComment,
 }: InternalCardProps) {
-  const diffCls = showDiff && internal.diff ? internal.diff : '';
+  const diffCls = showDiff && deriveInternalDiff(internal) ? deriveInternalDiff(internal) : '';
   // Use layout-provided height if available, otherwise compute locally
   // Layout sets internal.h based on expanded state at layout time
   const memberHeight = expanded ? (internal.members?.length ?? 0) * 18 + 4 : 0;

@@ -69,6 +69,25 @@ function computeCollapsedHeight(component: Component): number {
   return Math.max(COLLAPSED_MIN_H, COMPONENT_HEADER_H + descH);
 }
 
+// Collapsed-card width: wide enough to keep the header (icon + name + tech tag +
+// action button) on a single line so even short tech labels like "Go - gRPC"
+// don't wrap. Glyph advances are estimated generously to avoid clipping.
+const NAME_CHAR_W = 7.6; // .hf-cmp-name (Inter ~12.5px, semibold)
+const TECH_CHAR_W = 6.4; // .hf-cmp-tech (JetBrains Mono 10px)
+const TECH_CHROME_W = 16; // tech tag padding + border
+const HEAD_ICON_W = 18;
+const HEAD_GAP = 8;
+const HEAD_PAD_L = 12;
+const HEAD_ACTIONS_W = 40; // reserved right side for the collapsed +/- button
+
+function computeCollapsedWidth(component: Component): number {
+  const nameW = component.name.length * NAME_CHAR_W;
+  const techW = component.tech ? component.tech.length * TECH_CHAR_W + TECH_CHROME_W : 0;
+  const needed =
+    HEAD_PAD_L + HEAD_ICON_W + HEAD_GAP + nameW + (techW ? HEAD_GAP + techW : 0) + HEAD_ACTIONS_W;
+  return Math.max(component.w ?? DEFAULT_W, DEFAULT_W, Math.ceil(needed));
+}
+
 export interface LayoutOptions {
   expanded: Set<string>;         // component ids currently expanded
   internalExpanded: Set<string>; // internal ids currently expanded (affects expanded height)
@@ -178,7 +197,7 @@ function computeExpandedDimensions(
   internalWide: Set<string>
 ): { w: number; h: number; internals: Internal[] } {
   // For expanded component, we need to lay out internals first to determine size
-  const collapsedW = component.w ?? DEFAULT_W;
+  const collapsedW = computeCollapsedWidth(component);
   // Floor expanded height at the collapsed height so expanding never shrinks a card.
   const collapsedH = computeCollapsedHeight(component);
   const minWidth = Math.max(collapsedW, DEFAULT_W);
@@ -344,7 +363,7 @@ export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
       const isExpanded = expanded.has(c.id);
       const expandedLayout = expandedLayouts.get(c.id);
 
-      const w = isExpanded && expandedLayout ? expandedLayout.w : (c.w ?? DEFAULT_W);
+      const w = isExpanded && expandedLayout ? expandedLayout.w : computeCollapsedWidth(c);
       const h = isExpanded && expandedLayout ? expandedLayout.h : computeCollapsedHeight(c);
 
       // Build ELK ports
@@ -443,7 +462,7 @@ export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
       const info = laidCmpMap.get(c.id);
       const cmpAbsX = (info?.bcX ?? 0) + (info?.node.x ?? 0);
       const cmpAbsY = (info?.bcY ?? 0) + (info?.node.y ?? 0);
-      const cmpW = info?.node.width ?? (c.w ?? DEFAULT_W);
+      const cmpW = info?.node.width ?? computeCollapsedWidth(c);
       const cmpH = info?.node.height ?? c.h ?? computeCollapsedHeight(c);
 
       // Get original ports + synthesized ports
