@@ -10,5 +10,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // Only run unit files — never Playwright's e2e/*.spec.ts (which import
+    // @playwright/test and would crash under Vitest). The existing
+    // src/layout/layout.test.ts keeps matching the {test} branch.
+    include: ['src/**/*.{test,harness.test}.{ts,tsx}'],
   },
 });
