@@ -3,19 +3,19 @@ import { ComponentHarness } from './test-element';
 /** The CONTEXTS tree (`.hf-tree`). Rooted at `.hifi`. */
 export class ContextTreeHarness extends ComponentHarness {
   async isPresent(): Promise<boolean> {
-    return (await this.root.locator('.hf-tree').count()) > 0;
+    return (await this.env.rootLocator('.hf-tree').count()) > 0;
   }
   async boundedContextRowCount(): Promise<number> {
-    return this.root.locator('.hf-tree-row.bc').count();
+    return this.env.rootLocator('.hf-tree-row.bc').count();
   }
   async componentRowCount(): Promise<number> {
-    return this.root.locator('.hf-tree-row.cmp').count();
+    return this.env.rootLocator('.hf-tree-row.cmp').count();
   }
   async internalRowCount(): Promise<number> {
-    return this.root.locator('.hf-tree-row.internal').count();
+    return this.env.rootLocator('.hf-tree-row.internal').count();
   }
   async memberRowCount(): Promise<number> {
-    return this.root.locator('.hf-tree-row.member').count();
+    return this.env.rootLocator('.hf-tree-row.member').count();
   }
   /** Expand the row whose `.name` equals `name` (clicks its chevron). */
   async expand(name: string): Promise<void> {
@@ -34,7 +34,7 @@ export class ContextTreeHarness extends ComponentHarness {
   }
 
   private async rowByName(name: string) {
-    const rows = await this.root.locator('.hf-tree .hf-tree-row').all();
+    const rows = await this.env.rootLocator('.hf-tree .hf-tree-row').all();
     for (const row of rows) {
       const nameEl = await row.locator('.name').first();
       if ((await nameEl.text()) === name) return row;

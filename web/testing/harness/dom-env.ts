@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react';
+import { render, fireEvent } from '@testing-library/react';
 import { vi } from 'vitest';
 import App from '../../src/App';
 import type { UIGraph } from '../../src/types';
@@ -103,14 +103,21 @@ export class DomEnvironment implements HarnessEnvironment {
   }
 
   async waitUntil(predicate: () => Promise<boolean>, opts?: WaitOptions): Promise<void> {
-    await waitFor(
-      async () => {
-        if (!(await predicate())) {
-          throw new Error(opts?.message ?? 'waitUntil predicate not satisfied');
-        }
-      },
-      { timeout: opts?.timeout ?? 5000, interval: opts?.interval ?? 30 }
-    );
+    // Plain polling loop (NOT RTL waitFor — its async-callback path does not
+    // re-poll reliably here and hangs). Yielding to a real setTimeout lets the
+    // stubbed fetch + the async ELK layout `.then(setLaid)` chain progress and
+    // React flush between probes. State updates land outside act() (React still
+    // applies them; it only logs a warning), which is fine for the test tier.
+    const timeout = opts?.timeout ?? 5000;
+    const interval = opts?.interval ?? 30;
+    const deadline = Date.now() + timeout;
+    for (;;) {
+      if (await predicate()) return;
+      if (Date.now() >= deadline) {
+        throw new Error(opts?.message ?? 'waitUntil predicate not satisfied');
+      }
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
   }
 
   async panDrag(target: TestElement, dx: number, dy: number): Promise<void> {

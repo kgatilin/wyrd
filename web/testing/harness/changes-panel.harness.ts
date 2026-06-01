@@ -4,16 +4,16 @@ import { ComponentHarness } from './test-element';
 export class ChangesPanelHarness extends ComponentHarness {
   /** Number of change entries. */
   async count(): Promise<number> {
-    return this.root.locator('.hf-change-card').count();
+    return this.env.rootLocator('.hf-change-card').count();
   }
   /** Display names of all entries (`.hf-change-name`). */
   async entryNames(): Promise<string[]> {
-    const names = await this.root.locator('.hf-change-name').all();
+    const names = await this.env.rootLocator('.hf-change-name').all();
     return Promise.all(names.map((n) => n.text()));
   }
   /** Click the entry card whose name contains `name`. */
   async clickEntry(name: string): Promise<void> {
-    const cards = await this.root.locator('.hf-side').first();
+    const cards = await this.env.rootLocator('.hf-side').first();
     const rows = await cards.locator('.hf-card').all();
     for (const row of rows) {
       const nameEl = await row.locator('.hf-change-name').count();
@@ -29,7 +29,7 @@ export class ChangesPanelHarness extends ComponentHarness {
   }
   /** The de-duplicated PR summary must NOT appear inside the left panel. */
   async hasPrSummary(): Promise<boolean> {
-    const left = await this.root.locator('.hf-side').first();
+    const left = await this.env.rootLocator('.hf-side').first();
     return (await left.locator('.hf-pr-tag').count()) > 0;
   }
 }
