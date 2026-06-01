@@ -13,3 +13,7 @@ public/archgraph.json
 
 # OS
 .DS_Store
+
+# Playwright e2e artifacts
+playwright-report
+test-results
