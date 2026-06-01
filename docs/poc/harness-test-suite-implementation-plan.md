@@ -17,6 +17,26 @@
 
 ---
 
+## ⚠️ Corrections applied during execution
+
+Two issues surfaced while making the unit slice (Task 9) green in jsdom. The code blocks below in Tasks 4/7/8 are written as originally planned; apply these two corrections (the committed source already has them):
+
+1. **`DomEnvironment.waitUntil` (Task 4)** — RTL's `waitFor` with an **async** callback does not re-poll reliably here and hangs. Use a plain `setTimeout` poll loop instead (same shape as the Playwright adapter), and import `act` is **not** needed. Replace the `waitFor` import with `import { render, fireEvent } from '@testing-library/react';` and the body with:
+   ```ts
+   const timeout = opts?.timeout ?? 5000;
+   const interval = opts?.interval ?? 30;
+   const deadline = Date.now() + timeout;
+   for (;;) {
+     if (await predicate()) return;
+     if (Date.now() >= deadline) throw new Error(opts?.message ?? 'waitUntil predicate not satisfied');
+     await new Promise((resolve) => setTimeout(resolve, interval));
+   }
+   ```
+
+2. **Singleton harnesses must query document-scoped (Tasks 7 & 8)** — `App` renders a *Loading* `.hifi` div first, then swaps it for `AppContent`'s own `.hifi` once the graph resolves. The DOM adapter captures a concrete `Element` at `load()`, so a root captured pre-load goes stale after the swap (Playwright's lazy locators don't hit this). Therefore the page-level singleton harnesses — **`AppHarness`, `LegendHarness`, `ChangesPanelHarness`, `ContextTreeHarness`, `CommentPopoverHarness`** — use `this.env.rootLocator(...)` (document-scoped, live in both tiers) instead of `this.root.locator(...)`. The **element-scoped** harnesses (`DiagramHarness`, `ComponentCardHarness`, `InternalHarness`, `MemberHarness`, `CanvasHarness`) keep `this.root.locator(...)` — their roots are captured *after* load, address stable subtrees, and MUST stay subtree-scoped.
+
+---
+
 ## File structure
 
 ```
