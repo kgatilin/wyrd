@@ -63,3 +63,32 @@ describe('update — focus slice', () => {
     expect(update(s, { type: 'ZoomFitRequested' })).toBe(s);
   });
 });
+
+describe('update — expansion slice', () => {
+  it('ComponentToggled expands and auto-expands the component internals', () => {
+    const s = update(withGraph(), { type: 'ComponentToggled', id: 'a' });
+    expect(s.ui.expanded.has('a')).toBe(true);
+    expect(s.ui.internalExpanded.has('a.i')).toBe(true);
+  });
+
+  it('ComponentToggled collapses an expanded component (internalExpanded is add-only)', () => {
+    const opened = update(withGraph(), { type: 'ComponentToggled', id: 'a' });
+    const closed = update(opened, { type: 'ComponentToggled', id: 'a' });
+    expect(closed.ui.expanded.has('a')).toBe(false);
+    expect(closed.ui.internalExpanded.has('a.i')).toBe(true); // not removed, matching current behaviour
+  });
+
+  it('InternalWideToggled toggles one internal in fit-width mode', () => {
+    let s = update(withGraph(), { type: 'InternalWideToggled', id: 'a.i' });
+    expect(s.ui.internalWide.has('a.i')).toBe(true);
+    s = update(s, { type: 'InternalWideToggled', id: 'a.i' });
+    expect(s.ui.internalWide.has('a.i')).toBe(false);
+  });
+
+  it('ComponentAllWideSet adds/removes every internal of a component', () => {
+    let s = update(withGraph(), { type: 'ComponentAllWideSet', id: 'a', wide: true });
+    expect(s.ui.internalWide.has('a.i')).toBe(true);
+    s = update(s, { type: 'ComponentAllWideSet', id: 'a', wide: false });
+    expect(s.ui.internalWide.has('a.i')).toBe(false);
+  });
+});

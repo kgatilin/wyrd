@@ -39,6 +39,39 @@ function focusSlice(state: AppState, event: Event): AppState {
   }
 }
 
+function expansionSlice(state: AppState, event: Event): AppState {
+  if (!state.graph) return state;
+  switch (event.type) {
+    case 'ComponentToggled': {
+      const expanded = new Set(state.ui.expanded);
+      if (expanded.has(event.id)) expanded.delete(event.id);
+      else expanded.add(event.id);
+      const internalExpanded = addInternalsOfExpanded(state.graph, expanded, state.ui.internalExpanded);
+      return { ...state, ui: { ...state.ui, expanded, internalExpanded } };
+    }
+    case 'InternalWideToggled': {
+      const internalWide = new Set(state.ui.internalWide);
+      if (internalWide.has(event.id)) internalWide.delete(event.id);
+      else internalWide.add(event.id);
+      return { ...state, ui: { ...state.ui, internalWide } };
+    }
+    case 'ComponentAllWideSet': {
+      const comp = state.graph.components.find((c) => c.id === event.id);
+      if (!comp) return state;
+      const internalWide = new Set(state.ui.internalWide);
+      for (const internal of comp.internals) {
+        if (event.wide) internalWide.add(internal.id);
+        else internalWide.delete(internal.id);
+      }
+      return { ...state, ui: { ...state.ui, internalWide } };
+    }
+    default:
+      return state;
+  }
+}
+
 export function update(state: AppState, event: Event): AppState {
-  return focusSlice(state, event);
+  let next = focusSlice(state, event);
+  next = expansionSlice(next, event);
+  return next;
 }
