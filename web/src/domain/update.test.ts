@@ -154,3 +154,33 @@ describe('update — load + geometry slice', () => {
     expect(failed.geometry.error).toBe('elk-died');
   });
 });
+
+describe('update — comments slice', () => {
+  it('CommentStarted opens a pending comment at the anchor', () => {
+    const s = update(withGraph(), { type: 'CommentStarted', target: { type: 'component', id: 'a' }, anchor: { x: 10, y: 20 } });
+    expect(s.pendingComment).toEqual({ target: { type: 'component', id: 'a' }, x: 10, y: 20 });
+  });
+
+  it('CommentSubmitted appends a deterministically-id\'d marker, clears pending, activates it', () => {
+    const started = update(withGraph(), { type: 'CommentStarted', target: { type: 'component', id: 'a' }, anchor: { x: 10, y: 20 } });
+    const s = update(started, { type: 'CommentSubmitted', text: 'hi' });
+    expect(s.pendingComment).toBeNull();
+    expect(s.markers).toHaveLength(1);
+    expect(s.markers[0]).toMatchObject({ id: 'm-1', n: 1, x: 10, y: 12, body: 'hi', target: { type: 'component', id: 'a' } });
+    expect(s.ui.activeMarkerId).toBe('m-1');
+  });
+
+  it('CommentSubmitted is a no-op when there is no pending comment', () => {
+    const s = withGraph();
+    expect(update(s, { type: 'CommentSubmitted', text: 'hi' })).toBe(s);
+  });
+
+  it('CommentCancelled clears pending', () => {
+    const started = update(withGraph(), { type: 'CommentStarted', target: { type: 'component', id: 'a' }, anchor: { x: 1, y: 2 } });
+    expect(update(started, { type: 'CommentCancelled' }).pendingComment).toBeNull();
+  });
+
+  it('MarkerActivated sets the active marker', () => {
+    expect(update(withGraph(), { type: 'MarkerActivated', id: 'm-7' }).ui.activeMarkerId).toBe('m-7');
+  });
+});

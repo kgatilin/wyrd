@@ -116,10 +116,39 @@ function loadGeometrySlice(state: AppState, event: Event): AppState {
   }
 }
 
+function commentsSlice(state: AppState, event: Event): AppState {
+  switch (event.type) {
+    case 'CommentStarted':
+      return { ...state, pendingComment: { target: event.target, x: event.anchor.x, y: event.anchor.y } };
+    case 'CommentSubmitted': {
+      if (!state.pendingComment) return state;
+      const n = state.markers.length + 1;
+      const marker = {
+        id: `m-${n}`,
+        n,
+        x: state.pendingComment.x,
+        y: state.pendingComment.y - 8,
+        target: state.pendingComment.target,
+        body: event.text,
+        author: '@you',
+        when: 'just now',
+      };
+      return { ...state, markers: [...state.markers, marker], pendingComment: null, ui: { ...state.ui, activeMarkerId: marker.id } };
+    }
+    case 'CommentCancelled':
+      return { ...state, pendingComment: null };
+    case 'MarkerActivated':
+      return { ...state, ui: { ...state.ui, activeMarkerId: event.id } };
+    default:
+      return state;
+  }
+}
+
 export function update(state: AppState, event: Event): AppState {
   let next = focusSlice(state, event);
   next = expansionSlice(next, event);
   next = chromeSlice(next, event);
   next = loadGeometrySlice(next, event);
+  next = commentsSlice(next, event);
   return next;
 }
