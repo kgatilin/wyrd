@@ -70,8 +70,28 @@ function expansionSlice(state: AppState, event: Event): AppState {
   }
 }
 
+function chromeSlice(state: AppState, event: Event): AppState {
+  switch (event.type) {
+    case 'ThemeToggled':
+      return { ...state, ui: { ...state.ui, theme: state.ui.theme === 'dark' ? 'light' : 'dark' } };
+    case 'LevelChanged':
+      return { ...state, ui: { ...state.ui, level: event.level } };
+    case 'LeftTabChanged':
+      return { ...state, ui: { ...state.ui, leftTab: event.tab } };
+    case 'LeftCollapsedToggled':
+      return { ...state, ui: { ...state.ui, leftCollapsed: !state.ui.leftCollapsed } };
+    case 'RightCollapsedToggled':
+      return { ...state, ui: { ...state.ui, rightCollapsed: !state.ui.rightCollapsed } };
+    case 'ZoomChanged':
+      return { ...state, ui: { ...state.ui, zoom: event.zoom } };
+    default:
+      return state;
+  }
+}
+
 export function update(state: AppState, event: Event): AppState {
   let next = focusSlice(state, event);
   next = expansionSlice(next, event);
+  next = chromeSlice(next, event);
   return next;
 }

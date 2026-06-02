@@ -92,3 +92,24 @@ describe('update — expansion slice', () => {
     expect(s.ui.internalWide.has('a.i')).toBe(false);
   });
 });
+
+describe('update — chrome + zoom slice', () => {
+  it('ThemeToggled flips dark/light', () => {
+    const s = update(withGraph(), { type: 'ThemeToggled' });
+    expect(s.ui.theme).toBe('light');
+  });
+  it('LevelChanged sets the level', () => {
+    expect(update(withGraph(), { type: 'LevelChanged', level: 1 }).ui.level).toBe(1);
+  });
+  it('LeftTabChanged / collapse toggles', () => {
+    let s = update(withGraph(), { type: 'LeftTabChanged', tab: 'changes' });
+    expect(s.ui.leftTab).toBe('changes');
+    s = update(s, { type: 'LeftCollapsedToggled' });
+    expect(s.ui.leftCollapsed).toBe(true);
+    s = update(s, { type: 'RightCollapsedToggled' });
+    expect(s.ui.rightCollapsed).toBe(true);
+  });
+  it('ZoomChanged sets the zoom level', () => {
+    expect(update(withGraph(), { type: 'ZoomChanged', zoom: 0.5 }).ui.zoom).toBe(0.5);
+  });
+});
