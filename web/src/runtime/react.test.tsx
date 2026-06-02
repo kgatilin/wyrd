@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { createStore } from './store';
 import { initialState, type AppState } from '../domain/state';
@@ -29,5 +29,13 @@ describe('react binding', () => {
       store.dispatch({ type: 'ComponentSelected', id: 'a' });
     });
     expect(screen.getByRole('button').textContent).toBe('a');
+  });
+
+  it('throws a clear error when a hook is used outside <StoreProvider>', () => {
+    const Bare = () => <>{useStore((s: AppState) => s.ui.focusId)}</>;
+    // Suppress React's expected error log for this render-throw case.
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => render(<Bare />)).toThrow(/within <StoreProvider>/);
+    spy.mockRestore();
   });
 });
