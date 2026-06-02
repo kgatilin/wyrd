@@ -1,13 +1,7 @@
 import { useState, useEffect } from 'react';
 
-export interface PendingComment {
-  /** Canvas-relative X coordinate */
-  x: number;
-  /** Canvas-relative Y coordinate */
-  y: number;
-  /** The target element being commented on */
-  target: { type: string; id: string };
-}
+export type { PendingComment } from '../domain/state';
+import type { PendingComment } from '../domain/state';
 
 export interface InlinePopoverProps {
   /** The pending comment state (null = hidden) */

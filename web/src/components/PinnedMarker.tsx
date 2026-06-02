@@ -1,21 +1,5 @@
-export interface Marker {
-  /** Unique marker ID */
-  id: string;
-  /** Comment number (1-indexed) */
-  n: number;
-  /** Canvas-relative X coordinate */
-  x: number;
-  /** Canvas-relative Y coordinate */
-  y: number;
-  /** The target element */
-  target: { type: string; id: string };
-  /** Comment body text */
-  body: string;
-  /** Author (display name) */
-  author: string;
-  /** Relative time (e.g., "just now", "2m") */
-  when: string;
-}
+export type { Marker } from '../domain/state';
+import type { Marker } from '../domain/state';
 
 export interface PinnedMarkerProps {
   /** The marker data */
