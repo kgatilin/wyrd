@@ -1,6 +1,6 @@
 import type { AppState } from './state';
 import type { Event } from './events';
-import { addInternalsOfExpanded } from './derive';
+import { addInternalsOfExpanded, initialExpanded } from './derive';
 
 function expandComponent(state: AppState, id: string): AppState {
   if (!state.graph || state.ui.expanded.has(id)) return state;
@@ -89,9 +89,37 @@ function chromeSlice(state: AppState, event: Event): AppState {
   }
 }
 
+function loadGeometrySlice(state: AppState, event: Event): AppState {
+  switch (event.type) {
+    case 'GraphRequested':
+      return { ...state, load: { status: 'loading', error: null } };
+    case 'GraphLoaded': {
+      const graph = event.graph;
+      const expanded = new Set(initialExpanded(graph));
+      const internalExpanded = addInternalsOfExpanded(graph, expanded, new Set());
+      const leftTab = graph.pr != null ? 'changes' : state.ui.leftTab;
+      return {
+        ...state,
+        graph,
+        load: { status: 'ready', error: null },
+        ui: { ...state.ui, expanded, internalExpanded, leftTab },
+      };
+    }
+    case 'GraphLoadFailed':
+      return { ...state, load: { status: 'error', error: event.error } };
+    case 'LayoutComputed':
+      return { ...state, geometry: { laid: event.laid, status: 'ready', error: null } };
+    case 'LayoutFailed':
+      return { ...state, geometry: { ...state.geometry, status: 'error', error: event.error } };
+    default:
+      return state;
+  }
+}
+
 export function update(state: AppState, event: Event): AppState {
   let next = focusSlice(state, event);
   next = expansionSlice(next, event);
   next = chromeSlice(next, event);
+  next = loadGeometrySlice(next, event);
   return next;
 }

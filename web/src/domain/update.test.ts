@@ -113,3 +113,44 @@ describe('update — chrome + zoom slice', () => {
     expect(update(withGraph(), { type: 'ZoomChanged', zoom: 0.5 }).ui.zoom).toBe(0.5);
   });
 });
+
+describe('update — load + geometry slice', () => {
+  const graph = withGraph().graph!;
+
+  it('GraphRequested sets load status to loading', () => {
+    const s = update({ ...initialState, load: { status: 'ready', error: null } }, { type: 'GraphRequested' });
+    expect(s.load.status).toBe('loading');
+  });
+
+  it('GraphLoaded stores the graph, marks ready, and seeds initial expansion', () => {
+    const s = update(initialState, { type: 'GraphLoaded', graph });
+    expect(s.graph).toBe(graph);
+    expect(s.load.status).toBe('ready');
+    expect(s.ui.expanded.has('a')).toBe(true); // initialExpanded → first component
+  });
+
+  it('GraphLoaded selects the changes tab when the graph carries a PR', () => {
+    const prGraph = { ...graph, pr: { title: 't', branch: 'b', agent: 'x', summary: '', stats: { added: 0, removed: 0, changed: 0, comments: 0 } } };
+    const s = update(initialState, { type: 'GraphLoaded', graph: prGraph });
+    expect(s.ui.leftTab).toBe('changes');
+  });
+
+  it('GraphLoadFailed records the error', () => {
+    const s = update(initialState, { type: 'GraphLoadFailed', error: 'boom' });
+    expect(s.load).toEqual({ status: 'error', error: 'boom' });
+  });
+
+  it('LayoutComputed stores geometry and marks ready', () => {
+    const s = update(initialState, { type: 'LayoutComputed', laid: graph });
+    expect(s.geometry.laid).toBe(graph);
+    expect(s.geometry.status).toBe('ready');
+  });
+
+  it('LayoutFailed keeps the last good laid graph and records the error', () => {
+    const ready = update(initialState, { type: 'LayoutComputed', laid: graph });
+    const failed = update(ready, { type: 'LayoutFailed', error: 'elk-died' });
+    expect(failed.geometry.laid).toBe(graph); // last good preserved (no empty flash)
+    expect(failed.geometry.status).toBe('error');
+    expect(failed.geometry.error).toBe('elk-died');
+  });
+});
