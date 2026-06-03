@@ -42,4 +42,9 @@ export class InternalHarness extends ComponentHarness {
   async width(): Promise<number> {
     return parsePx(await this.root.styleProp('width'));
   }
+
+  /** Click the internal header to open the comment popover (tag 'internal'). */
+  async commentOnHeader(): Promise<void> {
+    await (await this.root.locator('.hf-internal-head').first()).click();
+  }
 }

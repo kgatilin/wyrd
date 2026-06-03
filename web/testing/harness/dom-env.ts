@@ -20,9 +20,24 @@ export class DomElement implements TestElement {
   async click(): Promise<void> {
     fireEvent.click(this.el); // RTL auto-wraps in act()
   }
+  async forceClick(): Promise<void> {
+    fireEvent.click(this.el);
+  }
+  async dispatchClick(): Promise<void> {
+    fireEvent.click(this.el);
+  }
   async hover(): Promise<void> {
     fireEvent.mouseOver(this.el);
     fireEvent.mouseEnter(this.el);
+  }
+  async dblclick(): Promise<void> {
+    fireEvent.doubleClick(this.el);
+  }
+  async press(key: string): Promise<void> {
+    const hasMeta = key.includes('Meta+');
+    const hasCtrl = key.includes('Control+');
+    const baseKey = key.replace(/^(Meta|Control)\+/, '');
+    fireEvent.keyDown(this.el, { key: baseKey, metaKey: hasMeta, ctrlKey: hasCtrl });
   }
   async fill(value: string): Promise<void> {
     fireEvent.change(this.el, { target: { value } });

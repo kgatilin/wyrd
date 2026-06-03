@@ -20,4 +20,20 @@ export class CommentPopoverHarness extends ComponentHarness {
   async cancel(): Promise<void> {
     await (await this.env.rootLocator('.hf-popover-actions .hf-btn').first()).click();
   }
+
+  /** True when the Comment button is disabled (textarea has no non-whitespace text). */
+  async isCommentDisabled(): Promise<boolean> {
+    const btn = await this.env.rootLocator('.hf-popover-actions .hf-btn.primary').first();
+    return (await btn.getAttribute('disabled')) !== null;
+  }
+
+  /** Press Escape inside the textarea (cancels the popover). */
+  async pressEscape(): Promise<void> {
+    await (await this.env.rootLocator('.hf-popover textarea').first()).press('Escape');
+  }
+
+  /** Press ⌘/Ctrl+Enter inside the textarea (submits the comment). */
+  async submitWithKeyboard(): Promise<void> {
+    await (await this.env.rootLocator('.hf-popover textarea').first()).press('Meta+Enter');
+  }
 }

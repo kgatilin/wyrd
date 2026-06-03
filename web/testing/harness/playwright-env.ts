@@ -16,8 +16,20 @@ class PlaywrightElement implements TestElement {
   async click(): Promise<void> {
     await this.loc.click();
   }
+  async forceClick(): Promise<void> {
+    await this.loc.click({ force: true });
+  }
+  async dispatchClick(): Promise<void> {
+    await this.loc.dispatchEvent('click');
+  }
   async hover(): Promise<void> {
     await this.loc.hover();
+  }
+  async dblclick(): Promise<void> {
+    await this.loc.dblclick();
+  }
+  async press(key: string): Promise<void> {
+    await this.loc.press(key);
   }
   async fill(value: string): Promise<void> {
     await this.loc.fill(value);

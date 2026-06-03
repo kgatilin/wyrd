@@ -16,4 +16,9 @@ export class MemberHarness extends ComponentHarness {
   async textDecoration(): Promise<string> {
     return this.root.computedStyleProp('text-decoration');
   }
+
+  /** Click the member row to open the comment popover (tag 'member'). */
+  async comment(): Promise<void> {
+    await this.root.click();
+  }
 }

@@ -5,6 +5,8 @@ import { LegendHarness } from './legend.harness';
 import { ChangesPanelHarness } from './changes-panel.harness';
 import { ContextTreeHarness } from './context-tree.harness';
 import { CommentPopoverHarness } from './comment-popover.harness';
+import { CommentsPanelHarness } from './comments-panel.harness';
+import { MarkerHarness } from './marker.harness';
 
 /** Top-level harness rooted at `.hifi`. Entry point: env.load(AppHarness). */
 export class AppHarness extends ComponentHarness {
@@ -72,5 +74,34 @@ export class AppHarness extends ComponentHarness {
   }
   commentPopover(): CommentPopoverHarness {
     return new CommentPopoverHarness(this.root, this.env);
+  }
+
+  commentsPanel(): CommentsPanelHarness {
+    return new CommentsPanelHarness(this.root, this.env);
+  }
+
+  async markers(): Promise<MarkerHarness[]> {
+    const els = await this.env.rootLocator('.hf-pin-marker').all();
+    return els.map((el) => new MarkerHarness(el, this.env));
+  }
+
+  async markerCount(): Promise<number> {
+    return this.env.rootLocator('.hf-pin-marker').count();
+  }
+
+  async markerByNumber(n: string): Promise<MarkerHarness> {
+    for (const m of await this.markers()) {
+      if ((await m.number()) === n) return m;
+    }
+    throw new Error(`marker with number "${n}" not found`);
+  }
+
+  async submitReviewCount(): Promise<number> {
+    const text = await (await this.env.rootLocator('.hf-appbar .hf-btn.primary .count').first()).text();
+    return parseInt(text, 10);
+  }
+
+  async commentOnFirstEdge(): Promise<void> {
+    await (await this.env.rootLocator('.edges-svg .hf-edge-hit').first()).dispatchClick();
   }
 }

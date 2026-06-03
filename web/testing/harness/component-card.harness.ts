@@ -139,4 +139,9 @@ export class ComponentCardHarness extends ComponentHarness {
   async hoverCard(): Promise<void> {
     await this.root.hover();
   }
+
+  /** Double-click the component header to open the comment popover (tag 'cmp'). */
+  async commentOnHeader(): Promise<void> {
+    await (await this.root.locator('.hf-cmp-head').first()).dblclick();
+  }
 }

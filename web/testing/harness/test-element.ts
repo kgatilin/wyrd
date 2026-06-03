@@ -23,7 +23,13 @@ export interface BoundingBox {
 /** A single element, wrapped so the same calls work in both tiers. */
 export interface TestElement {
   click(): Promise<void>;
+  /** Click bypassing pointer-event interception checks (Playwright: force:true; jsdom: same as click). */
+  forceClick(): Promise<void>;
+  /** Dispatch a synthetic click event directly on the element, bypassing geometry/visibility (for SVG hit areas under other elements). */
+  dispatchClick(): Promise<void>;
   hover(): Promise<void>;
+  dblclick(): Promise<void>;
+  press(key: string): Promise<void>;
   /** Set the value of an input/textarea. */
   fill(value: string): Promise<void>;
   /** Trimmed textContent. */
