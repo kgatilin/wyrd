@@ -13,7 +13,7 @@ import { Legend } from './components/Legend';
 import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
 import { ChangesPanel, type ChangeEntry } from './components/ChangesPanel';
-import { InlinePopover, PendingComment } from './components/InlinePopover';
+import { InlinePopover } from './components/InlinePopover';
 import { PAN_MARGIN, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './view/viewportConstants';
 import { PinnedMarker, Marker } from './components/PinnedMarker';
 
@@ -64,12 +64,12 @@ function AppRoot({ viewport }: { viewport: DomViewport }) {
  *   graph (raw, from App) ──► semantic consumers (expansion, focus, diff, tree, changes)
  *                         └──► layout effect ──► laid (UIGraph with ELK geometry)
  *                                                  └──► geometry consumers (BCGroups, EdgeLayer,
- *                                                       Component map, seedMarkers, canvasDimensions,
+ *                                                       Component map, canvasDimensions,
  *                                                       goToChange scroll)
  */
 function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport }) {
-  // Store-owned data/layout/semantic state (Plan 2a). The viewport (zoom/pan/
-  // scroll) and comments (markers/popover) remain local islands for now.
+  // Store-owned data/layout/semantic state (Plan 2a/2c). The viewport (zoom/pan/
+  // scroll) remains a local island.
   const dispatch = useDispatch();
   const storeApi = useStoreApi();
   const zoom = useStore((s) => s.ui.zoom);
@@ -83,6 +83,9 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   const leftCollapsed = useStore((s) => s.ui.leftCollapsed);
   const rightCollapsed = useStore((s) => s.ui.rightCollapsed);
   const activeChangeId = useStore((s) => s.ui.activeChangeId);
+  const markers = useStore((s) => s.markers);
+  const pendingComment = useStore((s) => s.pendingComment);
+  const activeMarkerId = useStore((s) => s.ui.activeMarkerId);
   const laid = useStore((s) => s.geometry.laid);
   const layoutError = useStore((s) => (s.geometry.status === 'error' ? s.geometry.error : null));
   const related = useMemo(() => relatedIds(graph, focusId), [graph, focusId]);
@@ -234,68 +237,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     }
   }, [laid, zoom]);
 
-  // Comment state
-  const [pendingComment, setPendingComment] = useState<PendingComment | null>(null);
-  const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
-
-  // Seed markers from graph.comments, placing them near their laid-out targets.
-  // Uses `laid` for x/y/w so marker positions are correct after layout.
-  const seedMarkers = useMemo((): Marker[] => {
-    // Fall back to raw graph components for id-matching; use laid components
-    // for geometry so positions are accurate once layout is done.
-    const laidComponents = laid?.components ?? graph.components;
-    const laidEdges = laid?.edges ?? graph.edges;
-
-    return graph.comments.map((cm, i) => {
-      // Find component containing this target (id-match against raw graph is equivalent)
-      let host: ComponentType | undefined = laidComponents.find(
-        (c) => c.id === cm.target.id
-      );
-      if (!host) {
-        host = laidComponents.find(
-          (c) =>
-            c.internals.some(
-              (it) =>
-                it.id === cm.target.id ||
-                (it.members ?? []).some((mm) => mm.id === cm.target.id)
-            ) || c.ports.some((p) => p.id === cm.target.id)
-        );
-      }
-      if (!host && cm.target.type === 'edge') {
-        const edge = laidEdges.find((e) => e.id === cm.target.id);
-        if (edge) {
-          host = laidComponents.find((c) => c.id === edge.from);
-        }
-      }
-
-      // Calculate position near the host component
-      let x = 80 + i * 130;
-      let y = 30 + (i % 2) * 40;
-      if (host && host.x != null && host.y != null && host.w != null) {
-        x = host.x + host.w + 8;
-        y = host.y - 10;
-      }
-
-      return {
-        id: `seed-${i}`,
-        n: i + 1,
-        x,
-        y,
-        target: cm.target,
-        body: cm.body,
-        author: '@you',
-        when: '2m',
-      };
-    });
-  }, [graph.comments, laid]);
-
-  const [markers, setMarkers] = useState<Marker[]>(seedMarkers);
-
-  // Update markers when seed markers change (e.g., different graph loaded or re-laid-out)
-  useEffect(() => {
-    setMarkers(seedMarkers);
-  }, [seedMarkers]);
-
   // Comment targets for highlighting (from current markers)
   const commentTargets = useMemo(
     () => new Set(markers.map((m) => m.target.id)),
@@ -329,28 +270,12 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
       }
     }
 
-    setPendingComment({ target, x, y });
+    dispatch({ type: 'CommentStarted', target, anchor: { x, y } });
   };
 
   // Submit a comment
   const submitComment = (text: string) => {
-    if (!pendingComment) return;
-
-    const n = markers.length + 1;
-    const marker: Marker = {
-      id: `m-${Date.now()}`,
-      n,
-      x: pendingComment.x,
-      y: pendingComment.y - 8,
-      target: pendingComment.target,
-      body: text,
-      author: '@you',
-      when: 'just now',
-    };
-
-    setMarkers((prev) => [...prev, marker]);
-    setPendingComment(null);
-    setActiveMarkerId(marker.id);
+    dispatch({ type: 'CommentSubmitted', text });
   };
 
   // Go to a change: focus + expand + scroll. The viewport effect scrolls on the
@@ -370,22 +295,19 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     dispatch({ type: 'ComponentSelected', id: cmp.id });
   };
 
-  // Handle canvas background click (clear focus + pending comment). Skipped right
-  // after a pan-drag so dragging the canvas doesn't also clear the selection.
-  // Focus is cleared via the store; comments stay a local island for now.
+  // Handle canvas background click (clear focus + pending comment + activeMarkerId).
+  // Skipped right after a pan-drag so dragging the canvas doesn't also clear the selection.
   const handleCanvasClick = () => {
     if (didPanRef.current) {
       didPanRef.current = false;
       return;
     }
-    dispatch({ type: 'FocusCleared' });
-    setPendingComment(null);
-    setActiveMarkerId(null);
+    dispatch({ type: 'CanvasCleared' });
   };
 
-  // Handle marker click in right panel - scroll to marker
+  // Handle marker click in right panel - activate in store + scroll to marker
   const handleMarkerCardClick = (marker: Marker) => {
-    setActiveMarkerId(marker.id);
+    dispatch({ type: 'MarkerActivated', id: marker.id });
     if (canvasWrapRef.current) {
       canvasWrapRef.current.scrollTo({
         left: (PAN_MARGIN + marker.x) * zoom - canvasWrapRef.current.clientWidth / 2,
@@ -592,14 +514,14 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                 key={m.id}
                 marker={m}
                 active={activeMarkerId === m.id}
-                onClick={(mm) => setActiveMarkerId(mm.id)}
+                onClick={(mm) => dispatch({ type: 'MarkerActivated', id: mm.id })}
               />
             ))}
 
             {/* Inline comment popover */}
             <InlinePopover
               pending={pendingComment}
-              onCancel={() => setPendingComment(null)}
+              onCancel={() => dispatch({ type: 'CommentCancelled' })}
               onSubmit={submitComment}
             />
           </div>
