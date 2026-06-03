@@ -32,4 +32,24 @@ export class ChangesPanelHarness extends ComponentHarness {
     const left = await this.env.rootLocator('.hf-side').first();
     return (await left.locator('.hf-pr-tag').count()) > 0;
   }
+
+  /** Number of `.hf-card.active` elements in the left panel. */
+  async activeCount(): Promise<number> {
+    const left = await this.env.rootLocator('.hf-side').first();
+    return left.locator('.hf-card.active').count();
+  }
+
+  /** Trimmed text of `.hf-change-name` inside the active card, or null if none active. */
+  async activeEntryName(): Promise<string | null> {
+    const left = await this.env.rootLocator('.hf-side').first();
+    const active = left.locator('.hf-card.active .hf-change-name');
+    if ((await active.count()) === 0) return null;
+    return (await active.first()).text();
+  }
+
+  /** True if the active entry's `.hf-change-name` contains `name`. */
+  async isEntryActive(name: string): Promise<boolean> {
+    const active = await this.activeEntryName();
+    return active !== null && active.includes(name);
+  }
 }
