@@ -36,9 +36,9 @@ export interface ComponentProps {
   /** Callback to toggle expansion */
   onToggleExpand?: (id: string) => void;
   /** Set of expanded internal IDs (members visible) */
-  expandedInternals: Set<string>;
+  expandedInternals: ReadonlySet<string>;
   /** Set of internal IDs in fit-width mode (stretched to show all member text) */
-  wideInternals: Set<string>;
+  wideInternals: ReadonlySet<string>;
   /** Callback to toggle an internal's fit-width mode */
   onToggleWide?: (id: string) => void;
   /** Callback to set ALL internals of this component to/from fit-width mode */

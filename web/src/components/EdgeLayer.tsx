@@ -7,9 +7,9 @@ export interface EdgeLayerProps {
   /** All components (for port lookups) */
   components: Component[];
   /** Set of expanded component IDs */
-  expandedSet: Set<string>;
+  expandedSet: ReadonlySet<string>;
   /** Set of expanded internal IDs (for height calculation) */
-  expandedInternals: Set<string>;
+  expandedInternals: ReadonlySet<string>;
   /** Whether to show diff styling */
   showDiff: boolean;
   /** Currently focused component ID (null = none) */
@@ -96,8 +96,8 @@ function buildOrthogonalPath(pts: { x: number; y: number }[]): {
 function computeEdgePath(
   edge: Edge,
   components: Component[],
-  expandedSet: Set<string>,
-  expandedInternals: Set<string>
+  expandedSet: ReadonlySet<string>,
+  expandedInternals: ReadonlySet<string>
 ): EdgePath | null {
   // --- ELK-routed path ---
   if (edge.points && edge.points.length >= 2) {

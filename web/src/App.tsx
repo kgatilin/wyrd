@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useState, useMemo, useRef } from 'react';
 import type { UIGraph, Component as ComponentType } from './types';
-import { loadGraph } from './data/load';
-import { layout } from './layout/layout';
-import { useExpansion, useFocus } from './state/hooks';
+import { createAppStore } from './runtime/createAppStore';
+import { StoreProvider, useStore, useDispatch } from './runtime/react';
+import { relatedIds, deriveChanges } from './domain/derive';
 import { AppBar } from './components/AppBar';
 import { PrHeader } from './components/PrHeader';
 import { BCGroups } from './components/BCGroups';
@@ -11,39 +11,39 @@ import { EdgeLayer } from './components/EdgeLayer';
 import { Legend } from './components/Legend';
 import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
-import { ChangesPanel, deriveChanges, ChangeEntry } from './components/ChangesPanel';
+import { ChangesPanel, type ChangeEntry } from './components/ChangesPanel';
 import { InlinePopover, PendingComment } from './components/InlinePopover';
 import { PinnedMarker, Marker } from './components/PinnedMarker';
 
 /**
  * Main application component - V4 layout shell.
- * Loads the raw graph and passes it to AppContent which owns the layout lifecycle.
+ * Owns the store (composition root) and bootstraps the graph load; the store
+ * now drives data/layout/semantic state. AppContent renders once a graph exists.
  */
 export default function App() {
-  const [graph, setGraph] = useState<UIGraph | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-  const [level, setLevel] = useState(2); // Default to L3/Component
-
-  // Load the raw graph (no layout here — AppContent owns layout lifecycle)
+  const [store] = useState(() => createAppStore());
   useEffect(() => {
-    loadGraph()
-      .then((g) => setGraph(g))
-      .catch((err) => setError(String(err)));
-  }, []);
+    store.dispatch({ type: 'GraphRequested' });
+  }, [store]);
+  return (
+    <StoreProvider store={store}>
+      <AppRoot />
+    </StoreProvider>
+  );
+}
 
-  const toggleTheme = () => {
-    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
-  };
+function AppRoot() {
+  const theme = useStore((s) => s.ui.theme);
+  const load = useStore((s) => s.load);
+  const graph = useStore((s) => s.graph);
 
-  if (error) {
+  if (load.status === 'error') {
     return (
       <div className={`hifi v4 theme-${theme}`} style={{ padding: 20 }}>
-        <p style={{ color: 'var(--rem-fg)' }}>Error: {error}</p>
+        <p style={{ color: 'var(--rem-fg)' }}>Error: {load.error}</p>
       </div>
     );
   }
-
   if (!graph) {
     return (
       <div className={`hifi v4 theme-${theme}`} style={{ padding: 20 }}>
@@ -51,24 +51,7 @@ export default function App() {
       </div>
     );
   }
-
-  return (
-    <AppContent
-      graph={graph}
-      theme={theme}
-      level={level}
-      onLevelChange={setLevel}
-      onThemeToggle={toggleTheme}
-    />
-  );
-}
-
-interface AppContentProps {
-  graph: UIGraph;
-  theme: 'dark' | 'light';
-  level: number;
-  onLevelChange: (level: number) => void;
-  onThemeToggle: () => void;
+  return <AppContent graph={graph} />;
 }
 
 /**
@@ -82,7 +65,24 @@ interface AppContentProps {
  *                                                       Component map, seedMarkers, canvasDimensions,
  *                                                       goToChange scroll)
  */
-function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppContentProps) {
+function AppContent({ graph }: { graph: UIGraph }) {
+  // Store-owned data/layout/semantic state (Plan 2a). The viewport (zoom/pan/
+  // scroll) and comments (markers/popover) remain local islands for now.
+  const dispatch = useDispatch();
+  const theme = useStore((s) => s.ui.theme);
+  const level = useStore((s) => s.ui.level);
+  const expanded = useStore((s) => s.ui.expanded);
+  const internalExpanded = useStore((s) => s.ui.internalExpanded);
+  const internalWide = useStore((s) => s.ui.internalWide);
+  const focusId = useStore((s) => s.ui.focusId);
+  const leftTab = useStore((s) => s.ui.leftTab);
+  const leftCollapsed = useStore((s) => s.ui.leftCollapsed);
+  const rightCollapsed = useStore((s) => s.ui.rightCollapsed);
+  const activeChangeId = useStore((s) => s.ui.activeChangeId);
+  const laid = useStore((s) => s.geometry.laid);
+  const layoutError = useStore((s) => (s.geometry.status === 'error' ? s.geometry.error : null));
+  const related = useMemo(() => relatedIds(graph, focusId), [graph, focusId]);
+
   // Determine if diff mode is active (semantic — raw graph)
   const showDiff = graph.pr != null;
 
@@ -93,64 +93,6 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     for (const bc of graph.boundedContexts) m.set(bc.id, bc.name);
     return m;
   }, [graph.boundedContexts]);
-
-  // Expansion hooks - initialize with first component expanded (or 'orders' if present)
-  // These read IDs only — raw graph is correct here.
-  const initialExpanded = useMemo(() => {
-    const orders = graph.components.find((c) => c.id === 'orders');
-    if (orders) return ['orders'];
-    if (graph.components.length > 0) return [graph.components[0].id];
-    return [];
-  }, [graph.components]);
-
-  const { expanded, toggle, internalExpanded, internalWide, toggleInternalWide, setComponentWide } =
-    useExpansion(graph, initialExpanded);
-
-  // Focus mode (semantic — raw graph)
-  const [focusId, setFocusId, related] = useFocus(graph);
-
-  // ── Async layout ──────────────────────────────────────────────────────────
-  // `laid` holds the last successfully computed laid-out graph.
-  // We intentionally DO NOT reset it to null on re-layout so the canvas
-  // never flashes empty while ELK recomputes.
-  const [laid, setLaid] = useState<UIGraph | null>(null);
-  const [layoutError, setLayoutError] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Race-guard: if this effect fires again before the previous ELK call
-    // resolves, the cleanup sets `cancelled = true` so the stale result
-    // is silently discarded and never overwrites the fresher layout.
-    let cancelled = false;
-
-    layout(graph, { expanded, internalExpanded, internalWide })
-      .then((result) => {
-        if (!cancelled) {
-          setLayoutError(null);
-          setLaid(result);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.error('ELK layout failed:', err);
-          setLayoutError(msg);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [graph, expanded, internalExpanded, internalWide]);
-
-  // Left panel state: tab selection and collapse
-  const [leftTab, setLeftTab] = useState<'changes' | 'tree'>(showDiff ? 'changes' : 'tree');
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-
-  // Right panel state: collapse
-  const [rightCollapsed, setRightCollapsed] = useState(false);
-
-  // Active change (highlighted in list)
-  const [activeChangeId, setActiveChangeId] = useState<string | null>(null);
 
   // Derive changes from graph (semantic — raw graph)
   const changes = useMemo(() => deriveChanges(graph), [graph]);
@@ -427,48 +369,34 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
     }
   };
 
-  // Go to a change: focus + expand + scroll
+  // Go to a change: focus + expand (store) + scroll (local viewport glue).
   const goToChange = (ch: ChangeEntry) => {
-    setActiveChangeId(ch.id);
-    setFocusId(ch.cmp);
-
-    // Expand component if navigating to internal/member/port
-    if (ch.cmp && (ch.internal || ch.member || ch.port) && !expanded.has(ch.cmp)) {
-      toggle(ch.cmp);
-    }
-
+    dispatch({ type: 'ChangeActivated', change: ch });
     setTimeout(() => scrollToComponent(ch.cmp), 150);
   };
 
-  // Focus an object from the context tree: focus its component, expand the
-  // component when drilling into an internal/member so it's visible, then scroll.
+  // Focus an object from the context tree: focus + expand (store), then scroll
+  // (local). 200ms only when this actually triggers an expand re-layout; otherwise scroll now.
   const focusFromTree = (t: TreeFocusTarget) => {
-    setActiveChangeId(null);
-    setFocusId(t.componentId);
-    const drillIn = !!(t.internalId || t.memberId);
-    if (drillIn && !expanded.has(t.componentId)) {
-      toggle(t.componentId);
-      // Wait for the expansion re-layout before scrolling to the new geometry.
-      setTimeout(() => scrollToComponent(t.componentId), 200);
-    } else {
-      setTimeout(() => scrollToComponent(t.componentId), 0);
-    }
+    const willExpand = !!(t.internalId || t.memberId) && !expanded.has(t.componentId);
+    dispatch({ type: 'TreeFocusRequested', target: t });
+    setTimeout(() => scrollToComponent(t.componentId), willExpand ? 200 : 0);
   };
 
-  // Handle component selection (for focus mode)
+  // Handle component selection (for focus mode) — store toggles focus.
   const handleSelectComponent = (cmp: ComponentType) => {
-    // Toggle: if already focused, clear; otherwise set focus
-    setFocusId(focusId === cmp.id ? null : cmp.id);
+    dispatch({ type: 'ComponentSelected', id: cmp.id });
   };
 
   // Handle canvas background click (clear focus + pending comment). Skipped right
   // after a pan-drag so dragging the canvas doesn't also clear the selection.
+  // Focus is cleared via the store; comments stay a local island for now.
   const handleCanvasClick = () => {
     if (didPanRef.current) {
       didPanRef.current = false;
       return;
     }
-    setFocusId(null);
+    dispatch({ type: 'FocusCleared' });
     setPendingComment(null);
     setActiveMarkerId(null);
   };
@@ -524,9 +452,9 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
       {/* AppBar / PrHeader use semantic data from raw graph */}
       <AppBar
         level={level}
-        onLevelChange={onLevelChange}
+        onLevelChange={(l) => dispatch({ type: 'LevelChanged', level: l })}
         theme={theme}
-        onThemeToggle={onThemeToggle}
+        onThemeToggle={() => dispatch({ type: 'ThemeToggled' })}
         commentCount={markers.length}
         pr={graph.pr}
       />
@@ -539,7 +467,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
         <div className={`hf-side hf-collapsible ${leftCollapsed ? 'collapsed' : ''}`}>
           <button
             className="hf-side-toggle left"
-            onClick={() => setLeftCollapsed(!leftCollapsed)}
+            onClick={() => dispatch({ type: 'LeftCollapsedToggled' })}
           >
             {leftCollapsed ? '›' : '‹'}
           </button>
@@ -554,14 +482,14 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
                 {showDiff && (
                   <button
                     className={leftTab === 'changes' ? 'on' : ''}
-                    onClick={() => setLeftTab('changes')}
+                    onClick={() => dispatch({ type: 'LeftTabChanged', tab: 'changes' })}
                   >
                     CHANGES<span className="count">{changes.length}</span>
                   </button>
                 )}
                 <button
                   className={leftTab === 'tree' ? 'on' : ''}
-                  onClick={() => setLeftTab('tree')}
+                  onClick={() => dispatch({ type: 'LeftTabChanged', tab: 'tree' })}
                 >
                   CONTEXTS<span className="count">{graph.boundedContexts.length}</span>
                 </button>
@@ -650,11 +578,11 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
                 key={c.id}
                 cmp={c}
                 expanded={expanded.has(c.id)}
-                onToggleExpand={toggle}
+                onToggleExpand={(id) => dispatch({ type: 'ComponentToggled', id })}
                 expandedInternals={internalExpanded}
                 wideInternals={internalWide}
-                onToggleWide={toggleInternalWide}
-                onSetAllWide={setComponentWide}
+                onToggleWide={(id) => dispatch({ type: 'InternalWideToggled', id })}
+                onSetAllWide={(componentId, wide) => dispatch({ type: 'ComponentAllWideSet', id: componentId, wide })}
                 parentName={bcNameById.get(c.bc)}
                 showDiff={showDiff}
                 focused={focusId === c.id}
@@ -704,7 +632,7 @@ function AppContent({ graph, theme, level, onLevelChange, onThemeToggle }: AppCo
         >
           <button
             className="hf-side-toggle right"
-            onClick={() => setRightCollapsed(!rightCollapsed)}
+            onClick={() => dispatch({ type: 'RightCollapsedToggled' })}
           >
             {rightCollapsed ? '‹' : '›'}
           </button>

@@ -121,7 +121,7 @@ export function useExpansion(graph: UIGraph, initialExpanded: string[] = []): {
  */
 export function computeExpandedHeight(
   cmp: Component,
-  expandedInternals: Set<string>
+  expandedInternals: ReadonlySet<string>
 ): number {
   let extra = 0;
   for (const internal of cmp.internals) {
