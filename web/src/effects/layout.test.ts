@@ -52,4 +52,32 @@ describe('createLayoutEffect', () => {
     expect(laidDispatches).toHaveLength(1);
     expect(laidDispatches[0][0].laid.schema).toBe('second'); // only the latest wins
   });
+
+  it('re-lays out on ChangeActivated (drill-in navigation expands a component)', async () => {
+    const laid = { ...graph };
+    const port: LayoutPort = { compute: vi.fn().mockResolvedValue(laid) };
+    const dispatch = vi.fn();
+    createLayoutEffect(port)(
+      { type: 'ChangeActivated', change: { id: 'c', kind: 'added', name: '', where: '', cmp: 'a', internal: 'a.i' } },
+      () => stateWith(graph),
+      dispatch as (e: Event) => void
+    );
+    await flush();
+    expect(port.compute).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledWith({ type: 'LayoutComputed', laid });
+  });
+
+  it('re-lays out on TreeFocusRequested (drill-in navigation expands a component)', async () => {
+    const laid = { ...graph };
+    const port: LayoutPort = { compute: vi.fn().mockResolvedValue(laid) };
+    const dispatch = vi.fn();
+    createLayoutEffect(port)(
+      { type: 'TreeFocusRequested', target: { componentId: 'a', internalId: 'a.i' } },
+      () => stateWith(graph),
+      dispatch as (e: Event) => void
+    );
+    await flush();
+    expect(port.compute).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledWith({ type: 'LayoutComputed', laid });
+  });
 });

@@ -9,6 +9,8 @@ const LAYOUT_TRIGGERS: ReadonlySet<Event['type']> = new Set([
   'ComponentToggled',
   'InternalWideToggled',
   'ComponentAllWideSet',
+  'ChangeActivated',
+  'TreeFocusRequested',
 ]);
 
 export function createLayoutEffect(port: LayoutPort): Effect<AppState, Event> {
