@@ -1,5 +1,6 @@
 import type { UIGraph } from '../types';
 import type { ChangeEntry } from './derive';
+import type { Marker } from './state';
 
 /** Identifies which canvas object a context-tree row points at. Canonical home (was components/Tree). */
 export interface TreeFocusTarget {
@@ -37,6 +38,7 @@ export type Event =
   | { type: 'CommentStarted'; target: { type: string; id: string }; anchor: { x: number; y: number } }
   | { type: 'CommentSubmitted'; text: string }
   | { type: 'CommentCancelled' }
+  | { type: 'MarkersSeeded'; markers: Marker[] }
   // layout (internal, posted by the layout effect)
   | { type: 'LayoutComputed'; laid: UIGraph }
   | { type: 'LayoutFailed'; error: string };

@@ -183,4 +183,10 @@ describe('update — comments slice', () => {
   it('MarkerActivated sets the active marker', () => {
     expect(update(withGraph(), { type: 'MarkerActivated', id: 'm-7' }).ui.activeMarkerId).toBe('m-7');
   });
+
+  it('MarkersSeeded replaces the markers array', () => {
+    const markers = [{ id: 'seed-0', n: 1, x: 1, y: 2, target: { type: 'component', id: 'a' }, body: 'b', author: '@you', when: '2m' }];
+    const s = update(withGraph(), { type: 'MarkersSeeded', markers });
+    expect(s.markers).toBe(markers);
+  });
 });

@@ -139,6 +139,8 @@ function commentsSlice(state: AppState, event: Event): AppState {
       return { ...state, pendingComment: null };
     case 'MarkerActivated':
       return { ...state, ui: { ...state.ui, activeMarkerId: event.id } };
+    case 'MarkersSeeded':
+      return { ...state, markers: event.markers };
     default:
       return state;
   }
