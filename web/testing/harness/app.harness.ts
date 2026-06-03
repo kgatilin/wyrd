@@ -101,6 +101,39 @@ export class AppHarness extends ComponentHarness {
     return parseInt(text, 10);
   }
 
+  // ── Chrome: theme ─────────────────────────────────────────────────────────
+  async themeName(): Promise<'dark' | 'light'> {
+    const el = await this.env.rootLocator('.hifi').first();
+    const classes = await el.classes();
+    return classes.includes('theme-dark') ? 'dark' : 'light';
+  }
+  async toggleTheme(): Promise<void> {
+    await (await this.env.rootLocator('.hf-appbar .hf-btn[title="Toggle theme"]').first()).click();
+  }
+
+  // ── Chrome: level segmented control ──────────────────────────────────────
+  async activeLevelIndex(): Promise<number> {
+    const buttons = await this.env.rootLocator('.hf-appbar .hf-seg button').all();
+    for (let i = 0; i < buttons.length; i++) {
+      if (await buttons[i].hasClass('on')) return i;
+    }
+    return -1;
+  }
+  async setLevel(index: number): Promise<void> {
+    await (await this.env.rootLocator('.hf-appbar .hf-seg button').nth(index)).click();
+  }
+
+  // ── Chrome: left panel collapse ───────────────────────────────────────────
+  async isLeftCollapsed(): Promise<boolean> {
+    return (await this.env.rootLocator('.hf-side:not(.right).collapsed').count()) > 0;
+  }
+  async toggleLeftPanel(): Promise<void> {
+    await (await this.env.rootLocator('.hf-side-toggle.left').first()).click();
+  }
+  async leftCollapsedLabel(): Promise<string> {
+    return (await this.env.rootLocator('.hf-side:not(.right) .hf-side-vlabel').first()).text();
+  }
+
   async commentOnFirstEdge(): Promise<void> {
     await (await this.env.rootLocator('.edges-svg .hf-edge-hit').first()).dispatchClick();
   }
