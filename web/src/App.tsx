@@ -13,6 +13,7 @@ import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
 import { ChangesPanel, type ChangeEntry } from './components/ChangesPanel';
 import { InlinePopover, PendingComment } from './components/InlinePopover';
+import { PAN_MARGIN, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './view/viewportConstants';
 import { PinnedMarker, Marker } from './components/PinnedMarker';
 
 /**
@@ -104,7 +105,7 @@ function AppContent({ graph }: { graph: UIGraph }) {
   // canvas feels "borderless": you can drag/scroll well past the diagram in any
   // direction (≈ one screen). The diagram content is shifted right/down by this
   // much, so all viewport↔content scroll math below adds PAN_MARGIN.
-  const PAN_MARGIN = 1200;
+  // (PAN_MARGIN imported from ./view/viewportConstants)
   // True when the last pointer interaction was a pan-drag, so the click that
   // follows mouseup doesn't also clear focus/selection.
   const didPanRef = useRef(false);
@@ -112,9 +113,7 @@ function AppContent({ graph }: { graph: UIGraph }) {
   // ── Zoom ────────────────────────────────────────────────────────────────
   // Applied as a CSS transform on .hf-canvas; a sizer reserves the scaled space
   // so scrollbars track. Default 1 (100%).
-  const ZOOM_MIN = 0.4;
-  const ZOOM_MAX = 2;
-  const ZOOM_STEP = 0.1;
+  // (ZOOM_MIN, ZOOM_MAX, ZOOM_STEP imported from ./view/viewportConstants)
   const [zoom, setZoom] = useState(1);
   const zoomBy = (delta: number) =>
     setZoom((z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((z + delta) * 100) / 100)));
