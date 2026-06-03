@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useState, useMemo, useRef } from 'react';
 import type { UIGraph, Component as ComponentType } from './types';
 import { createAppStore } from './runtime/createAppStore';
-import { StoreProvider, useStore, useDispatch } from './runtime/react';
+import { StoreProvider, useStore, useDispatch, useStoreApi } from './runtime/react';
+import type { DomViewport } from './adapters/domViewport';
 import { relatedIds, deriveChanges } from './domain/derive';
 import { AppBar } from './components/AppBar';
 import { PrHeader } from './components/PrHeader';
@@ -22,18 +23,18 @@ import { PinnedMarker, Marker } from './components/PinnedMarker';
  * now drives data/layout/semantic state. AppContent renders once a graph exists.
  */
 export default function App() {
-  const [store] = useState(() => createAppStore());
+  const [{ store, viewport }] = useState(() => createAppStore());
   useEffect(() => {
     store.dispatch({ type: 'GraphRequested' });
   }, [store]);
   return (
     <StoreProvider store={store}>
-      <AppRoot />
+      <AppRoot viewport={viewport} />
     </StoreProvider>
   );
 }
 
-function AppRoot() {
+function AppRoot({ viewport }: { viewport: DomViewport }) {
   const theme = useStore((s) => s.ui.theme);
   const load = useStore((s) => s.load);
   const graph = useStore((s) => s.graph);
@@ -52,7 +53,7 @@ function AppRoot() {
       </div>
     );
   }
-  return <AppContent graph={graph} />;
+  return <AppContent graph={graph} viewport={viewport} />;
 }
 
 /**
@@ -66,10 +67,12 @@ function AppRoot() {
  *                                                       Component map, seedMarkers, canvasDimensions,
  *                                                       goToChange scroll)
  */
-function AppContent({ graph }: { graph: UIGraph }) {
+function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport }) {
   // Store-owned data/layout/semantic state (Plan 2a). The viewport (zoom/pan/
   // scroll) and comments (markers/popover) remain local islands for now.
   const dispatch = useDispatch();
+  const storeApi = useStoreApi();
+  const zoom = useStore((s) => s.ui.zoom);
   const theme = useStore((s) => s.ui.theme);
   const level = useStore((s) => s.ui.level);
   const expanded = useStore((s) => s.ui.expanded);
@@ -114,13 +117,15 @@ function AppContent({ graph }: { graph: UIGraph }) {
   // Applied as a CSS transform on .hf-canvas; a sizer reserves the scaled space
   // so scrollbars track. Default 1 (100%).
   // (ZOOM_MIN, ZOOM_MAX, ZOOM_STEP imported from ./view/viewportConstants)
-  const [zoom, setZoom] = useState(1);
-  const zoomBy = (delta: number) =>
-    setZoom((z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((z + delta) * 100) / 100)));
+  const zoomBy = (delta: number) => {
+    const z = storeApi.getState().ui.zoom;
+    const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((z + delta) * 100) / 100));
+    if (next !== z) dispatch({ type: 'ZoomChanged', zoom: next });
+  };
   const fitZoom = () => {
     const wrap = canvasWrapRef.current;
     if (!wrap) {
-      setZoom(1);
+      dispatch({ type: 'ZoomChanged', zoom: 1 });
       return;
     }
     const fit = Math.min(
@@ -132,7 +137,7 @@ function AppContent({ graph }: { graph: UIGraph }) {
     // Land the diagram's top-left near the viewport corner (past the margin).
     // Applied via pendingScrollRef so it runs after the sizer resizes for `z`.
     pendingScrollRef.current = { left: PAN_MARGIN * z - 40, top: PAN_MARGIN * z - 40 };
-    setZoom(z);
+    dispatch({ type: 'ZoomChanged', zoom: z });
   };
 
   // After a wheel-zoom changes `zoom`, re-anchor the scroll so the content point
@@ -162,24 +167,23 @@ function AppContent({ graph }: { graph: UIGraph }) {
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
       const step = e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP;
-      setZoom((z) => {
-        const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((z + step) * 100) / 100));
-        if (next === z) return z;
-        // Content point currently under the cursor (unscaled canvas coords);
-        // the diagram is shifted by PAN_MARGIN, so subtract it here…
-        const contentX = (wrap.scrollLeft + cx) / z - PAN_MARGIN;
-        const contentY = (wrap.scrollTop + cy) / z - PAN_MARGIN;
-        // …and add it back so that point remains under the cursor at `next`.
-        pendingScrollRef.current = {
-          left: (contentX + PAN_MARGIN) * next - cx,
-          top: (contentY + PAN_MARGIN) * next - cy,
-        };
-        return next;
-      });
+      const z = storeApi.getState().ui.zoom;
+      const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((z + step) * 100) / 100));
+      if (next === z) return;
+      // Content point currently under the cursor (unscaled canvas coords);
+      // the diagram is shifted by PAN_MARGIN, so subtract it here…
+      const contentX = (wrap.scrollLeft + cx) / z - PAN_MARGIN;
+      const contentY = (wrap.scrollTop + cy) / z - PAN_MARGIN;
+      // …and add it back so that point remains under the cursor at `next`.
+      pendingScrollRef.current = {
+        left: (contentX + PAN_MARGIN) * next - cx,
+        top: (contentY + PAN_MARGIN) * next - cy,
+      };
+      dispatch({ type: 'ZoomChanged', zoom: next });
     };
     wrap.addEventListener('wheel', onWheel, { passive: false });
     return () => wrap.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [storeApi, dispatch]);
 
   // Drag-to-pan: grab empty canvas background and drag to scroll the diagram in
   // any direction. Drags that start on an interactive node (component, port,
@@ -349,37 +353,16 @@ function AppContent({ graph }: { graph: UIGraph }) {
     setActiveMarkerId(marker.id);
   };
 
-  // Smooth-scroll a component to the center of the viewport.
-  // Uses `laid` geometry so coordinates match what's on screen; scroll positions
-  // are in scaled content space → multiply by zoom.
-  const scrollToComponent = (componentId: string) => {
-    const laidComponents = laid?.components ?? graph.components;
-    const component = laidComponents.find((c) => c.id === componentId);
-    if (component && canvasWrapRef.current) {
-      const x = component.x ?? 0;
-      const y = component.y ?? 0;
-      const w = component.w ?? 220;
-      const h = component.h ?? 86;
-      canvasWrapRef.current.scrollTo({
-        left: (PAN_MARGIN + x + w / 2) * zoom - canvasWrapRef.current.clientWidth / 2,
-        top: (PAN_MARGIN + y + h / 2) * zoom - canvasWrapRef.current.clientHeight / 2,
-        behavior: 'smooth',
-      });
-    }
-  };
-
-  // Go to a change: focus + expand (store) + scroll (local viewport glue).
+  // Go to a change: focus + expand + scroll. The viewport effect scrolls on the
+  // next LayoutComputed (re-layout may expand a component), via the DomViewport.
   const goToChange = (ch: ChangeEntry) => {
     dispatch({ type: 'ChangeActivated', change: ch });
-    setTimeout(() => scrollToComponent(ch.cmp), 150);
   };
 
-  // Focus an object from the context tree: focus + expand (store), then scroll
-  // (local). 200ms only when this actually triggers an expand re-layout; otherwise scroll now.
+  // Focus an object from the context tree: focus + expand + scroll. The viewport
+  // effect scrolls on the next LayoutComputed, via the DomViewport.
   const focusFromTree = (t: TreeFocusTarget) => {
-    const willExpand = !!(t.internalId || t.memberId) && !expanded.has(t.componentId);
     dispatch({ type: 'TreeFocusRequested', target: t });
-    setTimeout(() => scrollToComponent(t.componentId), willExpand ? 200 : 0);
   };
 
   // Handle component selection (for focus mode) — store toggles focus.
@@ -442,6 +425,17 @@ function AppContent({ graph }: { graph: UIGraph }) {
 
     return { width: maxX, height: maxY };
   }, [laid, graph.boundedContexts, graph.components]);
+
+  // Bind the DomViewport to the live canvas so the viewport effect can scroll
+  // imperatively (reading zoom/dimensions from the store + this render's geometry).
+  useLayoutEffect(() => {
+    viewport.bind({
+      el: canvasWrapRef.current!,
+      getZoom: () => storeApi.getState().ui.zoom,
+      getCanvasDimensions: () => canvasDimensions,
+    });
+    return () => viewport.bind(null);
+  }, [viewport, storeApi, canvasDimensions]);
 
   return (
     <div
