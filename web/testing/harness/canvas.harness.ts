@@ -46,4 +46,9 @@ export class CanvasHarness extends ComponentHarness {
   async canvasTransform(): Promise<string> {
     return (await this.root.locator('.hf-canvas').first()).styleProp('transform');
   }
+  /** Click the empty canvas background (fires .hf-canvas-wrap's onClick → CanvasCleared).
+   *  Uses dispatchClick so the wrap's handler fires without fighting card geometry. */
+  async clickBackground(): Promise<void> {
+    await (await this.wrap()).dispatchClick();
+  }
 }

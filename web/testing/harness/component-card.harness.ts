@@ -27,6 +27,9 @@ export class ComponentCardHarness extends ComponentHarness {
   async isFocused(): Promise<boolean> {
     return this.root.hasClass('focused');
   }
+  async isDimmed(): Promise<boolean> {
+    return this.root.hasClass('dimmed');
+  }
   /** Click the card to focus it (focus mode). */
   async focus(): Promise<void> {
     await this.root.click();
