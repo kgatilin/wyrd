@@ -143,3 +143,12 @@ export async function routeGraph(page: Page, graph: UIGraph): Promise<void> {
   await page.route('**/archgraph.json', (route) => route.fulfill({ json: graph as unknown as object }));
   await page.route('**/archgraph.sample.json', (route) => route.abort());
 }
+
+/**
+ * Fail BOTH graph endpoints so the app exercises its built-in-fixture fallback
+ * (loadGraph swallows fetch errors and falls back). MUST be called before goto.
+ */
+export async function routeGraphFailure(page: Page): Promise<void> {
+  await page.route('**/archgraph.json', (route) => route.abort());
+  await page.route('**/archgraph.sample.json', (route) => route.abort());
+}

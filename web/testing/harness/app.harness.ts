@@ -17,6 +17,17 @@ export class AppHarness extends ComponentHarness {
     });
   }
 
+  /** True iff the app is showing its load-error screen (an `Error: …` paragraph).
+   *  NOTE: unreachable via routing today — loadGraph never rejects (falls back to
+   *  the built-in fixture). Kept so the spec can assert the error screen is ABSENT. */
+  async hasError(): Promise<boolean> {
+    const ps = await this.env.rootLocator('.hifi p').all();
+    for (const p of ps) {
+      if ((await p.text()).startsWith('Error:')) return true;
+    }
+    return false;
+  }
+
   // ── PR header / app bar ────────────────────────────────────────────────
   async hasPrHeader(): Promise<boolean> {
     return (await this.env.rootLocator('.hf-prheader').count()) > 0;
