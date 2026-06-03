@@ -32,3 +32,9 @@ export function useStore<T>(selector: (state: AppState) => T): T {
 export function useDispatch(): (event: Event) => void {
   return useStoreInstance().dispatch;
 }
+
+/** The store instance, for imperative reads (`getState`) inside event handlers
+ *  where a `useStore` selector subscription is not wanted (e.g. wheel-zoom). */
+export function useStoreApi(): AppStore {
+  return useStoreInstance();
+}

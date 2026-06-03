@@ -5,23 +5,20 @@ import { update } from '../domain/update';
 import { createEffects } from '../effects';
 import { createElkLayout } from '../adapters/elkLayout';
 import { createHttpGraphSource } from '../adapters/httpGraphSource';
-import type { ViewportPort } from '../domain/ports';
+import { createDomViewport, type DomViewport } from '../adapters/domViewport';
 
 /**
- * App-level composition root (Plan 2a). Wires the real elk + http adapters into
- * the store. The viewport is a no-op for now: App keeps pan/zoom/scroll imperative
- * and local; Plan 2b replaces this with a real `domViewport` adapter.
+ * App-level composition root. Builds the real elk + http + DOM-viewport adapters,
+ * wires them into the store, and returns the store plus the viewport (App binds
+ * the viewport to its canvas element on mount).
  */
-const noopViewport: ViewportPort = {
-  scrollToComponent: () => {},
-  fitZoom: () => null,
-};
-
-export function createAppStore(): AppStore {
+export function createAppStore(): { store: AppStore; viewport: DomViewport } {
+  const viewport = createDomViewport();
   const effects = createEffects({
     graphSource: createHttpGraphSource(),
     layout: createElkLayout(),
-    viewport: noopViewport,
+    viewport,
   });
-  return createStore(initialState, update, effects);
+  const store = createStore(initialState, update, effects);
+  return { store, viewport };
 }

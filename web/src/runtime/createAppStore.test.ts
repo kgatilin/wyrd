@@ -5,7 +5,7 @@ const flush = () => new Promise((r) => setTimeout(r));
 
 describe('createAppStore', () => {
   it('boots, and on GraphRequested loads a graph and lays it out (fixture fallback under jsdom)', async () => {
-    const store = createAppStore();
+    const { store } = createAppStore();
     expect(store.getState().graph).toBeNull();
 
     store.dispatch({ type: 'GraphRequested' });
