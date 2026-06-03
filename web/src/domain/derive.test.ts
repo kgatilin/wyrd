@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { UIGraph } from '../types';
-import { relatedIds, deriveChanges, addInternalsOfExpanded, initialExpanded } from './derive';
+import { relatedIds, deriveChanges, addInternalsOfExpanded, initialExpanded, seedMarkers } from './derive';
 
 function graph(overrides?: Partial<UIGraph>): UIGraph {
   return {
@@ -49,5 +49,27 @@ describe('addInternalsOfExpanded', () => {
 describe('initialExpanded', () => {
   it('falls back to the first component when no "orders" exists', () => {
     expect(initialExpanded(graph())).toEqual(['a']);
+  });
+});
+
+describe('seedMarkers', () => {
+  it('positions a comment marker beside its host component using laid geometry', () => {
+    const g = graph({
+      comments: [{ id: 'cm1', target: { type: 'component', id: 'a' }, body: 'hi' }],
+    });
+    const laid = { ...g, components: g.components.map((c) => (c.id === 'a' ? { ...c, x: 100, y: 200, w: 220 } : c)) };
+    const markers = seedMarkers(g, laid);
+    expect(markers).toHaveLength(1);
+    expect(markers[0]).toMatchObject({ id: 'seed-0', n: 1, target: { type: 'component', id: 'a' }, body: 'hi' });
+    expect(markers[0].x).toBe(100 + 220 + 8);
+    expect(markers[0].y).toBe(200 - 10);
+  });
+
+  it('falls back to a default offset when the target/host is not laid out', () => {
+    const g = graph({ comments: [{ id: 'cm1', target: { type: 'component', id: 'ghost' }, body: 'x' }] });
+    const markers = seedMarkers(g, null);
+    expect(markers).toHaveLength(1);
+    expect(markers[0].x).toBe(80);
+    expect(markers[0].y).toBe(30);
   });
 });

@@ -1,5 +1,5 @@
-import type { UIGraph, Diff } from '../types';
-import type { AppUI, Interaction } from './state';
+import type { UIGraph, Diff, Component as ComponentDef } from '../types';
+import type { AppUI, Interaction, Marker } from './state';
 
 /** Focused component + its direct edge neighbours; null when nothing is focused. */
 export function relatedIds(graph: UIGraph, focusId: string | null): Set<string> | null {
@@ -90,4 +90,40 @@ export function deriveChanges(graph: UIGraph): ChangeEntry[] {
   }
 
   return out;
+}
+
+/**
+ * Seed comment markers from `graph.comments`, positioned beside their host
+ * component using laid geometry (falls back to a staggered default offset).
+ * Moved verbatim from App's seedMarkers useMemo.
+ */
+export function seedMarkers(graph: UIGraph, laid: UIGraph | null): Marker[] {
+  const laidComponents = laid?.components ?? graph.components;
+  const laidEdges = laid?.edges ?? graph.edges;
+
+  return graph.comments.map((cm, i) => {
+    let host: ComponentDef | undefined = laidComponents.find((c) => c.id === cm.target.id);
+    if (!host) {
+      host = laidComponents.find(
+        (c) =>
+          c.internals.some(
+            (it) =>
+              it.id === cm.target.id || (it.members ?? []).some((mm) => mm.id === cm.target.id)
+          ) || c.ports.some((p) => p.id === cm.target.id)
+      );
+    }
+    if (!host && cm.target.type === 'edge') {
+      const edge = laidEdges.find((e) => e.id === cm.target.id);
+      if (edge) host = laidComponents.find((c) => c.id === edge.from);
+    }
+
+    let x = 80 + i * 130;
+    let y = 30 + (i % 2) * 40;
+    if (host && host.x != null && host.y != null && host.w != null) {
+      x = host.x + host.w + 8;
+      y = host.y - 10;
+    }
+
+    return { id: `seed-${i}`, n: i + 1, x, y, target: cm.target, body: cm.body, author: '@you', when: '2m' };
+  });
 }
