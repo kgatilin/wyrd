@@ -1,12 +1,7 @@
 import { useState } from 'react';
 import type { BoundedContext, Component, Internal, Diff } from '../types';
-
-/** Identifies which canvas object a tree row points at. */
-export interface TreeFocusTarget {
-  componentId: string;
-  internalId?: string;
-  memberId?: string;
-}
+export type { TreeFocusTarget } from '../domain/events';
+import type { TreeFocusTarget } from '../domain/events';
 
 export interface TreeProps {
   /** Bounded contexts to display */
