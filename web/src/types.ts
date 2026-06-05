@@ -2,11 +2,37 @@ export type Diff = 'added' | 'removed' | 'changed';
 
 export interface UIGraph {
   schema: string;
+  repo?: Repo;
+  worktrees?: Worktree[];
   pr?: PR;
+  reviewScopes?: ReviewScope[];
+  reviewViews?: ReviewView[];
+  reviewGroupings?: ReviewGrouping[];
+  defaultReviewView?: string;
+  defaultReviewScope?: string;
+  defaultGrouping?: string;
+  policyViolations?: PolicyViolation[];
   boundedContexts: BoundedContext[];
   components: Component[];
   edges: Edge[];
+  relations?: SymbolRelation[];
   comments: Comment[];
+}
+
+export interface Repo {
+  root?: string;
+  activeWorktree?: string;
+  baseRef?: string;
+  baseWorktree?: string;
+  compare?: string;
+}
+
+export interface Worktree {
+  name: string;
+  branch?: string;
+  head?: string;
+  current?: boolean;
+  base?: boolean;
 }
 
 export interface PR {
@@ -33,6 +59,44 @@ export interface BoundedContext {
   h?: number;
 }
 
+export interface ReviewScope {
+  id: string;
+  title: string;
+}
+
+export interface ReviewView {
+  id: string;
+  title: string;
+  defaultScope: string;
+  defaultExpansion?: 'auto' | 'changed' | 'expanded' | 'collapsed';
+  groupBy?: string;
+  componentIds: string[];
+  componentCount: number;
+}
+
+export interface ReviewGrouping {
+  id: string;
+  title: string;
+  groups: ReviewGroup[];
+}
+
+export interface ReviewGroup {
+  id: string;
+  title: string;
+  componentIds: string[];
+  componentCount: number;
+}
+
+export interface PolicyViolation {
+  id: string;
+  kind: 'layer_rule' | string;
+  sourceComponentId: string;
+  targetComponentId: string;
+  sourceLayer?: string;
+  targetLayer?: string;
+  message: string;
+}
+
 export interface Component {
   id: string;
   name: string;
@@ -52,9 +116,13 @@ export interface Component {
 
 export interface Internal {
   id: string;
-  kind: 'class' | 'iface';
+  kind: 'class' | 'iface' | 'func' | 'type' | 'const' | 'var' | 'error';
   name: string;
+  sourceFile?: string;
+  exported?: boolean;
   diff?: Diff;
+  diffBefore?: string;
+  diffAfter?: string;
   members: Member[];
   x?: number;
   y?: number;
@@ -64,9 +132,13 @@ export interface Internal {
 
 export interface Member {
   id: string;
-  kind: 'method' | 'prop';
+  kind: 'method' | 'prop' | 'const';
   name: string;
+  sourceFile?: string;
+  exported?: boolean;
   diff?: Diff;
+  diffBefore?: string;
+  diffAfter?: string;
 }
 
 export interface Port {
@@ -74,6 +146,7 @@ export interface Port {
   side: 'left' | 'right';
   kind: 'in' | 'out';
   name: string;
+  public?: boolean;
   diff?: Diff;
   y?: number;
 }
@@ -85,8 +158,24 @@ export interface Edge {
   fromPort: string;
   toPort: string;
   label: string;
+  public?: boolean;
   diff?: Diff;
   points?: { x: number; y: number }[]; // ELK-routed polyline: start + bend points + end
+}
+
+export interface SymbolRelation {
+  id: string;
+  kind: 'uses' | 'returns' | 'implements' | 'extends' | 'nested-in' | string;
+  fromComponentId: string;
+  fromInternalId?: string;
+  fromMemberId?: string;
+  fromLabel?: string;
+  toComponentId: string;
+  toInternalId?: string;
+  toMemberId?: string;
+  toLabel?: string;
+  public?: boolean;
+  diff?: Diff;
 }
 
 export interface Comment {

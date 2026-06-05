@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { BoundedContext, Component, Internal, Diff } from '../types';
 export type { TreeFocusTarget } from '../domain/events';
 import type { TreeFocusTarget } from '../domain/events';
+import { SignatureDiff } from './SignatureDiff';
 
 export interface TreeProps {
   /** Bounded contexts to display */
@@ -16,26 +17,57 @@ export interface TreeProps {
   onFocus?: (target: TreeFocusTarget) => void;
 }
 
+function internalIcon(kind: Internal['kind']): string {
+  switch (kind) {
+    case 'iface':
+      return '○';
+    case 'class':
+      return '◇';
+    case 'func':
+      return 'ƒ';
+    case 'type':
+      return 'T';
+    case 'const':
+      return 'C';
+    case 'var':
+      return 'V';
+    case 'error':
+      return '!';
+    default:
+      return '◇';
+  }
+}
+
+function memberIcon(kind: Internal['members'][number]['kind']): string {
+  switch (kind) {
+    case 'method':
+      return 'ƒ';
+    case 'prop':
+      return ':';
+    case 'const':
+      return 'C';
+    default:
+      return ':';
+  }
+}
+
 /**
- * Collapsible tree of the model: bounded context → component → internal → member.
- * Bounded contexts start expanded so their components are visible; components and
- * internals start collapsed. Clicking the chevron expands a node; clicking the row
- * focuses the corresponding object on the canvas.
+ * Collapsible review tree: package → source file → type/symbol → member.
+ * This intentionally ignores top-level graph grouping; grouping here is about
+ * understanding one package's changed contents.
  */
 export function Tree({
-  boundedContexts,
   components,
   showDiff,
   activeId,
   onFocus,
 }: TreeProps) {
-  // Track collapsed node keys. Components and internals start collapsed; bounded
-  // contexts (absent from the set) start open.
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     const s = new Set<string>();
     for (const c of components) {
-      s.add(`cmp:${c.id}`);
-      for (const it of c.internals) s.add(`int:${it.id}`);
+      for (const it of c.internals) {
+        if (it.diff === 'added' || it.diff === 'removed') s.add(`int:${it.id}`);
+      }
     }
     return s;
   });
@@ -50,32 +82,17 @@ export function Tree({
 
   return (
     <div className="hf-tree">
-      {boundedContexts.map((bc) => {
-        const key = `bc:${bc.id}`;
-        const open = isOpen(key);
-        const bcComps = components.filter((c) => c.bc === bc.id);
-        return (
-          <div key={bc.id}>
-            <div className="hf-tree-row bc" onClick={() => toggle(key)}>
-              <Chevron open={open} has={bcComps.length > 0} />
-              <span className="ico">&#9635;</span>
-              <span className="name">{bc.name}</span>
-            </div>
-            {open &&
-              bcComps.map((c) => (
-                <ComponentNode
-                  key={c.id}
-                  cmp={c}
-                  showDiff={showDiff}
-                  activeId={activeId}
-                  isOpen={isOpen}
-                  toggle={toggle}
-                  onFocus={onFocus}
-                />
-              ))}
-          </div>
-        );
-      })}
+      {components.map((c) => (
+        <ComponentNode
+          key={c.id}
+          cmp={c}
+          showDiff={showDiff}
+          activeId={activeId}
+          isOpen={isOpen}
+          toggle={toggle}
+          onFocus={onFocus}
+        />
+      ))}
     </div>
   );
 }
@@ -94,11 +111,12 @@ function ComponentNode({ cmp, showDiff, activeId, isOpen, toggle, onFocus }: Com
   const open = isOpen(key);
   const has = cmp.internals.length > 0;
   const diffCls = showDiff && cmp.diff ? cmp.diff : '';
+  const files = internalsByFile(cmp.internals);
   return (
     <div>
       <div
         className={`hf-tree-row cmp ${diffCls} ${activeId === cmp.id ? 'active' : ''}`}
-        style={{ paddingLeft: 20 }}
+        style={{ paddingLeft: 8 }}
         onClick={() => onFocus?.({ componentId: cmp.id })}
       >
         <Chevron open={open} has={has} onToggle={() => toggle(key)} />
@@ -107,7 +125,67 @@ function ComponentNode({ cmp, showDiff, activeId, isOpen, toggle, onFocus }: Com
         {showDiff && cmp.diff && <span className="badge">{diffBadge(cmp.diff)}</span>}
       </div>
       {open &&
-        cmp.internals.map((it) => (
+        files.map((file) => (
+          <FileNode
+            key={`${cmp.id}:${file.name}`}
+            cmp={cmp}
+            file={file}
+            showDiff={showDiff}
+            isOpen={isOpen}
+            toggle={toggle}
+            onFocus={onFocus}
+          />
+        ))}
+    </div>
+  );
+}
+
+interface FileGroup {
+  name: string;
+  internals: Internal[];
+}
+
+function internalsByFile(internals: Internal[]): FileGroup[] {
+  const groups = new Map<string, Internal[]>();
+  for (const internal of internals) {
+    const file = fileLabel(internal.sourceFile);
+    groups.set(file, [...(groups.get(file) ?? []), internal]);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, internals]) => ({ name, internals }));
+}
+
+function fileLabel(sourceFile?: string): string {
+  if (!sourceFile) return '(unknown file)';
+  return sourceFile.split('/').pop() ?? sourceFile;
+}
+
+interface FileNodeProps {
+  cmp: Component;
+  file: FileGroup;
+  showDiff: boolean;
+  isOpen: (key: string) => boolean;
+  toggle: (key: string) => void;
+  onFocus?: (target: TreeFocusTarget) => void;
+}
+
+function FileNode({ cmp, file, showDiff, isOpen, toggle, onFocus }: FileNodeProps) {
+  const key = `file:${cmp.id}:${file.name}`;
+  const open = isOpen(key);
+  return (
+    <div>
+      <div
+        className="hf-tree-row file"
+        style={{ paddingLeft: 24 }}
+        onClick={() => toggle(key)}
+      >
+        <Chevron open={open} has={file.internals.length > 0} onToggle={() => toggle(key)} />
+        <span className="ico">#</span>
+        <span className="name">{file.name}</span>
+      </div>
+      {open &&
+        file.internals.map((it) => (
           <InternalNode
             key={it.id}
             cmp={cmp}
@@ -141,30 +219,33 @@ function InternalNode({ cmp, internal, showDiff, isOpen, toggle, onFocus }: Inte
     <div>
       <div
         className={`hf-tree-row internal ${internal.kind} ${diffCls}`}
-        style={{ paddingLeft: 40 }}
+        style={{ paddingLeft: 44 }}
         onClick={() => onFocus?.({ componentId: cmp.id, internalId: internal.id })}
       >
         <Chevron open={open} has={has} onToggle={() => toggle(key)} />
-        <span className="ico">{internal.kind === 'iface' ? '○' : '◇'}</span>
+        <span className="ico">{internalIcon(internal.kind)}</span>
         <span className="name">{internal.name}</span>
         {showDiff && internal.diff && <span className="badge">{diffBadge(internal.diff)}</span>}
       </div>
+      {internal.diff === 'changed' && <SignatureDiff before={internal.diffBefore} after={internal.diffAfter} />}
       {open &&
         members.map((m) => {
           const mDiff = showDiff && m.diff ? m.diff : '';
           return (
-            <div
-              key={m.id}
-              className={`hf-tree-row member ${mDiff}`}
-              style={{ paddingLeft: 60 }}
-              onClick={() =>
-                onFocus?.({ componentId: cmp.id, internalId: internal.id, memberId: m.id })
-              }
-            >
-              <Chevron open={false} has={false} />
-              <span className="ico">{m.kind === 'method' ? 'ƒ' : ':'}</span>
-              <span className="name">{m.name}</span>
-              {showDiff && m.diff && <span className="badge">{diffBadge(m.diff)}</span>}
+            <div key={m.id}>
+              <div
+                className={`hf-tree-row member ${mDiff}`}
+                style={{ paddingLeft: 64 }}
+                onClick={() =>
+                  onFocus?.({ componentId: cmp.id, internalId: internal.id, memberId: m.id })
+                }
+              >
+                <Chevron open={false} has={false} />
+                <span className="ico">{memberIcon(m.kind)}</span>
+                <span className="name">{m.name}</span>
+                {showDiff && m.diff && <span className="badge">{diffBadge(m.diff)}</span>}
+              </div>
+              {m.diff === 'changed' && <SignatureDiff before={m.diffBefore} after={m.diffAfter} />}
             </div>
           );
         })}

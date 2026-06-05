@@ -1,18 +1,31 @@
 import { useEffect, useLayoutEffect, useState, useMemo, useRef } from 'react';
-import type { UIGraph, Component as ComponentType } from './types';
+import type { UIGraph, Component as ComponentType, ReviewGrouping } from './types';
 import { createAppStore } from './runtime/createAppStore';
 import { StoreProvider, useStore, useDispatch, useStoreApi } from './runtime/react';
 import type { DomViewport } from './adapters/domViewport';
-import { relatedIds, deriveChanges } from './domain/derive';
+import { relatedIds, deriveChanges, deriveChangeStats, selectReviewGraph, type ReviewSelectionOptions } from './domain/derive';
+import {
+  applyLayoutPins,
+  buildLayoutScopeKey,
+  clearLayoutPinsForRepo,
+  loadLayoutPins,
+  saveLayoutPins,
+  type LayoutPins,
+} from './domain/layoutPins';
+import {
+  buildReviewDefaultsKey,
+  loadReviewDefaults,
+  saveReviewDefaults,
+} from './domain/reviewDefaults';
 import { AppBar } from './components/AppBar';
 import { PrHeader } from './components/PrHeader';
 import { BCGroups } from './components/BCGroups';
 import { Component } from './components/Component';
 import { EdgeLayer } from './components/EdgeLayer';
+import { RelationLayer } from './components/RelationLayer';
 import { Legend } from './components/Legend';
 import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
-import { ChangesPanel, type ChangeEntry } from './components/ChangesPanel';
 import { InlinePopover } from './components/InlinePopover';
 import { PAN_MARGIN, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './view/viewportConstants';
 import { PinnedMarker, Marker } from './components/PinnedMarker';
@@ -64,8 +77,7 @@ function AppRoot({ viewport }: { viewport: DomViewport }) {
  *   graph (raw, from App) ──► semantic consumers (expansion, focus, diff, tree, changes)
  *                         └──► layout effect ──► laid (UIGraph with ELK geometry)
  *                                                  └──► geometry consumers (BCGroups, EdgeLayer,
- *                                                       Component map, canvasDimensions,
- *                                                       goToChange scroll)
+ *                                                       Component map, canvasDimensions)
  */
 function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport }) {
   // Store-owned data/layout/semantic state (Plan 2a/2c). The viewport (zoom/pan/
@@ -79,16 +91,101 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   const internalExpanded = useStore((s) => s.ui.internalExpanded);
   const internalWide = useStore((s) => s.ui.internalWide);
   const focusId = useStore((s) => s.ui.focusId);
-  const leftTab = useStore((s) => s.ui.leftTab);
   const leftCollapsed = useStore((s) => s.ui.leftCollapsed);
   const rightCollapsed = useStore((s) => s.ui.rightCollapsed);
-  const activeChangeId = useStore((s) => s.ui.activeChangeId);
   const markers = useStore((s) => s.markers);
   const pendingComment = useStore((s) => s.pendingComment);
   const activeMarkerId = useStore((s) => s.ui.activeMarkerId);
+  const reviewViewId = useStore((s) => s.ui.reviewViewId);
+  const reviewScopeId = useStore((s) => s.ui.reviewScopeId);
+  const reviewGroupingId = useStore((s) => s.ui.reviewGroupingId);
+  const reviewImpactMode = useStore((s) => s.ui.reviewImpactMode);
+  const reviewChangeFilter = useStore((s) => s.ui.reviewChangeFilter);
+  const hideUnchangedNeighbors = useStore((s) => s.ui.hideUnchangedNeighbors);
+  const changedDetailsOnly = useStore((s) => s.ui.changedDetailsOnly);
+  const reviewDefaultsKey = useStore((s) => s.ui.reviewDefaultsKey);
+  const reviewDefaults = useStore((s) => s.ui.reviewDefaults);
+  const showGroupLabels = useStore((s) => s.ui.showGroupLabels);
+  const cardDensity = useStore((s) => s.ui.cardDensity);
+  const showInlineSignatures = useStore((s) => s.ui.showInlineSignatures);
+  const layoutPins = useStore((s) => s.ui.layoutPins);
+  const layoutPinScopeKey = useStore((s) => s.ui.layoutPinScopeKey);
   const laid = useStore((s) => s.geometry.laid);
   const layoutError = useStore((s) => (s.geometry.status === 'error' ? s.geometry.error : null));
-  const related = useMemo(() => relatedIds(graph, focusId), [graph, focusId]);
+  const displayGraph = useMemo(
+    () => selectReviewGraph(graph, reviewViewId, reviewScopeId, reviewGroupingId, {
+      impactMode: reviewImpactMode,
+      changeFilter: reviewChangeFilter,
+      hideUnchangedNeighbors,
+      changedDetailsOnly,
+    }),
+    [graph, reviewViewId, reviewScopeId, reviewGroupingId, reviewImpactMode, reviewChangeFilter, hideUnchangedNeighbors, changedDetailsOnly]
+  );
+  const groupingOptions = useMemo(
+    () => visibleReviewGroupings(graph, reviewViewId, reviewScopeId, reviewGroupingId, {
+      impactMode: reviewImpactMode,
+      changeFilter: reviewChangeFilter,
+      hideUnchangedNeighbors,
+      changedDetailsOnly,
+    }),
+    [graph, reviewViewId, reviewScopeId, reviewGroupingId, reviewImpactMode, reviewChangeFilter, hideUnchangedNeighbors, changedDetailsOnly]
+  );
+  const desiredLayoutPinScopeKey = useMemo(
+    () => buildLayoutScopeKey(graph, reviewViewId, reviewScopeId, reviewGroupingId),
+    [graph, reviewViewId, reviewScopeId, reviewGroupingId]
+  );
+  const desiredReviewDefaultsKey = useMemo(
+    () => buildReviewDefaultsKey(graph),
+    [graph]
+  );
+  const activeLayoutPins = useMemo(
+    () => (layoutPinScopeKey === desiredLayoutPinScopeKey ? layoutPins : {}),
+    [layoutPinScopeKey, desiredLayoutPinScopeKey, layoutPins]
+  );
+  const displayLaid = useMemo(
+    () => (laid ? applyLayoutPins(laid, activeLayoutPins) : null),
+    [laid, activeLayoutPins]
+  );
+  const pinnedCount = Object.keys(activeLayoutPins).length;
+  const pinnedGroupIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!displayLaid) return ids;
+    for (const component of displayLaid.components) {
+      if (activeLayoutPins[component.id]) ids.add(component.bc);
+    }
+    return ids;
+  }, [displayLaid, activeLayoutPins]);
+  const activeWorktree =
+    graph.repo?.activeWorktree ??
+    graph.worktrees?.find((worktree) => worktree.current)?.name ??
+    '';
+  const related = useMemo(() => relatedIds(displayGraph, focusId), [displayGraph, focusId]);
+
+  useEffect(() => {
+    dispatch({
+      type: 'ReviewDefaultsLoaded',
+      key: desiredReviewDefaultsKey,
+      defaults: loadReviewDefaults(desiredReviewDefaultsKey, graph),
+    });
+  }, [dispatch, desiredReviewDefaultsKey, graph]);
+
+  useEffect(() => {
+    if (reviewDefaultsKey !== desiredReviewDefaultsKey) return;
+    saveReviewDefaults(reviewDefaultsKey, reviewDefaults, graph);
+  }, [reviewDefaultsKey, desiredReviewDefaultsKey, reviewDefaults, graph]);
+
+  useEffect(() => {
+    dispatch({
+      type: 'LayoutPinsLoaded',
+      scopeKey: desiredLayoutPinScopeKey,
+      pins: loadLayoutPins(desiredLayoutPinScopeKey),
+    });
+  }, [dispatch, desiredLayoutPinScopeKey]);
+
+  useEffect(() => {
+    if (layoutPinScopeKey !== desiredLayoutPinScopeKey) return;
+    saveLayoutPins(layoutPinScopeKey, layoutPins);
+  }, [layoutPinScopeKey, desiredLayoutPinScopeKey, layoutPins]);
 
   // Determine if diff mode is active (semantic — raw graph)
   const showDiff = graph.pr != null;
@@ -97,12 +194,25 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   // show its parent (BC) initial instead of its own.
   const bcNameById = useMemo(() => {
     const m = new Map<string, string>();
-    for (const bc of graph.boundedContexts) m.set(bc.id, bc.name);
+    for (const bc of displayGraph.boundedContexts) m.set(bc.id, bc.name);
     return m;
-  }, [graph.boundedContexts]);
+  }, [displayGraph.boundedContexts]);
 
-  // Derive changes from graph (semantic — raw graph)
-  const changes = useMemo(() => deriveChanges(graph), [graph]);
+  // Derive changes from the current review projection, so the first-screen
+  // summary matches the selected view/scope/filter instead of the full repo.
+  const changes = useMemo(() => deriveChanges(displayGraph), [displayGraph]);
+  const changeStats = useMemo(() => deriveChangeStats(changes), [changes]);
+  const projectedPrStats = useMemo(
+    () => graph.pr
+      ? {
+          added: changeStats.added,
+          removed: changeStats.removed,
+          changed: changeStats.changed,
+          comments: graph.pr.stats.comments,
+        }
+      : null,
+    [graph.pr, changeStats]
+  );
 
   // Canvas wrap ref for scroll operations
   const canvasWrapRef = useRef<HTMLDivElement>(null);
@@ -230,12 +340,12 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   // PAN_MARGIN in from the top-left of the oversized scroll area).
   const didInitScrollRef = useRef(false);
   useLayoutEffect(() => {
-    if (laid && !didInitScrollRef.current && canvasWrapRef.current) {
+    if (displayLaid && !didInitScrollRef.current && canvasWrapRef.current) {
       didInitScrollRef.current = true;
       canvasWrapRef.current.scrollLeft = PAN_MARGIN * zoom - 40;
       canvasWrapRef.current.scrollTop = PAN_MARGIN * zoom - 40;
     }
-  }, [laid, zoom]);
+  }, [displayLaid, zoom]);
 
   // Comment targets for highlighting (from current markers)
   const commentTargets = useMemo(
@@ -278,12 +388,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     dispatch({ type: 'CommentSubmitted', text });
   };
 
-  // Go to a change: focus + expand + scroll. The viewport effect scrolls on the
-  // next LayoutComputed (re-layout may expand a component), via the DomViewport.
-  const goToChange = (ch: ChangeEntry) => {
-    dispatch({ type: 'ChangeActivated', change: ch });
-  };
-
   // Focus an object from the context tree: focus + expand + scroll. The viewport
   // effect scrolls on the next LayoutComputed, via the DomViewport.
   const focusFromTree = (t: TreeFocusTarget) => {
@@ -293,6 +397,40 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   // Handle component selection (for focus mode) — store toggles focus.
   const handleSelectComponent = (cmp: ComponentType) => {
     dispatch({ type: 'ComponentSelected', id: cmp.id });
+  };
+
+  const handleMoveComponent = (id: string, x: number, y: number) => {
+    dispatch({ type: 'ComponentLayoutPinned', id, x, y });
+  };
+
+  const handleMoveGroup = (id: string, dx: number, dy: number) => {
+    if (!displayLaid) return;
+    const pins: LayoutPins = {};
+    for (const component of displayLaid.components) {
+      if (component.bc !== id || component.x == null || component.y == null) continue;
+      pins[component.id] = {
+        x: Math.max(0, Math.round(component.x + dx)),
+        y: Math.max(0, Math.round(component.y + dy)),
+      };
+    }
+    if (Object.keys(pins).length > 0) {
+      dispatch({ type: 'ComponentsLayoutPinned', pins });
+    }
+  };
+
+  const handleResetGroupLayout = (id: string) => {
+    if (!displayLaid) return;
+    const componentIds = displayLaid.components
+      .filter((component) => component.bc === id)
+      .map((component) => component.id);
+    if (componentIds.length > 0) {
+      dispatch({ type: 'LayoutGroupPinsReset', componentIds });
+    }
+  };
+
+  const handleResetRepoLayout = () => {
+    clearLayoutPinsForRepo(graph);
+    dispatch({ type: 'LayoutRepoPinsReset' });
   };
 
   // Handle canvas background click (clear focus + pending comment + activeMarkerId).
@@ -324,8 +462,8 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
 
     // Use laid geometry; fall back to raw (pre-layout) values so canvas
     // is not zero-sized on the initial render before ELK resolves.
-    const bcs = laid?.boundedContexts ?? graph.boundedContexts;
-    const cmps = laid?.components ?? graph.components;
+    const bcs = displayLaid?.boundedContexts ?? displayGraph.boundedContexts;
+    const cmps = displayLaid?.components ?? displayGraph.components;
 
     for (const bc of bcs) {
       if (bc.x != null && bc.w != null) {
@@ -346,7 +484,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     }
 
     return { width: maxX, height: maxY };
-  }, [laid, graph.boundedContexts, graph.components]);
+  }, [displayLaid, displayGraph.boundedContexts, displayGraph.components]);
 
   // Bind the DomViewport to the live canvas so the viewport effect can scroll
   // imperatively (reading zoom/dimensions from the store + this render's geometry).
@@ -364,7 +502,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
       className={`hifi v4 theme-${theme}`}
       style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column' }}
     >
-      {/* AppBar / PrHeader use semantic data from raw graph */}
+      {/* AppBar uses repo-level PR data; PrHeader stats reflect the active review projection. */}
       <AppBar
         level={level}
         onLevelChange={(l) => dispatch({ type: 'LevelChanged', level: l })}
@@ -374,11 +512,134 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
         pr={graph.pr}
       />
 
-      {graph.pr && <PrHeader pr={graph.pr} />}
+      {graph.pr && projectedPrStats && (
+        <PrHeader pr={graph.pr} stats={projectedPrStats} policyCount={changeStats.policy} />
+      )}
+
+      {(
+        ((graph.reviewViews?.length ?? 0) > 0) ||
+        ((graph.reviewScopes?.length ?? 0) > 0) ||
+        ((graph.reviewGroupings?.length ?? 0) > 0)
+      ) && (
+        <div className="hf-reviewbar">
+          {graph.worktrees && graph.worktrees.length > 0 && (
+            <label title="Branch/worktree being reviewed.">
+              <span>Branch</span>
+              <select
+                value={activeWorktree}
+                onChange={(e) => dispatch({ type: 'WorktreeChanged', name: e.target.value })}
+              >
+                {graph.worktrees.map((worktree) => (
+                  <option key={worktree.name} value={worktree.name}>
+                    {worktree.branch ? `${worktree.name} (${worktree.branch})` : worktree.name}
+                    {worktree.base ? ' - base' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {graph.reviewViews && graph.reviewViews.length > 0 && (
+            <label title="Package set for this review slice.">
+              <span>Packages</span>
+              <select
+                value={reviewViewId ?? ''}
+                onChange={(e) => dispatch({ type: 'ReviewViewChanged', id: e.target.value })}
+              >
+                {graph.reviewViews.map((view) => (
+                  <option key={view.id} value={view.id}>
+                    {view.title} ({view.componentCount})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {graph.reviewScopes && graph.reviewScopes.length > 0 && (
+            <label title="Symbol visibility inside selected packages.">
+              <span>Surface</span>
+              <select
+                value={reviewScopeId ?? ''}
+                onChange={(e) => dispatch({ type: 'ReviewScopeChanged', id: e.target.value })}
+              >
+                {graph.reviewScopes.map((scope) => (
+                  <option key={scope.id} value={scope.id}>
+                    {scope.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {groupingOptions.length > 1 && (
+            <label title="How visible packages are arranged on the canvas.">
+              <span>Arrange</span>
+              <select
+                value={reviewGroupingId ?? ''}
+                onChange={(e) => dispatch({ type: 'ReviewGroupingChanged', id: e.target.value })}
+              >
+                {groupingOptions.map((grouping) => (
+                  <option key={grouping.id} value={grouping.id}>
+                    {reviewGroupingLabel(grouping)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {graph.pr && (
+            <>
+              <label title="How far to expand from changed packages.">
+                <span>Focus</span>
+                <select
+                  value={reviewImpactMode}
+                  onChange={(e) => dispatch({ type: 'ReviewImpactModeChanged', mode: e.target.value as typeof reviewImpactMode })}
+                >
+                  <option value="changed_only">Changed packages</option>
+                  <option value="changed_neighbors">Changed + linked packages</option>
+                  <option value="containing_group">Changed package groups</option>
+                  <option value="review_view">Whole view</option>
+                  <option value="repository">Whole repo</option>
+                </select>
+              </label>
+              <label title="Which change kinds are visible.">
+                <span>Changes</span>
+                <select
+                  value={reviewChangeFilter}
+                  onChange={(e) => dispatch({ type: 'ReviewChangeFilterChanged', filter: e.target.value as typeof reviewChangeFilter })}
+                >
+                  <option value="all">All changes</option>
+                  <option value="added">Additions</option>
+                  <option value="removed">Removals</option>
+                  <option value="changed">Changed signatures</option>
+                  <option value="dependency">Dependency changes</option>
+                  <option value="policy">Policy/grouping</option>
+                </select>
+              </label>
+              <label title="How much package detail to show for visible packages.">
+                <span>Details</span>
+                <select
+                  value={changedDetailsOnly ? 'changed' : 'full'}
+                  onChange={(e) => {
+                    const next = e.target.value === 'changed';
+                    if (next !== changedDetailsOnly) dispatch({ type: 'ChangedDetailsOnlyToggled' });
+                  }}
+                >
+                  <option value="changed">Changed symbols</option>
+                  <option value="full">Full package</option>
+                </select>
+              </label>
+            </>
+          )}
+          <span className="hf-reviewbar-meta">
+            {displayGraph.components.length} packages
+          </span>
+          {graph.repo?.compare && (
+            <span className="hf-reviewbar-meta">
+              {graph.repo.compare}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="hf-stage">
-        {/* LEFT PANE - collapsible, 2 modes (CHANGES | CONTEXTS) */}
-        {/* Tree and ChangesPanel are semantic — raw graph */}
+        {/* LEFT PANE - collapsible, semantic review tree from the active projection */}
         <div className={`hf-side hf-collapsible ${leftCollapsed ? 'collapsed' : ''}`}>
           <button
             className="hf-side-toggle left"
@@ -389,47 +650,25 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
 
           {leftCollapsed ? (
             <span className="hf-side-vlabel">
-              {leftTab === 'changes' ? 'CHANGES' : 'CONTEXTS'}
+              REVIEW
             </span>
           ) : (
             <>
               <div className="hf-tabs" style={{ flexShrink: 0 }}>
-                {showDiff && (
-                  <button
-                    className={leftTab === 'changes' ? 'on' : ''}
-                    onClick={() => dispatch({ type: 'LeftTabChanged', tab: 'changes' })}
-                  >
-                    CHANGES<span className="count">{changes.length}</span>
-                  </button>
-                )}
-                <button
-                  className={leftTab === 'tree' ? 'on' : ''}
-                  onClick={() => dispatch({ type: 'LeftTabChanged', tab: 'tree' })}
-                >
-                  CONTEXTS<span className="count">{graph.boundedContexts.length}</span>
+                <button className="on">
+                  REVIEW<span className="count">{showDiff ? changes.length : displayGraph.components.length}</span>
                 </button>
               </div>
 
-              {leftTab === 'changes' && showDiff && (
-                <ChangesPanel
-                  graph={graph}
-                  changes={changes}
-                  activeChangeId={activeChangeId}
-                  onChangeClick={goToChange}
+              <div className="hf-list" style={{ paddingTop: 6 }}>
+                <Tree
+                  boundedContexts={displayGraph.boundedContexts}
+                  components={displayGraph.components}
+                  showDiff={showDiff}
+                  activeId={focusId}
+                  onFocus={focusFromTree}
                 />
-              )}
-
-              {leftTab === 'tree' && (
-                <div className="hf-list" style={{ paddingTop: 6 }}>
-                  <Tree
-                    boundedContexts={graph.boundedContexts}
-                    components={graph.components}
-                    showDiff={showDiff}
-                    activeId={focusId}
-                    onFocus={focusFromTree}
-                  />
-                </div>
-              )}
+              </div>
             </>
           )}
         </div>
@@ -445,7 +684,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
               We keep the previous laid graph visible during re-layout so
               the canvas never flashes empty. On an unrecoverable ELK error
               we surface a message instead of hanging indefinitely. */}
-          {laid == null ? (
+          {displayLaid == null ? (
             <div style={{ padding: 20 }}>
               {layoutError != null
                 ? <p style={{ color: 'var(--rem-fg)' }}>Layout failed: {layoutError}</p>
@@ -472,12 +711,20 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
             }}
           >
             {/* Bounded context groups — geometry from laid */}
-            <BCGroups boundedContexts={laid.boundedContexts} show={true} />
+            <BCGroups
+              boundedContexts={displayLaid.boundedContexts}
+              show={true}
+              showLabels={showGroupLabels}
+              zoom={zoom}
+              onMoveGroup={handleMoveGroup}
+              pinnedGroupIds={pinnedGroupIds}
+              onResetGroupLayout={handleResetGroupLayout}
+            />
 
             {/* Edge layer (SVG) — geometry from laid */}
             <EdgeLayer
-              edges={laid.edges}
-              components={laid.components}
+              edges={displayLaid.edges}
+              components={displayLaid.components}
               expandedSet={expanded}
               expandedInternals={internalExpanded}
               showDiff={showDiff}
@@ -487,8 +734,17 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
               onAddComment={startComment}
             />
 
+            <RelationLayer
+              relations={displayLaid.relations ?? []}
+              components={displayLaid.components}
+              expandedSet={expanded}
+              expandedInternals={internalExpanded}
+              showDiff={showDiff}
+              focusId={focusId}
+            />
+
             {/* Components — geometry from laid, expansion/focus from raw state */}
-            {laid.components.map((c) => (
+            {displayLaid.components.map((c) => (
               <Component
                 key={c.id}
                 cmp={c}
@@ -505,6 +761,12 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                 onSelect={handleSelectComponent}
                 onAddComment={startComment}
                 commentTargets={commentTargets}
+                pinned={activeLayoutPins[c.id] != null}
+                cardDensity={cardDensity}
+                showInlineSignatures={showInlineSignatures}
+                zoom={zoom}
+                onMove={handleMoveComponent}
+                onResetLayout={(id) => dispatch({ type: 'LayoutPinReset', id })}
               />
             ))}
 
@@ -535,6 +797,18 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
             onZoomOut={() => zoomBy(-ZOOM_STEP)}
             onZoomIn={() => zoomBy(ZOOM_STEP)}
             onFit={fitZoom}
+            pinnedCount={pinnedCount}
+            onResetLayout={pinnedCount > 0 ? () => dispatch({ type: 'LayoutPinsReset' }) : undefined}
+            onResetRepoLayout={handleResetRepoLayout}
+            showGroupLabels={showGroupLabels}
+            onToggleGroupLabels={() => dispatch({ type: 'GroupLabelsToggled' })}
+            cardDensity={cardDensity}
+            onToggleCardDensity={() => dispatch({
+              type: 'CardDensityChanged',
+              density: cardDensity === 'compact' ? 'detailed' : 'compact',
+            })}
+            showInlineSignatures={showInlineSignatures}
+            onToggleInlineSignatures={() => dispatch({ type: 'InlineSignaturesToggled' })}
           />
 
           {/* Legend */}
@@ -598,4 +872,60 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
       </div>
     </div>
   );
+}
+
+function visibleReviewGroupings(
+  graph: UIGraph,
+  reviewViewId: string | null,
+  reviewScopeId: string | null,
+  currentGroupingId: string | null,
+  options: ReviewSelectionOptions
+): ReviewGrouping[] {
+  const groupings = graph.reviewGroupings ?? [];
+  if (groupings.length <= 1) return groupings;
+
+  const out: ReviewGrouping[] = [];
+  const seenSignatures = new Set<string>();
+
+  for (const grouping of groupings) {
+    const projection = selectReviewGraph(graph, reviewViewId, reviewScopeId, grouping.id, options);
+    const signature = groupingProjectionSignature(projection);
+    const selected = grouping.id === currentGroupingId;
+    if (selected || !seenSignatures.has(signature)) {
+      out.push(grouping);
+      seenSignatures.add(signature);
+    }
+  }
+
+  return out;
+}
+
+function groupingProjectionSignature(graph: UIGraph): string {
+  const groups = new Map<string, string[]>();
+  for (const component of graph.components) {
+    const ids = groups.get(component.bc) ?? [];
+    ids.push(component.id);
+    groups.set(component.bc, ids);
+  }
+  return [...groups.values()]
+    .map((componentIds) => componentIds.sort().join(','))
+    .sort((a, b) => a.localeCompare(b))
+    .join('|');
+}
+
+function reviewGroupingLabel(grouping: ReviewGrouping): string {
+  switch (grouping.id) {
+    case 'directory':
+      return 'Package path';
+    case 'review_view':
+      return 'Review slice';
+    case 'package_owner':
+      return 'Owner';
+    case 'layer':
+      return 'Layer';
+    case 'configured_groups':
+      return 'Configured';
+    default:
+      return grouping.title;
+  }
 }

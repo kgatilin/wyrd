@@ -40,7 +40,21 @@ export class AppHarness extends ComponentHarness {
     return (await this.env.rootLocator('.hf-crumbs .branch').first()).text();
   }
 
-  // ── Left panel tabs ────────────────────────────────────────────────────
+  // ── Left panel review tree ──────────────────────────────────────────────
+  async hasReviewTab(): Promise<boolean> {
+    return (await this.env.rootLocator('.hf-tabs button').filterByText('REVIEW').count()) > 0;
+  }
+  async reviewTabCount(): Promise<number> {
+    const btn = this.env.rootLocator('.hf-tabs button').filterByText('REVIEW');
+    return parseInt((await (await btn.locator('.count').first()).text()) || '0', 10);
+  }
+  async openReviewTree(): Promise<void> {
+    await this.env.waitUntil(async () => (await this.env.rootLocator('.hf-tree').count()) >= 1, {
+      message: 'review tree never rendered',
+    });
+  }
+
+  // ── Legacy left panel tab helpers ──────────────────────────────────────
   async hasChangesTab(): Promise<boolean> {
     return (await this.env.rootLocator('.hf-tabs button').filterByText('CHANGES').count()) > 0;
   }
@@ -59,10 +73,7 @@ export class AppHarness extends ComponentHarness {
     });
   }
   async openContextsTab(): Promise<void> {
-    await (await this.env.rootLocator('.hf-tabs button').filterByText('CONTEXTS').first()).click();
-    await this.env.waitUntil(async () => (await this.env.rootLocator('.hf-tree').count()) >= 1, {
-      message: 'CONTEXTS tree never rendered',
-    });
+    await this.openReviewTree();
   }
 
   // ── Sub-harnesses ────────────────────────────────────────────────────────

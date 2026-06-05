@@ -1,6 +1,9 @@
 # Task manager
 .tm/
 
+# Local worktrees
+.worktrees/
+
 # Binary
 /archai
 /bin/

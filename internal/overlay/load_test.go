@@ -154,6 +154,179 @@ func TestLoad_ServeHTTPAddr_Absent(t *testing.T) {
 	}
 }
 
+func TestLoad_ReviewViews(t *testing.T) {
+	yaml := `module: github.com/example/app
+
+layers:
+  domain:
+    - internal/domain/...
+
+layer_rules:
+  domain: []
+
+aggregates: {}
+configs: []
+
+review_views:
+  framework_api:
+    title: Framework API
+    default_scope: top_level_public_api
+    default_expansion: collapsed
+    group_by: api_area
+    packages:
+      include:
+        - "*"
+      exclude:
+        - "internal/..."
+        - "tools/..."
+
+package_owners:
+  platform:
+    name: Platform API
+    packages:
+      include:
+        - "*"
+      exclude:
+        - "internal/..."
+  runtime:
+    packages:
+      include:
+        - "internal/runtime/..."
+`
+	path := writeTempFile(t, "archai.yaml", yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	view, ok := cfg.ReviewViews["framework_api"]
+	if !ok {
+		t.Fatalf("missing framework_api review view: %+v", cfg.ReviewViews)
+	}
+	if view.Title != "Framework API" {
+		t.Errorf("Title = %q, want Framework API", view.Title)
+	}
+	if view.DefaultScope != "top_level_public_api" {
+		t.Errorf("DefaultScope = %q, want top_level_public_api", view.DefaultScope)
+	}
+	if view.DefaultExpansion != "collapsed" {
+		t.Errorf("DefaultExpansion = %q, want collapsed", view.DefaultExpansion)
+	}
+	if view.GroupBy != "api_area" {
+		t.Errorf("GroupBy = %q, want api_area", view.GroupBy)
+	}
+	if len(view.Packages.Include) != 1 || view.Packages.Include[0] != "*" {
+		t.Errorf("Include = %v, want [*]", view.Packages.Include)
+	}
+	if len(view.Packages.Exclude) != 2 {
+		t.Errorf("Exclude = %v, want two entries", view.Packages.Exclude)
+	}
+	owner, ok := cfg.PackageOwners["platform"]
+	if !ok {
+		t.Fatalf("missing platform package owner: %+v", cfg.PackageOwners)
+	}
+	if owner.Name != "Platform API" {
+		t.Errorf("PackageOwners[platform].Name = %q, want Platform API", owner.Name)
+	}
+	if len(owner.Packages.Include) != 1 || owner.Packages.Include[0] != "*" {
+		t.Errorf("PackageOwners[platform].Include = %v, want [*]", owner.Packages.Include)
+	}
+	if len(owner.Packages.Exclude) != 1 || owner.Packages.Exclude[0] != "internal/..." {
+		t.Errorf("PackageOwners[platform].Exclude = %v, want [internal/...]", owner.Packages.Exclude)
+	}
+}
+
+func TestValidate_ReviewViewBadScope(t *testing.T) {
+	goMod := writeGoMod(t, "github.com/example/app")
+	yaml := `module: github.com/example/app
+
+layers:
+  domain:
+    - internal/domain/...
+
+layer_rules:
+  domain: []
+
+aggregates: {}
+configs: []
+
+review_views:
+  framework_api:
+    default_scope: publicish
+`
+	path := writeTempFile(t, "archai.yaml", yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	if err := Validate(cfg, goMod); err == nil {
+		t.Fatal("expected validation error for bad review scope, got nil")
+	} else if !strings.Contains(err.Error(), "publicish") {
+		t.Errorf("expected error to mention bad scope, got: %v", err)
+	}
+}
+
+func TestValidate_ReviewViewBadExpansion(t *testing.T) {
+	goMod := writeGoMod(t, "github.com/example/app")
+	yaml := `module: github.com/example/app
+
+layers:
+  domain:
+    - internal/domain/...
+
+layer_rules:
+  domain: []
+
+aggregates: {}
+configs: []
+
+review_views:
+  framework_api:
+    default_expansion: sideways
+`
+	path := writeTempFile(t, "archai.yaml", yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	if err := Validate(cfg, goMod); err == nil {
+		t.Fatal("expected validation error for bad review expansion, got nil")
+	} else if !strings.Contains(err.Error(), "sideways") {
+		t.Errorf("expected error to mention bad expansion, got: %v", err)
+	}
+}
+
+func TestValidate_PackageOwnerBadGlob(t *testing.T) {
+	goMod := writeGoMod(t, "github.com/example/app")
+	yaml := `module: github.com/example/app
+
+layers:
+  domain:
+    - internal/domain/...
+
+layer_rules:
+  domain: []
+
+aggregates: {}
+configs: []
+
+package_owners:
+  platform:
+    packages:
+      include:
+        - "internal bad/..."
+`
+	path := writeTempFile(t, "archai.yaml", yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	if err := Validate(cfg, goMod); err == nil {
+		t.Fatal("expected validation error for bad package owner glob, got nil")
+	} else if !strings.Contains(err.Error(), "package_owner platform") {
+		t.Errorf("expected error to mention package owner context, got: %v", err)
+	}
+}
+
 func TestLoad_D2Styles(t *testing.T) {
 	yaml := `module: github.com/example/app
 

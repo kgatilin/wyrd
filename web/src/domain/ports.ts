@@ -6,7 +6,11 @@ export interface LayoutPort {
 }
 
 export interface GraphSourcePort {
-  load(): Promise<UIGraph>;
+  load(worktree?: string): Promise<UIGraph>;
+}
+
+export interface NavigationPort {
+  focusWorktree(name: string): void;
 }
 
 export interface ViewportPort {

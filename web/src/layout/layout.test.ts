@@ -73,6 +73,58 @@ describe('layout', () => {
     }
   });
 
+  it('compact card density reduces collapsed package height', async () => {
+    const input = minimalGraph({
+      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
+      components: [
+        {
+          id: 'c1',
+          name: 'ClientAPI',
+          tech: 'Go',
+          desc: 'A long package description that should make detailed cards taller than compact cards.',
+          bc: 'bc1',
+          internals: [],
+          ports: [],
+        },
+      ],
+    });
+
+    const detailed = await layout(input);
+    const compact = await layout(input, {
+      expanded: new Set(),
+      internalExpanded: new Set(),
+      cardDensity: 'compact',
+    });
+
+    expect(compact.components[0].h!).toBeLessThan(detailed.components[0].h!);
+  });
+
+  it('compact card density does not reserve width for hidden tech labels', async () => {
+    const input = minimalGraph({
+      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
+      components: [
+        {
+          id: 'c1',
+          name: 'ClientAPI',
+          tech: 'Go - very-long-platform-tag',
+          desc: '',
+          bc: 'bc1',
+          internals: [],
+          ports: [],
+        },
+      ],
+    });
+
+    const detailed = await layout(input);
+    const compact = await layout(input, {
+      expanded: new Set(),
+      internalExpanded: new Set(),
+      cardDensity: 'compact',
+    });
+
+    expect(compact.components[0].w!).toBeLessThan(detailed.components[0].w!);
+  });
+
   // --- component inside its BC box ---
 
   it('every component lies inside its bounded context box (absolute coords)', async () => {
@@ -497,6 +549,37 @@ describe('layout', () => {
     expect(wideFit.w!).toBeGreaterThanOrEqual(longMember.length * 6);
     // …while a non-wide internal keeps the fixed width.
     expect(fixedFit.w!).toBe(wideNormal.w!);
+  });
+
+  it('uses shortened symbol names for fit-width when inline signatures are hidden', async () => {
+    const longMember = 'NewClient(ctx context.Context, cfg ClientConfig) (*Client, error)';
+    const input = minimalGraph({
+      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
+      components: [
+        {
+          id: 'c1',
+          name: 'C1',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc1',
+          internals: [
+            { id: 'wide', kind: 'class', name: 'ClientFactory', members: [{ id: 'm1', kind: 'method', name: longMember }] },
+          ],
+          ports: [],
+        },
+      ],
+    });
+
+    const opts = {
+      expanded: new Set(['c1']),
+      internalExpanded: new Set(['wide']),
+      internalWide: new Set(['wide']),
+    };
+
+    const full = await layout(input, opts);
+    const short = await layout(input, { ...opts, showInlineSignatures: false });
+
+    expect(short.components[0].internals[0].w!).toBeLessThan(full.components[0].internals[0].w!);
   });
 
   // --- synthesized inbound ports (Problem 2a) ---

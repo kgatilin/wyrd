@@ -14,7 +14,13 @@ const graph: UIGraph = {
 describe('createElkLayout', () => {
   it('lays out a graph, assigning geometry to components', async () => {
     const port = createElkLayout();
-    const laid = await port.compute(graph, { expanded: new Set(), internalExpanded: new Set(), internalWide: new Set() });
+    const laid = await port.compute(graph, {
+      expanded: new Set(),
+      internalExpanded: new Set(),
+      internalWide: new Set(),
+      cardDensity: 'detailed',
+      showInlineSignatures: true,
+    });
     const a = laid.components.find((c) => c.id === 'a')!;
     expect(typeof a.x).toBe('number');
     expect(typeof a.y).toBe('number');

@@ -226,7 +226,66 @@
 .hf-stat.add { color: var(--add-fg); background: var(--add-bg); }
 .hf-stat.rem { color: var(--rem-fg); background: var(--rem-bg); }
 .hf-stat.chg { color: var(--chg-fg); background: var(--chg-bg); }
+.hf-stat.pol { color: var(--accent); background: var(--accent-bg); }
 .hf-stat.com { color: var(--accent); background: var(--accent-bg); }
+
+/* ───────────── Review controls ───────────── */
+.hf-reviewbar {
+  min-height: 38px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-1);
+  display: flex;
+  align-items: center;
+  align-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  row-gap: 6px;
+  padding: 6px 12px;
+  flex-shrink: 0;
+}
+.hf-reviewbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg-2);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.hf-reviewbar select {
+  min-width: 130px;
+  max-width: 220px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  color: var(--fg-0);
+  border-radius: 6px;
+  padding: 4px 28px 4px 9px;
+  font: 500 12px 'Inter', sans-serif;
+}
+.hf-reviewbar select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+.hf-reviewbar .hf-reviewbar-check {
+  gap: 6px;
+  white-space: nowrap;
+}
+.hf-reviewbar .hf-reviewbar-check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.hf-reviewbar-meta {
+  color: var(--fg-3);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
 
 /* ───────────── 3-pane stage ───────────── */
 .hf-stage {
@@ -283,6 +342,8 @@
 .hf-tree-row.bc { font-weight: 600; color: var(--fg-0); margin-top: 2px; }
 .hf-tree-row.bc .ico { color: var(--syn-cls); }
 .hf-tree-row.cmp .ico { color: var(--accent); }
+.hf-tree-row.file { color: var(--fg-2); }
+.hf-tree-row.file .ico { color: var(--fg-3); }
 .hf-tree-row.added .name { color: var(--add-fg); }
 .hf-tree-row.removed .name { color: var(--rem-fg); }
 .hf-tree-row.changed .name { color: var(--chg-fg); }
@@ -301,6 +362,36 @@
 .hf-tree-row.internal.iface .ico { color: var(--accent); }
 .hf-tree-row.member { font-size: 11px; color: var(--fg-2); }
 .hf-tree-row.member .ico { color: var(--fg-3); }
+
+.hf-signature-diff {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-2);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  overflow: hidden;
+}
+.hf-signature-diff .before,
+.hf-signature-diff .after {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hf-signature-diff .before {
+  color: var(--rem-fg);
+  text-decoration: line-through;
+}
+.hf-signature-diff .after { color: var(--add-fg); }
+.hf-signature-diff .arrow { color: var(--fg-3); flex: 0 0 auto; }
+.hf-tree .hf-signature-diff {
+  margin: -1px 8px 3px 76px;
+}
+.hf-change-card .hf-signature-diff {
+  margin-left: 22px;
+}
 
 /* ───────────── Canvas ───────────── */
 /* Viewport is the non-scrolling flex child of the stage. The scroller lives
@@ -338,7 +429,8 @@
   width: 1200px;
   height: 700px;
 }
-.hf-canvas .edges-svg {
+.hf-canvas .edges-svg,
+.hf-canvas .relations-svg {
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -354,6 +446,13 @@
   border-radius: 12px;
   background: rgba(255,255,255,0.015);
 }
+.hf-bc-group.draggable {
+  cursor: move;
+}
+.hf-bc-group.dragging {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
 .theme-light .hf-bc-group {
   background: rgba(0,0,0,0.015);
 }
@@ -368,6 +467,28 @@
   text-transform: uppercase;
   padding: 0 8px;
   font-family: 'JetBrains Mono', monospace;
+}
+.hf-bc-label.icon-only {
+  padding: 0 4px;
+}
+.hf-bc-label.icon-only .hf-bc-reset-layout {
+  margin-left: 0;
+}
+.hf-bc-reset-layout {
+  margin-left: 7px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: var(--bg-2);
+  color: var(--accent);
+  cursor: pointer;
+  font: 700 10px/1 'JetBrains Mono', monospace;
+}
+.hf-bc-reset-layout:hover {
+  background: var(--bg-active);
+  color: var(--fg-0);
 }
 
 /* ───────────── Component card ───────────── */
@@ -393,6 +514,24 @@
    lifting the whole hovered card guarantees its labels paint over any neighbour's
    port dots instead of being covered by them. */
 .hf-cmp:hover { box-shadow: var(--shadow-lg); border-color: var(--line-3); z-index: 6; }
+.hf-cmp.dragging {
+  transition: none;
+  z-index: 20;
+  box-shadow: 0 0 0 2px var(--accent-bg), var(--shadow-lg);
+}
+.hf-cmp.pinned::after {
+  content: "";
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid var(--bg-0);
+  box-shadow: var(--shadow-sm);
+  z-index: 7;
+}
 .hf-cmp.added   { border-color: var(--add-line); background: linear-gradient(180deg, var(--add-bg), var(--bg-1) 30%); }
 .hf-cmp.removed { border-color: var(--rem-line); background: linear-gradient(180deg, var(--rem-bg), var(--bg-1) 30%); }
 .hf-cmp.changed { border-color: var(--chg-line); background: linear-gradient(180deg, var(--chg-bg), var(--bg-1) 30%); }
@@ -411,12 +550,16 @@
   padding: 8px 12px;
   background: var(--bg-2);
   border-bottom: 1px solid var(--line-1);
-  cursor: pointer;
+  cursor: grab;
 }
+.hf-cmp.dragging .hf-cmp-head { cursor: grabbing; }
 .hf-cmp.added   .hf-cmp-head { background: var(--add-bg); }
 .hf-cmp.removed .hf-cmp-head { background: var(--rem-bg); }
 .hf-cmp.changed .hf-cmp-head { background: var(--chg-bg); }
 .hf-cmp-head:hover { filter: brightness(1.1); }
+.hf-cmp.compact .hf-cmp-head {
+  gap: 6px;
+}
 .hf-cmp-icon {
   width: 18px; height: 18px;
   display: grid; place-items: center;
@@ -451,6 +594,9 @@
   /* Never wrap the tech tag (e.g. "Go - gRPC") to a second line. */
   white-space: nowrap;
   flex-shrink: 0;
+}
+.hf-cmp.compact .hf-cmp-tech {
+  display: none;
 }
 .hf-cmp-expand {
   width: 18px; height: 18px;
@@ -487,6 +633,21 @@
   border: 1px solid var(--line-2);
 }
 .hf-cmp-expand-all:hover { background: var(--bg-active); color: var(--fg-0); }
+.hf-cmp-reset-layout {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+  border-radius: 4px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  border: 1px solid var(--line-2);
+}
+.hf-cmp-reset-layout:hover { background: var(--bg-active); color: var(--fg-0); }
 
 /* Floating action button group: top-right of the card, OUTSIDE .hf-cmp-inner
    (see Component.tsx) so the (i) popover escapes the card clipping. A flex row
@@ -538,6 +699,9 @@
   font-size: 11px;
   color: var(--fg-2);
   line-height: 1.4;
+}
+.hf-cmp.compact .hf-cmp-desc {
+  display: none;
 }
 
 /* ports */
@@ -694,6 +858,29 @@
   pointer-events: stroke;
 }
 
+.hf-relation {
+  fill: none;
+  stroke: var(--fg-3);
+  stroke-width: 1.15px;
+  stroke-dasharray: 3 3;
+  opacity: 0.9;
+}
+.hf-relation.added   { stroke: var(--add-fg); }
+.hf-relation.removed { stroke: var(--rem-fg); stroke-dasharray: 5 3; }
+.hf-relation.changed { stroke: var(--chg-fg); }
+.hf-relation-arrow { fill: var(--fg-3); }
+.hf-relation-arrow.added   { fill: var(--add-fg); }
+.hf-relation-arrow.removed { fill: var(--rem-fg); }
+.hf-relation-arrow.changed { fill: var(--chg-fg); }
+.hf-relation-label {
+  font: 9px 'JetBrains Mono', monospace;
+  fill: var(--fg-3);
+  paint-order: stroke;
+  stroke: var(--bg-0);
+  stroke-width: 3px;
+}
+.hf-relation-dimmed { opacity: 0.16; }
+
 /* animated flow dots */
 @keyframes hf-flow-dot {
   to { offset-distance: 100%; opacity: 0; }
@@ -742,9 +929,18 @@
   cursor: pointer;
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
+  white-space: nowrap;
 }
 .hf-canvas-toolbar button:hover { background: var(--bg-hover); color: var(--fg-0); }
+.hf-canvas-toolbar button.on {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
 .hf-canvas-toolbar .zoom { width: auto; padding: 0 8px; font-size: 11px; min-width: 48px; }
+.hf-canvas-toolbar .pins {
+  color: var(--accent);
+  border-left: 1px solid var(--line-1);
+}
 
 .hf-canvas-legend {
   position: absolute;
@@ -853,6 +1049,7 @@
 .hf-change-badge.added   { background: var(--add-bg); color: var(--add-fg); }
 .hf-change-badge.removed { background: var(--rem-bg); color: var(--rem-fg); }
 .hf-change-badge.changed { background: var(--chg-bg); color: var(--chg-fg); }
+.hf-change-badge.policy  { background: var(--rem-bg); color: var(--rem-fg); }
 .hf-change-name {
   font-size: 12px;
   font-weight: 500;

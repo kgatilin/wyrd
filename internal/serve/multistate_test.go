@@ -83,6 +83,92 @@ func TestMultiState_RefreshAndGet(t *testing.T) {
 	}
 }
 
+func TestMultiState_DefaultPrefersRootWorktree(t *testing.T) {
+	root := newGitRepo(t)
+	parent := filepath.Dir(root)
+	extraPath := filepath.Join(parent, "feature-"+filepath.Base(root))
+	runGit(t, root, "worktree", "add", "-b", "feature-branch", extraPath)
+	t.Cleanup(func() {
+		_ = exec.Command("git", "-C", root, "worktree", "remove", "--force", extraPath).Run()
+	})
+
+	var loadCount int64
+	m := NewMultiState(extraPath, stubLoader(&loadCount))
+	if err := m.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	if got := m.Default(); got != filepath.Base(extraPath) {
+		t.Fatalf("Default() = %q, want root worktree %q", got, filepath.Base(extraPath))
+	}
+}
+
+func TestMultiState_GetByRefCachesBaseWorktree(t *testing.T) {
+	root := newGitRepo(t)
+	parent := filepath.Dir(root)
+	extraPath := filepath.Join(parent, "feature-"+filepath.Base(root))
+	runGit(t, root, "worktree", "add", "-b", "feature-branch", extraPath)
+	t.Cleanup(func() {
+		_ = exec.Command("git", "-C", root, "worktree", "remove", "--force", extraPath).Run()
+	})
+
+	var (
+		mu     sync.Mutex
+		counts = map[string]int{}
+	)
+	loader := func(_ context.Context, name, path string) (*State, error) {
+		mu.Lock()
+		counts[name]++
+		mu.Unlock()
+		return NewState(path), nil
+	}
+	m := NewMultiState(root, loader)
+	if err := m.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	baseState, baseName, err := m.GetByRef(context.Background(), "main")
+	if err != nil {
+		t.Fatalf("GetByRef(main): %v", err)
+	}
+	if baseState == nil || baseName == "" {
+		t.Fatalf("GetByRef(main) = (%v, %q), want state and name", baseState, baseName)
+	}
+	mu.Lock()
+	if counts[baseName] != 1 {
+		t.Fatalf("load count for base %q = %d, want 1", baseName, counts[baseName])
+	}
+	mu.Unlock()
+
+	again, againName, err := m.GetByRef(context.Background(), "main")
+	if err != nil {
+		t.Fatalf("GetByRef(main) cached: %v", err)
+	}
+	if againName != baseName || again != baseState {
+		t.Fatalf("cached base = (%p, %q), want (%p, %q)", again, againName, baseState, baseName)
+	}
+	byName, byNameRef, err := m.GetByRef(context.Background(), baseName)
+	if err != nil {
+		t.Fatalf("GetByRef(%q): %v", baseName, err)
+	}
+	if byNameRef != baseName || byName != baseState {
+		t.Fatalf("base by name = (%p, %q), want (%p, %q)", byName, byNameRef, baseState, baseName)
+	}
+	missing, missingName, err := m.GetByRef(context.Background(), "missing")
+	if err != nil {
+		t.Fatalf("GetByRef(missing): %v", err)
+	}
+	if missing != nil || missingName != "" {
+		t.Fatalf("missing ref = (%v, %q), want nil empty", missing, missingName)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if counts[baseName] != 1 {
+		t.Fatalf("load count for base %q after cached lookups = %d, want 1", baseName, counts[baseName])
+	}
+}
+
 // runGit runs a git subcommand against repo and fails the test on error.
 func runGit(t *testing.T, repo string, args ...string) {
 	t.Helper()

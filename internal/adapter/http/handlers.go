@@ -104,6 +104,7 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 	}
 	// Static assets (CSS, htmx.min.js). Served from the embedded FS.
 	mux.Handle("/assets/", nethttp.StripPrefix("/assets/", nethttp.FileServer(nethttp.FS(s.assets))))
+	s.registerReviewUIRoutes(mux)
 
 	// D2 → SVG smoke endpoint. Used by M7b-f to render server-side
 	// diagrams; accepts POST with a `d2` form field or raw text body.
@@ -121,6 +122,11 @@ func (s *Server) routes(mux *nethttp.ServeMux) {
 
 	// Content routes at their historical top-level paths.
 	s.routesContent(mux)
+	if s.reviewUIEnabled() {
+		mux.HandleFunc("/dashboard", s.handleDashboard)
+		mux.HandleFunc("/", s.handleReviewUIRoot)
+		return
+	}
 	mux.HandleFunc("/", s.handleDashboard)
 }
 
@@ -141,6 +147,9 @@ func (s *Server) registerPluginRoutes(mux *nethttp.ServeMux) {
 // they live at the root) and multi-mode (where they live under
 // /w/{name}/* via dispatchWorktree).
 func (s *Server) routesContent(mux *nethttp.ServeMux) {
+	if s.multiMode() && s.reviewUIEnabled() {
+		s.registerReviewUIRoutes(mux)
+	}
 	mux.HandleFunc("/layers", s.handleLayers)
 	mux.HandleFunc("/packages", s.handlePackagesList)
 	mux.HandleFunc("/packages/", s.handlePackageDetail)
@@ -164,6 +173,10 @@ func (s *Server) routesContent(mux *nethttp.ServeMux) {
 	// Packages, and Diff views (#46). Registered before the catch-all
 	// "/" dashboard route so prefix matches resolve correctly.
 	s.registerGraphRoutes(mux)
+	// React review UI data. This route is backed by the live daemon
+	// snapshot, so the UI does not need a manually-exported archgraph.json.
+	mux.HandleFunc("/api/uigraph", s.handleUIGraphJSON)
+	mux.HandleFunc("/api/public-surface", s.handlePublicSurfaceJSON)
 	// M11: JSON API used by the MCP thin-client wrapper. Registered
 	// under /api/ so the browser UI and the machine API live side by
 	// side on one listener.
@@ -176,7 +189,11 @@ func (s *Server) routesContent(mux *nethttp.ServeMux) {
 	// so the handler precedence is identical (and duplicate
 	// registration would panic).
 	if s.multiMode() {
-		mux.HandleFunc("/", s.handleDashboard)
+		if s.reviewUIEnabled() {
+			mux.HandleFunc("/", s.handleWorktreeReviewUIRoot)
+		} else {
+			mux.HandleFunc("/", s.handleDashboard)
+		}
 	}
 }
 

@@ -6,6 +6,7 @@ import { createEffects } from '../effects';
 import { createElkLayout } from '../adapters/elkLayout';
 import { createHttpGraphSource } from '../adapters/httpGraphSource';
 import { createDomViewport, type DomViewport } from '../adapters/domViewport';
+import { createBrowserNavigation } from '../adapters/browserNavigation';
 
 /**
  * App-level composition root. Builds the real elk + http + DOM-viewport adapters,
@@ -16,6 +17,7 @@ export function createAppStore(): { store: AppStore; viewport: DomViewport } {
   const viewport = createDomViewport();
   const effects = createEffects({
     graphSource: createHttpGraphSource(),
+    navigation: createBrowserNavigation(),
     layout: createElkLayout(),
     viewport,
   });

@@ -1,6 +1,8 @@
 import type { UIGraph } from '../types';
 import type { ChangeEntry } from './derive';
-import type { Marker } from './state';
+import type { LayoutPins } from './layoutPins';
+import type { ReviewDefaults } from './reviewDefaults';
+import type { CardDensity, Marker, ReviewChangeFilter, ReviewImpactMode } from './state';
 
 /** Identifies which canvas object a context-tree row points at. Canonical home (was components/Tree). */
 export interface TreeFocusTarget {
@@ -11,7 +13,7 @@ export interface TreeFocusTarget {
 
 export type Event =
   // lifecycle
-  | { type: 'GraphRequested' }
+  | { type: 'GraphRequested'; worktree?: string }
   | { type: 'GraphLoaded'; graph: UIGraph }
   | { type: 'GraphLoadFailed'; error: string }
   // chrome
@@ -22,6 +24,25 @@ export type Event =
   | { type: 'RightCollapsedToggled' }
   | { type: 'ZoomChanged'; zoom: number }
   | { type: 'ZoomFitRequested' }
+  | { type: 'ReviewViewChanged'; id: string }
+  | { type: 'ReviewScopeChanged'; id: string }
+  | { type: 'ReviewGroupingChanged'; id: string }
+  | { type: 'ReviewImpactModeChanged'; mode: ReviewImpactMode }
+  | { type: 'ReviewChangeFilterChanged'; filter: ReviewChangeFilter }
+  | { type: 'UnchangedNeighborsToggled' }
+  | { type: 'ChangedDetailsOnlyToggled' }
+  | { type: 'ReviewDefaultsLoaded'; key: string; defaults: ReviewDefaults }
+  | { type: 'GroupLabelsToggled' }
+  | { type: 'CardDensityChanged'; density: CardDensity }
+  | { type: 'InlineSignaturesToggled' }
+  | { type: 'WorktreeChanged'; name: string }
+  | { type: 'LayoutPinsLoaded'; scopeKey: string; pins: LayoutPins }
+  | { type: 'ComponentLayoutPinned'; id: string; x: number; y: number }
+  | { type: 'ComponentsLayoutPinned'; pins: LayoutPins }
+  | { type: 'LayoutPinReset'; id: string }
+  | { type: 'LayoutGroupPinsReset'; componentIds: string[] }
+  | { type: 'LayoutPinsReset' }
+  | { type: 'LayoutRepoPinsReset' }
   // expansion
   | { type: 'ComponentToggled'; id: string }
   | { type: 'InternalWideToggled'; id: string }

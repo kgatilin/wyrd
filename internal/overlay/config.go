@@ -30,6 +30,8 @@ type Config struct {
 	Configs         []string                  `yaml:"configs"`
 	BoundedContexts map[string]BoundedContext `yaml:"bounded_contexts,omitempty"`
 	Adapters        map[string]Adapter        `yaml:"adapters,omitempty"`
+	ReviewViews     map[string]ReviewView     `yaml:"review_views,omitempty"`
+	PackageOwners   map[string]PackageOwner   `yaml:"package_owners,omitempty"`
 	Serve           ServeConfig               `yaml:"serve,omitempty"`
 	Diagrams        DiagramConfig             `yaml:"diagrams,omitempty"`
 }
@@ -80,6 +82,58 @@ type D2LegendStyle struct {
 //     Empty falls through to the daemon's flag default.
 type ServeConfig struct {
 	HTTPAddr string `yaml:"http_addr,omitempty"`
+}
+
+// ReviewView describes a named architecture review perspective. It is
+// resolved server-side into concrete package/component ids before it reaches
+// the UI; the UI should not parse package selector rules itself.
+type ReviewView struct {
+	Title            string          `yaml:"title,omitempty"`
+	DefaultScope     string          `yaml:"default_scope,omitempty"`
+	DefaultExpansion string          `yaml:"default_expansion,omitempty"`
+	GroupBy          string          `yaml:"group_by,omitempty"`
+	Packages         PackageSelector `yaml:"packages,omitempty"`
+}
+
+// PackageSelector includes and excludes package paths using archai review
+// selector syntax:
+//   - "*" matches one package segment.
+//   - "pkg/*" matches direct children of pkg.
+//   - "pkg/..." matches pkg and all descendants.
+//   - exact package paths match only that package.
+//
+// Exclude rules win over include rules. An empty Include list means "include
+// everything" for that review view.
+type PackageSelector struct {
+	Include []string `yaml:"include,omitempty"`
+	Exclude []string `yaml:"exclude,omitempty"`
+}
+
+// PackageOwner describes a server-resolved owner grouping for packages in the
+// review UI. It uses the same selector semantics as ReviewView.Packages, and
+// the UI receives only resolved package-owner groups.
+type PackageOwner struct {
+	Name     string          `yaml:"name,omitempty"`
+	Packages PackageSelector `yaml:"packages,omitempty"`
+}
+
+// ReviewScopes is the closed set of scope ids supported by review views.
+var ReviewScopes = []string{
+	"top_level_public_api",
+	"all_public_api",
+	"internal_implementation",
+	"everything",
+}
+
+// ReviewExpansions is the closed set of initial component expansion policies
+// a review view may request. "auto" keeps the UI's compact default, "changed"
+// opens packages with local symbol diffs, "expanded" opens every package in the
+// view, and "collapsed" opens none.
+var ReviewExpansions = []string{
+	"auto",
+	"changed",
+	"expanded",
+	"collapsed",
 }
 
 // Aggregate describes a domain aggregate by its root type.

@@ -1,4 +1,7 @@
+import { useRef, useState } from 'react';
 import type { Component as ComponentType, Diff, Internal, Member, Port } from '../types';
+import { displaySymbolName } from '../domain/symbolNames';
+import type { CardDensity } from '../domain/state';
 
 /**
  * Effective diff state of an internal: its own flag if set, otherwise "changed"
@@ -26,6 +29,40 @@ function deriveComponentDiff(cmp: ComponentType): Diff | undefined {
     if (p.diff) return 'changed';
   }
   return undefined;
+}
+
+function internalKindLabel(kind: Internal['kind']): string {
+  switch (kind) {
+    case 'iface':
+      return 'iface';
+    case 'class':
+      return 'class';
+    case 'func':
+      return 'func';
+    case 'type':
+      return 'type';
+    case 'const':
+      return 'const';
+    case 'var':
+      return 'var';
+    case 'error':
+      return 'error';
+    default:
+      return kind;
+  }
+}
+
+function memberKindLabel(kind: Member['kind']): string {
+  switch (kind) {
+    case 'method':
+      return 'fn';
+    case 'prop':
+      return ':';
+    case 'const':
+      return 'const';
+    default:
+      return kind;
+  }
 }
 
 export interface ComponentProps {
@@ -59,6 +96,18 @@ export interface ComponentProps {
   onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
   /** Set of IDs that have comments */
   commentTargets?: Set<string>;
+  /** Whether this component has a manually pinned layout position */
+  pinned?: boolean;
+  /** Collapsed-card presentation density */
+  cardDensity?: CardDensity;
+  /** Whether internal/member rows show full signatures inline */
+  showInlineSignatures?: boolean;
+  /** Canvas zoom used to convert screen-pixel drag deltas to graph coordinates */
+  zoom?: number;
+  /** Callback when the component is manually moved on the canvas */
+  onMove?: (id: string, x: number, y: number) => void;
+  /** Callback to clear this component's manually pinned layout position */
+  onResetLayout?: (id: string) => void;
 }
 
 /**
@@ -80,7 +129,24 @@ export function Component({
   dimmed = false,
   onAddComment,
   commentTargets,
+  pinned = false,
+  cardDensity = 'detailed',
+  showInlineSignatures = true,
+  zoom = 1,
+  onMove,
+  onResetLayout,
 }: ComponentProps) {
+  const [dragging, setDragging] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startX: number;
+    startY: number;
+    dragging: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
   const effectiveDiff = deriveComponentDiff(cmp);
   const diffCls = showDiff && effectiveDiff ? effectiveDiff : '';
   // Layout computes both collapsed and expanded dimensions in cmp.w/h
@@ -97,12 +163,22 @@ export function Component({
 
   const hasComment = (id: string) => commentTargets?.has(id) ?? false;
 
+  const consumeSuppressedClick = (e: React.MouseEvent) => {
+    if (!suppressClickRef.current) return false;
+    suppressClickRef.current = false;
+    e.stopPropagation();
+    e.preventDefault();
+    return true;
+  };
+
   const handleClick = (e: React.MouseEvent) => {
+    if (consumeSuppressedClick(e)) return;
     e.stopPropagation();
     onSelect?.(cmp);
   };
 
   const handleHeadClick = (e: React.MouseEvent) => {
+    if (consumeSuppressedClick(e)) return;
     e.stopPropagation();
     if (e.shiftKey) {
       onAddComment?.({ type: 'cmp', id: cmp.id }, e);
@@ -112,8 +188,51 @@ export function Component({
   };
 
   const handleHeadDoubleClick = (e: React.MouseEvent) => {
+    if (consumeSuppressedClick(e)) return;
     e.stopPropagation();
     onAddComment?.({ type: 'cmp', id: cmp.id }, e);
+  };
+
+  const handleDragPointerDown = (e: React.PointerEvent) => {
+    if (!onMove || e.button !== 0 || e.shiftKey || cmp.x == null || cmp.y == null) return;
+    e.stopPropagation();
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startX: cmp.x,
+      startY: cmp.y,
+      dragging: false,
+    };
+    rootRef.current?.setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const screenDx = e.clientX - drag.startClientX;
+    const screenDy = e.clientY - drag.startClientY;
+    if (!drag.dragging && Math.hypot(screenDx, screenDy) < 4) return;
+    if (!drag.dragging) {
+      drag.dragging = true;
+      setDragging(true);
+    }
+    e.preventDefault();
+    const scale = zoom > 0 ? zoom : 1;
+    onMove?.(
+      cmp.id,
+      Math.max(0, drag.startX + screenDx / scale),
+      Math.max(0, drag.startY + screenDy / scale)
+    );
+  };
+
+  const handlePointerEnd = (e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    if (drag.dragging) suppressClickRef.current = true;
+    dragRef.current = null;
+    setDragging(false);
+    rootRef.current?.releasePointerCapture(e.pointerId);
   };
 
   const handleExpandClick = (e: React.MouseEvent) => {
@@ -126,9 +245,15 @@ export function Component({
     onSetAllWide?.(cmp.id, !allWide);
   };
 
+  const handleResetLayoutClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onResetLayout?.(cmp.id);
+  };
+
   return (
     <div
-      className={`hf-cmp ${diffCls} ${focused ? 'focused' : ''} ${dimmed ? 'dimmed' : ''}`}
+      ref={rootRef}
+      className={`hf-cmp ${cardDensity} ${expanded ? 'expanded' : 'collapsed'} ${diffCls} ${focused ? 'focused' : ''} ${dimmed ? 'dimmed' : ''} ${pinned ? 'pinned' : ''} ${dragging ? 'dragging' : ''}`}
       style={{
         left: cmp.x,
         top: cmp.y,
@@ -136,6 +261,9 @@ export function Component({
         height: h,
       }}
       onClick={handleClick}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={handlePointerEnd}
     >
       {/* Clipped content layer: header + body are rounded-corner clipped here,
           while ports (below) live outside this layer so their dots/labels are
@@ -147,6 +275,7 @@ export function Component({
           style={{ paddingRight: expanded ? 92 : 34 }}
           onClick={handleHeadClick}
           onDoubleClick={handleHeadDoubleClick}
+          onPointerDown={handleDragPointerDown}
         >
           <div className="hf-cmp-icon">{parentInitial}</div>
           <div className="hf-cmp-name">{cmp.name}</div>
@@ -169,6 +298,7 @@ export function Component({
                 onToggleWide={() => onToggleWide?.(internal.id)}
                 onAddComment={onAddComment}
                 hasComment={hasComment}
+                showInlineSignatures={showInlineSignatures}
               />
             ))}
           </div>
@@ -196,6 +326,15 @@ export function Component({
             title={allWide ? 'Reset all blocks width' : 'Expand all blocks to fit text'}
           >
             {allWide ? '»«' : '«»'}
+          </button>
+        )}
+        {pinned && onResetLayout && (
+          <button
+            className="hf-cmp-reset-layout"
+            onClick={handleResetLayoutClick}
+            title="Reset this package layout"
+          >
+            ↺
           </button>
         )}
         <button className="hf-cmp-expand" onClick={handleExpandClick}>
@@ -229,6 +368,7 @@ interface InternalCardProps {
   onToggleWide: () => void;
   onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
   hasComment: (id: string) => boolean;
+  showInlineSignatures: boolean;
 }
 
 function InternalCard({
@@ -239,8 +379,10 @@ function InternalCard({
   onToggleWide,
   onAddComment,
   hasComment,
+  showInlineSignatures,
 }: InternalCardProps) {
   const diffCls = showDiff && deriveInternalDiff(internal) ? deriveInternalDiff(internal) : '';
+  const internalName = displaySymbolName(internal.name, showInlineSignatures);
   // Use layout-provided height if available, otherwise compute locally
   // Layout sets internal.h based on expanded state at layout time
   const memberHeight = expanded ? (internal.members?.length ?? 0) * 18 + 4 : 0;
@@ -268,9 +410,9 @@ function InternalCard({
     >
       <div className="hf-internal-head" onClick={handleHeadClick}>
         <span className="hf-internal-kind">
-          {internal.kind === 'iface' ? 'iface' : 'class'}
+          {internalKindLabel(internal.kind)}
         </span>
-        <span className="hf-internal-name" title={internal.name}>{internal.name}</span>
+        <span className="hf-internal-name" title={internal.name}>{internalName}</span>
         {hasComment(internal.id) && <span className="hf-cmt-marker sm">!</span>}
         <span
           className="hf-internal-toggle"
@@ -289,6 +431,7 @@ function InternalCard({
               showDiff={showDiff}
               hasComment={hasComment(member.id)}
               onAddComment={onAddComment}
+              showInlineSignatures={showInlineSignatures}
             />
           ))}
         </div>
@@ -302,10 +445,12 @@ interface MemberRowProps {
   showDiff: boolean;
   hasComment: boolean;
   onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
+  showInlineSignatures: boolean;
 }
 
-function MemberRow({ member, showDiff, hasComment, onAddComment }: MemberRowProps) {
+function MemberRow({ member, showDiff, hasComment, onAddComment, showInlineSignatures }: MemberRowProps) {
   const diffCls = showDiff && member.diff ? member.diff : '';
+  const memberName = displaySymbolName(member.name, showInlineSignatures);
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -314,10 +459,10 @@ function MemberRow({ member, showDiff, hasComment, onAddComment }: MemberRowProp
 
   return (
     <div className={`hf-member ${diffCls}`} onClick={handleClick} title={member.name}>
-      <span className={`hf-member-kind ${member.kind === 'method' ? 'fn' : 'prop'}`}>
-        {member.kind === 'method' ? 'fn' : ':'}
+      <span className={`hf-member-kind ${member.kind === 'method' ? 'fn' : member.kind}`}>
+        {memberKindLabel(member.kind)}
       </span>
-      <span className="hf-member-name">{member.name}</span>
+      <span className="hf-member-name">{memberName}</span>
       {hasComment && <span className="hf-cmt-marker sm">!</span>}
     </div>
   );

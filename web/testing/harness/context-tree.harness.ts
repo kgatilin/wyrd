@@ -1,6 +1,6 @@
 import { ComponentHarness } from './test-element';
 
-/** The CONTEXTS tree (`.hf-tree`). Rooted at `.hifi`. */
+/** The REVIEW package tree (`.hf-tree`). Rooted at `.hifi`. */
 export class ContextTreeHarness extends ComponentHarness {
   async isPresent(): Promise<boolean> {
     return (await this.env.rootLocator('.hf-tree').count()) > 0;
@@ -10,6 +10,9 @@ export class ContextTreeHarness extends ComponentHarness {
   }
   async componentRowCount(): Promise<number> {
     return this.env.rootLocator('.hf-tree-row.cmp').count();
+  }
+  async fileRowCount(): Promise<number> {
+    return this.env.rootLocator('.hf-tree-row.file').count();
   }
   async internalRowCount(): Promise<number> {
     return this.env.rootLocator('.hf-tree-row.internal').count();

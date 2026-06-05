@@ -210,6 +210,52 @@ func Validate(cfg *Config, goModPath string) error {
 		}
 	}
 
+	for _, name := range sortedKeys(cfg.ReviewViews) {
+		view := cfg.ReviewViews[name]
+		if strings.TrimSpace(name) == "" {
+			errs = append(errs, errors.New("overlay: review_views: name must not be empty"))
+			continue
+		}
+		if view.DefaultScope != "" && !isAllowedReviewScope(view.DefaultScope) {
+			errs = append(errs, fmt.Errorf(
+				"overlay: review_views %q has unknown default_scope %q (allowed: %s)",
+				name, view.DefaultScope, strings.Join(ReviewScopes, ", ")))
+		}
+		if view.DefaultExpansion != "" && !isAllowedReviewExpansion(view.DefaultExpansion) {
+			errs = append(errs, fmt.Errorf(
+				"overlay: review_views %q has unknown default_expansion %q (allowed: %s)",
+				name, view.DefaultExpansion, strings.Join(ReviewExpansions, ", ")))
+		}
+		for _, glob := range view.Packages.Include {
+			if err := validateGlob("review_view "+name, glob); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		for _, glob := range view.Packages.Exclude {
+			if err := validateGlob("review_view "+name, glob); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	for _, name := range sortedKeys(cfg.PackageOwners) {
+		owner := cfg.PackageOwners[name]
+		if strings.TrimSpace(name) == "" {
+			errs = append(errs, errors.New("overlay: package_owners: name must not be empty"))
+			continue
+		}
+		for _, glob := range owner.Packages.Include {
+			if err := validateGlob("package_owner "+name, glob); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		for _, glob := range owner.Packages.Exclude {
+			if err := validateGlob("package_owner "+name, glob); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
 	return errors.Join(errs...)
 }
 
@@ -218,6 +264,27 @@ func Validate(cfg *Config, goModPath string) error {
 func isAllowedDirection(d string) bool {
 	for _, allowed := range AdapterDirections {
 		if d == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+// isAllowedReviewScope reports whether s is a recognised default review scope.
+func isAllowedReviewScope(s string) bool {
+	for _, allowed := range ReviewScopes {
+		if s == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+// isAllowedReviewExpansion reports whether s is a recognised default expansion
+// policy for review views.
+func isAllowedReviewExpansion(s string) bool {
+	for _, allowed := range ReviewExpansions {
+		if s == allowed {
 			return true
 		}
 	}

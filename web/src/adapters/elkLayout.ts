@@ -10,6 +10,8 @@ export function createElkLayout(): LayoutPort {
         expanded: new Set(interaction.expanded),
         internalExpanded: new Set(interaction.internalExpanded),
         internalWide: new Set(interaction.internalWide),
+        cardDensity: interaction.cardDensity,
+        showInlineSignatures: interaction.showInlineSignatures,
       });
     },
   };

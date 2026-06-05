@@ -2,7 +2,7 @@ import type { Effect } from '../runtime/store';
 import type { AppState } from '../domain/state';
 import type { Event } from '../domain/events';
 import type { LayoutPort } from '../domain/ports';
-import { toInteraction } from '../domain/derive';
+import { selectReviewGraph, toInteraction } from '../domain/derive';
 
 const LAYOUT_TRIGGERS: ReadonlySet<Event['type']> = new Set([
   'GraphLoaded',
@@ -11,6 +11,15 @@ const LAYOUT_TRIGGERS: ReadonlySet<Event['type']> = new Set([
   'ComponentAllWideSet',
   'ChangeActivated',
   'TreeFocusRequested',
+  'ReviewViewChanged',
+  'ReviewScopeChanged',
+  'ReviewGroupingChanged',
+  'ReviewImpactModeChanged',
+  'ReviewChangeFilterChanged',
+  'UnchangedNeighborsToggled',
+  'ChangedDetailsOnlyToggled',
+  'CardDensityChanged',
+  'InlineSignaturesToggled',
 ]);
 
 export function createLayoutEffect(port: LayoutPort): Effect<AppState, Event> {
@@ -19,8 +28,20 @@ export function createLayoutEffect(port: LayoutPort): Effect<AppState, Event> {
     if (!LAYOUT_TRIGGERS.has(event.type)) return;
     const state = getState();
     if (!state.graph) return;
+    const graph = selectReviewGraph(
+      state.graph,
+      state.ui.reviewViewId,
+      state.ui.reviewScopeId,
+      state.ui.reviewGroupingId,
+      {
+        impactMode: state.ui.reviewImpactMode,
+        changeFilter: state.ui.reviewChangeFilter,
+        hideUnchangedNeighbors: state.ui.hideUnchangedNeighbors,
+        changedDetailsOnly: state.ui.changedDetailsOnly,
+      }
+    );
     const mySeq = ++seq;
-    port.compute(state.graph, toInteraction(state.ui)).then(
+    port.compute(graph, toInteraction(state.ui)).then(
       (laid) => { if (mySeq === seq) dispatch({ type: 'LayoutComputed', laid }); },
       (err) => { if (mySeq === seq) dispatch({ type: 'LayoutFailed', error: String(err) }); }
     );

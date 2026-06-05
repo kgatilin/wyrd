@@ -45,6 +45,7 @@ type Server struct {
 	multi     *serve.MultiState
 	templates *template.Template
 	assets    fs.FS
+	reviewUI  fs.FS
 
 	// plugins is the bootstrap result captured at server construction
 	// time (M13). httpHandlers / uiAssets / uiRegistry are derived
@@ -71,6 +72,16 @@ func (s *Server) WithVersion(info buildinfo.Info) *Server {
 	s.version = info
 	return s
 }
+
+// WithReviewUI mounts the built React review UI under /review/ and makes it
+// the root screen. The fs must be rooted at the Vite dist directory and contain
+// index.html plus assets/.
+func (s *Server) WithReviewUI(files fs.FS) *Server {
+	s.reviewUI = files
+	return s
+}
+
+func (s *Server) reviewUIEnabled() bool { return s.reviewUI != nil }
 
 // versionInfo returns the build identity for s, falling back to a
 // fresh buildinfo.Resolve() when WithVersion was not called.

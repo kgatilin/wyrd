@@ -1,4 +1,10 @@
-import type { UIGraph } from '../types';
+import type { Diff, UIGraph } from '../types';
+import type { LayoutPins } from './layoutPins';
+import type { ReviewDefaults } from './reviewDefaults';
+
+export type ReviewImpactMode = 'changed_neighbors' | 'changed_only' | 'containing_group' | 'review_view' | 'repository';
+export type ReviewChangeFilter = 'all' | Diff | 'dependency' | 'policy';
+export type CardDensity = 'detailed' | 'compact';
 
 /** Comment marker placed on the canvas. Canonical home (was components/PinnedMarker). */
 export interface Marker {
@@ -24,6 +30,8 @@ export interface Interaction {
   expanded: ReadonlySet<string>;
   internalExpanded: ReadonlySet<string>;
   internalWide: ReadonlySet<string>;
+  cardDensity: CardDensity;
+  showInlineSignatures: boolean;
 }
 
 export interface AppUI {
@@ -39,6 +47,20 @@ export interface AppUI {
   activeChangeId: string | null;
   activeMarkerId: string | null;
   zoom: number;
+  reviewViewId: string | null;
+  reviewScopeId: string | null;
+  reviewGroupingId: string | null;
+  reviewImpactMode: ReviewImpactMode;
+  reviewChangeFilter: ReviewChangeFilter;
+  hideUnchangedNeighbors: boolean;
+  changedDetailsOnly: boolean;
+  reviewDefaultsKey: string | null;
+  reviewDefaults: ReviewDefaults;
+  showGroupLabels: boolean;
+  cardDensity: CardDensity;
+  showInlineSignatures: boolean;
+  layoutPinScopeKey: string | null;
+  layoutPins: LayoutPins;
 }
 
 export interface AppState {
@@ -61,10 +83,24 @@ export const initialState: AppState = {
     internalWide: new Set(),
     leftTab: 'tree',
     leftCollapsed: false,
-    rightCollapsed: false,
+    rightCollapsed: true,
     activeChangeId: null,
     activeMarkerId: null,
     zoom: 1,
+    reviewViewId: null,
+    reviewScopeId: null,
+    reviewGroupingId: null,
+    reviewImpactMode: 'changed_only',
+    reviewChangeFilter: 'all',
+    hideUnchangedNeighbors: false,
+    changedDetailsOnly: true,
+    reviewDefaultsKey: null,
+    reviewDefaults: {},
+    showGroupLabels: true,
+    cardDensity: 'detailed',
+    showInlineSignatures: true,
+    layoutPinScopeKey: null,
+    layoutPins: {},
   },
   markers: [],
   pendingComment: null,

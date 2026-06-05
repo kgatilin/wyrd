@@ -17,6 +17,7 @@ import (
 // at the top level because they do not depend on the active worktree.
 func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
 	mux.Handle("/assets/", nethttp.StripPrefix("/assets/", nethttp.FileServer(nethttp.FS(s.assets))))
+	s.registerReviewUIRoutes(mux)
 	mux.HandleFunc("/render", s.handleRender)
 	mux.HandleFunc("/worktree/select", s.handleWorktreeSelect)
 	// /api/version stays at the top level so its URL is the same in
@@ -38,7 +39,6 @@ func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
 	// them explicitly so unknown paths still 404 (rather than getting
 	// silently rewritten).
 	legacyRoots := []string{
-		"/",
 		"/layers",
 		"/packages",
 		"/packages/",
@@ -50,7 +50,13 @@ func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
 		"/search",
 		"/search/results",
 		"/types/",
+		"/api/uigraph",
 		"/api/types/",
+	}
+	if s.reviewUIEnabled() {
+		mux.HandleFunc("/", s.handleReviewUIRoot)
+	} else {
+		legacyRoots = append([]string{"/"}, legacyRoots...)
 	}
 	for _, p := range legacyRoots {
 		path := p

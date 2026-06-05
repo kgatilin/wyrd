@@ -107,10 +107,212 @@ describe('update — chrome + zoom slice', () => {
     s = update(s, { type: 'LeftCollapsedToggled' });
     expect(s.ui.leftCollapsed).toBe(true);
     s = update(s, { type: 'RightCollapsedToggled' });
-    expect(s.ui.rightCollapsed).toBe(true);
+    expect(s.ui.rightCollapsed).toBe(false);
   });
   it('ZoomChanged sets the zoom level', () => {
     expect(update(withGraph(), { type: 'ZoomChanged', zoom: 0.5 }).ui.zoom).toBe(0.5);
+  });
+
+  it('ReviewViewChanged adopts the view default scope and grouping', () => {
+    const reviewGraph: UIGraph = {
+      ...withGraph().graph!,
+      reviewViews: [
+        { id: 'api', title: 'API', defaultScope: 'all_public_api', groupBy: 'directory', componentIds: ['a'], componentCount: 1 },
+        { id: 'runtime', title: 'Runtime', defaultScope: 'everything', groupBy: 'layer', componentIds: ['a'], componentCount: 1 },
+      ],
+      reviewGroupings: [
+        { id: 'directory', title: 'Directory', groups: [{ id: 'directory:root', title: 'Root', componentIds: ['a'], componentCount: 1 }] },
+        { id: 'layer', title: 'Layer', groups: [{ id: 'layer:api', title: 'API', componentIds: ['a'], componentCount: 1 }] },
+      ],
+    };
+    const s = update(
+      { ...withGraph(), graph: reviewGraph, ui: { ...initialState.ui, reviewGroupingId: 'directory', focusId: 'a', activeChangeId: 'c' } },
+      { type: 'ReviewViewChanged', id: 'runtime' }
+    );
+    expect(s.ui.reviewScopeId).toBe('everything');
+    expect(s.ui.reviewGroupingId).toBe('layer');
+    expect(s.ui.focusId).toBeNull();
+    expect(s.ui.activeChangeId).toBeNull();
+  });
+
+  it('ReviewViewChanged uses saved scope and grouping defaults for that view', () => {
+    const reviewGraph: UIGraph = {
+      ...withGraph().graph!,
+      reviewScopes: [
+        { id: 'top_level_public_api', title: 'Top-level Public API' },
+        { id: 'all_public_api', title: 'All Public API' },
+        { id: 'everything', title: 'Everything' },
+      ],
+      reviewViews: [
+        { id: 'api', title: 'API', defaultScope: 'top_level_public_api', groupBy: 'directory', componentIds: ['a'], componentCount: 1 },
+        { id: 'runtime', title: 'Runtime', defaultScope: 'everything', groupBy: 'layer', componentIds: ['a'], componentCount: 1 },
+      ],
+      reviewGroupings: [
+        { id: 'directory', title: 'Directory', groups: [{ id: 'directory:root', title: 'Root', componentIds: ['a'], componentCount: 1 }] },
+        { id: 'layer', title: 'Layer', groups: [{ id: 'layer:api', title: 'API', componentIds: ['a'], componentCount: 1 }] },
+        { id: 'package_owner', title: 'Package Owner', groups: [{ id: 'owner:platform', title: 'Platform', componentIds: ['a'], componentCount: 1 }] },
+      ],
+    };
+    const s = update(
+      {
+        ...withGraph(),
+        graph: reviewGraph,
+        ui: {
+          ...initialState.ui,
+          reviewGroupingId: 'directory',
+          reviewDefaults: {
+            reviewViewId: 'api',
+            scopeByView: { runtime: 'all_public_api' },
+            groupingByView: { runtime: 'package_owner' },
+          },
+        },
+      },
+      { type: 'ReviewViewChanged', id: 'runtime' }
+    );
+    expect(s.ui.reviewScopeId).toBe('all_public_api');
+    expect(s.ui.reviewGroupingId).toBe('package_owner');
+    expect(s.ui.reviewDefaults.reviewViewId).toBe('runtime');
+  });
+
+  it('ReviewGroupingChanged switches grouping and clears focus', () => {
+    const s = update(
+      { ...withGraph(), ui: { ...initialState.ui, reviewGroupingId: 'directory', focusId: 'a', activeChangeId: 'c' } },
+      { type: 'ReviewGroupingChanged', id: 'layer' }
+    );
+    expect(s.ui.reviewGroupingId).toBe('layer');
+    expect(s.ui.focusId).toBeNull();
+    expect(s.ui.activeChangeId).toBeNull();
+  });
+
+  it('review filter events update filters and clear focus', () => {
+    let s = update(
+      { ...withGraph(), ui: { ...initialState.ui, focusId: 'a', activeChangeId: 'c' } },
+      { type: 'ReviewImpactModeChanged', mode: 'changed_only' }
+    );
+    expect(s.ui.reviewImpactMode).toBe('changed_only');
+    expect(s.ui.focusId).toBeNull();
+    expect(s.ui.activeChangeId).toBeNull();
+
+    s = update(
+      { ...withGraph(), ui: { ...initialState.ui, focusId: 'a', activeChangeId: 'c' } },
+      { type: 'ReviewChangeFilterChanged', filter: 'added' }
+    );
+    expect(s.ui.reviewChangeFilter).toBe('added');
+    expect(s.ui.focusId).toBeNull();
+    expect(s.ui.activeChangeId).toBeNull();
+  });
+
+  it('UnchangedNeighborsToggled flips neighbor visibility and clears focus', () => {
+    let s = update(
+      { ...withGraph(), ui: { ...initialState.ui, focusId: 'a', activeChangeId: 'c' } },
+      { type: 'UnchangedNeighborsToggled' }
+    );
+    expect(s.ui.hideUnchangedNeighbors).toBe(true);
+    expect(s.ui.focusId).toBeNull();
+    expect(s.ui.activeChangeId).toBeNull();
+    s = update(s, { type: 'UnchangedNeighborsToggled' });
+    expect(s.ui.hideUnchangedNeighbors).toBe(false);
+  });
+
+  it('ChangedDetailsOnlyToggled flips package detail filtering and clears focus', () => {
+    let s = update(
+      { ...withGraph(), ui: { ...initialState.ui, focusId: 'a', activeChangeId: 'c' } },
+      { type: 'ChangedDetailsOnlyToggled' }
+    );
+    expect(s.ui.changedDetailsOnly).toBe(false);
+    expect(s.ui.focusId).toBeNull();
+    expect(s.ui.activeChangeId).toBeNull();
+    s = update(s, { type: 'ChangedDetailsOnlyToggled' });
+    expect(s.ui.changedDetailsOnly).toBe(true);
+  });
+
+  it('GroupLabelsToggled flips group label visibility', () => {
+    let s = update(withGraph(), { type: 'GroupLabelsToggled' });
+    expect(s.ui.showGroupLabels).toBe(false);
+    s = update(s, { type: 'GroupLabelsToggled' });
+    expect(s.ui.showGroupLabels).toBe(true);
+  });
+
+  it('CardDensityChanged switches card presentation density', () => {
+    const s = update(withGraph(), { type: 'CardDensityChanged', density: 'compact' });
+    expect(s.ui.cardDensity).toBe('compact');
+  });
+
+  it('InlineSignaturesToggled flips inline signature visibility', () => {
+    let s = update(withGraph(), { type: 'InlineSignaturesToggled' });
+    expect(s.ui.showInlineSignatures).toBe(false);
+    s = update(s, { type: 'InlineSignaturesToggled' });
+    expect(s.ui.showInlineSignatures).toBe(true);
+  });
+
+  it('review default load applies persisted valid view, scope, and grouping', () => {
+    const reviewGraph: UIGraph = {
+      ...withGraph().graph!,
+      reviewScopes: [
+        { id: 'top_level_public_api', title: 'Top-level Public API' },
+        { id: 'all_public_api', title: 'All Public API' },
+      ],
+      reviewViews: [
+        { id: 'api', title: 'API', defaultScope: 'top_level_public_api', groupBy: 'directory', componentIds: ['a'], componentCount: 1 },
+        { id: 'runtime', title: 'Runtime', defaultScope: 'top_level_public_api', groupBy: 'directory', componentIds: ['a'], componentCount: 1 },
+      ],
+      reviewGroupings: [
+        { id: 'directory', title: 'Directory', groups: [{ id: 'directory:root', title: 'Root', componentIds: ['a'], componentCount: 1 }] },
+        { id: 'package_owner', title: 'Package Owner', groups: [{ id: 'owner:platform', title: 'Platform', componentIds: ['a'], componentCount: 1 }] },
+      ],
+      defaultReviewView: 'api',
+      defaultReviewScope: 'top_level_public_api',
+      defaultGrouping: 'directory',
+    };
+    const loaded = update(initialState, { type: 'GraphLoaded', graph: reviewGraph });
+    const s = update(loaded, {
+      type: 'ReviewDefaultsLoaded',
+      key: 'repo-defaults',
+      defaults: {
+        reviewViewId: 'runtime',
+        scopeByView: { runtime: 'all_public_api' },
+        groupingByView: { runtime: 'package_owner' },
+      },
+    });
+    expect(s.ui.reviewDefaultsKey).toBe('repo-defaults');
+    expect(s.ui.reviewViewId).toBe('runtime');
+    expect(s.ui.reviewScopeId).toBe('all_public_api');
+    expect(s.ui.reviewGroupingId).toBe('package_owner');
+    expect(s.ui.focusId).toBeNull();
+    expect(s.ui.activeChangeId).toBeNull();
+  });
+
+  it('layout pin events load, merge, and reset pinned positions', () => {
+    let s = update(withGraph(), {
+      type: 'LayoutPinsLoaded',
+      scopeKey: 'scope-a',
+      pins: { a: { x: 10, y: 20 } },
+    });
+    expect(s.ui.layoutPinScopeKey).toBe('scope-a');
+    expect(s.ui.layoutPins).toEqual({ a: { x: 10, y: 20 } });
+
+    s = update(s, { type: 'ComponentLayoutPinned', id: 'b', x: 30.4, y: 40.6 });
+    expect(s.ui.layoutPins).toEqual({ a: { x: 10, y: 20 }, b: { x: 30, y: 41 } });
+
+    s = update(s, { type: 'ComponentsLayoutPinned', pins: { c: { x: 50, y: 60 } } });
+    expect(s.ui.layoutPins.c).toEqual({ x: 50, y: 60 });
+
+    s = update(s, { type: 'LayoutPinReset', id: 'b' });
+    expect(s.ui.layoutPins).not.toHaveProperty('b');
+    expect(s.ui.layoutPins.a).toEqual({ x: 10, y: 20 });
+
+    s = update(s, { type: 'ComponentsLayoutPinned', pins: { b: { x: 30, y: 40 }, d: { x: 70, y: 80 } } });
+    s = update(s, { type: 'LayoutGroupPinsReset', componentIds: ['a', 'd'] });
+    expect(s.ui.layoutPins).not.toHaveProperty('a');
+    expect(s.ui.layoutPins).not.toHaveProperty('d');
+    expect(s.ui.layoutPins.b).toEqual({ x: 30, y: 40 });
+
+    s = update(s, { type: 'LayoutPinsReset' });
+    expect(s.ui.layoutPins).toEqual({});
+
+    s = update(s, { type: 'ComponentsLayoutPinned', pins: { a: { x: 10, y: 20 } } });
+    s = update(s, { type: 'LayoutRepoPinsReset' });
+    expect(s.ui.layoutPins).toEqual({});
   });
 });
 
@@ -127,6 +329,43 @@ describe('update — load + geometry slice', () => {
     expect(s.graph).toBe(graph);
     expect(s.load.status).toBe('ready');
     expect(s.ui.expanded.has('a')).toBe(true); // initialExpanded → first component
+  });
+
+  it('GraphLoaded initializes review view, scope, and grouping defaults', () => {
+    const reviewGraph: UIGraph = {
+      ...graph,
+      reviewViews: [
+        { id: 'api', title: 'API', defaultScope: 'all_public_api', groupBy: 'layer', componentIds: ['a'], componentCount: 1 },
+      ],
+      reviewGroupings: [
+        { id: 'directory', title: 'Directory', groups: [{ id: 'directory:root', title: 'Root', componentIds: ['a'], componentCount: 1 }] },
+        { id: 'layer', title: 'Layer', groups: [{ id: 'layer:api', title: 'API', componentIds: ['a'], componentCount: 1 }] },
+      ],
+      defaultReviewView: 'api',
+      defaultReviewScope: 'top_level_public_api',
+      defaultGrouping: 'directory',
+    };
+    const s = update(initialState, { type: 'GraphLoaded', graph: reviewGraph });
+    expect(s.ui.reviewViewId).toBe('api');
+    expect(s.ui.reviewScopeId).toBe('top_level_public_api');
+    expect(s.ui.reviewGroupingId).toBe('layer');
+  });
+
+  it('GraphLoaded applies review view initial expansion policy', () => {
+    const reviewGraph: UIGraph = {
+      ...graph,
+      reviewViews: [
+        { id: 'api', title: 'API', defaultScope: 'everything', defaultExpansion: 'collapsed', groupBy: 'layer', componentIds: ['a'], componentCount: 1 },
+      ],
+      reviewGroupings: [
+        { id: 'layer', title: 'Layer', groups: [{ id: 'layer:api', title: 'API', componentIds: ['a'], componentCount: 1 }] },
+      ],
+      defaultReviewView: 'api',
+      defaultGrouping: 'layer',
+    };
+    const s = update(initialState, { type: 'GraphLoaded', graph: reviewGraph });
+    expect([...s.ui.expanded]).toEqual([]);
+    expect([...s.ui.internalExpanded]).toEqual([]);
   });
 
   it('GraphLoaded selects the changes tab when the graph carries a PR', () => {

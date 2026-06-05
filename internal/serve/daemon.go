@@ -51,6 +51,12 @@ type Options struct {
 	// as each State is loaded (one watcher per loaded worktree).
 	MultiState *MultiState
 
+	// ReviewBaseRef, when set in multi-worktree mode, is preloaded in
+	// the background after HTTP startup. This keeps the review baseline
+	// (usually branch "main") hot and shared by every worktree diff
+	// without blocking the UI from reporting progress.
+	ReviewBaseRef string
+
 	// Debug enables verbose per-event logging.
 	Debug bool
 
@@ -246,6 +252,22 @@ func Serve(ctx context.Context, opts Options) error {
 		} else {
 			fmt.Fprintf(logOut, "serve: HTTP transport requested on %s — no transport wired (stub)\n", opts.HTTPAddr)
 		}
+	}
+	if opts.MultiState != nil && opts.ReviewBaseRef != "" {
+		baseRef := opts.ReviewBaseRef
+		go func() {
+			fmt.Fprintf(logOut, "serve: preloading review base %q in background\n", baseRef)
+			baseState, baseName, err := opts.MultiState.GetByRef(runCtx, baseRef)
+			if err != nil {
+				fmt.Fprintf(logOut, "serve: preload review base %q: %v\n", baseRef, err)
+				return
+			}
+			if baseState != nil {
+				snap := baseState.Snapshot()
+				fmt.Fprintf(logOut, "serve: preloaded review base %q as worktree %q (%d package(s))\n",
+					baseRef, baseName, len(snap.Packages))
+			}
+		}()
 	}
 	_ = pluginRes // forwarded via PluginHTTPFactory only.
 	// Always remove serve.json on return so a killed process doesn't

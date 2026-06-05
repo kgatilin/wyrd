@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"sync"
 
@@ -55,6 +56,11 @@ type MultiState struct {
 
 	// order is the lexical list of names (matches entries).
 	order []string
+
+	// defaultName is the worktree matching root. It is preferred over
+	// first-alphabetical so `archai serve --repo .` opens the worktree
+	// the user actually started from.
+	defaultName string
 
 	// states is the lazy-loaded State for each worktree name.
 	states map[string]*State
@@ -120,6 +126,7 @@ func (m *MultiState) Refresh() error {
 
 	next := make(map[string]worktree.Entry, len(entries))
 	order := make([]string, 0, len(entries))
+	defaultName := ""
 	for _, e := range entries {
 		if e.Name == "" {
 			continue
@@ -133,10 +140,17 @@ func (m *MultiState) Refresh() error {
 		}
 		next[e.Name] = e
 		order = append(order, e.Name)
+		if defaultName == "" && sameDiscoveredPath(e.Path, m.root) {
+			defaultName = e.Name
+		}
 	}
 	sort.Strings(order)
+	if defaultName == "" && len(order) > 0 {
+		defaultName = order[0]
+	}
 	m.entries = next
 	m.order = order
+	m.defaultName = defaultName
 
 	// Drop cached states whose worktrees have disappeared, and close
 	// any watchers they held. We collect closers under the lock and
@@ -210,15 +224,31 @@ func (m *MultiState) Has(name string) bool {
 	return ok
 }
 
+// FindRef resolves a worktree by its UI/server ref. The ref may be a
+// discovered worktree name or a git branch name such as "main".
+func (m *MultiState) FindRef(ref string) (string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ref == "" {
+		return "", false
+	}
+	if _, ok := m.entries[ref]; ok {
+		return ref, true
+	}
+	for _, name := range m.order {
+		if m.entries[name].Branch == ref {
+			return name, true
+		}
+	}
+	return "", false
+}
+
 // Default returns the first worktree name in lexical order, or ""
 // when no worktrees have been discovered.
 func (m *MultiState) Default() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.order) == 0 {
-		return ""
-	}
-	return m.order[0]
+	return m.defaultName
 }
 
 // Get returns (and lazy-loads) the State for the given worktree name.
@@ -280,6 +310,21 @@ func (m *MultiState) Get(ctx context.Context, name string) (*State, error) {
 	return loaded, nil
 }
 
+// GetByRef resolves ref with FindRef and returns the cached State for
+// that worktree, loading it once if necessary. A missing ref is not an
+// error; callers can use this for optional review bases such as "main".
+func (m *MultiState) GetByRef(ctx context.Context, ref string) (*State, string, error) {
+	name, ok := m.FindRef(ref)
+	if !ok {
+		return nil, "", nil
+	}
+	state, err := m.Get(ctx, name)
+	if err != nil {
+		return nil, name, err
+	}
+	return state, name, nil
+}
+
 // Entry returns the Entry for the named worktree (path, branch, …).
 // Returns false when name is unknown.
 func (m *MultiState) Entry(name string) (worktree.Entry, bool) {
@@ -287,4 +332,21 @@ func (m *MultiState) Entry(name string) (worktree.Entry, bool) {
 	defer m.mu.Unlock()
 	e, ok := m.entries[name]
 	return e, ok
+}
+
+func sameDiscoveredPath(a, b string) bool {
+	a = normalizeDiscoveredPath(a)
+	b = normalizeDiscoveredPath(b)
+	return a != "" && a == b
+}
+
+func normalizeDiscoveredPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err == nil {
+		path = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	return filepath.Clean(path)
 }

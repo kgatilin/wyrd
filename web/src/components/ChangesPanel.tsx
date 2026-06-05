@@ -2,6 +2,7 @@ import type { UIGraph } from '../types';
 export { deriveChanges } from '../domain/derive';
 export type { ChangeEntry } from '../domain/derive';
 import type { ChangeEntry } from '../domain/derive';
+import { SignatureDiff } from './SignatureDiff';
 
 export interface ChangesPanelProps {
   /** The full graph (for PR info) */
@@ -39,10 +40,13 @@ export function ChangesPanel({
           <div className="hf-change-card">
             <div className="hf-change-row1">
               <span className={`hf-change-badge ${ch.kind}`}>
-                {ch.kind === 'added' ? '+' : ch.kind === 'removed' ? '-' : '~'}
+                {ch.kind === 'added' ? '+' : ch.kind === 'removed' ? '-' : ch.kind === 'policy' ? '!' : '~'}
               </span>
               <span className="hf-change-name">{ch.name}</span>
             </div>
+            {ch.kind === 'changed' && (
+              <SignatureDiff before={ch.diffBefore} after={ch.diffAfter} />
+            )}
             <div className="hf-change-where">{ch.where}</div>
           </div>
         </div>

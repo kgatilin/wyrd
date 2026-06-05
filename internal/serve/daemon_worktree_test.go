@@ -17,6 +17,7 @@ import (
 // would create an import cycle in this package).
 type fakeHTTPTransport struct {
 	boundAddr string
+	readyCh   chan string
 
 	// observer, when non-nil, is the activity observer installed via
 	// SetActivityObserver. Guarded by mu so idle-timeout tests can
@@ -41,6 +42,9 @@ func (f *fakeHTTPTransport) Serve(ctx context.Context, addr string, ready func(b
 	}
 	if ready != nil {
 		ready(bound)
+	}
+	if f.readyCh != nil {
+		f.readyCh <- bound
 	}
 	<-ctx.Done()
 	return nil
@@ -124,6 +128,73 @@ func TestServe_WritesAndRemovesServeJSON(t *testing.T) {
 	// serve.json must be gone.
 	if _, err := os.Stat(servePath); !os.IsNotExist(err) {
 		t.Errorf("serve.json still exists after shutdown: err=%v", err)
+	}
+}
+
+func TestServe_MultiReviewBasePreloadDoesNotBlockHTTP(t *testing.T) {
+	root := newGitRepo(t)
+
+	releaseLoad := make(chan struct{})
+	loadStarted := make(chan string, 1)
+	loader := func(ctx context.Context, name, path string) (*State, error) {
+		select {
+		case loadStarted <- name:
+		default:
+		}
+		select {
+		case <-releaseLoad:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return NewState(path), nil
+	}
+
+	multi := NewMultiState(root, loader)
+	if err := multi.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	fake := &fakeHTTPTransport{readyCh: make(chan string, 1)}
+	opts := Options{
+		Root:          root,
+		MultiState:    multi,
+		ReviewBaseRef: "main",
+		HTTPAddr:      "127.0.0.1:0",
+		HTTPServerFactory: func(*State) (HTTPTransport, error) {
+			return fake, nil
+		},
+		LogOut: io.Discard,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx, opts) }()
+
+	select {
+	case <-fake.readyCh:
+	case name := <-loadStarted:
+		select {
+		case <-fake.readyCh:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("HTTP did not start while review base load for %q was blocked", name)
+		}
+	case err := <-done:
+		t.Fatalf("Serve returned before HTTP startup: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("HTTP did not start while review base preload was still blocked")
+	}
+
+	close(releaseLoad)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Serve did not return within 3s of cancel")
 	}
 }
 

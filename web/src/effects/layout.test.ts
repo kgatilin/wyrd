@@ -80,4 +80,64 @@ describe('createLayoutEffect', () => {
     expect(port.compute).toHaveBeenCalledTimes(1);
     expect(dispatch).toHaveBeenCalledWith({ type: 'LayoutComputed', laid });
   });
+
+  it('re-lays out using the hide-unchanged-neighbors projection', async () => {
+    const reviewGraph: UIGraph = {
+      ...graph,
+      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      components: [
+        { id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
+        { id: 'b', name: 'B', tech: '', desc: '', bc: 'bc1', diff: 'added', internals: [], ports: [] },
+      ],
+      edges: [{ id: 'ab', from: 'a', to: 'b', fromPort: '', toPort: '', label: '' }],
+    };
+    const laid = { ...reviewGraph };
+    const compute = vi.fn().mockResolvedValue(laid);
+    const port: LayoutPort = { compute };
+    const dispatch = vi.fn();
+    createLayoutEffect(port)(
+      { type: 'UnchangedNeighborsToggled' },
+      () => ({ ...stateWith(reviewGraph), ui: { ...initialState.ui, hideUnchangedNeighbors: true } }),
+      dispatch as (e: Event) => void
+    );
+    await flush();
+
+    expect(port.compute).toHaveBeenCalledTimes(1);
+    expect(compute.mock.calls[0][0].components.map((c: { id: string }) => c.id)).toEqual(['b']);
+  });
+
+  it('re-lays out using the changed-details-only projection', async () => {
+    const reviewGraph: UIGraph = {
+      ...graph,
+      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      components: [
+        {
+          id: 'a',
+          name: 'A',
+          tech: '',
+          desc: '',
+          bc: 'bc1',
+          internals: [
+            { id: 'a.Changed', kind: 'class', name: 'Changed', diff: 'added', members: [] },
+            { id: 'a.Unchanged', kind: 'class', name: 'Unchanged', members: [] },
+          ],
+          ports: [],
+        },
+      ],
+      edges: [],
+    };
+    const laid = { ...reviewGraph };
+    const compute = vi.fn().mockResolvedValue(laid);
+    const port: LayoutPort = { compute };
+    const dispatch = vi.fn();
+    createLayoutEffect(port)(
+      { type: 'ChangedDetailsOnlyToggled' },
+      () => ({ ...stateWith(reviewGraph), ui: { ...initialState.ui, changedDetailsOnly: true } }),
+      dispatch as (e: Event) => void
+    );
+    await flush();
+
+    expect(port.compute).toHaveBeenCalledTimes(1);
+    expect(compute.mock.calls[0][0].components[0].internals.map((i: { id: string }) => i.id)).toEqual(['a.Changed']);
+  });
 });

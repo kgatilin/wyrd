@@ -36,6 +36,8 @@ import (
 	yamlv3 "gopkg.in/yaml.v3"
 )
 
+const defaultServeReviewBaseRef = "main"
+
 func main() {
 	// Root command
 	rootCmd := &cobra.Command{
@@ -314,6 +316,8 @@ manual verification and as a base for future features.`,
 		RunE: runServe,
 	}
 	serveCmd.Flags().String("root", ".", "Project root directory")
+	serveCmd.Flags().String("repo", "", "Repository root directory for repo-level review mode (enables --multi)")
+	serveCmd.Flags().Bool("ui", false, "Serve the React architecture review UI as the first screen")
 	serveCmd.Flags().Bool("mcp-stdio", false, "Run as MCP stdio thin client, proxying tools/call to the worktree's HTTP daemon")
 	// Default to loopback-only port 0 so parallel worktrees don't
 	// fight over a fixed port and the daemon isn't exposed on the LAN
@@ -451,6 +455,8 @@ Examples:
 //     sees whatever was loaded at startup.
 func runServe(cmd *cobra.Command, args []string) error {
 	root, _ := cmd.Flags().GetString("root")
+	repo, _ := cmd.Flags().GetString("repo")
+	ui, _ := cmd.Flags().GetBool("ui")
 	mcpStdio, _ := cmd.Flags().GetBool("mcp-stdio")
 	httpAddr, _ := cmd.Flags().GetString("http")
 	httpAddrFromFlag := cmd.Flags().Changed("http")
@@ -458,6 +464,22 @@ func runServe(cmd *cobra.Command, args []string) error {
 	multi, _ := cmd.Flags().GetBool("multi")
 	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 	idleTimeout, _ := cmd.Flags().GetDuration("idle-timeout")
+
+	var err error
+	root, multi, err = resolveServeRootMode(root, cmd.Flags().Changed("root"), repo, multi)
+	if err != nil {
+		return err
+	}
+	if ui && httpAddr == "" {
+		return fmt.Errorf("--ui requires HTTP; do not pass --http \"\"")
+	}
+	var reviewUI fs.FS
+	if ui {
+		reviewUI, err = resolveReviewUIFS()
+		if err != nil {
+			return err
+		}
+	}
 
 	// Resolve --http precedence: explicit flag > overlay serve.http_addr
 	// > flag default. Only consult the overlay when the user did not
@@ -543,6 +565,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("serve: refresh worktrees: %w", err)
 		}
 		opts.MultiState = multiState
+		opts.ReviewBaseRef = defaultServeReviewBaseRef
 		// In multi-worktree mode plugins still bootstrap once; their
 		// HTTP/UI surfaces are shared across worktrees.
 		opts.PluginBootstrap = bootstrapDaemonPlugins
@@ -551,7 +574,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return nil, err
 			}
-			return srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins), nil
+			srv = srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins)
+			if reviewUI != nil {
+				srv = srv.WithReviewUI(reviewUI)
+			}
+			return srv, nil
 		}
 	} else {
 		opts.PluginBootstrap = bootstrapDaemonPlugins
@@ -560,11 +587,74 @@ func runServe(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return nil, err
 			}
-			return srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins), nil
+			srv = srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins)
+			if reviewUI != nil {
+				srv = srv.WithReviewUI(reviewUI)
+			}
+			return srv, nil
 		}
 	}
 
 	return serve.Serve(ctx, opts)
+}
+
+func resolveServeRootMode(root string, rootChanged bool, repo string, multi bool) (string, bool, error) {
+	repo = strings.TrimSpace(repo)
+	if repo == "" {
+		return root, multi, nil
+	}
+	if rootChanged && root != "" && root != "." && filepath.Clean(root) != filepath.Clean(repo) {
+		return "", false, fmt.Errorf("--root and --repo point at different directories; use one")
+	}
+	return repo, true, nil
+}
+
+func resolveReviewUIFS() (fs.FS, error) {
+	dir, err := resolveReviewUIDistDir()
+	if err != nil {
+		return nil, err
+	}
+	return os.DirFS(dir), nil
+}
+
+func resolveReviewUIDistDir() (string, error) {
+	candidates := []string{}
+	if env := strings.TrimSpace(os.Getenv("ARCHAI_REVIEW_UI_DIR")); env != "" {
+		candidates = append(candidates, env)
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(cwd, "web", "dist"))
+	}
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(exeDir, "web", "dist"),
+			filepath.Join(exeDir, "..", "web", "dist"),
+		)
+	}
+	for _, dir := range candidates {
+		if reviewUIDistExists(dir) {
+			abs, err := filepath.Abs(dir)
+			if err != nil {
+				return dir, nil
+			}
+			return abs, nil
+		}
+	}
+	return "", fmt.Errorf("review UI dist not found; run `npm run build` in web/ or set ARCHAI_REVIEW_UI_DIR")
+}
+
+func reviewUIDistExists(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(dir, "index.html")); err != nil {
+		return false
+	}
+	if info, err := os.Stat(filepath.Join(dir, "assets")); err != nil || !info.IsDir() {
+		return false
+	}
+	return true
 }
 
 // loadServeHTTPAddrFromOverlay reads <root>/archai.yaml (if present) and
