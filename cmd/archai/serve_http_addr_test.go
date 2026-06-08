@@ -183,7 +183,8 @@ func TestResolveReviewUIFS_EmbeddedDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read embedded index.html: %v", err)
 	}
-	if !strings.Contains(string(data), `<div id="root"></div>`) {
+	text := string(data)
+	if !strings.Contains(text, `<div id="root">`) || !strings.Contains(text, `Reading architecture graph`) {
 		t.Fatalf("embedded index.html does not look like the review UI")
 	}
 }

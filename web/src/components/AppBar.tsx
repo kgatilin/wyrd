@@ -11,6 +11,8 @@ export interface AppBarProps {
   onRefresh?: () => void;
   /** True while graph data is being reloaded */
   refreshing?: boolean;
+  /** Open the ArchMotif analysis panel */
+  onMetrics?: () => void;
   /** Number of comments for the badge */
   commentCount: number;
   /** PR data for crumbs (optional - use defaults if absent) */
@@ -32,6 +34,7 @@ export function AppBar({
   onThemeToggle,
   onRefresh,
   refreshing = false,
+  onMetrics,
   commentCount,
   pr,
   onSubmitReview,
@@ -71,6 +74,13 @@ export function AppBar({
         title="Toggle theme"
       >
         {theme === 'dark' ? '☾' : '☀'}
+      </button>
+      <button
+        className="hf-btn"
+        onClick={onMetrics}
+        title="Open ArchMotif package metrics"
+      >
+        ArchMotif
       </button>
       <button
         className="hf-btn"

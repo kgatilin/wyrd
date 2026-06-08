@@ -350,14 +350,15 @@
   width: 240px;
   background: var(--bg-1);
   border-right: 1px solid var(--line-1);
-  flex-shrink: 0;
+  flex: 0 0 240px;
   overflow-y: auto;
   display: flex; flex-direction: column;
 }
 .hf-side.right {
   border-right: none;
   border-left: 1px solid var(--line-1);
-  width: 320px;
+  width: 360px;
+  flex-basis: 360px;
 }
 .hf-side-title {
   padding: 10px 14px 6px;
@@ -1089,6 +1090,144 @@
 }
 
 .hf-list { flex: 1; overflow-y: auto; padding: 8px; }
+.hf-motif-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  color: var(--fg-1);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.hf-motif-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.hf-motif-loading,
+.hf-motif-inline,
+.hf-motif-error,
+.hf-motif-message,
+.hf-motif-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-1);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--fg-2);
+  font: 12px 'JetBrains Mono', ui-monospace, monospace;
+}
+.hf-motif-inline {
+  margin-bottom: 8px;
+}
+.hf-motif-error {
+  color: var(--rem-fg);
+  border-color: var(--rem-line);
+  background: var(--rem-bg);
+  margin-bottom: 8px;
+}
+.hf-motif-message {
+  color: var(--fg-1);
+  margin-bottom: 8px;
+}
+.hf-motif-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--line-2);
+  border-top-color: var(--accent);
+  animation: hf-load-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+.hf-motif-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.hf-motif-metric {
+  min-height: 56px;
+  border: 1px solid var(--line-1);
+  border-radius: 6px;
+  background: var(--bg-2);
+  padding: 8px 9px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.hf-motif-metric strong {
+  color: var(--fg-0);
+  font: 700 20px/1 'JetBrains Mono', ui-monospace, monospace;
+}
+.hf-motif-metric span {
+  margin-top: 4px;
+  color: var(--fg-3);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.hf-motif-section {
+  border-top: 1px solid var(--line-1);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.hf-motif-section-head,
+.hf-motif-kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hf-motif-section-head {
+  margin-bottom: 7px;
+  color: var(--fg-3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.hf-motif-section-head strong,
+.hf-motif-kv strong {
+  color: var(--fg-1);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.hf-motif-section-head strong.ok { color: var(--add-fg); }
+.hf-motif-section-head strong.warn { color: var(--chg-fg); }
+.hf-motif-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 5px 7px;
+  border: 1px solid var(--line-1);
+  border-radius: 6px;
+  background: var(--bg-2);
+  margin-bottom: 5px;
+}
+.hf-motif-row-main {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-1);
+  font: 11px 'JetBrains Mono', ui-monospace, monospace;
+}
+.hf-motif-row-value {
+  flex-shrink: 0;
+  min-width: 42px;
+  text-align: right;
+  color: var(--fg-2);
+  font: 600 11px 'JetBrains Mono', ui-monospace, monospace;
+}
+.hf-motif-kv {
+  min-height: 24px;
+  color: var(--fg-2);
+  font-size: 11px;
+}
 .hf-source-drawer {
   position: absolute;
   top: 10px;
@@ -1426,7 +1565,7 @@
 
 /* ─────────────────────────── V4 — merged ─────────────────────────── */
 .v4 .hf-side { position: relative; transition: width 0.18s ease; }
-.hf-collapsible.collapsed { width: 36px !important; overflow: hidden; }
+.hf-collapsible.collapsed { width: 36px !important; min-width: 36px !important; flex-basis: 36px !important; overflow: hidden; }
 .hf-collapsible.collapsed > *:not(.hf-side-toggle):not(.hf-side-vlabel) { display: none !important; }
 
 .hf-side-toggle {

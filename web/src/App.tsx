@@ -27,8 +27,9 @@ import { Legend } from './components/Legend';
 import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
 import { SourceDrawer, type SaveSourceResult, type SourceDrawerState } from './components/SourceDrawer';
+import { ArchMotifPanel } from './components/ArchMotifPanel';
 import { PAN_MARGIN, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './view/viewportConstants';
-import { PinnedMarker, Marker } from './components/PinnedMarker';
+import { PinnedMarker } from './components/PinnedMarker';
 
 /**
  * Main application component - V4 layout shell.
@@ -430,6 +431,11 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     dispatch({ type: 'GraphRequested', worktree: activeWorktree || undefined });
   };
 
+  const openArchMotifPanel = () => {
+    setSourceViewer(null);
+    if (rightCollapsed) dispatch({ type: 'RightCollapsedToggled' });
+  };
+
   const openSourceFile = (path: string) => {
     const seq = ++sourceRequestSeq.current;
     setSourceViewer({ path, status: 'loading' });
@@ -480,18 +486,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
       return;
     }
     dispatch({ type: 'CanvasCleared' });
-  };
-
-  // Handle marker click in right panel - activate in store + scroll to marker
-  const handleMarkerCardClick = (marker: Marker) => {
-    dispatch({ type: 'MarkerActivated', id: marker.id });
-    if (canvasWrapRef.current) {
-      canvasWrapRef.current.scrollTo({
-        left: (PAN_MARGIN + marker.x) * zoom - canvasWrapRef.current.clientWidth / 2,
-        top: (PAN_MARGIN + marker.y) * zoom - canvasWrapRef.current.clientHeight / 2,
-        behavior: 'smooth',
-      });
-    }
   };
 
   // Calculate canvas dimensions based on laid-out content (geometry)
@@ -549,6 +543,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
         onThemeToggle={() => dispatch({ type: 'ThemeToggled' })}
         onRefresh={refreshGraph}
         refreshing={load.status === 'loading'}
+        onMetrics={openArchMotifPanel}
         commentCount={markers.length}
         pr={graph.pr}
       />
@@ -854,7 +849,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
           <Legend showDiff={showDiff} />
         </div>
 
-        {/* RIGHT PANE - comments reference (collapsible) */}
+        {/* RIGHT PANE - analysis tools (collapsible) */}
         <div
           className={`hf-side right hf-collapsible ${rightCollapsed ? 'collapsed' : ''}`}
         >
@@ -866,34 +861,15 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
           </button>
 
           {rightCollapsed ? (
-            <span className="hf-side-vlabel">COMMENTS - {markers.length}</span>
+            <span className="hf-side-vlabel">ARCHMOTIF</span>
           ) : (
             <>
-              {/* Header styled identically to the left panel's CONTEXTS tab. */}
               <div className="hf-tabs" style={{ flexShrink: 0 }}>
                 <button className="on">
-                  COMMENTS<span className="count">{markers.length}</span>
+                  ARCHMOTIF<span className="count">{displayGraph.components.length}</span>
                 </button>
               </div>
-              <div className="hf-list" style={{ paddingTop: 6 }}>
-                {markers.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`hf-card ${activeMarkerId === m.id ? 'active' : ''}`}
-                    onClick={() => handleMarkerCardClick(m)}
-                  >
-                    <div className="hf-card-meta">
-                      <span className="hf-pin-marker-mini">{m.n}</span>
-                      <span className="hf-card-author">{m.author}</span>
-                      <span>- {m.when}</span>
-                      <span className="hf-card-target">
-                        {m.target.type}:{m.target.id}
-                      </span>
-                    </div>
-                    <div className="hf-card-body">{m.body}</div>
-                  </div>
-                ))}
-              </div>
+              <ArchMotifPanel worktree={activeWorktree} />
             </>
           )}
         </div>
