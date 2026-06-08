@@ -1,6 +1,9 @@
 package http
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -25,6 +28,20 @@ type sourceLine struct {
 type sourceFileJSON struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+	Hash    string `json:"hash"`
+}
+
+type saveSourceFileRequest struct {
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	BaseHash string `json:"baseHash"`
+}
+
+type saveSourceFileJSON struct {
+	Path             string   `json:"path"`
+	Content          string   `json:"content"`
+	Hash             string   `json:"hash"`
+	ReloadedPackages []string `json:"reloadedPackages,omitempty"`
 }
 
 func (s *Server) handleSourceFile(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -45,26 +62,51 @@ func (s *Server) handleSourceFile(w nethttp.ResponseWriter, r *nethttp.Request) 
 }
 
 func (s *Server) handleSourceFileJSON(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if r.Method != nethttp.MethodGet {
+	switch r.Method {
+	case nethttp.MethodGet:
+		s.handleGetSourceFileJSON(w, r)
+	case nethttp.MethodPut:
+		s.handleSaveSourceFileJSON(w, r)
+	default:
 		nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
-		return
 	}
+}
+
+func (s *Server) handleGetSourceFileJSON(w nethttp.ResponseWriter, r *nethttp.Request) {
 	rel, content, err := s.readSourceFile(r)
 	if err != nil {
 		writeSourceError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(sourceFileJSON{Path: rel, Content: content})
+	_ = json.NewEncoder(w).Encode(sourceFileJSON{Path: rel, Content: content, Hash: sourceHash(content)})
+}
+
+func (s *Server) handleSaveSourceFileJSON(w nethttp.ResponseWriter, r *nethttp.Request) {
+	r.Body = nethttp.MaxBytesReader(w, r.Body, 4*1024*1024)
+	defer r.Body.Close()
+
+	var req saveSourceFileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeSourceError(w, errSourcePath("decode source update: "+err.Error()))
+		return
+	}
+	rel, content, reloaded, err := s.saveSourceFile(r.Context(), r, req)
+	if err != nil {
+		writeSourceError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(saveSourceFileJSON{
+		Path:             rel,
+		Content:          content,
+		Hash:             sourceHash(content),
+		ReloadedPackages: reloaded,
+	})
 }
 
 func (s *Server) readSourceFile(r *nethttp.Request) (string, string, error) {
-	state := s.stateFor(r)
-	if state == nil {
-		return "", "", errSourceState("state unavailable")
-	}
-	snap := state.Snapshot()
-	rel, abs, err := resolveSourcePath(snap.Root, r.URL.Query().Get("file"), snap.Packages)
+	rel, abs, err := s.resolveSourceFile(r, r.URL.Query().Get("file"))
 	if err != nil {
 		return "", "", err
 	}
@@ -73,6 +115,65 @@ func (s *Server) readSourceFile(r *nethttp.Request) (string, string, error) {
 		return "", "", errSourceRead("read source: " + err.Error())
 	}
 	return rel, string(data), nil
+}
+
+func (s *Server) saveSourceFile(ctx context.Context, r *nethttp.Request, req saveSourceFileRequest) (string, string, []string, error) {
+	rel, abs, err := s.resolveSourceFile(r, req.Path)
+	if err != nil {
+		return "", "", nil, err
+	}
+	before, err := os.ReadFile(abs)
+	if err != nil {
+		return "", "", nil, errSourceRead("read source: " + err.Error())
+	}
+	if req.BaseHash == "" {
+		return "", "", nil, errSourcePath("missing baseHash")
+	}
+	currentHash := sourceHash(string(before))
+	if req.BaseHash != currentHash {
+		return rel, string(before), nil, errSourceConflict("file changed on disk")
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", "", nil, errSourceRead("stat source: " + err.Error())
+	}
+	if !info.Mode().IsRegular() {
+		return "", "", nil, errSourcePath("not a regular file")
+	}
+	if err := os.WriteFile(abs, []byte(req.Content), info.Mode().Perm()); err != nil {
+		return "", "", nil, errSourceRead("write source: " + err.Error())
+	}
+
+	reloaded := s.reloadSourceOwner(ctx, r, abs)
+	return rel, req.Content, reloaded, nil
+}
+
+func (s *Server) resolveSourceFile(r *nethttp.Request, requested string) (string, string, error) {
+	state := s.stateFor(r)
+	if state == nil {
+		return "", "", errSourceState("state unavailable")
+	}
+	snap := state.Snapshot()
+	return resolveSourcePath(snap.Root, requested, snap.Packages)
+}
+
+func (s *Server) reloadSourceOwner(ctx context.Context, r *nethttp.Request, abs string) []string {
+	if !strings.HasSuffix(abs, ".go") {
+		return nil
+	}
+	state := s.stateFor(r)
+	if state == nil {
+		return nil
+	}
+	pkg := state.FindOwningPackage(abs)
+	if pkg == "" {
+		return nil
+	}
+	if err := state.ReloadPackage(ctx, pkg); err != nil {
+		return nil
+	}
+	state.PublishPackageReload([]string{pkg})
+	return []string{pkg}
 }
 
 func resolveSourcePath(root, requested string, packages []domain.PackageModel) (string, string, error) {
@@ -224,15 +325,26 @@ type errSourceState string
 
 func (e errSourceState) Error() string { return string(e) }
 
+type errSourceConflict string
+
+func (e errSourceConflict) Error() string { return string(e) }
+
 func writeSourceError(w nethttp.ResponseWriter, err error) {
 	switch err.(type) {
 	case errSourcePath:
 		nethttp.Error(w, err.Error(), nethttp.StatusBadRequest)
 	case errSourceState:
 		nethttp.Error(w, err.Error(), nethttp.StatusServiceUnavailable)
+	case errSourceConflict:
+		nethttp.Error(w, err.Error(), nethttp.StatusConflict)
 	default:
 		nethttp.Error(w, err.Error(), nethttp.StatusNotFound)
 	}
+}
+
+func sourceHash(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func sourceLines(src string) []sourceLine {

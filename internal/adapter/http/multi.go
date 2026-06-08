@@ -51,6 +51,7 @@ func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
 		"/targets/",
 		"/search",
 		"/search/results",
+		"/api/events",
 		"/types/",
 		"/api/uigraph",
 		"/api/source",

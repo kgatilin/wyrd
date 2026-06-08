@@ -12,6 +12,8 @@
     "e2e:headed": "playwright test --headed"
   },
   "dependencies": {
+    "@codemirror/lang-go": "^6.0.1",
+    "codemirror": "^6.0.2",
     "elkjs": "^0.9.3",
     "highlight.js": "^11.11.1",
     "react": "^18.3.1",

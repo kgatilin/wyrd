@@ -26,7 +26,7 @@ import { RelationLayer } from './components/RelationLayer';
 import { Legend } from './components/Legend';
 import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
-import { SourceDrawer, type SourceDrawerState } from './components/SourceDrawer';
+import { SourceDrawer, type SaveSourceResult, type SourceDrawerState } from './components/SourceDrawer';
 import { PAN_MARGIN, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './view/viewportConstants';
 import { PinnedMarker, Marker } from './components/PinnedMarker';
 
@@ -198,6 +198,22 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     if (layoutPinScopeKey !== desiredLayoutPinScopeKey) return;
     saveLayoutPins(layoutPinScopeKey, layoutPins);
   }, [layoutPinScopeKey, desiredLayoutPinScopeKey, layoutPins]);
+
+  useEffect(() => {
+    if (!graph) return;
+    const events = new EventSource(eventsAPIURL(activeWorktree));
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    events.addEventListener('model-changed', () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        dispatch({ type: 'GraphRequested', worktree: activeWorktree || undefined });
+      }, 250);
+    });
+    return () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      events.close();
+    };
+  }, [activeWorktree, dispatch, graph]);
 
   // Determine if diff mode is active (semantic — raw graph)
   const showDiff = graph.pr != null;
@@ -423,11 +439,11 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
           const msg = await res.text();
           throw new Error(msg.trim() || `HTTP ${res.status}`);
         }
-        return res.json() as Promise<{ path: string; content: string }>;
+        return res.json() as Promise<{ path: string; content: string; hash?: string }>;
       })
       .then((data) => {
         if (sourceRequestSeq.current !== seq) return;
-        setSourceViewer({ path: data.path || path, status: 'loaded', content: data.content });
+        setSourceViewer({ path: data.path || path, status: 'loaded', content: data.content, hash: data.hash });
       })
       .catch((err: unknown) => {
         if (sourceRequestSeq.current !== seq) return;
@@ -437,6 +453,23 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
           error: err instanceof Error ? err.message : String(err),
         });
       });
+  };
+
+  const saveSourceFile = async (path: string, content: string, baseHash: string): Promise<SaveSourceResult> => {
+    const res = await fetch(sourceAPIURL(path, activeWorktree), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, content, baseHash }),
+    });
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(msg.trim() || `HTTP ${res.status}`);
+    }
+    const data = (await res.json()) as SaveSourceResult;
+    const next = { path: data.path || path, status: 'loaded' as const, content: data.content, hash: data.hash };
+    setSourceViewer(next);
+    dispatch({ type: 'GraphRequested', worktree: activeWorktree || undefined });
+    return data;
   };
 
   // Handle canvas background click (clear focus + pending comment + activeMarkerId).
@@ -864,7 +897,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
             </>
           )}
         </div>
-        <SourceDrawer source={sourceViewer} onClose={() => setSourceViewer(null)} />
+        <SourceDrawer source={sourceViewer} onClose={() => setSourceViewer(null)} onSave={saveSourceFile} />
       </div>
     </div>
   );
@@ -875,6 +908,11 @@ function sourceAPIURL(path: string, worktree: string): string {
   if (worktree) return `/w/${encodeURIComponent(worktree)}/api/source?${query}`;
   const prefix = currentWorktreePrefix();
   return `${prefix}/api/source?${query}`;
+}
+
+function eventsAPIURL(worktree: string): string {
+  if (worktree) return `/w/${encodeURIComponent(worktree)}/api/events`;
+  return `${currentWorktreePrefix()}/api/events`;
 }
 
 function currentWorktreePrefix(): string {
