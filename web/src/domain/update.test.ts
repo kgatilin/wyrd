@@ -351,6 +351,43 @@ describe('update — load + geometry slice', () => {
     expect(s.ui.reviewGroupingId).toBe('layer');
   });
 
+  it('GraphLoaded preserves valid review selections during refresh', () => {
+    const reviewGraph: UIGraph = {
+      ...graph,
+      reviewScopes: [
+        { id: 'all_public_api', title: 'All Public API' },
+        { id: 'everything', title: 'Everything' },
+      ],
+      reviewViews: [
+        { id: 'api', title: 'API', defaultScope: 'all_public_api', groupBy: 'directory', componentIds: ['a'], componentCount: 1 },
+        { id: 'runtime', title: 'Runtime', defaultScope: 'everything', groupBy: 'layer', componentIds: ['a'], componentCount: 1 },
+      ],
+      reviewGroupings: [
+        { id: 'directory', title: 'Directory', groups: [{ id: 'directory:root', title: 'Root', componentIds: ['a'], componentCount: 1 }] },
+        { id: 'layer', title: 'Layer', groups: [{ id: 'layer:runtime', title: 'Runtime', componentIds: ['a'], componentCount: 1 }] },
+      ],
+      defaultReviewView: 'api',
+      defaultReviewScope: 'all_public_api',
+      defaultGrouping: 'directory',
+    };
+    const s = update(
+      {
+        ...initialState,
+        graph: reviewGraph,
+        ui: {
+          ...initialState.ui,
+          reviewViewId: 'runtime',
+          reviewScopeId: 'everything',
+          reviewGroupingId: 'layer',
+        },
+      },
+      { type: 'GraphLoaded', graph: reviewGraph }
+    );
+    expect(s.ui.reviewViewId).toBe('runtime');
+    expect(s.ui.reviewScopeId).toBe('everything');
+    expect(s.ui.reviewGroupingId).toBe('layer');
+  });
+
   it('GraphLoaded applies review view initial expansion policy', () => {
     const reviewGraph: UIGraph = {
       ...graph,

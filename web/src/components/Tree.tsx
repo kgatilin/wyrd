@@ -15,6 +15,8 @@ export interface TreeProps {
   activeId?: string | null;
   /** Click a row → focus the matching object on the canvas */
   onFocus?: (target: TreeFocusTarget) => void;
+  /** Open a source file inside the review UI */
+  onOpenFile?: (path: string) => void;
 }
 
 function internalIcon(kind: Internal['kind']): string {
@@ -61,6 +63,7 @@ export function Tree({
   showDiff,
   activeId,
   onFocus,
+  onOpenFile,
 }: TreeProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     const s = new Set<string>();
@@ -91,6 +94,7 @@ export function Tree({
           isOpen={isOpen}
           toggle={toggle}
           onFocus={onFocus}
+          onOpenFile={onOpenFile}
         />
       ))}
     </div>
@@ -104,9 +108,10 @@ interface ComponentNodeProps {
   isOpen: (key: string) => boolean;
   toggle: (key: string) => void;
   onFocus?: (target: TreeFocusTarget) => void;
+  onOpenFile?: (path: string) => void;
 }
 
-function ComponentNode({ cmp, showDiff, activeId, isOpen, toggle, onFocus }: ComponentNodeProps) {
+function ComponentNode({ cmp, showDiff, activeId, isOpen, toggle, onFocus, onOpenFile }: ComponentNodeProps) {
   const key = `cmp:${cmp.id}`;
   const open = isOpen(key);
   const has = cmp.internals.length > 0;
@@ -127,13 +132,14 @@ function ComponentNode({ cmp, showDiff, activeId, isOpen, toggle, onFocus }: Com
       {open &&
         files.map((file) => (
           <FileNode
-            key={`${cmp.id}:${file.name}`}
+            key={`${cmp.id}:${file.path}`}
             cmp={cmp}
             file={file}
             showDiff={showDiff}
             isOpen={isOpen}
             toggle={toggle}
             onFocus={onFocus}
+            onOpenFile={onOpenFile}
           />
         ))}
     </div>
@@ -141,6 +147,7 @@ function ComponentNode({ cmp, showDiff, activeId, isOpen, toggle, onFocus }: Com
 }
 
 interface FileGroup {
+  path: string;
   name: string;
   internals: Internal[];
 }
@@ -148,17 +155,34 @@ interface FileGroup {
 function internalsByFile(internals: Internal[]): FileGroup[] {
   const groups = new Map<string, Internal[]>();
   for (const internal of internals) {
-    const file = fileLabel(internal.sourceFile);
-    groups.set(file, [...(groups.get(file) ?? []), internal]);
+    const path = sourceFilePath(internal.sourceFile);
+    groups.set(path, [...(groups.get(path) ?? []), internal]);
   }
   return [...groups.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, internals]) => ({ name, internals }));
+    .map(([path, internals]) => ({ path, name: fileLabel(path), internals }));
 }
 
-function fileLabel(sourceFile?: string): string {
-  if (!sourceFile) return '(unknown file)';
+const UNKNOWN_FILE = '(unknown file)';
+
+function sourceFilePath(sourceFile?: string): string {
+  return sourceFile || UNKNOWN_FILE;
+}
+
+function fileLabel(sourceFile: string): string {
+  if (sourceFile === UNKNOWN_FILE) return UNKNOWN_FILE;
   return sourceFile.split('/').pop() ?? sourceFile;
+}
+
+function sourcePathForComponent(componentId: string, sourceFile: string): string | null {
+  if (sourceFile === UNKNOWN_FILE) return null;
+  return sourcePath(componentId, sourceFile);
+}
+
+function sourcePath(componentId: string, sourceFile: string): string {
+  if (sourceFile.includes('/')) return sourceFile;
+  if (!componentId || componentId === '.') return sourceFile;
+  return `${componentId}/${sourceFile}`;
 }
 
 interface FileNodeProps {
@@ -168,11 +192,13 @@ interface FileNodeProps {
   isOpen: (key: string) => boolean;
   toggle: (key: string) => void;
   onFocus?: (target: TreeFocusTarget) => void;
+  onOpenFile?: (path: string) => void;
 }
 
-function FileNode({ cmp, file, showDiff, isOpen, toggle, onFocus }: FileNodeProps) {
-  const key = `file:${cmp.id}:${file.name}`;
+function FileNode({ cmp, file, showDiff, isOpen, toggle, onFocus, onOpenFile }: FileNodeProps) {
+  const key = `file:${cmp.id}:${file.path}`;
   const open = isOpen(key);
+  const sourcePath = sourcePathForComponent(cmp.id, file.path);
   return (
     <div>
       <div
@@ -182,7 +208,21 @@ function FileNode({ cmp, file, showDiff, isOpen, toggle, onFocus }: FileNodeProp
       >
         <Chevron open={open} has={file.internals.length > 0} onToggle={() => toggle(key)} />
         <span className="ico">#</span>
-        <span className="name">{file.name}</span>
+        {sourcePath ? (
+          <button
+            className="name hf-file-open"
+            type="button"
+            title={sourcePath}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenFile?.(sourcePath);
+            }}
+          >
+            {file.name}
+          </button>
+        ) : (
+          <span className="name">{file.name}</span>
+        )}
       </div>
       {open &&
         file.internals.map((it) => (

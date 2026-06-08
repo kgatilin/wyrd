@@ -436,6 +436,101 @@ func loadSingleModelFromSources(t *testing.T, sources map[string]string) domain.
 	return models[0]
 }
 
+func TestReader_ExtractsGoGenerics(t *testing.T) {
+	model := loadSingleModelFromSources(t, map[string]string{
+		"generic.go": `package p
+
+type Repository[T any] interface {
+	Get(id string) (T, error)
+	Save(value T) error
+}
+
+type Box[T comparable] struct {
+	Value T
+	Children []Box[T]
+}
+
+func NewBox[T comparable](value T) Box[T] {
+	return Box[T]{Value: value}
+}
+
+type Result[T any] []T
+`,
+	})
+
+	var repo *domain.InterfaceDef
+	for i := range model.Interfaces {
+		if model.Interfaces[i].Name == "Repository" {
+			repo = &model.Interfaces[i]
+			break
+		}
+	}
+	if repo == nil {
+		t.Fatalf("Repository interface missing")
+	}
+	if got := repo.TypeParams[0].String(); got != "T any" {
+		t.Errorf("Repository type param = %q, want T any", got)
+	}
+	if got := repo.Methods[0].Signature(); got != "Get(id string) (T, error)" {
+		t.Errorf("Get signature = %q", got)
+	}
+
+	var box *domain.StructDef
+	for i := range model.Structs {
+		if model.Structs[i].Name == "Box" {
+			box = &model.Structs[i]
+			break
+		}
+	}
+	if box == nil {
+		t.Fatalf("Box struct missing")
+	}
+	if got := box.TypeParams[0].String(); got != "T comparable" {
+		t.Errorf("Box type param = %q, want T comparable", got)
+	}
+	var children *domain.FieldDef
+	for i := range box.Fields {
+		if box.Fields[i].Name == "Children" {
+			children = &box.Fields[i]
+			break
+		}
+	}
+	if children == nil {
+		t.Fatalf("Children field missing")
+	}
+	if !children.Type.IsSlice || children.Type.Name != "Box" || len(children.Type.TypeArgs) != 1 || children.Type.TypeArgs[0].Name != "T" {
+		t.Errorf("Children type = %+v, want []Box[T]", children.Type)
+	}
+
+	var newBox *domain.FunctionDef
+	for i := range model.Functions {
+		if model.Functions[i].Name == "NewBox" {
+			newBox = &model.Functions[i]
+			break
+		}
+	}
+	if newBox == nil {
+		t.Fatalf("NewBox function missing")
+	}
+	if got := newBox.Signature(); got != "NewBox[T comparable](value T) Box[T]" {
+		t.Errorf("NewBox signature = %q", got)
+	}
+
+	var result *domain.TypeDef
+	for i := range model.TypeDefs {
+		if model.TypeDefs[i].Name == "Result" {
+			result = &model.TypeDefs[i]
+			break
+		}
+	}
+	if result == nil {
+		t.Fatalf("Result type missing")
+	}
+	if got := result.TypeParams[0].String(); got != "T any" {
+		t.Errorf("Result type param = %q, want T any", got)
+	}
+}
+
 // TestReader_ExtractsStandaloneConstants verifies that plain package-level
 // constants surface in PackageModel.Constants and that enum constants are
 // left on their owning TypeDef rather than duplicated.

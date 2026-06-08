@@ -167,7 +167,10 @@ function selectDiffImpact(
     graph.policyViolations,
     new Set(components.map((component) => component.id))
   );
-  const changed = changedComponentIDs(components, edges, relations, policyViolations, changeFilter);
+  let changed = changedComponentIDs(components, edges, relations, policyViolations, changeFilter);
+  if (changeFilter === 'all' && changed.size === 0) {
+    changed = dependencyChangedComponentIDs(edges, relations);
+  }
 
   if (impactMode === 'review_view' || impactMode === 'repository') {
     const candidates = hideUnchangedNeighbors
@@ -248,7 +251,7 @@ function changedComponentIDs(
       if (componentHasDiff(component, changeFilter)) changed.add(component.id);
     }
   }
-  if (changeFilter === 'all' || changeFilter === 'dependency') {
+  if (changeFilter === 'dependency') {
     for (const edge of edges) {
       if (!edge.diff) continue;
       changed.add(edge.from);
@@ -266,6 +269,24 @@ function changedComponentIDs(
       if (componentIds.has(violation.sourceComponentId)) changed.add(violation.sourceComponentId);
       if (componentIds.has(violation.targetComponentId)) changed.add(violation.targetComponentId);
     }
+  }
+  return changed;
+}
+
+function dependencyChangedComponentIDs(
+  edges: UIGraph['edges'],
+  relations: SymbolRelation[]
+): Set<string> {
+  const changed = new Set<string>();
+  for (const edge of edges) {
+    if (!edge.diff) continue;
+    changed.add(edge.from);
+    changed.add(edge.to);
+  }
+  for (const relation of relations) {
+    if (!relation.diff) continue;
+    changed.add(relation.fromComponentId);
+    changed.add(relation.toComponentId);
   }
   return changed;
 }
@@ -408,8 +429,12 @@ function filterRelationsToChangedDetails(
   }
   return relations.filter((relation) => {
     if (!componentIds.has(relation.fromComponentId) || !componentIds.has(relation.toComponentId)) return false;
-    if (!relationEndpointVisible(relation.fromInternalId, relation.fromMemberId, internalIds, memberIds)) return false;
+    const fromVisible = relationEndpointVisible(relation.fromInternalId, relation.fromMemberId, internalIds, memberIds);
+    const toVisible = relationEndpointVisible(relation.toInternalId, relation.toMemberId, internalIds, memberIds);
+    if (!fromVisible || !toVisible) return false;
     if (changeFilter === 'dependency') return matchesDiffFilter(relation.diff, changeFilter);
+    if (matchesDiffFilter(relation.diff, changeFilter)) return true;
+    if (relation.fromComponentId === relation.toComponentId) return true;
     return relationEndpointVisible(relation.fromInternalId, relation.fromMemberId, changedInternalIds, changedMemberIds);
   });
 }

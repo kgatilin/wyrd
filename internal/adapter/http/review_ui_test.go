@@ -5,6 +5,7 @@ import (
 	nethttp "net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 
@@ -145,7 +146,7 @@ func TestReviewUI_MultiModeRootRedirectsToWorktreeReview(t *testing.T) {
 }
 
 func TestReviewUI_MultiModeWorktreeReviewIndexUsesScopedAssets(t *testing.T) {
-	srv, _, _ := buildMultiServer(t)
+	srv, _, loadCount := buildMultiServer(t)
 	srv.WithReviewUI(testReviewUIFS())
 	mux := nethttp.NewServeMux()
 	srv.routes(mux)
@@ -170,10 +171,26 @@ func TestReviewUI_MultiModeWorktreeReviewIndexUsesScopedAssets(t *testing.T) {
 			t.Fatalf("index missing scoped asset path %q: %s", want, html)
 		}
 	}
+	if got := atomic.LoadInt64(loadCount); got != 0 {
+		t.Fatalf("review index loaded worktree state %d time(s), want 0", got)
+	}
+
+	assetResp, err := nethttp.Get(ts.URL + "/w/beta/review/assets/app.js")
+	if err != nil {
+		t.Fatalf("GET /w/beta/review/assets/app.js: %v", err)
+	}
+	defer assetResp.Body.Close()
+	if assetResp.StatusCode != nethttp.StatusOK {
+		assetBody, _ := io.ReadAll(assetResp.Body)
+		t.Fatalf("asset status = %d body=%s", assetResp.StatusCode, assetBody)
+	}
+	if got := atomic.LoadInt64(loadCount); got != 0 {
+		t.Fatalf("review asset loaded worktree state %d time(s), want 0", got)
+	}
 }
 
 func TestReviewUI_MultiModeWorktreeRootRedirectsToReview(t *testing.T) {
-	srv, _, _ := buildMultiServer(t)
+	srv, _, loadCount := buildMultiServer(t)
 	srv.WithReviewUI(testReviewUIFS())
 	mux := nethttp.NewServeMux()
 	srv.routes(mux)
@@ -193,5 +210,8 @@ func TestReviewUI_MultiModeWorktreeRootRedirectsToReview(t *testing.T) {
 	}
 	if loc := resp.Header.Get("Location"); loc != "/w/beta/review/" {
 		t.Fatalf("Location = %q, want /w/beta/review/", loc)
+	}
+	if got := atomic.LoadInt64(loadCount); got != 0 {
+		t.Fatalf("worktree review redirect loaded worktree state %d time(s), want 0", got)
 	}
 }

@@ -355,10 +355,11 @@ func buildComponent(
 
 	// Build internals from interfaces
 	for _, iface := range m.Interfaces {
+		displayName := domain.NameWithTypeParams(iface.Name, iface.TypeParams)
 		internal := Internal{
 			ID:         m.Path + "." + iface.Name,
 			Kind:       "iface",
-			Name:       iface.Name,
+			Name:       displayName,
 			SourceFile: iface.SourceFile,
 			Exported:   publicIndex.HasSymbolID(m.Path + "." + iface.Name),
 			Members:    []Member{},
@@ -377,7 +378,7 @@ func buildComponent(
 			member := Member{
 				ID:         internal.ID + "." + method.Name,
 				Kind:       "method",
-				Name:       method.Name + "()",
+				Name:       method.Signature(),
 				SourceFile: iface.SourceFile,
 				Exported:   publicIndex.HasMemberID(internal.ID + "." + method.Name),
 			}
@@ -402,7 +403,7 @@ func buildComponent(
 				ID:     m.Path + ":in:" + iface.Name,
 				Side:   "left",
 				Kind:   "in",
-				Name:   iface.Name,
+				Name:   displayName,
 				Public: publicIndex.HasSymbolID(m.Path + "." + iface.Name),
 			}
 			comp.Ports = append(comp.Ports, port)
@@ -414,7 +415,7 @@ func buildComponent(
 		internal := Internal{
 			ID:         m.Path + "." + s.Name,
 			Kind:       "class",
-			Name:       s.Name,
+			Name:       domain.NameWithTypeParams(s.Name, s.TypeParams),
 			SourceFile: s.SourceFile,
 			Exported:   publicIndex.HasSymbolID(m.Path + "." + s.Name),
 			Members:    []Member{},
@@ -453,7 +454,7 @@ func buildComponent(
 			member := Member{
 				ID:         internal.ID + "." + method.Name,
 				Kind:       "method",
-				Name:       method.Name + "()",
+				Name:       method.Signature(),
 				SourceFile: s.SourceFile,
 				Exported:   publicIndex.HasMemberID(internal.ID + "." + method.Name),
 			}
@@ -496,7 +497,7 @@ func buildComponent(
 		internal := Internal{
 			ID:         m.Path + "." + td.Name,
 			Kind:       "type",
-			Name:       td.Name + " : " + td.UnderlyingType.String(),
+			Name:       typeDefDisplayName(td),
 			SourceFile: td.SourceFile,
 			Exported:   publicIndex.HasSymbolID(m.Path + "." + td.Name),
 			Members:    []Member{},
@@ -910,14 +911,14 @@ func symbolDiffDetail(c diff.Change, signature func(any) string) (diffDetail, bo
 
 func interfaceSignature(v any) string {
 	if iface, ok := v.(domain.InterfaceDef); ok {
-		return "type " + iface.Name + " interface"
+		return "type " + domain.NameWithTypeParams(iface.Name, iface.TypeParams) + " interface"
 	}
 	return ""
 }
 
 func structSignature(v any) string {
 	if s, ok := v.(domain.StructDef); ok {
-		return "type " + s.Name + " struct"
+		return "type " + domain.NameWithTypeParams(s.Name, s.TypeParams) + " struct"
 	}
 	return ""
 }
@@ -932,11 +933,19 @@ func functionSignature(v any) string {
 func typeDefSignature(v any) string {
 	if td, ok := v.(domain.TypeDef); ok {
 		if td.UnderlyingType.Name == "" && td.UnderlyingType.Package == "" {
-			return "type " + td.Name
+			return "type " + domain.NameWithTypeParams(td.Name, td.TypeParams)
 		}
-		return "type " + td.Name + " " + td.UnderlyingType.String()
+		return "type " + domain.NameWithTypeParams(td.Name, td.TypeParams) + " " + td.UnderlyingType.String()
 	}
 	return ""
+}
+
+func typeDefDisplayName(td domain.TypeDef) string {
+	name := domain.NameWithTypeParams(td.Name, td.TypeParams)
+	if td.UnderlyingType.Name == "" && td.UnderlyingType.Package == "" {
+		return name
+	}
+	return name + " : " + td.UnderlyingType.String()
 }
 
 func constSignature(v any) string {
@@ -1319,6 +1328,62 @@ func buildRelations(
 		}
 	}
 
+	addCallRelations := func(
+		currentPkg string,
+		fromInternalID string,
+		fromMemberID string,
+		fromLabel string,
+		calls []domain.CallEdge,
+	) {
+		for _, call := range calls {
+			if call.To.External {
+				continue
+			}
+			targetPkg := call.To.Package
+			if targetPkg == "" || targetPkg == "." {
+				targetPkg = currentPkg
+			}
+			toInternalID, toMemberID := relationSymbolIDs(targetPkg, call.To.Symbol)
+			if toInternalID == "" {
+				continue
+			}
+			fromID := fromInternalID
+			if fromMemberID != "" {
+				fromID = fromMemberID
+			}
+			toID := toInternalID
+			if toMemberID != "" {
+				toID = toMemberID
+			}
+			id := relationID("calls", fromID, toID)
+			if call.Via != "" {
+				id += "|via=" + call.Via
+			}
+			fromPublic := publicIndex.HasSymbolID(fromInternalID)
+			if fromMemberID != "" {
+				fromPublic = publicIndex.HasMemberID(fromMemberID)
+			}
+			toPublic := publicIndex.HasSymbolID(toInternalID)
+			if toMemberID != "" {
+				toPublic = publicIndex.HasMemberID(toMemberID)
+			}
+			relation := SymbolRelation{
+				ID:              id,
+				Kind:            "calls",
+				FromComponentID: currentPkg,
+				FromInternalID:  fromInternalID,
+				FromMemberID:    fromMemberID,
+				FromLabel:       fromLabel,
+				ToComponentID:   targetPkg,
+				ToInternalID:    toInternalID,
+				ToMemberID:      toMemberID,
+				ToLabel:         call.To.Symbol,
+				Public:          fromPublic && toPublic,
+			}
+			add(relation)
+		}
+	}
+
 	for _, model := range models {
 		for _, iface := range model.Interfaces {
 			fromInternalID := model.Path + "." + iface.Name
@@ -1339,6 +1404,13 @@ func buildRelations(
 					method.Signature(),
 					domain.DependencyReturns,
 					method.Returns,
+				)
+				addCallRelations(
+					model.Path,
+					fromInternalID,
+					fromMemberID,
+					method.Signature(),
+					method.Calls,
 				)
 			}
 		}
@@ -1374,6 +1446,13 @@ func buildRelations(
 					domain.DependencyReturns,
 					method.Returns,
 				)
+				addCallRelations(
+					model.Path,
+					fromInternalID,
+					fromMemberID,
+					method.Signature(),
+					method.Calls,
+				)
 			}
 		}
 
@@ -1394,6 +1473,13 @@ func buildRelations(
 				fn.Signature(),
 				domain.DependencyReturns,
 				fn.Returns,
+			)
+			addCallRelations(
+				model.Path,
+				fromInternalID,
+				"",
+				fn.Signature(),
+				fn.Calls,
 			)
 		}
 

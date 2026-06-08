@@ -79,6 +79,24 @@ func TestTypeRef_String(t *testing.T) {
 			},
 			want: "map[string]*Model",
 		},
+		{
+			name: "generic named type",
+			tr: TypeRef{
+				Name:     "Box",
+				Package:  "domain",
+				TypeArgs: []TypeRef{{Name: "T"}},
+			},
+			want: "domain.Box[T]",
+		},
+		{
+			name: "slice of generic named type",
+			tr: TypeRef{
+				Name:     "Box",
+				IsSlice:  true,
+				TypeArgs: []TypeRef{{Name: "T"}},
+			},
+			want: "[]Box[T]",
+		},
 	}
 
 	for _, tt := range tests {
@@ -220,6 +238,22 @@ func TestMethodDef_Signature(t *testing.T) {
 				},
 			},
 			want: "NewService() *Service",
+		},
+		{
+			name: "generic function-style signature",
+			md: MethodDef{
+				Name: "Map",
+				TypeParams: []ParamDef{
+					{Name: "T", Type: TypeRef{Name: "any"}},
+					{Name: "R", Type: TypeRef{Name: "comparable"}},
+				},
+				Params: []ParamDef{
+					{Name: "items", Type: TypeRef{Name: "T", IsSlice: true}},
+					{Name: "fn", Type: TypeRef{Name: "func(T) R"}},
+				},
+				Returns: []TypeRef{{Name: "R", IsSlice: true}},
+			},
+			want: "Map[T any, R comparable](items []T, fn func(T) R) []R",
 		},
 	}
 

@@ -7,6 +7,10 @@ export interface AppBarProps {
   /** Current theme */
   theme: 'dark' | 'light';
   onThemeToggle?: () => void;
+  /** Reload live graph data from the server */
+  onRefresh?: () => void;
+  /** True while graph data is being reloaded */
+  refreshing?: boolean;
   /** Number of comments for the badge */
   commentCount: number;
   /** PR data for crumbs (optional - use defaults if absent) */
@@ -26,6 +30,8 @@ export function AppBar({
   onLevelChange,
   theme,
   onThemeToggle,
+  onRefresh,
+  refreshing = false,
   commentCount,
   pr,
   onSubmitReview,
@@ -65,6 +71,14 @@ export function AppBar({
         title="Toggle theme"
       >
         {theme === 'dark' ? '☾' : '☀'}
+      </button>
+      <button
+        className="hf-btn"
+        onClick={onRefresh}
+        disabled={refreshing}
+        title="Reload graph from live archai serve data"
+      >
+        {refreshing ? 'Refreshing...' : 'Refresh'}
       </button>
       <button className="hf-btn">Approve</button>
       <button className="hf-btn primary" onClick={onSubmitReview}>

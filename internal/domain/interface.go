@@ -5,6 +5,9 @@ type InterfaceDef struct {
 	// Name is the interface name.
 	Name string
 
+	// TypeParams is the list of generic type parameters.
+	TypeParams []ParamDef
+
 	// Methods is the list of methods declared in this interface.
 	Methods []MethodDef
 

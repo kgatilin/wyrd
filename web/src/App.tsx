@@ -26,7 +26,7 @@ import { RelationLayer } from './components/RelationLayer';
 import { Legend } from './components/Legend';
 import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
-import { InlinePopover } from './components/InlinePopover';
+import { SourceDrawer, type SourceDrawerState } from './components/SourceDrawer';
 import { PAN_MARGIN, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './view/viewportConstants';
 import { PinnedMarker, Marker } from './components/PinnedMarker';
 
@@ -52,21 +52,31 @@ function AppRoot({ viewport }: { viewport: DomViewport }) {
   const load = useStore((s) => s.load);
   const graph = useStore((s) => s.graph);
 
-  if (load.status === 'error') {
+  if (load.status === 'error' && !graph) {
     return (
-      <div className={`hifi v4 theme-${theme}`} style={{ padding: 20 }}>
-        <p style={{ color: 'var(--rem-fg)' }}>Error: {load.error}</p>
-      </div>
+      <LoadingScreen theme={theme} error={load.error ?? 'Failed to load architecture graph.'} />
     );
   }
   if (!graph) {
-    return (
-      <div className={`hifi v4 theme-${theme}`} style={{ padding: 20 }}>
-        <p>Loading...</p>
-      </div>
-    );
+    return <LoadingScreen theme={theme} />;
   }
   return <AppContent graph={graph} viewport={viewport} />;
+}
+
+function LoadingScreen({ theme, error }: { theme: 'dark' | 'light'; error?: string }) {
+  return (
+    <div className={`hifi v4 theme-${theme} hf-load-screen`}>
+      <div className={`hf-load-card ${error ? 'error' : ''}`}>
+        {!error && <div className="hf-load-spinner" aria-hidden="true" />}
+        <div className="hf-load-title">
+          {error ? 'Architecture graph failed to load' : 'Reading architecture graph'}
+        </div>
+        <div className="hf-load-subtitle">
+          {error ?? 'Parsing source packages and preparing the review canvas...'}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -86,6 +96,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   const storeApi = useStoreApi();
   const zoom = useStore((s) => s.ui.zoom);
   const theme = useStore((s) => s.ui.theme);
+  const load = useStore((s) => s.load);
   const level = useStore((s) => s.ui.level);
   const expanded = useStore((s) => s.ui.expanded);
   const internalExpanded = useStore((s) => s.ui.internalExpanded);
@@ -94,7 +105,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   const leftCollapsed = useStore((s) => s.ui.leftCollapsed);
   const rightCollapsed = useStore((s) => s.ui.rightCollapsed);
   const markers = useStore((s) => s.markers);
-  const pendingComment = useStore((s) => s.pendingComment);
   const activeMarkerId = useStore((s) => s.ui.activeMarkerId);
   const reviewViewId = useStore((s) => s.ui.reviewViewId);
   const reviewScopeId = useStore((s) => s.ui.reviewScopeId);
@@ -146,6 +156,8 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     () => (laid ? applyLayoutPins(laid, activeLayoutPins) : null),
     [laid, activeLayoutPins]
   );
+  const [sourceViewer, setSourceViewer] = useState<SourceDrawerState | null>(null);
+  const sourceRequestSeq = useRef(0);
   const pinnedCount = Object.keys(activeLayoutPins).length;
   const pinnedGroupIds = useMemo(() => {
     const ids = new Set<string>();
@@ -353,41 +365,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     [markers]
   );
 
-  // Start a comment on a target element
-  const startComment = (
-    target: { type: string; id: string },
-    evt: React.MouseEvent
-  ) => {
-    let x = 300;
-    let y = 300;
-
-    if (canvasWrapRef.current) {
-      const wrap = canvasWrapRef.current.getBoundingClientRect();
-      const sx = canvasWrapRef.current.scrollLeft;
-      const sy = canvasWrapRef.current.scrollTop;
-
-      // getBoundingClientRect + scrollLeft give coords in the SCALED content
-      // space; divide by zoom to convert to unscaled canvas coords (the space
-      // the popover and markers are positioned in, inside the scaled .hf-canvas).
-      const currentTarget = evt.currentTarget as HTMLElement;
-      if (currentTarget && currentTarget.getBoundingClientRect) {
-        const rect = currentTarget.getBoundingClientRect();
-        x = (rect.left - wrap.left + sx + rect.width / 2) / zoom - PAN_MARGIN;
-        y = (rect.bottom - wrap.top + sy) / zoom - PAN_MARGIN + 8;
-      } else if (evt.clientX != null) {
-        x = (evt.clientX - wrap.left + sx) / zoom - PAN_MARGIN;
-        y = (evt.clientY - wrap.top + sy) / zoom - PAN_MARGIN + 8;
-      }
-    }
-
-    dispatch({ type: 'CommentStarted', target, anchor: { x, y } });
-  };
-
-  // Submit a comment
-  const submitComment = (text: string) => {
-    dispatch({ type: 'CommentSubmitted', text });
-  };
-
   // Focus an object from the context tree: focus + expand + scroll. The viewport
   // effect scrolls on the next LayoutComputed, via the DomViewport.
   const focusFromTree = (t: TreeFocusTarget) => {
@@ -431,6 +408,35 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   const handleResetRepoLayout = () => {
     clearLayoutPinsForRepo(graph);
     dispatch({ type: 'LayoutRepoPinsReset' });
+  };
+
+  const refreshGraph = () => {
+    dispatch({ type: 'GraphRequested', worktree: activeWorktree || undefined });
+  };
+
+  const openSourceFile = (path: string) => {
+    const seq = ++sourceRequestSeq.current;
+    setSourceViewer({ path, status: 'loading' });
+    fetch(sourceAPIURL(path, activeWorktree))
+      .then(async (res) => {
+        if (!res.ok) {
+          const msg = await res.text();
+          throw new Error(msg.trim() || `HTTP ${res.status}`);
+        }
+        return res.json() as Promise<{ path: string; content: string }>;
+      })
+      .then((data) => {
+        if (sourceRequestSeq.current !== seq) return;
+        setSourceViewer({ path: data.path || path, status: 'loaded', content: data.content });
+      })
+      .catch((err: unknown) => {
+        if (sourceRequestSeq.current !== seq) return;
+        setSourceViewer({
+          path,
+          status: 'error',
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
   };
 
   // Handle canvas background click (clear focus + pending comment + activeMarkerId).
@@ -508,6 +514,8 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
         onLevelChange={(l) => dispatch({ type: 'LevelChanged', level: l })}
         theme={theme}
         onThemeToggle={() => dispatch({ type: 'ThemeToggled' })}
+        onRefresh={refreshGraph}
+        refreshing={load.status === 'loading'}
         commentCount={markers.length}
         pr={graph.pr}
       />
@@ -667,6 +675,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                   showDiff={showDiff}
                   activeId={focusId}
                   onFocus={focusFromTree}
+                  onOpenFile={openSourceFile}
                 />
               </div>
             </>
@@ -731,11 +740,12 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
               focusId={focusId}
               flow={true}
               commentTargets={commentTargets}
-              onAddComment={startComment}
             />
 
             <RelationLayer
-              relations={displayLaid.relations ?? []}
+              relations={(displayLaid.relations ?? []).filter(
+                (relation) => relation.fromComponentId !== relation.toComponentId
+              )}
               components={displayLaid.components}
               expandedSet={expanded}
               expandedInternals={internalExpanded}
@@ -759,11 +769,13 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                 focused={focusId === c.id}
                 dimmed={!!(focusId && related && !related.has(c.id))}
                 onSelect={handleSelectComponent}
-                onAddComment={startComment}
                 commentTargets={commentTargets}
                 pinned={activeLayoutPins[c.id] != null}
                 cardDensity={cardDensity}
                 showInlineSignatures={showInlineSignatures}
+                relations={(displayLaid.relations ?? []).filter(
+                  (relation) => relation.fromComponentId === c.id && relation.toComponentId === c.id
+                )}
                 zoom={zoom}
                 onMove={handleMoveComponent}
                 onResetLayout={(id) => dispatch({ type: 'LayoutPinReset', id })}
@@ -780,12 +792,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
               />
             ))}
 
-            {/* Inline comment popover */}
-            <InlinePopover
-              pending={pendingComment}
-              onCancel={() => dispatch({ type: 'CommentCancelled' })}
-              onSubmit={submitComment}
-            />
           </div>
           </div>
           )}
@@ -854,24 +860,27 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                     <div className="hf-card-body">{m.body}</div>
                   </div>
                 ))}
-                <div
-                  style={{
-                    textAlign: 'center',
-                    color: 'var(--fg-3)',
-                    fontSize: 11,
-                    padding: '12px 0',
-                    fontFamily: 'JetBrains Mono, monospace',
-                  }}
-                >
-                  click any element on canvas - comment
-                </div>
               </div>
             </>
           )}
         </div>
+        <SourceDrawer source={sourceViewer} onClose={() => setSourceViewer(null)} />
       </div>
     </div>
   );
+}
+
+function sourceAPIURL(path: string, worktree: string): string {
+  const query = `file=${encodeURIComponent(path)}`;
+  if (worktree) return `/w/${encodeURIComponent(worktree)}/api/source?${query}`;
+  const prefix = currentWorktreePrefix();
+  return `${prefix}/api/source?${query}`;
+}
+
+function currentWorktreePrefix(): string {
+  if (typeof window === 'undefined') return '';
+  const match = window.location.pathname.match(/^\/w\/[^/]+/);
+  return match?.[0] ?? '';
 }
 
 function visibleReviewGroupings(

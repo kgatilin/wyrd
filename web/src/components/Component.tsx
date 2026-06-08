@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { Component as ComponentType, Diff, Internal, Member, Port } from '../types';
+import type { Component as ComponentType, Diff, Internal, Member, Port, SymbolRelation } from '../types';
 import { displaySymbolName } from '../domain/symbolNames';
 import type { CardDensity } from '../domain/state';
 
@@ -108,6 +108,8 @@ export interface ComponentProps {
   onMove?: (id: string, x: number, y: number) => void;
   /** Callback to clear this component's manually pinned layout position */
   onResetLayout?: (id: string) => void;
+  /** Same-package symbol relations rendered inside the expanded component */
+  relations?: SymbolRelation[];
 }
 
 /**
@@ -135,6 +137,7 @@ export function Component({
   zoom = 1,
   onMove,
   onResetLayout,
+  relations = [],
 }: ComponentProps) {
   const [dragging, setDragging] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -153,8 +156,10 @@ export function Component({
   const w = cmp.w;
   const h = cmp.h;
 
-  // "Expand all" is satisfied when every internal is already in fit-width mode.
+  // Full signatures fit by default. Manual fit-width controls are only useful
+  // when the toolbar is set to short-name mode.
   const hasInternals = cmp.internals.length > 0;
+  const showFitControls = !showInlineSignatures;
   const allWide = hasInternals && cmp.internals.every((it) => wideInternals.has(it.id));
 
   // Header icon shows the parent's (bounded context) initial, falling back to the
@@ -299,8 +304,14 @@ export function Component({
                 onAddComment={onAddComment}
                 hasComment={hasComment}
                 showInlineSignatures={showInlineSignatures}
+                showFitControl={showFitControls}
               />
             ))}
+            <IntraPackageRelations
+              cmp={cmp}
+              relations={relations}
+              showDiff={showDiff}
+            />
           </div>
         )}
       </div>
@@ -319,7 +330,7 @@ export function Component({
         )}
         {/* Expand-all: widens every internal so all member text shows (or resets
             them). Only meaningful while the component is open and has internals. */}
-        {expanded && hasInternals && (
+        {expanded && hasInternals && showFitControls && (
           <button
             className="hf-cmp-expand-all"
             onClick={handleExpandAllClick}
@@ -359,6 +370,176 @@ export function Component({
   );
 }
 
+interface IntraPackageRelationsProps {
+  cmp: ComponentType;
+  relations: SymbolRelation[];
+  showDiff: boolean;
+}
+
+interface RelationPoint {
+  x: number;
+  y: number;
+  side: 'top' | 'right' | 'bottom' | 'left';
+}
+
+function IntraPackageRelations({
+  cmp,
+  relations,
+  showDiff,
+}: IntraPackageRelationsProps) {
+  const visibleRelations = internalRenderRelations(cmp.id, relations, cmp.internals);
+  if (visibleRelations.length === 0 || cmp.w == null || cmp.h == null) return null;
+  const width = cmp.w;
+  const height = Math.max(0, cmp.h - 36);
+  if (width <= 0 || height <= 0) return null;
+
+  return (
+    <svg className="hf-intra-relations" width={width} height={height} aria-hidden="true">
+      <defs>
+        {['intra', 'intra-add', 'intra-rem', 'intra-chg'].map((id) => (
+          <marker
+            key={id}
+            id={`hf-${id}-${safeMarkerId(cmp.id)}`}
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            orient="auto-start-reverse"
+          >
+            <path
+              d="M 0 0 L 10 5 L 0 10 z"
+              className={`hf-intra-arrow ${
+                id === 'intra-add'
+                  ? 'added'
+                  : id === 'intra-rem'
+                    ? 'removed'
+                    : id === 'intra-chg'
+                      ? 'changed'
+                      : ''
+              }`}
+            />
+          </marker>
+        ))}
+      </defs>
+      {visibleRelations.map((relation, idx) => {
+        const endpoints = intraRelationEndpoints(cmp, relation);
+        if (!endpoints) return null;
+        const { from, to } = endpoints;
+        const { path, label } = intraRelationPath(from, to, idx);
+        const diffCls = showDiff && relation.diff ? relation.diff : '';
+        const marker = intraRelationMarker(cmp.id, relation, showDiff);
+        return (
+          <g key={relation.id} className="hf-intra-rel-group">
+            <path d={path} className={`hf-intra-rel ${diffCls}`} markerEnd={marker} />
+            <text x={label.x} y={label.y} className="hf-intra-label" textAnchor="middle">
+              {relation.kind}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function internalRenderRelations(componentId: string, relations: SymbolRelation[], internals: Internal[]): SymbolRelation[] {
+  const internalIds = new Set(internals.map((internal) => internal.id));
+  const out = new Map<string, SymbolRelation>();
+  for (const relation of relations) {
+    if (relation.fromComponentId !== componentId || relation.toComponentId !== componentId) continue;
+    if (!relation.fromInternalId || !relation.toInternalId) continue;
+    if (relation.fromInternalId === relation.toInternalId) continue;
+    if (!internalIds.has(relation.fromInternalId) || !internalIds.has(relation.toInternalId)) continue;
+    const key = `${relation.kind}\u0000${relation.fromInternalId}\u0000${relation.toInternalId}`;
+    if (!out.has(key)) out.set(key, relation);
+  }
+  return [...out.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function intraRelationMarker(componentId: string, relation: SymbolRelation, showDiff: boolean): string {
+  const suffix = safeMarkerId(componentId);
+  if (!showDiff || !relation.diff) return `url(#hf-intra-${suffix})`;
+  if (relation.diff === 'added') return `url(#hf-intra-add-${suffix})`;
+  if (relation.diff === 'removed') return `url(#hf-intra-rem-${suffix})`;
+  return `url(#hf-intra-chg-${suffix})`;
+}
+
+function safeMarkerId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9_-]/g, '-');
+}
+
+function intraRelationEndpoints(
+  cmp: ComponentType,
+  relation: SymbolRelation
+): { from: RelationPoint; to: RelationPoint } | null {
+  const fromInternal = cmp.internals.find((internal) => internal.id === relation.fromInternalId);
+  const toInternal = cmp.internals.find((internal) => internal.id === relation.toInternalId);
+  if (!fromInternal || !toInternal) return null;
+
+  return intraAnchors(fromInternal, toInternal);
+}
+
+function intraAnchors(fromInternal: Internal, toInternal: Internal): { from: RelationPoint; to: RelationPoint } {
+  const from = internalBox(fromInternal);
+  const to = internalBox(toInternal);
+  const dx = to.cx - from.cx;
+  const dy = to.cy - from.cy;
+
+  if (Math.abs(dy) >= Math.abs(dx) * 0.55) {
+    if (dy >= 0) {
+      return {
+        from: { x: from.cx, y: from.y + from.h, side: 'bottom' },
+        to: { x: to.cx, y: to.y, side: 'top' },
+      };
+    }
+    return {
+      from: { x: from.cx, y: from.y, side: 'top' },
+      to: { x: to.cx, y: to.y + to.h, side: 'bottom' },
+    };
+  }
+
+  if (dx >= 0) {
+    return {
+      from: { x: from.x + from.w, y: from.cy, side: 'right' },
+      to: { x: to.x, y: to.cy, side: 'left' },
+    };
+  }
+  return {
+    from: { x: from.x, y: from.cy, side: 'left' },
+    to: { x: to.x + to.w, y: to.cy, side: 'right' },
+  };
+}
+
+function internalBox(internal: Internal): { x: number; y: number; w: number; h: number; cx: number; cy: number } {
+  const x = internal.x ?? 0;
+  const y = internal.y ?? 0;
+  const w = internal.w ?? 180;
+  const h = internal.h ?? 26;
+  return { x, y, w, h, cx: x + w / 2, cy: y + h / 2 };
+}
+
+function intraRelationPath(from: RelationPoint, to: RelationPoint, index: number): { path: string; label: { x: number; y: number } } {
+  const vertical = (from.side === 'top' || from.side === 'bottom') && (to.side === 'top' || to.side === 'bottom');
+  if (vertical) {
+    const sign = from.side === 'bottom' ? 1 : -1;
+    const dy = Math.max(54, Math.abs(to.y - from.y) * 0.42);
+    return {
+      path: `M ${from.x} ${from.y} C ${from.x} ${from.y + sign * dy}, ${to.x} ${to.y - sign * dy}, ${to.x} ${to.y}`,
+      label: { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - 8 - (index % 2) * 8 },
+    };
+  }
+
+  const dx = Math.max(46, Math.abs(to.x - from.x) * 0.34);
+  const fromDir = from.side === 'right' ? 1 : -1;
+  const toDir = to.side === 'right' ? 1 : -1;
+  const c1x = from.x + fromDir * dx;
+  const c2x = to.x + toDir * dx;
+  return {
+    path: `M ${from.x} ${from.y} C ${c1x} ${from.y}, ${c2x} ${to.y}, ${to.x} ${to.y}`,
+    label: { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - 8 - (index % 2) * 10 },
+  };
+}
+
 interface InternalCardProps {
   internal: Internal;
   showDiff: boolean;
@@ -369,6 +550,7 @@ interface InternalCardProps {
   onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
   hasComment: (id: string) => boolean;
   showInlineSignatures: boolean;
+  showFitControl: boolean;
 }
 
 function InternalCard({
@@ -380,6 +562,7 @@ function InternalCard({
   onAddComment,
   hasComment,
   showInlineSignatures,
+  showFitControl,
 }: InternalCardProps) {
   const diffCls = showDiff && deriveInternalDiff(internal) ? deriveInternalDiff(internal) : '';
   const internalName = displaySymbolName(internal.name, showInlineSignatures);
@@ -414,13 +597,15 @@ function InternalCard({
         </span>
         <span className="hf-internal-name" title={internal.name}>{internalName}</span>
         {hasComment(internal.id) && <span className="hf-cmt-marker sm">!</span>}
-        <span
-          className="hf-internal-toggle"
-          onClick={handleToggleClick}
-          title={wide ? 'Reset width' : 'Fit width to member text'}
-        >
-          {wide ? '−' : '+'}
-        </span>
+        {showFitControl && (
+          <span
+            className="hf-internal-toggle"
+            onClick={handleToggleClick}
+            title={wide ? 'Reset width' : 'Fit width to member text'}
+          >
+            {wide ? '−' : '+'}
+          </span>
+        )}
       </div>
       {expanded && (
         <div className="hf-member-list">

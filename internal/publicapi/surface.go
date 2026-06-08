@@ -136,8 +136,9 @@ func publicSymbols(model domain.PackageModel) []Symbol {
 		id := symbolID(model.Path, iface.Name)
 		symbols = append(symbols, Symbol{
 			ID:         id,
-			Name:       iface.Name,
+			Name:       domain.NameWithTypeParams(iface.Name, iface.TypeParams),
 			Kind:       "interface",
+			Signature:  "type " + domain.NameWithTypeParams(iface.Name, iface.TypeParams) + " interface",
 			SourceFile: iface.SourceFile,
 			Doc:        iface.Doc,
 			Members:    publicMethods(id, iface.Methods),
@@ -154,8 +155,9 @@ func publicSymbols(model domain.PackageModel) []Symbol {
 		sort.Slice(members, func(i, j int) bool { return members[i].ID < members[j].ID })
 		symbols = append(symbols, Symbol{
 			ID:         id,
-			Name:       strct.Name,
+			Name:       domain.NameWithTypeParams(strct.Name, strct.TypeParams),
 			Kind:       "struct",
+			Signature:  "type " + domain.NameWithTypeParams(strct.Name, strct.TypeParams) + " struct",
 			SourceFile: strct.SourceFile,
 			Doc:        strct.Doc,
 			Members:    members,
@@ -181,11 +183,12 @@ func publicSymbols(model domain.PackageModel) []Symbol {
 			continue
 		}
 		id := symbolID(model.Path, td.Name)
+		name := domain.NameWithTypeParams(td.Name, td.TypeParams)
 		symbols = append(symbols, Symbol{
 			ID:         id,
-			Name:       td.Name,
+			Name:       name,
 			Kind:       "type",
-			Signature:  td.Name + " : " + td.UnderlyingType.String(),
+			Signature:  name + " : " + td.UnderlyingType.String(),
 			SourceFile: td.SourceFile,
 			Doc:        td.Doc,
 			Members:    publicEnumConstants(id, td.Constants),

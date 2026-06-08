@@ -5,6 +5,9 @@ type FunctionDef struct {
 	// Name is the function name.
 	Name string
 
+	// TypeParams is the list of generic type parameters.
+	TypeParams []ParamDef
+
 	// Params is the list of function parameters.
 	Params []ParamDef
 
@@ -35,9 +38,10 @@ type FunctionDef struct {
 func (f FunctionDef) Signature() string {
 	// Reuse MethodDef.Signature() by creating a temporary MethodDef
 	m := MethodDef{
-		Name:    f.Name,
-		Params:  f.Params,
-		Returns: f.Returns,
+		Name:       f.Name,
+		TypeParams: f.TypeParams,
+		Params:     f.Params,
+		Returns:    f.Returns,
 	}
 	return m.Signature()
 }

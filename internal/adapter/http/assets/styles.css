@@ -132,6 +132,56 @@ pre {
     border: 1px solid var(--border);
 }
 
+.source-view {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.source-header h1 {
+    margin: 0;
+    font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.source-frame {
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 0.35rem;
+    background: var(--code-bg);
+}
+
+.source-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    font-size: 0.88rem;
+    line-height: 1.45;
+}
+
+.source-no {
+    width: 1%;
+    padding: 0 0.75rem;
+    color: var(--muted);
+    text-align: right;
+    user-select: none;
+    border-right: 1px solid var(--border);
+    background: color-mix(in srgb, var(--code-bg) 82%, var(--bg) 18%);
+}
+
+.source-code {
+    min-width: 40rem;
+    padding: 0 0.9rem;
+    white-space: pre;
+}
+
+.source-code code {
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+}
+
 a {
     color: var(--accent);
 }

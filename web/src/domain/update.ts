@@ -291,13 +291,17 @@ function loadGeometrySlice(state: AppState, event: Event): AppState {
     case 'GraphLoaded': {
       const graph = event.graph;
       const leftTab = graph.pr != null ? 'changes' : state.ui.leftTab;
-      const reviewViewId = graph.defaultReviewView ?? graph.reviewViews?.[0]?.id ?? null;
+      const reviewViewId = validReviewView(graph, state.ui.reviewViewId)
+        ? state.ui.reviewViewId
+        : graph.defaultReviewView ?? graph.reviewViews?.[0]?.id ?? null;
       const reviewScopeId =
-        graph.defaultReviewScope ??
-        graph.reviewViews?.find((v) => v.id === reviewViewId)?.defaultScope ??
-        graph.reviewScopes?.[0]?.id ??
-        null;
-      const reviewGroupingId = defaultGroupingForGraph(graph, reviewViewId, null);
+        validReviewScope(graph, state.ui.reviewScopeId)
+          ? state.ui.reviewScopeId
+          : graph.defaultReviewScope ??
+            graph.reviewViews?.find((v) => v.id === reviewViewId)?.defaultScope ??
+            graph.reviewScopes?.[0]?.id ??
+            null;
+      const reviewGroupingId = defaultGroupingForGraph(graph, reviewViewId, state.ui.reviewGroupingId);
       const reviewDefaults = seedReviewDefaults(reviewViewId, reviewScopeId, reviewGroupingId);
       const expansion = expandedForReviewSelection(
         graph,

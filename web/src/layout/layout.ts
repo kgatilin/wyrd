@@ -1,6 +1,6 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkNode, ElkPort, ElkExtendedEdge } from 'elkjs';
-import type { UIGraph, BoundedContext, Component, Port, Edge, Internal } from '../types';
+import type { UIGraph, BoundedContext, Component, Port, Edge, Internal, SymbolRelation } from '../types';
 import { displaySymbolName } from '../domain/symbolNames';
 
 // Spacing between sibling components. These MUST be set on the node that owns the
@@ -135,20 +135,22 @@ function computeInternalFitWidth(internal: Internal, showInlineSignatures: boole
   return Math.ceil(Math.max(INTERNAL_W, memberW, headerW));
 }
 
-/** Width of a single internal: fit-to-content when in wide mode, else fixed. */
+/** Width of a single internal: full signatures fit by default; short-name mode can still use fixed width. */
 function internalWidth(
   internal: Internal,
   internalWide: Set<string>,
   showInlineSignatures: boolean
 ): number {
-  return internalWide.has(internal.id) ? computeInternalFitWidth(internal, showInlineSignatures) : INTERNAL_W;
+  return showInlineSignatures || internalWide.has(internal.id)
+    ? computeInternalFitWidth(internal, showInlineSignatures)
+    : INTERNAL_W;
 }
 
 /**
  * Layout internals within an expanded component using a simple grid/packing algorithm.
  * Returns the internals with x, y, w, h set, plus the required canvas content dimensions.
  */
-function layoutInternals(
+function packInternals(
   internals: Internal[],
   internalExpanded: Set<string>,
   internalWide: Set<string>,
@@ -200,17 +202,117 @@ function layoutInternals(
   return { laid, contentW, contentH };
 }
 
+function internalRelationKey(relation: SymbolRelation): string {
+  return `${relation.kind}\u0000${relation.fromInternalId ?? ''}\u0000${relation.toInternalId ?? ''}`;
+}
+
+function internalLayoutRelations(componentId: string, relations: SymbolRelation[]): SymbolRelation[] {
+  const internalRelations = new Map<string, SymbolRelation>();
+  for (const relation of relations) {
+    if (relation.fromComponentId !== componentId || relation.toComponentId !== componentId) continue;
+    if (!relation.fromInternalId || !relation.toInternalId) continue;
+    if (relation.fromInternalId === relation.toInternalId) continue;
+    const key = internalRelationKey(relation);
+    if (!internalRelations.has(key)) internalRelations.set(key, relation);
+  }
+  return [...internalRelations.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+async function layoutInternals(
+  internals: Internal[],
+  relations: SymbolRelation[],
+  internalExpanded: Set<string>,
+  internalWide: Set<string>,
+  showInlineSignatures: boolean,
+  availableWidth: number
+): Promise<{ laid: Internal[]; contentW: number; contentH: number }> {
+  if (internals.length === 0) {
+    return { laid: [], contentW: 0, contentH: 0 };
+  }
+
+  const withSizes = internals.map((internal) => ({
+    internal,
+    w: internalWidth(internal, internalWide, showInlineSignatures),
+    h: computeInternalHeight(internal, internalExpanded),
+  }));
+  const byId = new Map(withSizes.map((item) => [item.internal.id, item]));
+  const edges = relations.filter((relation) =>
+    relation.fromInternalId &&
+    relation.toInternalId &&
+    relation.fromInternalId !== relation.toInternalId &&
+    byId.has(relation.fromInternalId) &&
+    byId.has(relation.toInternalId)
+  );
+
+  if (edges.length === 0) {
+    return packInternals(internals, internalExpanded, internalWide, showInlineSignatures, availableWidth);
+  }
+
+  const elkGraph: ElkNode = {
+    id: 'internals',
+    layoutOptions: {
+      'elk.algorithm': 'layered',
+      'elk.direction': 'DOWN',
+      'elk.edgeRouting': 'SPLINES',
+      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+      'elk.spacing.nodeNode': '46',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '86',
+      'elk.spacing.edgeNode': '34',
+      'elk.spacing.edgeEdge': '18',
+      'elk.padding': '[top=0, left=0, bottom=0, right=0]',
+    },
+    children: withSizes.map((item) => ({
+      id: item.internal.id,
+      width: item.w,
+      height: item.h,
+    })),
+    edges: edges.map((relation, idx) => ({
+      id: `${relation.kind}:${relation.fromInternalId}->${relation.toInternalId}:${idx}`,
+      sources: [relation.fromInternalId!],
+      targets: [relation.toInternalId!],
+    })),
+  };
+
+  try {
+    const laidGraph = await new ELK().layout(elkGraph);
+    const nodeById = new Map((laidGraph.children ?? []).map((node) => [node.id, node]));
+    let contentW = 0;
+    let contentH = 0;
+    const laid = withSizes.map((item) => {
+      const node = nodeById.get(item.internal.id);
+      const x = node?.x ?? 0;
+      const y = node?.y ?? 0;
+      const w = node?.width ?? item.w;
+      const h = node?.height ?? item.h;
+      contentW = Math.max(contentW, x + w);
+      contentH = Math.max(contentH, y + h);
+      return {
+        ...item.internal,
+        x,
+        y,
+        w,
+        h,
+      };
+    });
+    return { laid, contentW, contentH };
+  } catch {
+    return packInternals(internals, internalExpanded, internalWide, showInlineSignatures, availableWidth);
+  }
+}
+
 /**
  * Compute the expanded dimensions of a component based on its internal layout.
  * This replaces the heuristic computeExpandedHeight function.
  */
-function computeExpandedDimensions(
+async function computeExpandedDimensions(
   component: Component,
+  relations: SymbolRelation[],
   internalExpanded: Set<string>,
   internalWide: Set<string>,
   cardDensity: 'detailed' | 'compact',
   showInlineSignatures: boolean
-): { w: number; h: number; internals: Internal[] } {
+): Promise<{ w: number; h: number; internals: Internal[] }> {
   // For expanded component, we need to lay out internals first to determine size
   const collapsedW = computeCollapsedWidth(component, cardDensity);
   // Floor expanded height at the collapsed height so expanding never shrinks a card.
@@ -234,9 +336,12 @@ function computeExpandedDimensions(
   );
   const availableWidth = Math.max(minWidth - 2 * CANVAS_PADDING, gridWidth, maxItemW);
 
+  const internalRelations = internalLayoutRelations(component.id, relations);
+
   // Layout internals with the computed available width
-  const { laid, contentW, contentH } = layoutInternals(
+  const { laid, contentW, contentH } = await layoutInternals(
     component.internals,
+    internalRelations,
     internalExpanded,
     internalWide,
     showInlineSignatures,
@@ -275,7 +380,7 @@ function shortName(id: string): string {
  * BCs → compound ELK nodes; components → child nodes; ports → ELK ports;
  * internals are laid out within expanded components.
  */
-export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
+export async function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
   const expanded = opts?.expanded ?? new Set<string>();
   const internalExpanded = opts?.internalExpanded ?? new Set<string>();
   const internalWide = opts?.internalWide ?? new Set<string>();
@@ -289,8 +394,9 @@ export function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
   const expandedLayouts = new Map<string, { w: number; h: number; internals: Internal[] }>();
   for (const c of graph.components) {
     if (expanded.has(c.id)) {
-      expandedLayouts.set(c.id, computeExpandedDimensions(
+      expandedLayouts.set(c.id, await computeExpandedDimensions(
         c,
+        graph.relations ?? [],
         internalExpanded,
         internalWide,
         cardDensity,

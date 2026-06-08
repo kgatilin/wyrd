@@ -40,6 +40,15 @@ func componentByID(components []Component, id string) *Component {
 	return nil
 }
 
+func internalByID(internals []Internal, id string) *Internal {
+	for i := range internals {
+		if internals[i].ID == id {
+			return &internals[i]
+		}
+	}
+	return nil
+}
+
 func TestProjectMarksAddedInterface(t *testing.T) {
 	// "current" has an interface Svc.
 	// "target" has no interfaces (Svc is new in current).
@@ -53,7 +62,14 @@ func TestProjectMarksAddedInterface(t *testing.T) {
 					Name:       "Svc",
 					IsExported: true,
 					Methods: []domain.MethodDef{
-						{Name: "Handle", IsExported: true},
+						{
+							Name:       "Handle",
+							IsExported: true,
+							Params: []domain.ParamDef{
+								{Name: "id", Type: domain.TypeRef{Name: "string"}},
+							},
+							Returns: []domain.TypeRef{{Name: "error"}},
+						},
 					},
 				},
 			},
@@ -108,8 +124,83 @@ func TestProjectMarksAddedInterface(t *testing.T) {
 	if len(svcInternal.Members) != 1 {
 		t.Fatalf("len(Members) = %d, want 1", len(svcInternal.Members))
 	}
-	if svcInternal.Members[0].Name != "Handle()" {
-		t.Errorf("Member.Name = %q, want %q", svcInternal.Members[0].Name, "Handle()")
+	if svcInternal.Members[0].Name != "Handle(id string) error" {
+		t.Errorf("Member.Name = %q, want %q", svcInternal.Members[0].Name, "Handle(id string) error")
+	}
+}
+
+func TestProjectDisplaysGoGenerics(t *testing.T) {
+	models := []domain.PackageModel{
+		{
+			Path: "repo",
+			Name: "repo",
+			Interfaces: []domain.InterfaceDef{
+				{
+					Name:       "Repository",
+					TypeParams: []domain.ParamDef{{Name: "T", Type: domain.TypeRef{Name: "any"}}},
+					IsExported: true,
+					Methods: []domain.MethodDef{
+						{
+							Name:       "Get",
+							IsExported: true,
+							Params:     []domain.ParamDef{{Name: "id", Type: domain.TypeRef{Name: "string"}}},
+							Returns:    []domain.TypeRef{{Name: "T"}, {Name: "error"}},
+						},
+					},
+				},
+			},
+			Structs: []domain.StructDef{
+				{
+					Name:       "Box",
+					TypeParams: []domain.ParamDef{{Name: "T", Type: domain.TypeRef{Name: "comparable"}}},
+					IsExported: true,
+					Fields: []domain.FieldDef{
+						{Name: "Value", Type: domain.TypeRef{Name: "T"}, IsExported: true},
+					},
+				},
+			},
+			Functions: []domain.FunctionDef{
+				{
+					Name:       "NewBox",
+					TypeParams: []domain.ParamDef{{Name: "T", Type: domain.TypeRef{Name: "comparable"}}},
+					IsExported: true,
+					Params:     []domain.ParamDef{{Name: "value", Type: domain.TypeRef{Name: "T"}}},
+					Returns:    []domain.TypeRef{{Name: "Box", TypeArgs: []domain.TypeRef{{Name: "T"}}}},
+				},
+			},
+			TypeDefs: []domain.TypeDef{
+				{
+					Name:           "Result",
+					TypeParams:     []domain.ParamDef{{Name: "T", Type: domain.TypeRef{Name: "any"}}},
+					UnderlyingType: domain.TypeRef{Name: "T", IsSlice: true},
+					IsExported:     true,
+				},
+			},
+		},
+	}
+
+	g, err := Project(models, nil, nil)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	cmp := componentByID(g.Components, "repo")
+	if cmp == nil {
+		t.Fatalf("component repo missing")
+	}
+	cases := map[string]string{
+		"repo.Repository": "Repository[T any]",
+		"repo.Box":        "Box[T comparable]",
+		"repo.NewBox":     "NewBox[T comparable](value T) Box[T]",
+		"repo.Result":     "Result[T any] : []T",
+	}
+	for id, want := range cases {
+		internal := internalByID(cmp.Internals, id)
+		if internal == nil {
+			t.Fatalf("internal %s missing", id)
+		}
+		if internal.Name != want {
+			t.Errorf("%s name = %q, want %q", id, internal.Name, want)
+		}
 	}
 }
 
@@ -532,6 +623,52 @@ func TestProjectEmitsSymbolRelationsFromSignatures(t *testing.T) {
 	}
 	if intraRelation.FromComponentID != "session" || intraRelation.ToComponentID != "session" {
 		t.Errorf("intra relation endpoints = %q -> %q, want session -> session", intraRelation.FromComponentID, intraRelation.ToComponentID)
+	}
+}
+
+func TestProjectEmitsCallRelations(t *testing.T) {
+	models := []domain.PackageModel{
+		{
+			Path: "event",
+			Name: "event",
+			Functions: []domain.FunctionDef{
+				{
+					Name:       "MarshalJSON",
+					SourceFile: "event.go",
+					Calls: []domain.CallEdge{
+						{To: domain.SymbolRef{Package: "event", Symbol: "encodeEvent"}},
+					},
+				},
+				{
+					Name:       "encodeEvent",
+					SourceFile: "event.go",
+				},
+			},
+		},
+	}
+
+	g, err := Project(models, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	relations := map[string]SymbolRelation{}
+	for _, relation := range g.Relations {
+		relations[relation.ID] = relation
+	}
+	relationID := "r:calls:event.MarshalJSON->event.encodeEvent"
+	relation, ok := relations[relationID]
+	if !ok {
+		t.Fatalf("missing call relation %q in %+v", relationID, g.Relations)
+	}
+	if relation.Kind != "calls" {
+		t.Errorf("Kind = %q, want calls", relation.Kind)
+	}
+	if relation.FromComponentID != "event" || relation.ToComponentID != "event" {
+		t.Errorf("components = %q -> %q, want event -> event", relation.FromComponentID, relation.ToComponentID)
+	}
+	if relation.FromInternalID != "event.MarshalJSON" || relation.ToInternalID != "event.encodeEvent" {
+		t.Errorf("internals = %q -> %q, want event.MarshalJSON -> event.encodeEvent", relation.FromInternalID, relation.ToInternalID)
 	}
 }
 

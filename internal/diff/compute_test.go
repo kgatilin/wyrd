@@ -128,6 +128,104 @@ func TestCompute_ChangedMethodSignature(t *testing.T) {
 	}
 }
 
+func TestCompute_IgnoresLocationDocsAndCallMetadata(t *testing.T) {
+	withMeta := pkg("internal/session", "session")
+	withMeta.Interfaces = []domain.InterfaceDef{{
+		Name:       "Log",
+		IsExported: true,
+		SourceFile: "session.go",
+		Doc:        "Log records sessions.",
+		Methods: []domain.MethodDef{{
+			Name:       "Append",
+			IsExported: true,
+			Params:     []domain.ParamDef{{Name: "id", Type: domain.TypeRef{Name: "string"}}},
+			Calls:      []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/session", Symbol: "Record"}}},
+		}},
+	}}
+	withMeta.Structs = []domain.StructDef{{
+		Name:       "Record",
+		IsExported: true,
+		SourceFile: "session.go",
+		Doc:        "Record stores one event.",
+		Fields:     []domain.FieldDef{{Name: "ID", Type: domain.TypeRef{Name: "string"}, IsExported: true}},
+		Methods: []domain.MethodDef{{
+			Name:       "Clone",
+			IsExported: true,
+			Returns:    []domain.TypeRef{{Name: "Record", Package: "internal/session"}},
+			Calls:      []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/session", Symbol: "Record.Clone"}}},
+		}},
+	}}
+	withMeta.Functions = []domain.FunctionDef{{
+		Name:       "New",
+		IsExported: true,
+		Returns:    []domain.TypeRef{{Name: "Record", Package: "internal/session"}},
+		SourceFile: "session.go",
+		Doc:        "New creates a record.",
+		Calls:      []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/session", Symbol: "Record"}}},
+	}}
+	withMeta.TypeDefs = []domain.TypeDef{{
+		Name:           "Subject",
+		UnderlyingType: domain.TypeRef{Name: "string"},
+		IsExported:     true,
+		SourceFile:     "session.go",
+		Doc:            "Subject is an event subject.",
+	}}
+	withMeta.Constants = []domain.ConstDef{{
+		Name:       "DefaultSubject",
+		Type:       domain.TypeRef{Name: "string"},
+		Value:      `"default"`,
+		IsExported: true,
+		SourceFile: "session.go",
+		Doc:        "DefaultSubject is the default.",
+	}}
+	withMeta.Variables = []domain.VarDef{{
+		Name:       "Current",
+		Type:       domain.TypeRef{Name: "Record", Package: "internal/session"},
+		IsExported: true,
+		SourceFile: "session.go",
+		Doc:        "Current stores the active record.",
+	}}
+	withMeta.Errors = []domain.ErrorDef{{
+		Name:       "ErrMissing",
+		Message:    "missing",
+		IsExported: true,
+		SourceFile: "session.go",
+		Doc:        "ErrMissing reports a missing record.",
+	}}
+	withMeta.Dependencies = []domain.Dependency{{
+		From:            domain.SymbolRef{Package: "internal/session", File: "session.go", Symbol: "New"},
+		To:              domain.SymbolRef{Package: "internal/session", File: "session.go", Symbol: "Record"},
+		Kind:            domain.DependencyReturns,
+		ThroughExported: true,
+	}}
+
+	withoutMeta := withMeta
+	withoutMeta.Interfaces[0].SourceFile = ""
+	withoutMeta.Interfaces[0].Doc = ""
+	withoutMeta.Interfaces[0].Methods[0].Calls = nil
+	withoutMeta.Structs[0].SourceFile = ""
+	withoutMeta.Structs[0].Doc = ""
+	withoutMeta.Structs[0].Methods[0].Calls = nil
+	withoutMeta.Functions[0].SourceFile = ""
+	withoutMeta.Functions[0].Doc = ""
+	withoutMeta.Functions[0].Calls = nil
+	withoutMeta.TypeDefs[0].SourceFile = ""
+	withoutMeta.TypeDefs[0].Doc = ""
+	withoutMeta.Constants[0].SourceFile = ""
+	withoutMeta.Constants[0].Doc = ""
+	withoutMeta.Variables[0].SourceFile = ""
+	withoutMeta.Variables[0].Doc = ""
+	withoutMeta.Errors[0].SourceFile = ""
+	withoutMeta.Errors[0].Doc = ""
+	withoutMeta.Dependencies[0].From.File = ""
+	withoutMeta.Dependencies[0].To.File = ""
+
+	d := Compute([]domain.PackageModel{withMeta}, []domain.PackageModel{withoutMeta})
+	if !d.IsEmpty() {
+		t.Fatalf("expected metadata-only diff to be empty, got %+v", d.Changes)
+	}
+}
+
 func TestCompute_ChangedStructFields(t *testing.T) {
 	curPkg := pkg("internal/svc", "svc")
 	curPkg.Structs = []domain.StructDef{{

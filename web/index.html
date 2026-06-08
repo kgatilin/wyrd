@@ -6,7 +6,24 @@
     <title>archai - Architecture Review</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <style>
+        body { margin: 0; background: #0d1117; color: #e6edf3; font-family: Inter, system-ui, sans-serif; }
+        .boot-load { min-height: 100vh; display: grid; place-items: center; }
+        .boot-card { width: min(360px, calc(100vw - 40px)); display: grid; justify-items: center; gap: 10px; padding: 24px; border: 1px solid #30363d; border-radius: 8px; background: #161b22; box-shadow: 0 4px 12px rgba(0,0,0,0.4); text-align: center; }
+        .boot-spin { width: 26px; height: 26px; border-radius: 999px; border: 2px solid #30363d; border-top-color: #58a6ff; animation: boot-spin 0.9s linear infinite; }
+        .boot-title { font-size: 13px; font-weight: 700; }
+        .boot-subtitle { max-width: 300px; font-size: 11px; line-height: 1.45; color: #8b949e; }
+        @keyframes boot-spin { to { transform: rotate(360deg); } }
+      </style>
+      <div class="boot-load">
+        <div class="boot-card">
+          <div class="boot-spin" aria-hidden="true"></div>
+          <div class="boot-title">Reading architecture graph</div>
+          <div class="boot-subtitle">Parsing source packages and preparing the review canvas...</div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -171,6 +171,18 @@ func TestMultiServer_LegacyRedirect(t *testing.T) {
 	if resp2.Header.Get("Location") != "/w/beta/layers" {
 		t.Errorf("Location with cookie = %q", resp2.Header.Get("Location"))
 	}
+
+	resp3, err := client.Get(ts.URL + "/api/source?file=" + url.QueryEscape("internal/eventstore/eventstore.go"))
+	if err != nil {
+		t.Fatalf("GET /api/source: %v", err)
+	}
+	defer resp3.Body.Close()
+	if resp3.StatusCode != nethttp.StatusFound {
+		t.Fatalf("source status = %d, want 302", resp3.StatusCode)
+	}
+	if loc := resp3.Header.Get("Location"); loc != "/w/alpha/api/source?file=internal%2Feventstore%2Feventstore.go" {
+		t.Errorf("source Location = %q", loc)
+	}
 }
 
 func TestMultiServer_WorktreeDispatch(t *testing.T) {

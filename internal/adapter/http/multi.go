@@ -6,6 +6,8 @@ import (
 	nethttp "net/http"
 	"sort"
 	"strings"
+
+	"github.com/kgatilin/archai/internal/serve"
 )
 
 // registerMultiRoutes installs the multi-worktree routing shell on
@@ -51,7 +53,9 @@ func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
 		"/search/results",
 		"/types/",
 		"/api/uigraph",
+		"/api/source",
 		"/api/types/",
+		"/source",
 	}
 	if s.reviewUIEnabled() {
 		mux.HandleFunc("/", s.handleReviewUIRoot)
@@ -102,26 +106,47 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 			return
 		}
 
+		if s.canServeWorktreeRouteWithoutState(rest) {
+			r2 := s.rewriteWorktreeRequest(r, name, rest, nil)
+			next.ServeHTTP(w, r2)
+			return
+		}
+
 		state, err := s.multi.Get(r.Context(), name)
 		if err != nil {
 			nethttp.Error(w, "load worktree: "+err.Error(), nethttp.StatusInternalServerError)
 			return
 		}
 
-		// Rewrite the URL so the content mux sees /layers instead of
-		// /w/foo/layers. We clone the URL so the original request is
-		// unchanged (useful for logging/debugging middleware).
-		r2 := r.Clone(r.Context())
-		u := *r.URL
-		u.Path = rest
-		r2.URL = &u
-
-		ctx := context.WithValue(r.Context(), ctxWorktreeName, name)
-		ctx = context.WithValue(ctx, ctxWorktreeState, state)
-		r2 = r2.WithContext(ctx)
-
-		next.ServeHTTP(w, r2)
+		next.ServeHTTP(w, s.rewriteWorktreeRequest(r, name, rest, state))
 	})
+}
+
+func (s *Server) canServeWorktreeRouteWithoutState(rest string) bool {
+	if !s.reviewUIEnabled() {
+		return false
+	}
+	return rest == "/" ||
+		rest == "/review" ||
+		rest == "/review/" ||
+		rest == "/review/index.html" ||
+		strings.HasPrefix(rest, "/review/assets/")
+}
+
+func (s *Server) rewriteWorktreeRequest(r *nethttp.Request, name, rest string, state *serve.State) *nethttp.Request {
+	// Rewrite the URL so the content mux sees /layers instead of
+	// /w/foo/layers. We clone the URL so the original request is
+	// unchanged (useful for logging/debugging middleware).
+	r2 := r.Clone(r.Context())
+	u := *r.URL
+	u.Path = rest
+	r2.URL = &u
+
+	ctx := context.WithValue(r.Context(), ctxWorktreeName, name)
+	if state != nil {
+		ctx = context.WithValue(ctx, ctxWorktreeState, state)
+	}
+	return r2.WithContext(ctx)
 }
 
 // handleWorktreeSelect accepts POST /worktree/select with a `name`

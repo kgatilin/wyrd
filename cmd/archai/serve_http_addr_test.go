@@ -1,8 +1,10 @@
 package main
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -167,5 +169,21 @@ func TestReviewUIDistExists(t *testing.T) {
 	}
 	if !reviewUIDistExists(dir) {
 		t.Fatalf("expected valid review UI dist")
+	}
+}
+
+func TestResolveReviewUIFS_EmbeddedDefault(t *testing.T) {
+	t.Setenv("ARCHAI_REVIEW_UI_DIR", "")
+
+	files, err := resolveReviewUIFS()
+	if err != nil {
+		t.Fatalf("resolveReviewUIFS: %v", err)
+	}
+	data, err := fs.ReadFile(files, "index.html")
+	if err != nil {
+		t.Fatalf("read embedded index.html: %v", err)
+	}
+	if !strings.Contains(string(data), `<div id="root"></div>`) {
+		t.Fatalf("embedded index.html does not look like the review UI")
 	}
 }

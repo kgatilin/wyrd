@@ -7,6 +7,9 @@ type TypeDef struct {
 	// Name is the type name.
 	Name string
 
+	// TypeParams is the list of generic type parameters.
+	TypeParams []ParamDef
+
 	// UnderlyingType is the underlying type (e.g., "string" for "type Status string").
 	UnderlyingType TypeRef
 

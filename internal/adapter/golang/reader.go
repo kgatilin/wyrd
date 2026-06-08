@@ -310,6 +310,7 @@ func (r *reader) extractInterfaces(pkg *packages.Package, astFiles map[string]*a
 			continue
 		}
 
+		named, _ := typeName.Type().(*types.Named)
 		iface, ok := typeName.Type().Underlying().(*types.Interface)
 		if !ok {
 			continue
@@ -324,6 +325,7 @@ func (r *reader) extractInterfaces(pkg *packages.Package, astFiles map[string]*a
 
 		ifaceDef := domain.InterfaceDef{
 			Name:       name,
+			TypeParams: r.extractTypeParams(namedTypeParams(named)),
 			Methods:    r.extractInterfaceMethods(iface),
 			IsExported: isExported(name),
 			SourceFile: sourceFile,
@@ -365,6 +367,7 @@ func (r *reader) extractStructs(
 			continue
 		}
 
+		named, _ := typeName.Type().(*types.Named)
 		structType, ok := typeName.Type().Underlying().(*types.Struct)
 		if !ok {
 			continue
@@ -379,6 +382,7 @@ func (r *reader) extractStructs(
 
 		structDef := domain.StructDef{
 			Name:       name,
+			TypeParams: r.extractTypeParams(namedTypeParams(named)),
 			Fields:     r.extractStructFields(structType),
 			Methods:    methodsByReceiver[name],
 			IsExported: isExported(name),
@@ -440,6 +444,7 @@ func (r *reader) extractFunctions(pkg *packages.Package, astFiles map[string]*as
 
 		fnDef := domain.FunctionDef{
 			Name:       name,
+			TypeParams: r.extractTypeParams(sig.TypeParams()),
 			Params:     r.extractParams(sig.Params()),
 			Returns:    r.extractReturns(sig.Results()),
 			IsExported: isExported(name),
@@ -470,6 +475,7 @@ func (r *reader) extractTypeDefs(
 		}
 
 		// Skip interfaces and structs - we handle those separately
+		named, _ := typeName.Type().(*types.Named)
 		switch typeName.Type().Underlying().(type) {
 		case *types.Interface, *types.Struct:
 			continue
@@ -484,6 +490,7 @@ func (r *reader) extractTypeDefs(
 
 		typeDef := domain.TypeDef{
 			Name:           name,
+			TypeParams:     r.extractTypeParams(namedTypeParams(named)),
 			UnderlyingType: r.convertTypeRef(typeName.Type().Underlying()),
 			Constants:      constantsByType[name],
 			IsExported:     isExported(name),
@@ -705,10 +712,44 @@ func exprText(e ast.Expr) string {
 func (r *reader) convertMethod(fn *types.Func, sig *types.Signature) domain.MethodDef {
 	return domain.MethodDef{
 		Name:       fn.Name(),
+		TypeParams: r.extractTypeParams(sig.TypeParams()),
 		Params:     r.extractParams(sig.Params()),
 		Returns:    r.extractReturns(sig.Results()),
 		IsExported: isExported(fn.Name()),
 	}
+}
+
+func (r *reader) extractTypeParams(typeParams *types.TypeParamList) []domain.ParamDef {
+	if typeParams == nil || typeParams.Len() == 0 {
+		return nil
+	}
+	params := make([]domain.ParamDef, 0, typeParams.Len())
+	for i := 0; i < typeParams.Len(); i++ {
+		tp := typeParams.At(i)
+		params = append(params, domain.ParamDef{
+			Name: tp.Obj().Name(),
+			Type: r.convertTypeParamConstraint(tp.Constraint()),
+		})
+	}
+	return params
+}
+
+func (r *reader) convertTypeParamConstraint(t types.Type) domain.TypeRef {
+	if t == nil {
+		return domain.TypeRef{Name: "any"}
+	}
+	name := r.stripModulePath(t.String())
+	if name == "interface{}" {
+		name = "any"
+	}
+	return domain.TypeRef{Name: name}
+}
+
+func namedTypeParams(named *types.Named) *types.TypeParamList {
+	if named == nil {
+		return nil
+	}
+	return named.TypeParams()
 }
 
 // extractParams extracts parameter definitions from a types.Tuple.
@@ -761,6 +802,7 @@ func (r *reader) convertTypeRef(t types.Type) domain.TypeRef {
 		ref.Name = elemRef.Name
 		ref.Package = elemRef.Package
 		ref.IsPointer = elemRef.IsPointer
+		ref.TypeArgs = elemRef.TypeArgs
 		return ref
 	}
 
@@ -774,12 +816,25 @@ func (r *reader) convertTypeRef(t types.Type) domain.TypeRef {
 		return ref
 	}
 
+	// Handle type parameters
+	if typeParam, ok := t.(*types.TypeParam); ok {
+		ref.Name = typeParam.Obj().Name()
+		return ref
+	}
+
 	// Handle named types
 	if named, ok := t.(*types.Named); ok {
 		ref.Name = named.Obj().Name()
 		pkg := named.Obj().Pkg()
 		if pkg != nil {
-			ref.Package = r.relativePath(pkg.Path())
+			if rel := r.relativePath(pkg.Path()); rel != "." {
+				ref.Package = rel
+			}
+		}
+		if typeArgs := named.TypeArgs(); typeArgs != nil {
+			for i := 0; i < typeArgs.Len(); i++ {
+				ref.TypeArgs = append(ref.TypeArgs, r.convertTypeRef(typeArgs.At(i)))
+			}
 		}
 		return ref
 	}
@@ -1029,8 +1084,8 @@ func (r *reader) collectMethodDependenciesWithVisibility(
 			addDep(domain.Dependency{
 				From:            fromRef,
 				ThroughExported: throughExported,
-				To:   *toRef,
-				Kind: domain.DependencyReturns,
+				To:              *toRef,
+				Kind:            domain.DependencyReturns,
 			})
 		}
 	}
@@ -1124,10 +1179,10 @@ func (r *reader) applyStereotypes(model *domain.PackageModel) {
 func (r *reader) computeImplementations(pkgs []*packages.Package, models []domain.PackageModel) {
 	// Collect all interfaces (from loaded packages only) that are exported.
 	type ifaceEntry struct {
-		pkg       *packages.Package
-		name      string
-		iface     *types.Interface
-		modelIdx  int    // index into models slice
+		pkg        *packages.Package
+		name       string
+		iface      *types.Interface
+		modelIdx   int // index into models slice
 		sourceFile string
 	}
 
@@ -1181,9 +1236,9 @@ func (r *reader) computeImplementations(pkgs []*packages.Package, models []domai
 
 	// Collect all named concrete types (non-interfaces) across loaded packages.
 	type concreteEntry struct {
-		pkg       *packages.Package
-		name      string
-		named     *types.Named
+		pkg        *packages.Package
+		name       string
+		named      *types.Named
 		sourceFile string
 	}
 	var concretes []concreteEntry
@@ -1292,27 +1347,27 @@ func isExported(name string) bool {
 // isBasicType returns true if the type name is a Go basic type.
 func isBasicType(name string) bool {
 	basicTypes := map[string]bool{
-		"bool":       true,
-		"byte":       true,
-		"complex64":  true,
-		"complex128": true,
-		"error":      true,
-		"float32":    true,
-		"float64":    true,
-		"int":        true,
-		"int8":       true,
-		"int16":      true,
-		"int32":      true,
-		"int64":      true,
-		"rune":       true,
-		"string":     true,
-		"uint":       true,
-		"uint8":      true,
-		"uint16":     true,
-		"uint32":     true,
-		"uint64":     true,
-		"uintptr":    true,
-		"any":        true,
+		"bool":        true,
+		"byte":        true,
+		"complex64":   true,
+		"complex128":  true,
+		"error":       true,
+		"float32":     true,
+		"float64":     true,
+		"int":         true,
+		"int8":        true,
+		"int16":       true,
+		"int32":       true,
+		"int64":       true,
+		"rune":        true,
+		"string":      true,
+		"uint":        true,
+		"uint8":       true,
+		"uint16":      true,
+		"uint32":      true,
+		"uint64":      true,
+		"uintptr":     true,
+		"any":         true,
 		"interface{}": true,
 	}
 	return basicTypes[name]

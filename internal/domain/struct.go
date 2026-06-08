@@ -5,6 +5,9 @@ type StructDef struct {
 	// Name is the struct name.
 	Name string
 
+	// TypeParams is the list of generic type parameters.
+	TypeParams []ParamDef
+
 	// Fields is the list of fields in this struct.
 	Fields []FieldDef
 

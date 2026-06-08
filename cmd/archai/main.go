@@ -32,6 +32,7 @@ import (
 	"github.com/kgatilin/archai/internal/service"
 	"github.com/kgatilin/archai/internal/target"
 	"github.com/kgatilin/archai/internal/worktree"
+	reviewui "github.com/kgatilin/archai/web"
 	"github.com/spf13/cobra"
 	yamlv3 "gopkg.in/yaml.v3"
 )
@@ -366,6 +367,7 @@ Stale records (processes that have exited) are skipped.`,
 		RunE: runListDaemons,
 	}
 	rootCmd.AddCommand(listDaemonsCmd)
+	rootCmd.AddCommand(newStopDaemonCmd())
 
 	// Sequence command (M6b)
 	sequenceCmd := &cobra.Command{
@@ -614,23 +616,20 @@ func resolveReviewUIFS() (fs.FS, error) {
 	if err != nil {
 		return nil, err
 	}
-	return os.DirFS(dir), nil
+	if dir != "" {
+		return os.DirFS(dir), nil
+	}
+	files, err := reviewui.ReviewUI()
+	if err != nil {
+		return nil, fmt.Errorf("embedded review UI dist not available: %w", err)
+	}
+	return files, nil
 }
 
 func resolveReviewUIDistDir() (string, error) {
 	candidates := []string{}
 	if env := strings.TrimSpace(os.Getenv("ARCHAI_REVIEW_UI_DIR")); env != "" {
 		candidates = append(candidates, env)
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(cwd, "web", "dist"))
-	}
-	if exe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exe)
-		candidates = append(candidates,
-			filepath.Join(exeDir, "web", "dist"),
-			filepath.Join(exeDir, "..", "web", "dist"),
-		)
 	}
 	for _, dir := range candidates {
 		if reviewUIDistExists(dir) {
@@ -641,7 +640,10 @@ func resolveReviewUIDistDir() (string, error) {
 			return abs, nil
 		}
 	}
-	return "", fmt.Errorf("review UI dist not found; run `npm run build` in web/ or set ARCHAI_REVIEW_UI_DIR")
+	if len(candidates) > 0 {
+		return "", fmt.Errorf("review UI dist not found; run `npm run build` in web/ or set ARCHAI_REVIEW_UI_DIR")
+	}
+	return "", nil
 }
 
 func reviewUIDistExists(dir string) bool {
@@ -1944,6 +1946,111 @@ func runListDaemons(cmd *cobra.Command, args []string) error {
 			d.Worktree, d.Record.PID, "http://"+d.Record.HTTPAddr, uptime)
 	}
 	return nil
+}
+
+var (
+	daemonPIDAlive = worktree.PIDAlive
+	daemonSignal   = signalDaemonPID
+)
+
+func newStopDaemonCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "stop-daemon [worktree]",
+		Short: "Stop a running archai serve daemon",
+		Long: `Stop the archai serve daemon recorded in .arch/.worktree/<name>/serve.json.
+
+With no worktree argument, stops the daemon for the current worktree.
+With a worktree argument, stops that named daemon as shown by
+` + "`archai list-daemons`" + `.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: runStopDaemon,
+	}
+	cmd.Flags().Duration("timeout", 5*time.Second, "How long to wait for graceful shutdown after SIGTERM (0 sends only)")
+	return cmd
+}
+
+// runStopDaemon handles `archai stop-daemon [worktree]`. It sends
+// SIGTERM to the recorded daemon PID and waits briefly for the process
+// to exit or for the daemon to remove its serve.json during graceful
+// shutdown. Stale records are removed and treated as success because
+// the requested daemon is already stopped.
+func runStopDaemon(cmd *cobra.Command, args []string) error {
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+	name := worktree.Name(projectRoot)
+	if len(args) == 1 {
+		name = args[0]
+	}
+	if err := validateWorktreeName(name); err != nil {
+		return err
+	}
+	timeout, _ := cmd.Flags().GetDuration("timeout")
+
+	rec, err := worktree.ReadServe(projectRoot, name)
+	if err != nil {
+		return fmt.Errorf("reading serve.json: %w", err)
+	}
+	if rec == nil {
+		return fmt.Errorf("no daemon running in worktree %q", name)
+	}
+	if !daemonPIDAlive(rec.PID) {
+		if err := worktree.RemoveServe(projectRoot, name); err != nil {
+			return fmt.Errorf("remove stale serve.json: %w", err)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Removed stale daemon record for worktree %q (pid %d not alive).\n", name, rec.PID)
+		return nil
+	}
+
+	if err := daemonSignal(rec.PID); err != nil {
+		return fmt.Errorf("stop daemon %q (pid %d): %w", name, rec.PID, err)
+	}
+	if timeout > 0 {
+		if err := waitForDaemonStop(projectRoot, name, rec.PID, timeout); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Stopped daemon %q (pid %d).\n", name, rec.PID)
+	return nil
+}
+
+func validateWorktreeName(name string) error {
+	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.Contains(name, `\`) {
+		return fmt.Errorf("invalid worktree name %q", name)
+	}
+	return nil
+}
+
+func signalDaemonPID(pid int) error {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return proc.Signal(syscall.SIGTERM)
+}
+
+func waitForDaemonStop(projectRoot, name string, pid int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		rec, err := worktree.ReadServe(projectRoot, name)
+		if err != nil {
+			return fmt.Errorf("reading serve.json while stopping daemon %q: %w", name, err)
+		}
+		if rec == nil {
+			return nil
+		}
+		if !daemonPIDAlive(pid) {
+			if err := worktree.RemoveServe(projectRoot, name); err != nil {
+				return fmt.Errorf("remove stopped daemon serve.json: %w", err)
+			}
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("sent SIGTERM to daemon %q (pid %d), but it is still alive after %s", name, pid, timeout)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // formatUptime renders a duration as a short human-readable string

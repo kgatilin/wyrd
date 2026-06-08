@@ -153,6 +153,7 @@ func (s *Server) routesContent(mux *nethttp.ServeMux) {
 	mux.HandleFunc("/layers", s.handleLayers)
 	mux.HandleFunc("/packages", s.handlePackagesList)
 	mux.HandleFunc("/packages/", s.handlePackageDetail)
+	mux.HandleFunc("/source", s.handleSourceFile)
 	// M7d: type detail pages + JSON graph endpoint for the client-side
 	// Cytoscape renderer. The prefix registration lets /types/{id} carry
 	// a slash-bearing package path ("internal/service.Service").
@@ -176,6 +177,7 @@ func (s *Server) routesContent(mux *nethttp.ServeMux) {
 	// React review UI data. This route is backed by the live daemon
 	// snapshot, so the UI does not need a manually-exported archgraph.json.
 	mux.HandleFunc("/api/uigraph", s.handleUIGraphJSON)
+	mux.HandleFunc("/api/source", s.handleSourceFileJSON)
 	mux.HandleFunc("/api/public-surface", s.handlePublicSurfaceJSON)
 	// M11: JSON API used by the MCP thin-client wrapper. Registered
 	// under /api/ so the browser UI and the machine API live side by

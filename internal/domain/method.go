@@ -30,6 +30,9 @@ type TypeRef struct {
 
 	// ValueType is the value type for maps (only set when IsMap is true).
 	ValueType *TypeRef
+
+	// TypeArgs is the list of generic type arguments for named types, e.g. Box[T].
+	TypeArgs []TypeRef
 }
 
 // String returns a human-readable representation of the type reference.
@@ -62,6 +65,7 @@ func (t TypeRef) String() string {
 	}
 
 	sb.WriteString(t.Name)
+	writeTypeArgs(&sb, t.TypeArgs)
 
 	return sb.String()
 }
@@ -83,10 +87,49 @@ func (p ParamDef) String() string {
 	return fmt.Sprintf("%s %s", p.Name, p.Type.String())
 }
 
+// NameWithTypeParams formats a Go identifier with generic type parameters.
+func NameWithTypeParams(name string, typeParams []ParamDef) string {
+	var sb strings.Builder
+	sb.WriteString(name)
+	writeTypeParams(&sb, typeParams)
+	return sb.String()
+}
+
+func writeTypeParams(sb *strings.Builder, typeParams []ParamDef) {
+	if len(typeParams) == 0 {
+		return
+	}
+	sb.WriteString("[")
+	for i, p := range typeParams {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(p.String())
+	}
+	sb.WriteString("]")
+}
+
+func writeTypeArgs(sb *strings.Builder, typeArgs []TypeRef) {
+	if len(typeArgs) == 0 {
+		return
+	}
+	sb.WriteString("[")
+	for i, arg := range typeArgs {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(arg.String())
+	}
+	sb.WriteString("]")
+}
+
 // MethodDef represents a method signature (for interfaces or structs).
 type MethodDef struct {
 	// Name is the method name.
 	Name string
+
+	// TypeParams is the list of generic type parameters for generic functions.
+	TypeParams []ParamDef
 
 	// Params is the list of method parameters.
 	Params []ParamDef
@@ -108,7 +151,7 @@ type MethodDef struct {
 func (m MethodDef) Signature() string {
 	var sb strings.Builder
 
-	sb.WriteString(m.Name)
+	sb.WriteString(NameWithTypeParams(m.Name, m.TypeParams))
 	sb.WriteString("(")
 
 	// Write parameters

@@ -113,7 +113,7 @@ func diffInterfaces(pkg string, cur, tgt []domain.InterfaceDef) []Change {
 		case hasC && !hasT:
 			out = append(out, Change{Op: OpRemove, Kind: KindInterface, Path: path, Before: c})
 		default:
-			if !reflect.DeepEqual(c, t) {
+			if !reflect.DeepEqual(normalizeInterface(c), normalizeInterface(t)) {
 				out = append(out, Change{Op: OpChange, Kind: KindInterface, Path: path, Before: c, After: t})
 			}
 		}
@@ -143,7 +143,7 @@ func diffStructs(pkg string, cur, tgt []domain.StructDef) []Change {
 		case hasC && !hasT:
 			out = append(out, Change{Op: OpRemove, Kind: KindStruct, Path: path, Before: c})
 		default:
-			if !reflect.DeepEqual(c, t) {
+			if !reflect.DeepEqual(normalizeStruct(c), normalizeStruct(t)) {
 				out = append(out, Change{Op: OpChange, Kind: KindStruct, Path: path, Before: c, After: t})
 			}
 		}
@@ -173,7 +173,7 @@ func diffFunctions(pkg string, cur, tgt []domain.FunctionDef) []Change {
 		case hasC && !hasT:
 			out = append(out, Change{Op: OpRemove, Kind: KindFunction, Path: path, Before: c})
 		default:
-			if !reflect.DeepEqual(c, t) {
+			if !reflect.DeepEqual(normalizeFunction(c), normalizeFunction(t)) {
 				out = append(out, Change{Op: OpChange, Kind: KindFunction, Path: path, Before: c, After: t})
 			}
 		}
@@ -203,7 +203,7 @@ func diffTypeDefs(pkg string, cur, tgt []domain.TypeDef) []Change {
 		case hasC && !hasT:
 			out = append(out, Change{Op: OpRemove, Kind: KindTypeDef, Path: path, Before: c})
 		default:
-			if !reflect.DeepEqual(c, t) {
+			if !reflect.DeepEqual(normalizeTypeDef(c), normalizeTypeDef(t)) {
 				out = append(out, Change{Op: OpChange, Kind: KindTypeDef, Path: path, Before: c, After: t})
 			}
 		}
@@ -233,7 +233,7 @@ func diffConsts(pkg string, cur, tgt []domain.ConstDef) []Change {
 		case hasC && !hasT:
 			out = append(out, Change{Op: OpRemove, Kind: KindConst, Path: path, Before: c})
 		default:
-			if !reflect.DeepEqual(c, t) {
+			if !reflect.DeepEqual(normalizeConst(c), normalizeConst(t)) {
 				out = append(out, Change{Op: OpChange, Kind: KindConst, Path: path, Before: c, After: t})
 			}
 		}
@@ -263,7 +263,7 @@ func diffVars(pkg string, cur, tgt []domain.VarDef) []Change {
 		case hasC && !hasT:
 			out = append(out, Change{Op: OpRemove, Kind: KindVar, Path: path, Before: c})
 		default:
-			if !reflect.DeepEqual(c, t) {
+			if !reflect.DeepEqual(normalizeVar(c), normalizeVar(t)) {
 				out = append(out, Change{Op: OpChange, Kind: KindVar, Path: path, Before: c, After: t})
 			}
 		}
@@ -293,7 +293,7 @@ func diffErrors(pkg string, cur, tgt []domain.ErrorDef) []Change {
 		case hasC && !hasT:
 			out = append(out, Change{Op: OpRemove, Kind: KindError, Path: path, Before: c})
 		default:
-			if !reflect.DeepEqual(c, t) {
+			if !reflect.DeepEqual(normalizeError(c), normalizeError(t)) {
 				out = append(out, Change{Op: OpChange, Kind: KindError, Path: path, Before: c, After: t})
 			}
 		}
@@ -343,7 +343,7 @@ func diffDependencies(pkg string, cur, tgt []domain.Dependency) []Change {
 		case hasC && !hasT:
 			out = append(out, Change{Op: OpRemove, Kind: KindDep, Path: path, Before: c})
 		default:
-			if !reflect.DeepEqual(c, t) {
+			if !reflect.DeepEqual(normalizeDependency(c), normalizeDependency(t)) {
 				out = append(out, Change{Op: OpChange, Kind: KindDep, Path: path, Before: c, After: t})
 			}
 		}
@@ -352,6 +352,66 @@ func diffDependencies(pkg string, cur, tgt []domain.Dependency) []Change {
 }
 
 // --- helpers ---
+
+func normalizeInterface(v domain.InterfaceDef) domain.InterfaceDef {
+	v.SourceFile = ""
+	v.Doc = ""
+	for i := range v.Methods {
+		v.Methods[i] = normalizeMethod(v.Methods[i])
+	}
+	return v
+}
+
+func normalizeStruct(v domain.StructDef) domain.StructDef {
+	v.SourceFile = ""
+	v.Doc = ""
+	for i := range v.Methods {
+		v.Methods[i] = normalizeMethod(v.Methods[i])
+	}
+	return v
+}
+
+func normalizeFunction(v domain.FunctionDef) domain.FunctionDef {
+	v.SourceFile = ""
+	v.Doc = ""
+	v.Calls = nil
+	return v
+}
+
+func normalizeMethod(v domain.MethodDef) domain.MethodDef {
+	v.Calls = nil
+	return v
+}
+
+func normalizeTypeDef(v domain.TypeDef) domain.TypeDef {
+	v.SourceFile = ""
+	v.Doc = ""
+	return v
+}
+
+func normalizeConst(v domain.ConstDef) domain.ConstDef {
+	v.SourceFile = ""
+	v.Doc = ""
+	return v
+}
+
+func normalizeVar(v domain.VarDef) domain.VarDef {
+	v.SourceFile = ""
+	v.Doc = ""
+	return v
+}
+
+func normalizeError(v domain.ErrorDef) domain.ErrorDef {
+	v.SourceFile = ""
+	v.Doc = ""
+	return v
+}
+
+func normalizeDependency(v domain.Dependency) domain.Dependency {
+	v.From.File = ""
+	v.To.File = ""
+	return v
+}
 
 // unionNames returns the sorted union of keys from two maps.
 func unionNames[V any](a, b map[string]V) []string {

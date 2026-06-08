@@ -1,4 +1,4 @@
-.PHONY: build build-all test clean install version \
+.PHONY: build build-all test clean install version web-build \
         java-analyzer java-analyzer-build java-analyzer-test java-analyzer-clean \
         archai-generate archai-baseline archai-check archai-smoke
 
@@ -11,6 +11,7 @@ LDFLAGS := -X main.Version=$(VERSION)
 ARCHAI ?= bin/archai
 ARCHAI_PACKAGES ?= ./...
 ARCHAI_TARGET ?= self-hosted
+WEB_DIR := web
 
 # Java analyzer (issue #101): separate sub-project under tools/, only built
 # explicitly via `make java-analyzer` or `make build-all`. Default `make
@@ -21,7 +22,10 @@ JAVA_ANALYZER_JAR := $(JAVA_ANALYZER_DIR)/target/archai-java-analyzer.jar
 JAVA_ANALYZER_BIN_JAR := bin/archai-java-analyzer.jar
 MVN ?= mvn
 
-build:
+web-build:
+	npm --prefix $(WEB_DIR) run build
+
+build: web-build
 	@mkdir -p bin
 	go build -ldflags "$(LDFLAGS)" -o bin/archai ./cmd/archai
 
@@ -48,10 +52,10 @@ java-analyzer-test:
 java-analyzer-clean:
 	$(MVN) -f $(JAVA_ANALYZER_DIR)/pom.xml clean
 
-install:
+install: web-build
 	go install -ldflags "$(LDFLAGS)" ./cmd/archai
 
-test:
+test: web-build
 	go test ./...
 
 version:

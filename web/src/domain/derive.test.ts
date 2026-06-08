@@ -573,6 +573,48 @@ describe('selectReviewGraph', () => {
     expect(selected.edges).toHaveLength(0);
   });
 
+  it('does not promote unchanged dependency endpoints to changed packages when content changed', () => {
+    const g = graph({
+      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 0, removed: 0, changed: 1, comments: 0 } },
+      components: [
+        { id: 'api', name: 'api', tech: '', desc: '', bc: 'bc1', diff: 'changed', internals: [], ports: [] },
+        { id: 'event', name: 'event', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
+      ],
+      edges: [
+        { id: 'api-event', from: 'api', to: 'event', fromPort: '', toPort: '', label: 'uses', diff: 'added' },
+      ],
+    });
+
+    const selected = selectReviewGraph(g, null, 'everything', null, {
+      impactMode: 'changed_only',
+      changeFilter: 'all',
+    });
+
+    expect(selected.components.map((c) => c.id)).toEqual(['api']);
+    expect(selected.edges).toHaveLength(0);
+  });
+
+  it('keeps dependency-only diffs visible when there are no content changes', () => {
+    const g = graph({
+      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      components: [
+        { id: 'api', name: 'api', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
+        { id: 'event', name: 'event', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
+      ],
+      edges: [
+        { id: 'api-event', from: 'api', to: 'event', fromPort: '', toPort: '', label: 'uses', diff: 'added' },
+      ],
+    });
+
+    const selected = selectReviewGraph(g, null, 'everything', null, {
+      impactMode: 'changed_only',
+      changeFilter: 'all',
+    });
+
+    expect(selected.components.map((c) => c.id)).toEqual(['api', 'event']);
+    expect(selected.edges.map((e) => e.id)).toEqual(['api-event']);
+  });
+
   it('can hide unchanged neighbors while keeping the selected impact mode', () => {
     const g = graph({
       pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
@@ -870,6 +912,58 @@ describe('selectReviewGraph', () => {
     ]);
     expect(selected.relations?.map((relation) => relation.id)).toEqual([
       'r:returns:api.Application.Repository->repo.Repository',
+    ]);
+  });
+
+  it('keeps visible same-package symbol relations in changed-details mode', () => {
+    const g = graph({
+      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      components: [
+        {
+          id: 'event',
+          name: 'event',
+          tech: '',
+          desc: '',
+          bc: 'bc1',
+          diff: 'added',
+          ports: [],
+          internals: [
+            {
+              id: 'event.Bus',
+              kind: 'iface',
+              name: 'Bus',
+              diff: 'added',
+              members: [
+                { id: 'event.Bus.Publish', kind: 'method', name: 'Publish(event Event)' },
+                { id: 'event.Bus.Marshal', kind: 'method', name: 'Marshal() EventJSON' },
+              ],
+            },
+          ],
+        },
+      ],
+      edges: [],
+      relations: [
+        {
+          id: 'r:returns:event.Bus.Marshal->event.EventJSON',
+          kind: 'returns',
+          fromComponentId: 'event',
+          fromInternalId: 'event.Bus',
+          fromMemberId: 'event.Bus.Marshal',
+          toComponentId: 'event',
+          toInternalId: 'event.Bus',
+          toMemberId: 'event.Bus.Publish',
+        },
+      ],
+    });
+
+    const selected = selectReviewGraph(g, null, 'everything', null, {
+      impactMode: 'changed_only',
+      changeFilter: 'all',
+      changedDetailsOnly: true,
+    });
+
+    expect(selected.relations?.map((relation) => relation.id)).toEqual([
+      'r:returns:event.Bus.Marshal->event.EventJSON',
     ]);
   });
 });

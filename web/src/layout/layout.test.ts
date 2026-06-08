@@ -460,6 +460,75 @@ describe('layout', () => {
     }
   });
 
+  it('uses same-package symbol relations to lay out expanded internals', async () => {
+    const input = minimalGraph({
+      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
+      components: [
+        {
+          id: 'eventstore',
+          name: 'eventstore',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc1',
+          internals: [
+            { id: 'eventstore.New', kind: 'func', name: 'New(fold Fold) *Projection', members: [] },
+            { id: 'eventstore.Projection', kind: 'class', name: 'Projection', members: [] },
+            { id: 'eventstore.Log', kind: 'iface', name: 'Log', members: [] },
+            { id: 'eventstore.Record', kind: 'class', name: 'Record', members: [] },
+            { id: 'eventstore.Subject', kind: 'type', name: 'Subject : string', members: [] },
+          ],
+          ports: [],
+        },
+      ],
+      relations: [
+        {
+          id: 'r1',
+          kind: 'returns',
+          fromComponentId: 'eventstore',
+          fromInternalId: 'eventstore.New',
+          toComponentId: 'eventstore',
+          toInternalId: 'eventstore.Projection',
+        },
+        {
+          id: 'r2',
+          kind: 'uses',
+          fromComponentId: 'eventstore',
+          fromInternalId: 'eventstore.Projection',
+          toComponentId: 'eventstore',
+          toInternalId: 'eventstore.Log',
+        },
+        {
+          id: 'r3',
+          kind: 'returns',
+          fromComponentId: 'eventstore',
+          fromInternalId: 'eventstore.Log',
+          toComponentId: 'eventstore',
+          toInternalId: 'eventstore.Record',
+        },
+        {
+          id: 'r4',
+          kind: 'uses',
+          fromComponentId: 'eventstore',
+          fromInternalId: 'eventstore.Record',
+          toComponentId: 'eventstore',
+          toInternalId: 'eventstore.Subject',
+        },
+      ],
+    });
+
+    const result = await layout(input, {
+      expanded: new Set(['eventstore']),
+      internalExpanded: new Set(),
+    });
+    const cmp = result.components[0];
+    const byID = new Map(cmp.internals.map((internal) => [internal.id, internal]));
+
+    expect(byID.get('eventstore.Projection')!.y!).toBeGreaterThan(byID.get('eventstore.New')!.y!);
+    expect(byID.get('eventstore.Log')!.y!).toBeGreaterThan(byID.get('eventstore.Projection')!.y!);
+    expect(byID.get('eventstore.Record')!.y!).toBeGreaterThan(byID.get('eventstore.Log')!.y!);
+    expect(byID.get('eventstore.Subject')!.y!).toBeGreaterThan(byID.get('eventstore.Record')!.y!);
+  });
+
   it('expanded component size is derived from internal layout, not heuristic', async () => {
     // Component with 4 internals that would require significant space
     const input = minimalGraph({
@@ -512,7 +581,7 @@ describe('layout', () => {
   // --- fit-width mode for internals ---
 
   it('widens an internal in fit-width mode to fit a long member, keeps others fixed', async () => {
-    const longMember = 'BoundedContexts : map[string]internal/overlay.BoundedContext';
+    const longMember = 'VeryLongMemberNameThatNeedsExtraWidthForShortNameMode';
     const input = minimalGraph({
       boundedContexts: [{ id: 'bc1', name: 'BC One' }],
       components: [
@@ -534,6 +603,7 @@ describe('layout', () => {
     const opts = {
       expanded: new Set(['c1']),
       internalExpanded: new Set(['wide', 'fixed']),
+      showInlineSignatures: false,
     };
 
     const normal = await layout(input, opts);
@@ -549,6 +619,34 @@ describe('layout', () => {
     expect(wideFit.w!).toBeGreaterThanOrEqual(longMember.length * 6);
     // …while a non-wide internal keeps the fixed width.
     expect(fixedFit.w!).toBe(wideNormal.w!);
+  });
+
+  it('fits full inline signatures by default without explicit wide mode', async () => {
+    const signature = 'MarshalJSON() ([]byte, error)';
+    const input = minimalGraph({
+      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
+      components: [
+        {
+          id: 'c1',
+          name: 'C1',
+          tech: 'Go',
+          desc: '',
+          bc: 'bc1',
+          internals: [
+            { id: 'marshal', kind: 'func', name: signature, members: [] },
+          ],
+          ports: [],
+        },
+      ],
+    });
+
+    const laid = await layout(input, {
+      expanded: new Set(['c1']),
+      internalExpanded: new Set(['marshal']),
+      showInlineSignatures: true,
+    });
+
+    expect(laid.components[0].internals[0].w!).toBeGreaterThanOrEqual(signature.length * 6);
   });
 
   it('uses shortened symbol names for fit-width when inline signatures are hidden', async () => {

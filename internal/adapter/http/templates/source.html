@@ -1,0 +1,19 @@
+{{define "content"}}
+<section class="source-view">
+    <header class="source-header">
+        <h1>{{.Path}}</h1>
+    </header>
+    <div class="source-frame">
+        <table class="source-table" aria-label="Source file {{.Path}}">
+            <tbody>
+            {{range .Lines}}
+                <tr>
+                    <td class="source-no">{{.Number}}</td>
+                    <td class="source-code"><code>{{.Text}}</code></td>
+                </tr>
+            {{end}}
+            </tbody>
+        </table>
+    </div>
+</section>
+{{end}}
