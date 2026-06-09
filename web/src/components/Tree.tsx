@@ -82,13 +82,144 @@ export function Tree({
       else next.add(key);
       return next;
     });
+  const tree = packageTree(components);
 
   return (
     <div className="hf-tree">
-      {components.map((c) => (
-        <ComponentNode
-          key={c.id}
-          cmp={c}
+      {tree.map((node) => (
+        <PackageTreeNode
+          key={node.path}
+          node={node}
+          showDiff={showDiff}
+          activeId={activeId}
+          isOpen={isOpen}
+          toggle={toggle}
+          onFocus={onFocus}
+          onOpenFile={onOpenFile}
+        />
+      ))}
+    </div>
+  );
+}
+
+interface PackageTree {
+  segment: string;
+  path: string;
+  component?: Component;
+  children: PackageTree[];
+}
+
+interface PackageTreeBuilder {
+  segment: string;
+  path: string;
+  component?: Component;
+  children: Map<string, PackageTreeBuilder>;
+}
+
+function packageTree(components: Component[]): PackageTree[] {
+  const root = new Map<string, PackageTreeBuilder>();
+  const ensure = (siblings: Map<string, PackageTreeBuilder>, segment: string, path: string): PackageTreeBuilder => {
+    const existing = siblings.get(segment);
+    if (existing) return existing;
+    const node: PackageTreeBuilder = { segment, path, children: new Map() };
+    siblings.set(segment, node);
+    return node;
+  };
+
+  for (const cmp of [...components].sort(componentPathCompare)) {
+    const parts = packagePathParts(cmp);
+    let siblings = root;
+    let node: PackageTreeBuilder | null = null;
+    const pathParts: string[] = [];
+    for (const part of parts) {
+      pathParts.push(part);
+      node = ensure(siblings, part, pathParts.join('/'));
+      siblings = node.children;
+    }
+    if (node) {
+      node.component = cmp;
+    }
+  }
+  return materializePackageTree([...root.values()]);
+}
+
+function materializePackageTree(nodes: PackageTreeBuilder[]): PackageTree[] {
+  return nodes
+    .map((node) => ({
+      segment: node.segment,
+      path: node.path,
+      component: node.component,
+      children: materializePackageTree([...node.children.values()]),
+    }))
+    .sort((a, b) => a.segment.localeCompare(b.segment, undefined, { sensitivity: 'base' }));
+}
+
+function componentPathCompare(a: Component, b: Component): number {
+  return packagePathParts(a).join('/').localeCompare(packagePathParts(b).join('/'), undefined, { sensitivity: 'base' });
+}
+
+function packagePathParts(cmp: Component): string[] {
+  const id = cmp.id === '.' ? '' : cmp.id;
+  const parts = id.split('/').filter(Boolean);
+  return parts.length > 0 ? parts : [cmp.name || '(root)'];
+}
+
+interface PackageTreeNodeProps {
+  node: PackageTree;
+  depth?: number;
+  showDiff: boolean;
+  activeId?: string | null;
+  isOpen: (key: string) => boolean;
+  toggle: (key: string) => void;
+  onFocus?: (target: TreeFocusTarget) => void;
+  onOpenFile?: (path: string) => void;
+}
+
+function PackageTreeNode({
+  node,
+  depth = 0,
+  showDiff,
+  activeId,
+  isOpen,
+  toggle,
+  onFocus,
+  onOpenFile,
+}: PackageTreeNodeProps) {
+  if (node.component) {
+    return (
+      <ComponentNode
+        cmp={node.component}
+        label={node.segment}
+        children={node.children}
+        depth={depth}
+        showDiff={showDiff}
+        activeId={activeId}
+        isOpen={isOpen}
+        toggle={toggle}
+        onFocus={onFocus}
+        onOpenFile={onOpenFile}
+      />
+    );
+  }
+
+  const key = `dir:${node.path}`;
+  const open = isOpen(key);
+  return (
+    <div>
+      <div
+        className="hf-tree-row pkgdir"
+        style={{ paddingLeft: treeIndent(depth) }}
+        onClick={() => toggle(key)}
+      >
+        <Chevron open={open} has={node.children.length > 0} onToggle={() => toggle(key)} />
+        <span className="ico">▣</span>
+        <span className="name" title={node.path}>{node.segment}</span>
+      </div>
+      {open && node.children.map((child) => (
+        <PackageTreeNode
+          key={child.path}
+          node={child}
+          depth={depth + 1}
           showDiff={showDiff}
           activeId={activeId}
           isOpen={isOpen}
@@ -103,6 +234,9 @@ export function Tree({
 
 interface ComponentNodeProps {
   cmp: Component;
+  label: string;
+  children: PackageTree[];
+  depth: number;
   showDiff: boolean;
   activeId?: string | null;
   isOpen: (key: string) => boolean;
@@ -111,37 +245,54 @@ interface ComponentNodeProps {
   onOpenFile?: (path: string) => void;
 }
 
-function ComponentNode({ cmp, showDiff, activeId, isOpen, toggle, onFocus, onOpenFile }: ComponentNodeProps) {
+function ComponentNode({ cmp, label, children, depth, showDiff, activeId, isOpen, toggle, onFocus, onOpenFile }: ComponentNodeProps) {
   const key = `cmp:${cmp.id}`;
   const open = isOpen(key);
-  const has = cmp.internals.length > 0;
+  const has = cmp.internals.length > 0 || children.length > 0;
   const diffCls = showDiff && cmp.diff ? cmp.diff : '';
   const files = internalsByFile(cmp.internals);
   return (
     <div>
       <div
-        className={`hf-tree-row cmp ${diffCls} ${activeId === cmp.id ? 'active' : ''}`}
-        style={{ paddingLeft: 8 }}
+        className={`hf-tree-row cmp ${packageLayerClass(cmp.id)} ${diffCls} ${activeId === cmp.id ? 'active' : ''}`}
+        style={{ paddingLeft: treeIndent(depth) }}
         onClick={() => onFocus?.({ componentId: cmp.id })}
       >
         <Chevron open={open} has={has} onToggle={() => toggle(key)} />
         <span className="ico">&#9670;</span>
-        <span className="name">{cmp.name}</span>
+        <span className="name" title={cmp.id}>{label}</span>
         {showDiff && cmp.diff && <span className="badge">{diffBadge(cmp.diff)}</span>}
       </div>
-      {open &&
-        files.map((file) => (
-          <FileNode
-            key={`${cmp.id}:${file.path}`}
-            cmp={cmp}
-            file={file}
-            showDiff={showDiff}
-            isOpen={isOpen}
-            toggle={toggle}
-            onFocus={onFocus}
-            onOpenFile={onOpenFile}
-          />
-        ))}
+      {open && (
+        <>
+          {files.map((file) => (
+            <FileNode
+              key={`${cmp.id}:${file.path}`}
+              cmp={cmp}
+              file={file}
+              depth={depth}
+              showDiff={showDiff}
+              isOpen={isOpen}
+              toggle={toggle}
+              onFocus={onFocus}
+              onOpenFile={onOpenFile}
+            />
+          ))}
+          {children.map((child) => (
+            <PackageTreeNode
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              showDiff={showDiff}
+              activeId={activeId}
+              isOpen={isOpen}
+              toggle={toggle}
+              onFocus={onFocus}
+              onOpenFile={onOpenFile}
+            />
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -188,6 +339,7 @@ function sourcePath(componentId: string, sourceFile: string): string {
 interface FileNodeProps {
   cmp: Component;
   file: FileGroup;
+  depth: number;
   showDiff: boolean;
   isOpen: (key: string) => boolean;
   toggle: (key: string) => void;
@@ -195,7 +347,7 @@ interface FileNodeProps {
   onOpenFile?: (path: string) => void;
 }
 
-function FileNode({ cmp, file, showDiff, isOpen, toggle, onFocus, onOpenFile }: FileNodeProps) {
+function FileNode({ cmp, file, depth, showDiff, isOpen, toggle, onFocus, onOpenFile }: FileNodeProps) {
   const key = `file:${cmp.id}:${file.path}`;
   const open = isOpen(key);
   const sourcePath = sourcePathForComponent(cmp.id, file.path);
@@ -203,7 +355,7 @@ function FileNode({ cmp, file, showDiff, isOpen, toggle, onFocus, onOpenFile }: 
     <div>
       <div
         className="hf-tree-row file"
-        style={{ paddingLeft: 24 }}
+        style={{ paddingLeft: treeIndent(depth) + 16 }}
         onClick={() => toggle(key)}
       >
         <Chevron open={open} has={file.internals.length > 0} onToggle={() => toggle(key)} />
@@ -230,6 +382,7 @@ function FileNode({ cmp, file, showDiff, isOpen, toggle, onFocus, onOpenFile }: 
             key={it.id}
             cmp={cmp}
             internal={it}
+            depth={depth}
             showDiff={showDiff}
             isOpen={isOpen}
             toggle={toggle}
@@ -243,13 +396,14 @@ function FileNode({ cmp, file, showDiff, isOpen, toggle, onFocus, onOpenFile }: 
 interface InternalNodeProps {
   cmp: Component;
   internal: Internal;
+  depth: number;
   showDiff: boolean;
   isOpen: (key: string) => boolean;
   toggle: (key: string) => void;
   onFocus?: (target: TreeFocusTarget) => void;
 }
 
-function InternalNode({ cmp, internal, showDiff, isOpen, toggle, onFocus }: InternalNodeProps) {
+function InternalNode({ cmp, internal, depth, showDiff, isOpen, toggle, onFocus }: InternalNodeProps) {
   const key = `int:${internal.id}`;
   const open = isOpen(key);
   const members = internal.members ?? [];
@@ -258,8 +412,8 @@ function InternalNode({ cmp, internal, showDiff, isOpen, toggle, onFocus }: Inte
   return (
     <div>
       <div
-        className={`hf-tree-row internal ${internal.kind} ${diffCls}`}
-        style={{ paddingLeft: 44 }}
+        className={`hf-tree-row internal ${internal.kind} ${symbolVisibilityClass(internal.exported)} ${diffCls}`}
+        style={{ paddingLeft: treeIndent(depth) + 40 }}
         onClick={() => onFocus?.({ componentId: cmp.id, internalId: internal.id })}
       >
         <Chevron open={open} has={has} onToggle={() => toggle(key)} />
@@ -274,8 +428,8 @@ function InternalNode({ cmp, internal, showDiff, isOpen, toggle, onFocus }: Inte
           return (
             <div key={m.id}>
               <div
-                className={`hf-tree-row member ${mDiff}`}
-                style={{ paddingLeft: 64 }}
+                className={`hf-tree-row member ${symbolVisibilityClass(m.exported)} ${mDiff}`}
+                style={{ paddingLeft: treeIndent(depth) + 60 }}
                 onClick={() =>
                   onFocus?.({ componentId: cmp.id, internalId: internal.id, memberId: m.id })
                 }
@@ -291,6 +445,20 @@ function InternalNode({ cmp, internal, showDiff, isOpen, toggle, onFocus }: Inte
         })}
     </div>
   );
+}
+
+function treeIndent(depth: number): number {
+  return 8 + depth * 16;
+}
+
+function packageLayerClass(componentId: string): string {
+  return componentId.split('/').includes('internal') ? 'layer-internal' : 'layer-public';
+}
+
+function symbolVisibilityClass(exported?: boolean): string {
+  if (exported === true) return 'symbol-public';
+  if (exported === false) return 'symbol-internal';
+  return 'symbol-unknown';
 }
 
 interface ChevronProps {

@@ -31,6 +31,7 @@ type Config struct {
 	BoundedContexts map[string]BoundedContext `yaml:"bounded_contexts,omitempty"`
 	Adapters        map[string]Adapter        `yaml:"adapters,omitempty"`
 	ReviewViews     map[string]ReviewView     `yaml:"review_views,omitempty"`
+	ReviewGroups    map[string]ReviewGroup    `yaml:"review_groups,omitempty"`
 	PackageOwners   map[string]PackageOwner   `yaml:"package_owners,omitempty"`
 	Serve           ServeConfig               `yaml:"serve,omitempty"`
 	Diagrams        DiagramConfig             `yaml:"diagrams,omitempty"`
@@ -93,6 +94,14 @@ type ReviewView struct {
 	DefaultExpansion string          `yaml:"default_expansion,omitempty"`
 	GroupBy          string          `yaml:"group_by,omitempty"`
 	Packages         PackageSelector `yaml:"packages,omitempty"`
+}
+
+// ReviewGroup describes a user-configured package category for the review UI.
+// It is resolved server-side into concrete package/component ids. Groups are
+// evaluated in lexical key order, and the first matching group owns a package.
+type ReviewGroup struct {
+	Title    string          `yaml:"title,omitempty"`
+	Packages PackageSelector `yaml:"packages,omitempty"`
 }
 
 // PackageSelector includes and excludes package paths using archai review

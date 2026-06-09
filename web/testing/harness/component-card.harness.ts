@@ -16,6 +16,9 @@ export class ComponentCardHarness extends ComponentHarness {
   async tech(): Promise<string> {
     return (await this.root.locator('.hf-cmp-tech').first()).text();
   }
+  async packageLayer(): Promise<string> {
+    return (await this.root.locator('.hf-cmp-layer').first()).text();
+  }
   /** Header icon letter — the PARENT (bounded context) initial. */
   async parentInitial(): Promise<string> {
     return (await this.root.locator('.hf-cmp-icon').first()).text();

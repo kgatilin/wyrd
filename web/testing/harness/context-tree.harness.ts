@@ -11,6 +11,15 @@ export class ContextTreeHarness extends ComponentHarness {
   async componentRowCount(): Promise<number> {
     return this.env.rootLocator('.hf-tree-row.cmp').count();
   }
+  async componentRowNames(): Promise<string[]> {
+    return this.rowNames('.hf-tree-row.cmp');
+  }
+  async packageDirectoryRowCount(): Promise<number> {
+    return this.env.rootLocator('.hf-tree-row.pkgdir').count();
+  }
+  async packageDirectoryNames(): Promise<string[]> {
+    return this.rowNames('.hf-tree-row.pkgdir');
+  }
   async fileRowCount(): Promise<number> {
     return this.env.rootLocator('.hf-tree-row.file').count();
   }
@@ -34,6 +43,11 @@ export class ContextTreeHarness extends ComponentHarness {
     const row = await this.rowByName(name);
     if ((await row.locator('.badge').count()) === 0) return null;
     return (await row.locator('.badge').first()).text();
+  }
+
+  private async rowNames(selector: string): Promise<string[]> {
+    const rows = await this.env.rootLocator(`.hf-tree ${selector}`).all();
+    return Promise.all(rows.map(async (row) => (await row.locator('.name').first()).text()));
   }
 
   private async rowByName(name: string) {

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { Component as ComponentType, Diff, Internal, Member, Port, SymbolRelation } from '../types';
 import { displaySymbolName } from '../domain/symbolNames';
 import type { CardDensity } from '../domain/state';
+import type { SymbolFocusTarget } from '../domain/symbolFocus';
 
 /**
  * Effective diff state of an internal: its own flag if set, otherwise "changed"
@@ -65,6 +66,18 @@ function memberKindLabel(kind: Member['kind']): string {
   }
 }
 
+type PackageLayer = 'internal' | 'public';
+
+function packageLayer(componentId: string): PackageLayer {
+  return componentId.split('/').includes('internal') ? 'internal' : 'public';
+}
+
+function symbolVisibilityClass(exported?: boolean): string {
+  if (exported === true) return 'symbol-public';
+  if (exported === false) return 'symbol-internal';
+  return 'symbol-unknown';
+}
+
 export interface ComponentProps {
   /** The component data with layout geometry */
   cmp: ComponentType;
@@ -110,6 +123,8 @@ export interface ComponentProps {
   onResetLayout?: (id: string) => void;
   /** Same-package symbol relations rendered inside the expanded component */
   relations?: SymbolRelation[];
+  /** Opens the symbol wiring graph for a function/type/method. */
+  onSymbolFocus?: (target: SymbolFocusTarget) => void;
 }
 
 /**
@@ -138,6 +153,7 @@ export function Component({
   onMove,
   onResetLayout,
   relations = [],
+  onSymbolFocus,
 }: ComponentProps) {
   const [dragging, setDragging] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -159,6 +175,7 @@ export function Component({
   // Full signatures fit by default. Manual fit-width controls are only useful
   // when the toolbar is set to short-name mode.
   const hasInternals = cmp.internals.length > 0;
+  const layer = packageLayer(cmp.id);
   const showFitControls = !showInlineSignatures;
   const allWide = hasInternals && cmp.internals.every((it) => wideInternals.has(it.id));
 
@@ -258,7 +275,7 @@ export function Component({
   return (
     <div
       ref={rootRef}
-      className={`hf-cmp ${cardDensity} ${expanded ? 'expanded' : 'collapsed'} ${diffCls} ${focused ? 'focused' : ''} ${dimmed ? 'dimmed' : ''} ${pinned ? 'pinned' : ''} ${dragging ? 'dragging' : ''}`}
+      className={`hf-cmp ${cardDensity} ${expanded ? 'expanded' : 'collapsed'} layer-${layer} ${diffCls} ${focused ? 'focused' : ''} ${dimmed ? 'dimmed' : ''} ${pinned ? 'pinned' : ''} ${dragging ? 'dragging' : ''}`}
       style={{
         left: cmp.x,
         top: cmp.y,
@@ -285,6 +302,7 @@ export function Component({
           <div className="hf-cmp-icon">{parentInitial}</div>
           <div className="hf-cmp-name">{cmp.name}</div>
           <span className="hf-cmp-tech">{cmp.tech}</span>
+          <span className={`hf-cmp-layer ${layer}`} title={`${layer} package`}>{layer}</span>
         </div>
 
         {/* Description (collapsed only) */}
@@ -305,6 +323,8 @@ export function Component({
                 hasComment={hasComment}
                 showInlineSignatures={showInlineSignatures}
                 showFitControl={showFitControls}
+                componentId={cmp.id}
+                onSymbolFocus={onSymbolFocus}
               />
             ))}
             <IntraPackageRelations
@@ -542,6 +562,7 @@ function intraRelationPath(from: RelationPoint, to: RelationPoint, index: number
 
 interface InternalCardProps {
   internal: Internal;
+  componentId: string;
   showDiff: boolean;
   expanded: boolean;
   /** Fit-width mode (card stretched to show all member text). Drives the +/− button. */
@@ -551,10 +572,12 @@ interface InternalCardProps {
   hasComment: (id: string) => boolean;
   showInlineSignatures: boolean;
   showFitControl: boolean;
+  onSymbolFocus?: (target: SymbolFocusTarget) => void;
 }
 
 function InternalCard({
   internal,
+  componentId,
   showDiff,
   expanded,
   wide,
@@ -563,6 +586,7 @@ function InternalCard({
   hasComment,
   showInlineSignatures,
   showFitControl,
+  onSymbolFocus,
 }: InternalCardProps) {
   const diffCls = showDiff && deriveInternalDiff(internal) ? deriveInternalDiff(internal) : '';
   const internalName = displaySymbolName(internal.name, showInlineSignatures);
@@ -573,6 +597,7 @@ function InternalCard({
 
   const handleHeadClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    onSymbolFocus?.({ componentId, internalId: internal.id });
     onAddComment?.({ type: 'internal', id: internal.id }, e);
   };
 
@@ -583,7 +608,7 @@ function InternalCard({
 
   return (
     <div
-      className={`hf-internal ${internal.kind} ${diffCls}`}
+      className={`hf-internal ${internal.kind} ${symbolVisibilityClass(internal.exported)} ${diffCls}`}
       style={{
         left: internal.x,
         top: internal.y,
@@ -617,6 +642,9 @@ function InternalCard({
               hasComment={hasComment(member.id)}
               onAddComment={onAddComment}
               showInlineSignatures={showInlineSignatures}
+              componentId={componentId}
+              internalId={internal.id}
+              onSymbolFocus={onSymbolFocus}
             />
           ))}
         </div>
@@ -631,19 +659,23 @@ interface MemberRowProps {
   hasComment: boolean;
   onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
   showInlineSignatures: boolean;
+  componentId: string;
+  internalId: string;
+  onSymbolFocus?: (target: SymbolFocusTarget) => void;
 }
 
-function MemberRow({ member, showDiff, hasComment, onAddComment, showInlineSignatures }: MemberRowProps) {
+function MemberRow({ member, showDiff, hasComment, onAddComment, showInlineSignatures, componentId, internalId, onSymbolFocus }: MemberRowProps) {
   const diffCls = showDiff && member.diff ? member.diff : '';
   const memberName = displaySymbolName(member.name, showInlineSignatures);
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    onSymbolFocus?.({ componentId, internalId, memberId: member.id });
     onAddComment?.({ type: 'member', id: member.id }, e);
   };
 
   return (
-    <div className={`hf-member ${diffCls}`} onClick={handleClick} title={member.name}>
+    <div className={`hf-member ${symbolVisibilityClass(member.exported)} ${diffCls}`} onClick={handleClick} title={member.name}>
       <span className={`hf-member-kind ${member.kind === 'method' ? 'fn' : member.kind}`}>
         {memberKindLabel(member.kind)}
       </span>

@@ -18,11 +18,28 @@ function expandComponent(state: AppState, id: string): AppState {
   return { ...state, ui: { ...state.ui, expanded, internalExpanded } };
 }
 
+function focusedPackageView(state: AppState, id: string): AppState {
+  if (!state.graph) return { ...state, ui: { ...state.ui, focusId: id, activeChangeId: null } };
+  const component = state.graph.components.find((candidate) => candidate.id === id);
+  if (!component) return { ...state, ui: { ...state.ui, focusId: id, activeChangeId: null } };
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      focusId: id,
+      activeChangeId: null,
+      expanded: new Set([id]),
+      internalExpanded: new Set(component.internals.map((internal) => internal.id)),
+    },
+  };
+}
+
 function focusSlice(state: AppState, event: Event): AppState {
   switch (event.type) {
     case 'ComponentSelected': {
+      if (state.ui.focusId !== event.id) return focusedPackageView(state, event.id);
       const focusId = state.ui.focusId === event.id ? null : event.id;
-      return { ...state, ui: { ...state.ui, focusId } };
+      return { ...state, ui: { ...state.ui, focusId, activeChangeId: null } };
     }
     case 'FocusCleared':
       return { ...state, ui: { ...state.ui, focusId: null } };
@@ -37,10 +54,7 @@ function focusSlice(state: AppState, event: Event): AppState {
     }
     case 'TreeFocusRequested': {
       const { target } = event;
-      const drillIn = !!(target.internalId || target.memberId);
-      let next: AppState = { ...state, ui: { ...state.ui, activeChangeId: null, focusId: target.componentId } };
-      if (drillIn) next = expandComponent(next, target.componentId);
-      return next;
+      return focusedPackageView(state, target.componentId);
     }
     default:
       return state;
@@ -286,6 +300,8 @@ function chromeSlice(state: AppState, event: Event): AppState {
 function loadGeometrySlice(state: AppState, event: Event): AppState {
   switch (event.type) {
     case 'GraphRequested':
+      if (event.source === 'auto' && state.graph) return state;
+      return { ...state, load: { status: 'loading', error: null } };
     case 'WorktreeChanged':
       return { ...state, load: { status: 'loading', error: null } };
     case 'GraphLoaded': {
@@ -330,6 +346,9 @@ function loadGeometrySlice(state: AppState, event: Event): AppState {
         },
       };
     }
+    case 'GraphUnchanged':
+      if (state.load.status === 'ready') return state;
+      return { ...state, load: { status: 'ready', error: null } };
     case 'GraphLoadFailed':
       return { ...state, load: { status: 'error', error: event.error } };
     case 'LayoutComputed':
@@ -473,9 +492,12 @@ function defaultGroupingForGraph(
   if (groupings.length === 0) return null;
   const hasGrouping = (id: string | null | undefined) => !!id && groupings.some((grouping) => grouping.id === id);
   const view = reviewViewId ? graph.reviewViews?.find((v) => v.id === reviewViewId) : undefined;
-  if (hasGrouping(view?.groupBy)) return view!.groupBy!;
-  if (hasGrouping(currentGroupingId)) return currentGroupingId;
-  if (hasGrouping(graph.defaultGrouping)) return graph.defaultGrouping!;
+  const viewGroupingId = normalizeReviewGroupingId(view?.groupBy);
+  const current = normalizeReviewGroupingId(currentGroupingId);
+  const graphDefault = normalizeReviewGroupingId(graph.defaultGrouping);
+  if (hasGrouping(viewGroupingId)) return viewGroupingId;
+  if (hasGrouping(current)) return current;
+  if (hasGrouping(graphDefault)) return graphDefault;
   return groupings[0].id;
 }
 
@@ -487,8 +509,27 @@ function groupingForView(
 ): string | null {
   const groupings = graph.reviewGroupings ?? [];
   const hasGrouping = (id: string | null | undefined) => !!id && groupings.some((grouping) => grouping.id === id);
-  if (hasGrouping(preferredGroupingId)) return preferredGroupingId!;
+  const preferred = normalizeReviewGroupingId(preferredGroupingId);
+  const view = reviewViewId ? graph.reviewViews?.find((v) => v.id === reviewViewId) : undefined;
+  const viewGroupingId = normalizeReviewGroupingId(view?.groupBy);
+  const staleReviewSlice = preferred === 'review_view' && hasGrouping(viewGroupingId);
+  if (hasGrouping(preferred) && !staleReviewSlice) return preferred;
   return defaultGroupingForGraph(graph, reviewViewId, currentGroupingId);
+}
+
+function normalizeReviewGroupingId(id: string | null | undefined): string | null {
+  const normalized = (id ?? '').trim();
+  switch (normalized) {
+    case '':
+      return null;
+    case 'categories':
+    case 'category':
+    case 'review_groups':
+    case 'review_group':
+      return 'configured_groups';
+    default:
+      return normalized;
+  }
 }
 
 function validReviewView(graph: UIGraph | null, id: string | null | undefined): id is string {

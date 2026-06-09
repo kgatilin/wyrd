@@ -26,6 +26,19 @@ describe('createLoadEffect', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'GraphLoadFailed', error: 'Error: nope' });
   });
 
+  it('dispatches GraphUnchanged when a loaded graph matches the current graph', async () => {
+    const port: GraphSourcePort = { load: () => Promise.resolve(graph) };
+    const dispatch = vi.fn();
+    createLoadEffect(port)(
+      { type: 'GraphRequested', source: 'auto' },
+      () => ({ ...initialState, graph, load: { status: 'ready', error: null } }),
+      dispatch as (e: Event) => void
+    );
+    await flush();
+    expect(dispatch).toHaveBeenCalledWith({ type: 'GraphUnchanged' });
+    expect(dispatch).not.toHaveBeenCalledWith({ type: 'GraphLoaded', graph });
+  });
+
   it('on WorktreeChanged, loads that worktree and dispatches GraphLoaded', async () => {
     const load = vi.fn(() => Promise.resolve(graph));
     const port: GraphSourcePort = { load };

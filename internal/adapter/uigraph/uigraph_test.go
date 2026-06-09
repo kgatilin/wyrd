@@ -1217,6 +1217,79 @@ func TestProjectEmitsReviewGroupings(t *testing.T) {
 	}
 }
 
+func TestProjectEmitsConfiguredReviewGroupCategories(t *testing.T) {
+	models := []domain.PackageModel{
+		{Path: "api", Name: "api", Layer: "api"},
+		{Path: "internal/runtime", Name: "runtime", Layer: "runtime"},
+		{Path: "internal/plugins/sessions", Name: "sessions", Layer: "plugin"},
+		{Path: "tools/analyzer", Name: "analyzer", Layer: "tooling"},
+	}
+	cfg := &overlay.Config{
+		ReviewViews: map[string]overlay.ReviewView{
+			"all": {
+				Title:        "All",
+				DefaultScope: "everything",
+				GroupBy:      "categories",
+				Packages:     overlay.PackageSelector{},
+			},
+		},
+		ReviewGroups: map[string]overlay.ReviewGroup{
+			"public_api": {
+				Title: "Public API",
+				Packages: overlay.PackageSelector{
+					Include: []string{"*"},
+					Exclude: []string{"internal/...", "tools/..."},
+				},
+			},
+			"internal_framework": {
+				Title: "Internal Framework",
+				Packages: overlay.PackageSelector{
+					Include: []string{"internal/..."},
+					Exclude: []string{"internal/plugins/..."},
+				},
+			},
+			"plugins": {
+				Title: "Plugins",
+				Packages: overlay.PackageSelector{
+					Include: []string{"internal/plugins/..."},
+				},
+			},
+		},
+	}
+
+	g, err := Project(models, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if g.DefaultGrouping != "configured_groups" {
+		t.Errorf("DefaultGrouping = %q, want configured_groups", g.DefaultGrouping)
+	}
+	groupings := make(map[string]ReviewGrouping)
+	for _, grouping := range g.ReviewGroupings {
+		groupings[grouping.ID] = grouping
+	}
+	categories, ok := groupings["configured_groups"]
+	if !ok {
+		t.Fatalf("missing configured_groups grouping in %#v", g.ReviewGroupings)
+	}
+	if categories.Title != "Categories" {
+		t.Errorf("configured_groups title = %q, want Categories", categories.Title)
+	}
+	if got := groupComponentIDs(categories, "configured_groups:public_api"); !sameStrings(got, []string{"api"}) {
+		t.Errorf("public_api ComponentIDs = %v, want [api]", got)
+	}
+	if got := groupComponentIDs(categories, "configured_groups:internal_framework"); !sameStrings(got, []string{"internal/runtime"}) {
+		t.Errorf("internal_framework ComponentIDs = %v, want [internal/runtime]", got)
+	}
+	if got := groupComponentIDs(categories, "configured_groups:plugins"); !sameStrings(got, []string{"internal/plugins/sessions"}) {
+		t.Errorf("plugins ComponentIDs = %v, want [internal/plugins/sessions]", got)
+	}
+	if got := groupComponentIDs(categories, "configured_groups:uncategorized"); !sameStrings(got, []string{"tools/analyzer"}) {
+		t.Errorf("uncategorized ComponentIDs = %v, want [tools/analyzer]", got)
+	}
+}
+
 func TestProjectEmitsUnownedPackageOwnerGroupingByDefault(t *testing.T) {
 	models := []domain.PackageModel{
 		{Path: "config", Name: "config"},

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createStore } from './store';
 
 type S = { count: number };
-type E = { type: 'inc' } | { type: 'set'; value: number };
+type E = { type: 'inc' } | { type: 'set'; value: number } | { type: 'noop' };
 
 const update = (s: S, e: E): S => {
   switch (e.type) {
@@ -28,6 +28,15 @@ describe('createStore', () => {
     unsub();
     store.dispatch({ type: 'inc' });
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not notify subscribers when update returns the same state object', () => {
+    const store = createStore<S, E>({ count: 0 }, update, []);
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.dispatch({ type: 'noop' });
+    expect(listener).not.toHaveBeenCalled();
+    expect(store.getState()).toEqual({ count: 0 });
   });
 
   it('notifies subscribers once per external dispatch even when an effect re-dispatches synchronously', () => {

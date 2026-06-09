@@ -16,10 +16,45 @@ function withGraph(): AppState {
   return { ...initialState, graph };
 }
 
+function withTwoComponentGraph(): AppState {
+  const graph: UIGraph = {
+    schema: 'archai.uigraph/v0',
+    boundedContexts: [{ id: 'bc1', name: 'Core' }],
+    components: [
+      {
+        id: 'a',
+        name: 'A',
+        tech: '',
+        desc: '',
+        bc: 'bc1',
+        internals: [
+          { id: 'a.Public', kind: 'class', name: 'Public', exported: true, members: [] },
+          { id: 'a.private', kind: 'class', name: 'private', exported: false, members: [] },
+        ],
+        ports: [],
+      },
+      {
+        id: 'b',
+        name: 'B',
+        tech: '',
+        desc: '',
+        bc: 'bc1',
+        internals: [{ id: 'b.i', kind: 'class', name: 'Bi', members: [] }],
+        ports: [],
+      },
+    ],
+    edges: [],
+    comments: [],
+  };
+  return { ...initialState, graph };
+}
+
 describe('update — focus slice', () => {
-  it('ComponentSelected sets focus; selecting the focused one clears it', () => {
-    let s = update(withGraph(), { type: 'ComponentSelected', id: 'a' });
+  it('ComponentSelected enters focused package view; selecting the focused one clears focus', () => {
+    let s = update(withTwoComponentGraph(), { type: 'ComponentSelected', id: 'a' });
     expect(s.ui.focusId).toBe('a');
+    expect([...s.ui.expanded]).toEqual(['a']);
+    expect([...s.ui.internalExpanded].sort()).toEqual(['a.Public', 'a.private']);
     s = update(s, { type: 'ComponentSelected', id: 'a' });
     expect(s.ui.focusId).toBeNull();
   });
@@ -51,16 +86,44 @@ describe('update — focus slice', () => {
     expect(s.ui.expanded.has('a')).toBe(true);
   });
 
-  it('TreeFocusRequested focuses and expands when drilling into an internal', () => {
-    const s = update(withGraph(), { type: 'TreeFocusRequested', target: { componentId: 'a', internalId: 'a.i' } });
+  it('TreeFocusRequested focuses the whole package and expands all its internals', () => {
+    const s = update(withTwoComponentGraph(), { type: 'TreeFocusRequested', target: { componentId: 'a', internalId: 'a.Public' } });
     expect(s.ui.focusId).toBe('a');
     expect(s.ui.expanded.has('a')).toBe(true);
+    expect(s.ui.expanded.has('b')).toBe(false);
+    expect([...s.ui.internalExpanded].sort()).toEqual(['a.Public', 'a.private']);
     expect(s.ui.activeChangeId).toBeNull();
   });
 
   it('returns the same state object for unknown events', () => {
     const s = withGraph();
     expect(update(s, { type: 'ZoomFitRequested' })).toBe(s);
+  });
+});
+
+describe('update — graph loading slice', () => {
+  it('auto GraphRequested keeps the current ready graph state unchanged', () => {
+    const s = { ...withGraph(), load: { status: 'ready' as const, error: null } };
+    expect(update(s, { type: 'GraphRequested', source: 'auto' })).toBe(s);
+  });
+
+  it('manual GraphRequested still enters loading state', () => {
+    const s = { ...withGraph(), load: { status: 'ready' as const, error: null } };
+    const next = update(s, { type: 'GraphRequested', source: 'manual' });
+    expect(next).not.toBe(s);
+    expect(next.load).toEqual({ status: 'loading', error: null });
+  });
+
+  it('GraphUnchanged is a no-op when already ready', () => {
+    const s = { ...withGraph(), load: { status: 'ready' as const, error: null } };
+    expect(update(s, { type: 'GraphUnchanged' })).toBe(s);
+  });
+
+  it('GraphUnchanged clears loading without replacing graph state', () => {
+    const s = { ...withGraph(), load: { status: 'loading' as const, error: null } };
+    const next = update(s, { type: 'GraphUnchanged' });
+    expect(next.graph).toBe(s.graph);
+    expect(next.load).toEqual({ status: 'ready', error: null });
   });
 });
 
@@ -172,6 +235,29 @@ describe('update — chrome + zoom slice', () => {
     expect(s.ui.reviewScopeId).toBe('all_public_api');
     expect(s.ui.reviewGroupingId).toBe('package_owner');
     expect(s.ui.reviewDefaults.reviewViewId).toBe('runtime');
+  });
+
+  it('ReviewDefaultsLoaded lets the view default override stale review slice grouping', () => {
+    const reviewGraph: UIGraph = {
+      ...withGraph().graph!,
+      reviewViews: [
+        { id: 'runtime', title: 'Runtime', defaultScope: 'everything', groupBy: 'configured_groups', componentIds: ['a'], componentCount: 1 },
+      ],
+      reviewGroupings: [
+        { id: 'review_view', title: 'Review View', groups: [{ id: 'review_view:runtime', title: 'Runtime', componentIds: ['a'], componentCount: 1 }] },
+        { id: 'configured_groups', title: 'Categories', groups: [{ id: 'configured_groups:plugins', title: 'Plugins', componentIds: ['a'], componentCount: 1 }] },
+      ],
+    };
+    const loaded = update(initialState, { type: 'GraphLoaded', graph: reviewGraph });
+    const s = update(loaded, {
+      type: 'ReviewDefaultsLoaded',
+      key: 'repo-defaults',
+      defaults: {
+        reviewViewId: 'runtime',
+        groupingByView: { runtime: 'review_view' },
+      },
+    });
+    expect(s.ui.reviewGroupingId).toBe('configured_groups');
   });
 
   it('ReviewGroupingChanged switches grouping and clears focus', () => {

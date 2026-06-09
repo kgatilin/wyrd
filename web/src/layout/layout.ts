@@ -80,6 +80,7 @@ function computeCollapsedHeight(component: Component, density: 'detailed' | 'com
 const NAME_CHAR_W = 7.6; // .hf-cmp-name (Inter ~12.5px, semibold)
 const TECH_CHAR_W = 6.4; // .hf-cmp-tech (JetBrains Mono 10px)
 const TECH_CHROME_W = 16; // tech tag padding + border
+const LAYER_BADGE_W = 62; // public/internal package layer badge
 const HEAD_ICON_W = 18;
 const HEAD_GAP = 8;
 const HEAD_PAD_L = 12;
@@ -89,7 +90,7 @@ function computeCollapsedWidth(component: Component, density: 'detailed' | 'comp
   const nameW = component.name.length * NAME_CHAR_W;
   const techW = density === 'compact' ? 0 : component.tech ? component.tech.length * TECH_CHAR_W + TECH_CHROME_W : 0;
   const needed =
-    HEAD_PAD_L + HEAD_ICON_W + HEAD_GAP + nameW + (techW ? HEAD_GAP + techW : 0) + HEAD_ACTIONS_W;
+    HEAD_PAD_L + HEAD_ICON_W + HEAD_GAP + nameW + (techW ? HEAD_GAP + techW : 0) + HEAD_GAP + LAYER_BADGE_W + HEAD_ACTIONS_W;
   return Math.max(component.w ?? DEFAULT_W, DEFAULT_W, Math.ceil(needed));
 }
 

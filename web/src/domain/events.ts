@@ -13,8 +13,9 @@ export interface TreeFocusTarget {
 
 export type Event =
   // lifecycle
-  | { type: 'GraphRequested'; worktree?: string }
+  | { type: 'GraphRequested'; worktree?: string; source?: 'manual' | 'auto' }
   | { type: 'GraphLoaded'; graph: UIGraph }
+  | { type: 'GraphUnchanged' }
   | { type: 'GraphLoadFailed'; error: string }
   // chrome
   | { type: 'ThemeToggled' }

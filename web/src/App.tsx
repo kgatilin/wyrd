@@ -28,8 +28,10 @@ import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
 import { SourceDrawer, type SaveSourceResult, type SourceDrawerState } from './components/SourceDrawer';
 import { ArchMotifPanel } from './components/ArchMotifPanel';
+import { SymbolGraphOverlay } from './components/SymbolGraphOverlay';
 import { PAN_MARGIN, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './view/viewportConstants';
 import { PinnedMarker } from './components/PinnedMarker';
+import type { SymbolFocusTarget } from './domain/symbolFocus';
 
 /**
  * Main application component - V4 layout shell.
@@ -129,8 +131,9 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
       changeFilter: reviewChangeFilter,
       hideUnchangedNeighbors,
       changedDetailsOnly,
+      focusedPackageId: focusId,
     }),
-    [graph, reviewViewId, reviewScopeId, reviewGroupingId, reviewImpactMode, reviewChangeFilter, hideUnchangedNeighbors, changedDetailsOnly]
+    [graph, reviewViewId, reviewScopeId, reviewGroupingId, reviewImpactMode, reviewChangeFilter, hideUnchangedNeighbors, changedDetailsOnly, focusId]
   );
   const groupingOptions = useMemo(
     () => visibleReviewGroupings(graph, reviewViewId, reviewScopeId, reviewGroupingId, {
@@ -158,6 +161,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     [laid, activeLayoutPins]
   );
   const [sourceViewer, setSourceViewer] = useState<SourceDrawerState | null>(null);
+  const [symbolFocus, setSymbolFocus] = useState<SymbolFocusTarget | null>(null);
   const sourceRequestSeq = useRef(0);
   const pinnedCount = Object.keys(activeLayoutPins).length;
   const pinnedGroupIds = useMemo(() => {
@@ -202,12 +206,13 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
 
   useEffect(() => {
     if (!graph) return;
+    if (typeof EventSource === 'undefined') return;
     const events = new EventSource(eventsAPIURL(activeWorktree));
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     events.addEventListener('model-changed', () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
-        dispatch({ type: 'GraphRequested', worktree: activeWorktree || undefined });
+        dispatch({ type: 'GraphRequested', worktree: activeWorktree || undefined, source: 'auto' });
       }, 250);
     });
     return () => {
@@ -433,10 +438,12 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
 
   const openArchMotifPanel = () => {
     setSourceViewer(null);
+    setSymbolFocus(null);
     if (rightCollapsed) dispatch({ type: 'RightCollapsedToggled' });
   };
 
   const openSourceFile = (path: string) => {
+    setSymbolFocus(null);
     const seq = ++sourceRequestSeq.current;
     setSourceViewer({ path, status: 'loading' });
     fetch(sourceAPIURL(path, activeWorktree))
@@ -605,8 +612,8 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
             </label>
           )}
           {groupingOptions.length > 1 && (
-            <label title="How visible packages are arranged on the canvas.">
-              <span>Arrange</span>
+            <label title="Group visible packages on the canvas.">
+              <span>Group by</span>
               <select
                 value={reviewGroupingId ?? ''}
                 onChange={(e) => dispatch({ type: 'ReviewGroupingChanged', id: e.target.value })}
@@ -807,6 +814,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                 zoom={zoom}
                 onMove={handleMoveComponent}
                 onResetLayout={(id) => dispatch({ type: 'LayoutPinReset', id })}
+                onSymbolFocus={setSymbolFocus}
               />
             ))}
 
@@ -847,6 +855,13 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
 
           {/* Legend */}
           <Legend showDiff={showDiff} />
+          {symbolFocus && (
+            <SymbolGraphOverlay
+              graph={graph}
+              target={symbolFocus}
+              onClose={() => setSymbolFocus(null)}
+            />
+          )}
         </div>
 
         {/* RIGHT PANE - analysis tools (collapsible) */}
@@ -920,7 +935,8 @@ function visibleReviewGroupings(
     }
   }
 
-  return out;
+  const withoutReviewViews = out.filter((grouping) => grouping.id !== 'review_view');
+  return withoutReviewViews.length > 0 ? withoutReviewViews : out;
 }
 
 function groupingProjectionSignature(graph: UIGraph): string {
@@ -947,7 +963,7 @@ function reviewGroupingLabel(grouping: ReviewGrouping): string {
     case 'layer':
       return 'Layer';
     case 'configured_groups':
-      return 'Configured';
+      return 'Categories';
     default:
       return grouping.title;
   }

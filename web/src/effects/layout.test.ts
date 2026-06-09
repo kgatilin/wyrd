@@ -140,4 +140,52 @@ describe('createLayoutEffect', () => {
     expect(port.compute).toHaveBeenCalledTimes(1);
     expect(compute.mock.calls[0][0].components[0].internals.map((i: { id: string }) => i.id)).toEqual(['a.Changed']);
   });
+
+  it('re-lays out focused package view with full package details and incident connections', async () => {
+    const reviewGraph: UIGraph = {
+      ...graph,
+      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      components: [
+        {
+          id: 'a',
+          name: 'A',
+          tech: '',
+          desc: '',
+          bc: 'bc1',
+          internals: [
+            { id: 'a.Changed', kind: 'class', name: 'Changed', exported: true, diff: 'added', members: [] },
+            { id: 'a.Unchanged', kind: 'class', name: 'Unchanged', exported: false, members: [] },
+          ],
+          ports: [],
+        },
+        { id: 'b', name: 'B', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
+      ],
+      edges: [{ id: 'ab', from: 'a', to: 'b', fromPort: '', toPort: '', label: 'uses' }],
+    };
+    const laid = { ...reviewGraph };
+    const compute = vi.fn().mockResolvedValue(laid);
+    const port: LayoutPort = { compute };
+    const dispatch = vi.fn();
+    createLayoutEffect(port)(
+      { type: 'ComponentSelected', id: 'a' },
+      () => ({
+        ...stateWith(reviewGraph),
+        ui: {
+          ...initialState.ui,
+          focusId: 'a',
+          expanded: new Set(['a']),
+          internalExpanded: new Set(['a.Changed', 'a.Unchanged']),
+        },
+      }),
+      dispatch as (e: Event) => void
+    );
+    await flush();
+
+    expect(port.compute).toHaveBeenCalledTimes(1);
+    expect(compute.mock.calls[0][0].components.map((c: { id: string }) => c.id)).toEqual(['a', 'b']);
+    expect(compute.mock.calls[0][0].components[0].internals.map((i: { id: string }) => i.id)).toEqual(['a.Changed', 'a.Unchanged']);
+    expect(compute.mock.calls[0][0].edges.map((edge: { id: string }) => edge.id)).toEqual(['ab']);
+    expect(compute.mock.calls[0][1].expanded.has('a')).toBe(true);
+    expect(compute.mock.calls[0][1].expanded.has('b')).toBe(false);
+  });
 });

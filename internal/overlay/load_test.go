@@ -172,13 +172,34 @@ review_views:
     title: Framework API
     default_scope: top_level_public_api
     default_expansion: collapsed
-    group_by: api_area
+    group_by: categories
     packages:
       include:
         - "*"
       exclude:
         - "internal/..."
         - "tools/..."
+
+review_groups:
+  public_api:
+    title: Public API
+    packages:
+      include:
+        - "*"
+      exclude:
+        - "internal/..."
+  internal_framework:
+    title: Internal Framework
+    packages:
+      include:
+        - "internal/..."
+      exclude:
+        - "internal/plugins/..."
+  plugins:
+    title: Plugins
+    packages:
+      include:
+        - "internal/plugins/..."
 
 package_owners:
   platform:
@@ -211,14 +232,24 @@ package_owners:
 	if view.DefaultExpansion != "collapsed" {
 		t.Errorf("DefaultExpansion = %q, want collapsed", view.DefaultExpansion)
 	}
-	if view.GroupBy != "api_area" {
-		t.Errorf("GroupBy = %q, want api_area", view.GroupBy)
+	if view.GroupBy != "categories" {
+		t.Errorf("GroupBy = %q, want categories", view.GroupBy)
 	}
 	if len(view.Packages.Include) != 1 || view.Packages.Include[0] != "*" {
 		t.Errorf("Include = %v, want [*]", view.Packages.Include)
 	}
 	if len(view.Packages.Exclude) != 2 {
 		t.Errorf("Exclude = %v, want two entries", view.Packages.Exclude)
+	}
+	group, ok := cfg.ReviewGroups["plugins"]
+	if !ok {
+		t.Fatalf("missing plugins review group: %+v", cfg.ReviewGroups)
+	}
+	if group.Title != "Plugins" {
+		t.Errorf("ReviewGroups[plugins].Title = %q, want Plugins", group.Title)
+	}
+	if len(group.Packages.Include) != 1 || group.Packages.Include[0] != "internal/plugins/..." {
+		t.Errorf("ReviewGroups[plugins].Include = %v, want [internal/plugins/...]", group.Packages.Include)
 	}
 	owner, ok := cfg.PackageOwners["platform"]
 	if !ok {
@@ -232,6 +263,38 @@ package_owners:
 	}
 	if len(owner.Packages.Exclude) != 1 || owner.Packages.Exclude[0] != "internal/..." {
 		t.Errorf("PackageOwners[platform].Exclude = %v, want [internal/...]", owner.Packages.Exclude)
+	}
+}
+
+func TestValidate_ReviewGroupBadGlob(t *testing.T) {
+	goMod := writeGoMod(t, "github.com/example/app")
+	yaml := `module: github.com/example/app
+
+layers:
+  domain:
+    - internal/domain/...
+
+layer_rules:
+  domain: []
+
+aggregates: {}
+configs: []
+
+review_groups:
+  plugins:
+    packages:
+      include:
+        - "internal plugins/..."
+`
+	path := writeTempFile(t, "archai.yaml", yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	if err := Validate(cfg, goMod); err == nil {
+		t.Fatal("expected validation error for bad review group glob, got nil")
+	} else if !strings.Contains(err.Error(), "review_group plugins") {
+		t.Errorf("expected error to mention review group context, got: %v", err)
 	}
 }
 

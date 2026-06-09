@@ -8,6 +8,12 @@ export class MemberHarness extends ComponentHarness {
   async diffState(): Promise<DiffState | null> {
     return diffStateFromClasses(await this.root.classes());
   }
+  async symbolVisibility(): Promise<'public' | 'internal' | 'unknown'> {
+    const classes = await this.root.classes();
+    if (classes.includes('symbol-public')) return 'public';
+    if (classes.includes('symbol-internal')) return 'internal';
+    return 'unknown';
+  }
   /** The `title` tooltip on the row (full member name). */
   async rowTitle(): Promise<string | null> {
     return this.root.getAttribute('title');
@@ -19,6 +25,10 @@ export class MemberHarness extends ComponentHarness {
 
   /** Click the member row to open the comment popover (tag 'member'). */
   async comment(): Promise<void> {
+    await this.root.click();
+  }
+
+  async focusSymbol(): Promise<void> {
     await this.root.click();
   }
 }

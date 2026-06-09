@@ -38,6 +38,15 @@ export class CanvasHarness extends ComponentHarness {
   async fit(): Promise<void> {
     await (await this.root.locator('.hf-canvas-toolbar button[title="Fit"]').first()).click();
   }
+  async toggleInlineSignatures(): Promise<void> {
+    const hide = this.root.locator('.hf-canvas-toolbar button[title="Hide inline signatures"]');
+    const show = this.root.locator('.hf-canvas-toolbar button[title="Show inline signatures"]');
+    if ((await hide.count()) > 0) {
+      await (await hide.first()).click();
+      return;
+    }
+    await (await show.first()).click();
+  }
   /** Ctrl+wheel over the scroller (zoom gesture). */
   async ctrlWheelZoom(deltaY: number): Promise<void> {
     await this.env.ctrlWheel(await this.wrap(), deltaY);

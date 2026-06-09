@@ -48,13 +48,17 @@ func buildReviewViews(models []domain.PackageModel, cfg *overlay.Config) []Revie
 			if expansion == "" {
 				expansion = "changed"
 			}
+			groupBy := normalizeReviewGroupBy(def.GroupBy)
+			if groupBy == "" && hasConfiguredReviewGroups(cfg) {
+				groupBy = groupingConfiguredGroups
+			}
 			ids := selectComponentIDs(models, def.Packages)
 			out = append(out, ReviewView{
 				ID:               id,
 				Title:            title,
 				DefaultScope:     scope,
 				DefaultExpansion: expansion,
-				GroupBy:          def.GroupBy,
+				GroupBy:          groupBy,
 				ComponentIDs:     ids,
 				ComponentCount:   len(ids),
 			})
@@ -77,13 +81,18 @@ func buildReviewViews(models []domain.PackageModel, cfg *overlay.Config) []Revie
 	})
 	all := selectComponentIDs(models, overlay.PackageSelector{})
 
+	groupBy := "directory"
+	if hasConfiguredReviewGroups(cfg) {
+		groupBy = groupingConfiguredGroups
+	}
+
 	return []ReviewView{
 		{
 			ID:               "top_level",
 			Title:            "Top-level",
 			DefaultScope:     scopeTopLevelPublicAPI,
 			DefaultExpansion: "changed",
-			GroupBy:          "directory",
+			GroupBy:          groupBy,
 			ComponentIDs:     top,
 			ComponentCount:   len(top),
 		},
@@ -92,7 +101,7 @@ func buildReviewViews(models []domain.PackageModel, cfg *overlay.Config) []Revie
 			Title:            "All",
 			DefaultScope:     scopeAllPublicAPI,
 			DefaultExpansion: "changed",
-			GroupBy:          "directory",
+			GroupBy:          groupBy,
 			ComponentIDs:     all,
 			ComponentCount:   len(all),
 		},

@@ -31,8 +31,8 @@ func buildReviewGroupings(
 		},
 		{
 			ID:     groupingConfiguredGroups,
-			Title:  "Configured Groups",
-			Groups: groupsFromConfiguredContexts(models, cfg, contexts),
+			Title:  configuredGroupsTitle(cfg),
+			Groups: groupsFromConfiguredCategories(models, cfg, contexts),
 		},
 		{
 			ID:    groupingLayer,
@@ -62,8 +62,9 @@ func buildReviewGroupings(
 }
 
 func defaultGroupingForView(view ReviewView, groupings []ReviewGrouping) string {
-	if hasGrouping(groupings, view.GroupBy) {
-		return view.GroupBy
+	groupBy := normalizeReviewGroupBy(view.GroupBy)
+	if hasGrouping(groupings, groupBy) {
+		return groupBy
 	}
 	if hasGrouping(groupings, groupingDirectory) {
 		return groupingDirectory
@@ -86,6 +87,26 @@ func hasGrouping(groupings []ReviewGrouping, id string) bool {
 	return false
 }
 
+func normalizeReviewGroupBy(id string) string {
+	switch strings.TrimSpace(id) {
+	case "categories", "category", "review_groups", "review_group":
+		return groupingConfiguredGroups
+	default:
+		return strings.TrimSpace(id)
+	}
+}
+
+func hasConfiguredReviewGroups(cfg *overlay.Config) bool {
+	return cfg != nil && len(cfg.ReviewGroups) > 0
+}
+
+func configuredGroupsTitle(cfg *overlay.Config) string {
+	if hasConfiguredReviewGroups(cfg) {
+		return "Categories"
+	}
+	return "Configured Groups"
+}
+
 func groupsFromReviewViews(views []ReviewView) []ReviewGroup {
 	groups := make([]ReviewGroup, 0, len(views))
 	for _, view := range views {
@@ -96,6 +117,71 @@ func groupsFromReviewViews(views []ReviewView) []ReviewGroup {
 			Title:          view.Title,
 			ComponentIDs:   ids,
 			ComponentCount: len(ids),
+		})
+	}
+	return groups
+}
+
+func groupsFromConfiguredCategories(
+	models []domain.PackageModel,
+	cfg *overlay.Config,
+	contexts []BoundedContext,
+) []ReviewGroup {
+	if hasConfiguredReviewGroups(cfg) {
+		return groupsFromReviewGroups(models, cfg)
+	}
+	return groupsFromConfiguredContexts(models, cfg, contexts)
+}
+
+func groupsFromReviewGroups(models []domain.PackageModel, cfg *overlay.Config) []ReviewGroup {
+	type acc struct {
+		title string
+		ids   []string
+	}
+
+	groupIDs := sortedMapKeys(cfg.ReviewGroups)
+	byID := make(map[string]acc, len(groupIDs)+1)
+	for _, model := range models {
+		matchedID := ""
+		matchedTitle := ""
+		for _, groupID := range groupIDs {
+			group := cfg.ReviewGroups[groupID]
+			if !selectorMatches(group.Packages, model.Path) {
+				continue
+			}
+			matchedID = "configured_groups:" + groupID
+			matchedTitle = strings.TrimSpace(group.Title)
+			if matchedTitle == "" {
+				matchedTitle = titleFromID(groupID)
+			}
+			break
+		}
+		if matchedID == "" {
+			matchedID = "configured_groups:uncategorized"
+			matchedTitle = "Uncategorized"
+		}
+
+		group := byID[matchedID]
+		group.title = matchedTitle
+		group.ids = append(group.ids, model.Path)
+		byID[matchedID] = group
+	}
+
+	ids := make([]string, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	groups := make([]ReviewGroup, 0, len(ids))
+	for _, id := range ids {
+		group := byID[id]
+		sort.Strings(group.ids)
+		groups = append(groups, ReviewGroup{
+			ID:             id,
+			Title:          group.title,
+			ComponentIDs:   group.ids,
+			ComponentCount: len(group.ids),
 		})
 	}
 	return groups

@@ -15,19 +15,25 @@ export function createStore<S, E>(
   let state = initial;
   const listeners = new Set<() => void>();
   let depth = 0;
+  let changed = false;
 
   const getState = (): S => state;
   const notify = () => listeners.forEach((l) => l());
 
   const dispatch = (event: E): void => {
+    const prev = state;
     state = update(state, event);
+    if (state !== prev) changed = true;
     depth++;
     try {
       for (const fx of effects) fx(event, getState, dispatch);
     } finally {
       depth--;
     }
-    if (depth === 0) notify();
+    if (depth === 0 && changed) {
+      changed = false;
+      notify();
+    }
   };
 
   const subscribe = (listener: () => void): (() => void) => {

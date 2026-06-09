@@ -238,6 +238,24 @@ func Validate(cfg *Config, goModPath string) error {
 		}
 	}
 
+	for _, name := range sortedKeys(cfg.ReviewGroups) {
+		group := cfg.ReviewGroups[name]
+		if strings.TrimSpace(name) == "" {
+			errs = append(errs, errors.New("overlay: review_groups: name must not be empty"))
+			continue
+		}
+		for _, glob := range group.Packages.Include {
+			if err := validateGlob("review_group "+name, glob); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		for _, glob := range group.Packages.Exclude {
+			if err := validateGlob("review_group "+name, glob); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
 	for _, name := range sortedKeys(cfg.PackageOwners) {
 		owner := cfg.PackageOwners[name]
 		if strings.TrimSpace(name) == "" {

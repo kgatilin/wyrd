@@ -13,6 +13,12 @@ export class InternalHarness extends ComponentHarness {
   async diffState(): Promise<DiffState | null> {
     return diffStateFromClasses(await this.root.classes());
   }
+  async symbolVisibility(): Promise<'public' | 'internal' | 'unknown'> {
+    const classes = await this.root.classes();
+    if (classes.includes('symbol-public')) return 'public';
+    if (classes.includes('symbol-internal')) return 'internal';
+    return 'unknown';
+  }
   /** The `title` tooltip on the internal name. */
   async nameTitle(): Promise<string | null> {
     return (await this.root.locator('.hf-internal-name').first()).getAttribute('title');
@@ -45,6 +51,10 @@ export class InternalHarness extends ComponentHarness {
 
   /** Click the internal header to open the comment popover (tag 'internal'). */
   async commentOnHeader(): Promise<void> {
+    await (await this.root.locator('.hf-internal-head').first()).click();
+  }
+
+  async focusSymbol(): Promise<void> {
     await (await this.root.locator('.hf-internal-head').first()).click();
   }
 }

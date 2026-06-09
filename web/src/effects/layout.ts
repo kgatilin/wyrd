@@ -7,6 +7,9 @@ import { selectReviewGraph, toInteraction } from '../domain/derive';
 const LAYOUT_TRIGGERS: ReadonlySet<Event['type']> = new Set([
   'GraphLoaded',
   'ComponentToggled',
+  'ComponentSelected',
+  'FocusCleared',
+  'CanvasCleared',
   'InternalWideToggled',
   'ComponentAllWideSet',
   'ChangeActivated',
@@ -38,6 +41,7 @@ export function createLayoutEffect(port: LayoutPort): Effect<AppState, Event> {
         changeFilter: state.ui.reviewChangeFilter,
         hideUnchangedNeighbors: state.ui.hideUnchangedNeighbors,
         changedDetailsOnly: state.ui.changedDetailsOnly,
+        focusedPackageId: state.ui.focusId,
       }
     );
     const mySeq = ++seq;
