@@ -1178,12 +1178,13 @@ type subgraphResult struct {
 }
 
 type nodeInfo struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Package   string `json:"package"`
-	Name      string `json:"name"`
-	Signature string `json:"signature,omitempty"`
-	Doc       string `json:"doc,omitempty"`
+	ID        string  `json:"id"`
+	Kind      string  `json:"kind"`
+	Package   string  `json:"package"`
+	Name      string  `json:"name"`
+	Signature string  `json:"signature,omitempty"`
+	Doc       string  `json:"doc,omitempty"`
+	Score     float64 `json:"score,omitempty"`
 }
 
 type edgeInfo struct {
@@ -1235,6 +1236,7 @@ func handleSearchGraph(state *serve.State, rawArgs json.RawMessage) (ToolResult,
 			Name:      n.Name,
 			Signature: n.Signature,
 			Doc:       n.Doc,
+			Score:     n.Score,
 		}
 	}
 
@@ -1292,6 +1294,7 @@ func handleExpand(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 			Name:      n.Name,
 			Signature: n.Signature,
 			Doc:       n.Doc,
+			Score:     n.Score,
 		}
 	}
 
