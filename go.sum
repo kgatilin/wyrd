@@ -36,6 +36,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/kgatilin/archmotif v0.35.0 h1:4H2sbP5AuZh2qX/FraYn7duImkHjliP4Cgj57I5OwiI=
 github.com/kgatilin/archmotif v0.35.0/go.mod h1:43CTWHP2AcOJ3CtQ+GcLAG5TvyTQUdLwtdIdBbxN9UQ=
+github.com/kgatilin/archmotif v0.36.0 h1:9aBejjpX1po66RZHxaSseuwc+FRryxrTdv6Rg5Ah/8g=
+github.com/kgatilin/archmotif v0.36.0/go.mod h1:43CTWHP2AcOJ3CtQ+GcLAG5TvyTQUdLwtdIdBbxN9UQ=
 github.com/kr/pretty v0.2.1/go.mod h1:ipq/a2n7PKx3OHsz4KJII5eveXtPO4qwEXGdVfWzfnI=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
