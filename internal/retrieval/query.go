@@ -81,9 +81,9 @@ func (s *Service) Search(ctx context.Context, query string, k int, filters Filte
 
 	// Dense search if available
 	if s.DenseAvailable() && s.embedder != nil && s.vindex != nil {
-		vecs, err := s.embedder.Embed(ctx, []string{query})
-		if err == nil && len(vecs) > 0 {
-			denseResults = s.vindex.Search(vecs[0], fetchK)
+		vec, err := s.embedder.EmbedQuery(ctx, query)
+		if err == nil && len(vec) > 0 {
+			denseResults = s.vindex.Search(vec, fetchK)
 			denseUsed = true
 		}
 	}

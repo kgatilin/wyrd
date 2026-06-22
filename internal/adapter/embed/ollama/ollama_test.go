@@ -67,6 +67,51 @@ func TestEmbedder_Embed(t *testing.T) {
 	}
 }
 
+func TestPromptTemplates(t *testing.T) {
+	const q = "find the http handler"
+	const d = "func Handler(w, r)"
+	cases := []struct {
+		model   string
+		wantDoc string
+		wantQry string
+	}{
+		{"qwen3-embedding:0.6b", d, "Instruct: " + defaultQueryInstruction + "\nQuery: " + q},
+		{"embeddinggemma:300m", "title: none | text: " + d, "task: search result | query: " + q},
+		{"nomic-embed-text", "search_document: " + d, "search_query: " + q},
+		{"some-unknown-model", d, q},
+	}
+	for _, tc := range cases {
+		e := New(WithModel(tc.model))
+		if got := e.docPrompt(d); got != tc.wantDoc {
+			t.Errorf("%s docPrompt = %q, want %q", tc.model, got, tc.wantDoc)
+		}
+		if got := e.queryPrompt(q); got != tc.wantQry {
+			t.Errorf("%s queryPrompt = %q, want %q", tc.model, got, tc.wantQry)
+		}
+	}
+}
+
+// TestEmbedQuery_SendsTemplatedPrompt verifies that EmbedQuery sends the
+// query-side template (not the raw query) to the server.
+func TestEmbedQuery_SendsTemplatedPrompt(t *testing.T) {
+	var gotPrompt string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req embeddingRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		gotPrompt = req.Prompt
+		json.NewEncoder(w).Encode(embeddingResponse{Embedding: []float64{1, 2, 3}})
+	}))
+	defer server.Close()
+
+	e := New(WithEndpoint(server.URL), WithModel("nomic-embed-text"))
+	if _, err := e.EmbedQuery(context.Background(), "hello"); err != nil {
+		t.Fatalf("EmbedQuery: %v", err)
+	}
+	if gotPrompt != "search_query: hello" {
+		t.Errorf("server received prompt %q, want %q", gotPrompt, "search_query: hello")
+	}
+}
+
 func TestEmbedder_Empty(t *testing.T) {
 	embedder := New()
 

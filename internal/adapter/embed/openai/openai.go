@@ -183,6 +183,20 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) ([][]float32, erro
 	return results, nil
 }
 
+// EmbedQuery embeds a single search query. OpenAI-compatible embedding models
+// (text-embedding-3 family) are symmetric and need no query instruction, so
+// the query is embedded as-is in the same space as documents.
+func (e *Embedder) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+	vecs, err := e.Embed(ctx, []string{query})
+	if err != nil {
+		return nil, err
+	}
+	if len(vecs) == 0 {
+		return nil, fmt.Errorf("openai: empty embedding for query")
+	}
+	return vecs[0], nil
+}
+
 // embedBatch sends a single batch request to the API.
 func (e *Embedder) embedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	reqBody := embeddingRequest{

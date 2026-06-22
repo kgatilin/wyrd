@@ -354,6 +354,14 @@ func (e *testEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, 
 	return results, nil
 }
 
+func (e *testEmbedder) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+	vecs, err := e.Embed(ctx, []string{query})
+	if err != nil {
+		return nil, err
+	}
+	return vecs[0], nil
+}
+
 func (e *testEmbedder) Dim() int {
 	return e.dim
 }
@@ -377,6 +385,10 @@ func (e *countingEmbedder) Embed(ctx context.Context, texts []string) ([][]float
 type failingEmbedder struct{}
 
 func (e *failingEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	return nil, errors.New("embedder unavailable")
+}
+
+func (e *failingEmbedder) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
 	return nil, errors.New("embedder unavailable")
 }
 

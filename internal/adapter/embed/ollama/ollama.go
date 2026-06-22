@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -17,15 +18,74 @@ const DefaultEndpoint = "http://localhost:11434"
 // DefaultModel is the default embedding model.
 const DefaultModel = "nomic-embed-text"
 
+// defaultQueryInstruction is the task description fed to instruction-style
+// retrieval models (Qwen3-Embedding) when embedding a search query. It can be
+// overridden via the ARCHAI_EMBED_QUERY_INSTRUCTION environment variable.
+const defaultQueryInstruction = "Given a code search query, retrieve relevant Go code symbols (functions, methods, types, interfaces) that satisfy it."
+
+// promptStyle selects the model-specific document/query prompt templates.
+// Retrieval embedding models are trained with asymmetric prompts: a document
+// side and a query side. Sending raw text degrades retrieval quality.
+type promptStyle int
+
+const (
+	styleRaw   promptStyle = iota // unknown model: no templating
+	styleQwen3                    // Qwen3-Embedding: instruction-prefixed query, raw document
+	styleGemma                    // EmbeddingGemma: "task:.. | query:.." / "title:.. | text:.."
+	styleNomic                    // nomic-embed-text: "search_query:" / "search_document:"
+)
+
+func detectStyle(model string) promptStyle {
+	m := strings.ToLower(model)
+	switch {
+	case strings.Contains(m, "qwen3-embedding"):
+		return styleQwen3
+	case strings.Contains(m, "embeddinggemma"):
+		return styleGemma
+	case strings.Contains(m, "nomic-embed"):
+		return styleNomic
+	default:
+		return styleRaw
+	}
+}
+
 // Embedder implements retrieval.Embedder using a local Ollama server.
 type Embedder struct {
-	endpoint string
-	model    string
-	client   *http.Client
+	endpoint   string
+	model      string
+	client     *http.Client
+	style      promptStyle
+	queryInstr string
 
 	// dim is cached after first successful embed
 	dimOnce sync.Once
 	dim     int
+}
+
+// docPrompt formats an indexable document for the configured model.
+func (e *Embedder) docPrompt(text string) string {
+	switch e.style {
+	case styleGemma:
+		return "title: none | text: " + text
+	case styleNomic:
+		return "search_document: " + text
+	default: // styleQwen3 documents are raw; styleRaw is raw
+		return text
+	}
+}
+
+// queryPrompt formats a search query for the configured model.
+func (e *Embedder) queryPrompt(text string) string {
+	switch e.style {
+	case styleQwen3:
+		return "Instruct: " + e.queryInstr + "\nQuery: " + text
+	case styleGemma:
+		return "task: search result | query: " + text
+	case styleNomic:
+		return "search_query: " + text
+	default:
+		return text
+	}
 }
 
 // Option configures the Embedder.
@@ -64,9 +124,10 @@ func WithHTTPClient(client *http.Client) Option {
 // 3. Defaults: localhost:11434, nomic-embed-text
 func New(opts ...Option) *Embedder {
 	e := &Embedder{
-		endpoint: DefaultEndpoint,
-		model:    DefaultModel,
-		client:   http.DefaultClient,
+		endpoint:   DefaultEndpoint,
+		model:      DefaultModel,
+		client:     http.DefaultClient,
+		queryInstr: defaultQueryInstruction,
 	}
 
 	// Read from environment
@@ -76,11 +137,17 @@ func New(opts ...Option) *Embedder {
 	if env := os.Getenv("ARCHAI_EMBED_MODEL"); env != "" {
 		e.model = env
 	}
+	if env := os.Getenv("ARCHAI_EMBED_QUERY_INSTRUCTION"); env != "" {
+		e.queryInstr = env
+	}
 
 	// Apply explicit options
 	for _, opt := range opts {
 		opt(e)
 	}
+
+	// Prompt style is derived from the final model name.
+	e.style = detectStyle(e.model)
 
 	return e
 }
@@ -111,7 +178,7 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) ([][]float32, erro
 		default:
 		}
 
-		vec, err := e.embedOne(ctx, text)
+		vec, err := e.embedOne(ctx, e.docPrompt(text))
 		if err != nil {
 			return nil, fmt.Errorf("embedding text %d: %w", i, err)
 		}
@@ -124,6 +191,19 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) ([][]float32, erro
 	}
 
 	return results, nil
+}
+
+// EmbedQuery embeds a single search query, applying the model-specific query
+// instruction/prefix so the query lands in the same space as documents.
+func (e *Embedder) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+	vec, err := e.embedOne(ctx, e.queryPrompt(query))
+	if err != nil {
+		return nil, fmt.Errorf("embedding query: %w", err)
+	}
+	e.dimOnce.Do(func() {
+		e.dim = len(vec)
+	})
+	return vec, nil
 }
 
 func (e *Embedder) embedOne(ctx context.Context, text string) ([]float32, error) {

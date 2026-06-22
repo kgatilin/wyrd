@@ -56,6 +56,17 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) ([][]float32, erro
 	return results, nil
 }
 
+// EmbedQuery embeds a single query. The noop embedder is symmetric, so it
+// reuses the same deterministic hashing as Embed.
+func (e *Embedder) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	return e.hashToVector(query), nil
+}
+
 // hashToVector converts text to a deterministic vector using FNV-1a hash.
 // The vector is normalized to unit length.
 func (e *Embedder) hashToVector(text string) []float32 {
