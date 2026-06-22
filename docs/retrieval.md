@@ -191,6 +191,40 @@ curl -XPOST :8800/api/mcp/tools/call \
 
 ---
 
+## Using from Claude Code (MCP)
+
+This repo ships a project-scoped `.mcp.json` that registers archai as an MCP
+server for Claude Code:
+
+```json
+{
+  "mcpServers": {
+    "archai": { "command": "archai", "args": ["serve", "--mcp-stdio", "--root", "."] }
+  }
+}
+```
+
+`archai serve --mcp-stdio` is a **thin client**: it speaks MCP over stdio but
+forwards `tools/call` to a background HTTP daemon, auto-starting one if none is
+running. Discovery and auto-start are keyed per git worktree (via
+`.arch/.worktree/<name>/serve.json`) and serialized by a lock file, so:
+
+- **Multiple Claude Code instances in this project share ONE daemon** — each
+  spawns its own lightweight stdio wrapper, but they all connect to the same
+  AST/HTTP server and the same warm dense/BM25 indexes. Indexing is paid once.
+- The auto-started daemon self-terminates after 15 min idle (then the next call
+  re-starts and re-indexes it). To keep it permanently warm, run a manual daemon
+  that never times out: `archai serve --root . --http 127.0.0.1:0` — the thin
+  clients will discover and reuse it.
+
+Setup notes:
+- `archai` must be on `PATH`. Reinstall after code changes so the daemon runs the
+  current build: `go install ./cmd/archai` (or `make install`).
+- Project-scoped MCP servers require approval on first use; restart/reapprove
+  Claude Code after adding `.mcp.json`.
+- `--multi` is **not** compatible with `--mcp-stdio`; MCP targets the single
+  worktree given by `--root`.
+
 ## Freshness
 
 `.archai/cache/` holds:

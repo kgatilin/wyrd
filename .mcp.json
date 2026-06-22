@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "archai": {
+      "command": "archai",
+      "args": ["serve", "--mcp-stdio", "--root", "."]
+    }
+  }
+}
