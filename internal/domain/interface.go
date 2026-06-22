@@ -17,6 +17,9 @@ type InterfaceDef struct {
 	// SourceFile is the filename where this interface is defined, e.g., "service.go".
 	SourceFile string
 
+	// Span is the source location of the interface definition.
+	Span Span
+
 	// Doc is the documentation comment for this interface.
 	Doc string
 

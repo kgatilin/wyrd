@@ -20,6 +20,9 @@ type StructDef struct {
 	// SourceFile is the filename where this struct is defined, e.g., "model.go".
 	SourceFile string
 
+	// Span is the source location of the struct definition.
+	Span Span
+
 	// Doc is the documentation comment for this struct.
 	Doc string
 

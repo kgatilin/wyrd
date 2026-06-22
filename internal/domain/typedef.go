@@ -23,6 +23,9 @@ type TypeDef struct {
 	// SourceFile is the filename where this type is defined, e.g., "status.go".
 	SourceFile string
 
+	// Span is the source location of the type definition.
+	Span Span
+
 	// Doc is the documentation comment for this type.
 	Doc string
 

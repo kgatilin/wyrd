@@ -199,7 +199,7 @@ func (r *reader) convertPackage(pkg *packages.Package) (domain.PackageModel, err
 	}
 
 	// Build a map of type -> methods for associating methods with structs
-	methodsByReceiver := r.collectMethodsByReceiver(pkg)
+	methodsByReceiver := r.collectMethodsByReceiver(pkg, astFiles)
 
 	// Build a map of type name -> constants for enum detection
 	constantsByType := r.collectConstantsByType(pkg)
@@ -245,7 +245,7 @@ func (r *reader) relativePath(pkgPath string) string {
 }
 
 // collectMethodsByReceiver builds a map from receiver type name to its methods.
-func (r *reader) collectMethodsByReceiver(pkg *packages.Package) map[string][]domain.MethodDef {
+func (r *reader) collectMethodsByReceiver(pkg *packages.Package, astFiles map[string]*ast.File) map[string][]domain.MethodDef {
 	methodsByReceiver := make(map[string][]domain.MethodDef)
 
 	scope := pkg.Types.Scope()
@@ -266,6 +266,7 @@ func (r *reader) collectMethodsByReceiver(pkg *packages.Package) map[string][]do
 			fn := named.Method(i)
 			sig := fn.Type().(*types.Signature)
 			method := r.convertMethod(fn, sig)
+			method.Span = r.findMethodDeclSpan(pkg, astFiles, name, fn.Name())
 			methodsByReceiver[name] = append(methodsByReceiver[name], method)
 		}
 	}
@@ -329,6 +330,7 @@ func (r *reader) extractInterfaces(pkg *packages.Package, astFiles map[string]*a
 			Methods:    r.extractInterfaceMethods(iface),
 			IsExported: isExported(name),
 			SourceFile: sourceFile,
+			Span:       r.findTypeSpecSpan(pkg, astFiles, name),
 			Doc:        doc,
 		}
 
@@ -387,6 +389,7 @@ func (r *reader) extractStructs(
 			Methods:    methodsByReceiver[name],
 			IsExported: isExported(name),
 			SourceFile: sourceFile,
+			Span:       r.findTypeSpecSpan(pkg, astFiles, name),
 			Doc:        doc,
 		}
 
@@ -449,6 +452,7 @@ func (r *reader) extractFunctions(pkg *packages.Package, astFiles map[string]*as
 			Returns:    r.extractReturns(sig.Results()),
 			IsExported: isExported(name),
 			SourceFile: sourceFile,
+			Span:       r.findFuncDeclSpan(pkg, astFiles, name),
 			Doc:        doc,
 		}
 
@@ -495,6 +499,7 @@ func (r *reader) extractTypeDefs(
 			Constants:      constantsByType[name],
 			IsExported:     isExported(name),
 			SourceFile:     sourceFile,
+			Span:           r.findTypeSpecSpan(pkg, astFiles, name),
 			Doc:            doc,
 		}
 
@@ -538,6 +543,7 @@ func (r *reader) extractConstants(pkg *packages.Package, astFiles map[string]*as
 			Value:      value,
 			IsExported: isExported(name),
 			SourceFile: sourceFile,
+			Span:       r.findValueSpecSpan(pkg, astFiles, name, token.CONST),
 			Doc:        doc,
 		})
 	}
@@ -576,6 +582,7 @@ func (r *reader) extractVarsAndErrors(
 				Message:    msg,
 				IsExported: isExported(name),
 				SourceFile: sourceFile,
+				Span:       r.findValueSpecSpan(pkg, astFiles, name, token.VAR),
 				Doc:        doc,
 			})
 			continue
@@ -586,6 +593,7 @@ func (r *reader) extractVarsAndErrors(
 			Type:       r.convertTypeRef(v.Type()),
 			IsExported: isExported(name),
 			SourceFile: sourceFile,
+			Span:       r.findValueSpecSpan(pkg, astFiles, name, token.VAR),
 			Doc:        doc,
 		})
 	}
@@ -892,6 +900,159 @@ func (r *reader) getSourceFile(fset *token.FileSet, pos token.Pos) string {
 	}
 	position := fset.Position(pos)
 	return filepath.Base(position.Filename)
+}
+
+// getSpan creates a Span from AST node positions. The file path is relative
+// to the module root. If moduleDir is empty or positions are invalid, returns
+// a zero Span.
+func (r *reader) getSpan(fset *token.FileSet, moduleDir string, start, end token.Pos) domain.Span {
+	if !start.IsValid() || !end.IsValid() {
+		return domain.Span{}
+	}
+	startPos := fset.Position(start)
+	endPos := fset.Position(end)
+
+	// Compute file path relative to module root
+	file := startPos.Filename
+	if moduleDir != "" {
+		if rel, err := filepath.Rel(moduleDir, file); err == nil {
+			file = rel
+		}
+	}
+
+	return domain.Span{
+		File:      file,
+		StartByte: startPos.Offset,
+		EndByte:   endPos.Offset,
+		StartLine: startPos.Line,
+		EndLine:   endPos.Line,
+	}
+}
+
+// findTypeSpecSpan locates the AST TypeSpec for the given name and returns its span.
+func (r *reader) findTypeSpecSpan(pkg *packages.Package, astFiles map[string]*ast.File, name string) domain.Span {
+	moduleDir := ""
+	if pkg.Module != nil {
+		moduleDir = pkg.Module.Dir
+	}
+
+	for _, f := range astFiles {
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || ts.Name.Name != name {
+					continue
+				}
+				// Use the GenDecl's start (includes 'type' keyword and doc) to spec's end
+				return r.getSpan(pkg.Fset, moduleDir, gd.Pos(), ts.End())
+			}
+		}
+	}
+	return domain.Span{}
+}
+
+// findFuncDeclSpan locates the AST FuncDecl for the given function name and returns its span.
+func (r *reader) findFuncDeclSpan(pkg *packages.Package, astFiles map[string]*ast.File, name string) domain.Span {
+	moduleDir := ""
+	if pkg.Module != nil {
+		moduleDir = pkg.Module.Dir
+	}
+
+	for _, f := range astFiles {
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Recv != nil { // Skip methods
+				continue
+			}
+			if fd.Name.Name != name {
+				continue
+			}
+			return r.getSpan(pkg.Fset, moduleDir, fd.Pos(), fd.End())
+		}
+	}
+	return domain.Span{}
+}
+
+// findMethodDeclSpan locates the AST FuncDecl for a method on the given receiver type.
+func (r *reader) findMethodDeclSpan(pkg *packages.Package, astFiles map[string]*ast.File, receiverType, methodName string) domain.Span {
+	moduleDir := ""
+	if pkg.Module != nil {
+		moduleDir = pkg.Module.Dir
+	}
+
+	for _, f := range astFiles {
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Recv == nil {
+				continue
+			}
+			if fd.Name.Name != methodName {
+				continue
+			}
+			// Check receiver type
+			if len(fd.Recv.List) == 0 {
+				continue
+			}
+			recvType := fd.Recv.List[0].Type
+			// Handle *T
+			if star, ok := recvType.(*ast.StarExpr); ok {
+				recvType = star.X
+			}
+			if ident, ok := recvType.(*ast.Ident); ok && ident.Name == receiverType {
+				return r.getSpan(pkg.Fset, moduleDir, fd.Pos(), fd.End())
+			}
+			// Handle generic receiver T[P]
+			if idx, ok := recvType.(*ast.IndexExpr); ok {
+				if ident, ok := idx.X.(*ast.Ident); ok && ident.Name == receiverType {
+					return r.getSpan(pkg.Fset, moduleDir, fd.Pos(), fd.End())
+				}
+			}
+			if idx, ok := recvType.(*ast.IndexListExpr); ok {
+				if ident, ok := idx.X.(*ast.Ident); ok && ident.Name == receiverType {
+					return r.getSpan(pkg.Fset, moduleDir, fd.Pos(), fd.End())
+				}
+			}
+		}
+	}
+	return domain.Span{}
+}
+
+// findValueSpecSpan locates the AST ValueSpec for a const or var declaration.
+func (r *reader) findValueSpecSpan(pkg *packages.Package, astFiles map[string]*ast.File, name string, tok token.Token) domain.Span {
+	moduleDir := ""
+	if pkg.Module != nil {
+		moduleDir = pkg.Module.Dir
+	}
+
+	for _, f := range astFiles {
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != tok {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for _, n := range vs.Names {
+					if n.Name == name {
+						// For single-spec declarations, use GenDecl span (includes const/var keyword)
+						if len(gd.Specs) == 1 {
+							return r.getSpan(pkg.Fset, moduleDir, gd.Pos(), gd.End())
+						}
+						// For grouped declarations, use just the ValueSpec
+						return r.getSpan(pkg.Fset, moduleDir, vs.Pos(), vs.End())
+					}
+				}
+			}
+		}
+	}
+	return domain.Span{}
 }
 
 // getDocComment retrieves the doc comment for a named declaration.

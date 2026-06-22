@@ -20,6 +20,9 @@ type FunctionDef struct {
 	// SourceFile is the filename where this function is defined, e.g., "factory.go".
 	SourceFile string
 
+	// Span is the source location of the function definition.
+	Span Span
+
 	// Doc is the documentation comment for this function.
 	Doc string
 

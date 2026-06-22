@@ -18,6 +18,9 @@ type ErrorDef struct {
 	// SourceFile is the filename where this error is defined.
 	SourceFile string
 
+	// Span is the source location of the error declaration.
+	Span Span
+
 	// Doc is the documentation comment for this error.
 	Doc string
 }

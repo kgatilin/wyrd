@@ -23,6 +23,9 @@ type ConstDef struct {
 	// SourceFile is the filename where this constant is defined.
 	SourceFile string
 
+	// Span is the source location of the constant declaration.
+	Span Span
+
 	// Doc is the documentation comment for this constant.
 	Doc string
 }

@@ -17,6 +17,9 @@ type VarDef struct {
 	// SourceFile is the filename where this variable is defined.
 	SourceFile string
 
+	// Span is the source location of the variable declaration.
+	Span Span
+
 	// Doc is the documentation comment for this variable.
 	Doc string
 }

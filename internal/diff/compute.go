@@ -355,6 +355,7 @@ func diffDependencies(pkg string, cur, tgt []domain.Dependency) []Change {
 
 func normalizeInterface(v domain.InterfaceDef) domain.InterfaceDef {
 	v.SourceFile = ""
+	v.Span = domain.Span{}
 	v.Doc = ""
 	for i := range v.Methods {
 		v.Methods[i] = normalizeMethod(v.Methods[i])
@@ -364,6 +365,7 @@ func normalizeInterface(v domain.InterfaceDef) domain.InterfaceDef {
 
 func normalizeStruct(v domain.StructDef) domain.StructDef {
 	v.SourceFile = ""
+	v.Span = domain.Span{}
 	v.Doc = ""
 	for i := range v.Methods {
 		v.Methods[i] = normalizeMethod(v.Methods[i])
@@ -373,36 +375,42 @@ func normalizeStruct(v domain.StructDef) domain.StructDef {
 
 func normalizeFunction(v domain.FunctionDef) domain.FunctionDef {
 	v.SourceFile = ""
+	v.Span = domain.Span{}
 	v.Doc = ""
 	v.Calls = nil
 	return v
 }
 
 func normalizeMethod(v domain.MethodDef) domain.MethodDef {
+	v.Span = domain.Span{}
 	v.Calls = nil
 	return v
 }
 
 func normalizeTypeDef(v domain.TypeDef) domain.TypeDef {
 	v.SourceFile = ""
+	v.Span = domain.Span{}
 	v.Doc = ""
 	return v
 }
 
 func normalizeConst(v domain.ConstDef) domain.ConstDef {
 	v.SourceFile = ""
+	v.Span = domain.Span{}
 	v.Doc = ""
 	return v
 }
 
 func normalizeVar(v domain.VarDef) domain.VarDef {
 	v.SourceFile = ""
+	v.Span = domain.Span{}
 	v.Doc = ""
 	return v
 }
 
 func normalizeError(v domain.ErrorDef) domain.ErrorDef {
 	v.SourceFile = ""
+	v.Span = domain.Span{}
 	v.Doc = ""
 	return v
 }
