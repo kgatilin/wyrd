@@ -773,7 +773,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
               expandedInternals={internalExpanded}
               showDiff={showDiff}
               focusId={focusId}
-              flow={true}
               commentTargets={commentTargets}
             />
 
@@ -839,6 +838,8 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
             onZoomOut={() => zoomBy(-ZOOM_STEP)}
             onZoomIn={() => zoomBy(ZOOM_STEP)}
             onFit={fitZoom}
+            onExpandAll={() => dispatch({ type: 'ComponentsExpandedAll' })}
+            onCollapseAll={() => dispatch({ type: 'ComponentsCollapsedAll' })}
             pinnedCount={pinnedCount}
             onResetLayout={pinnedCount > 0 ? () => dispatch({ type: 'LayoutPinsReset' }) : undefined}
             onResetRepoLayout={handleResetRepoLayout}

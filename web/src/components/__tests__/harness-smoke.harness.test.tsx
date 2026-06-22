@@ -46,6 +46,30 @@ describe('harness smoke (jsdom) — diffGraph', () => {
     expect(await svc.expandAllGlyph()).toBe('«»');
   });
 
+  it('canvas toolbar expands and collapses all package cards', async () => {
+    const env = await mountAppDom(diffGraph);
+    const app = await env.load(AppHarness);
+    await app.waitForLoaded();
+    const canvas = await app.canvas();
+    const diagram = await app.diagram();
+
+    await canvas.expandAllPackages();
+    await app.env.waitUntil(async () => {
+      const components = await diagram.components();
+      return (await Promise.all(components.map((component) => component.isExpanded()))).every(Boolean);
+    }, {
+      message: 'not every package card expanded',
+    });
+
+    await canvas.collapseAllPackages();
+    await app.env.waitUntil(async () => {
+      const components = await diagram.components();
+      return (await Promise.all(components.map((component) => component.isExpanded()))).every((expanded) => !expanded);
+    }, {
+      message: 'not every package card collapsed',
+    });
+  });
+
   it('derives changed: PaymentService/IGateway and CheckoutAPI', async () => {
     const env = await mountAppDom(diffGraph);
     const app = await env.load(AppHarness);

@@ -84,7 +84,6 @@
   border-radius: 999px;
   border: 2px solid var(--line-2);
   border-top-color: var(--accent);
-  animation: hf-load-spin 0.9s linear infinite;
 }
 .hf-load-title {
   font-size: 13px;
@@ -99,10 +98,6 @@
 .hf-load-card.error .hf-load-subtitle {
   color: var(--rem-fg);
 }
-@keyframes hf-load-spin {
-  to { transform: rotate(360deg); }
-}
-
 .theme-light {
   --bg-0: #ffffff;
   --bg-1: #f6f8fa;
@@ -153,6 +148,19 @@
 }
 
 * { box-sizing: border-box; }
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: #0d1117;
+}
+
+body {
+  overflow: hidden;
+}
 
 .hifi {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -589,7 +597,6 @@
      the .hf-cmp-inner layer does the rounded-corner clipping of the content. */
   overflow: visible;
   box-shadow: var(--shadow-md);
-  transition: left 0.3s ease, top 0.3s ease, opacity 0.18s, filter 0.18s, box-shadow 0.18s, transform 0.15s;
 }
 .hf-cmp-inner {
   position: absolute;
@@ -603,7 +610,6 @@
    port dots instead of being covered by them. */
 .hf-cmp:hover { box-shadow: var(--shadow-lg); border-color: var(--line-3); z-index: 6; }
 .hf-cmp.dragging {
-  transition: none;
   z-index: 20;
   box-shadow: 0 0 0 2px var(--accent-bg), var(--shadow-lg);
 }
@@ -796,7 +802,6 @@
   font-size: 11px; line-height: 1.45;
   color: var(--fg-1);
   opacity: 0; visibility: hidden;
-  transition: opacity 0.12s;
   pointer-events: none;
 }
 .hf-cmp-info:hover .hf-cmp-info-pop { opacity: 1; visibility: visible; }
@@ -854,7 +859,6 @@
   margin: 0 4px;
   white-space: nowrap;
   opacity: 0;
-  transition: opacity 0.15s;
 }
 .hf-cmp:hover .hf-port-label,
 .hf-port:hover .hf-port-label { opacity: 1; }
@@ -907,7 +911,6 @@
   border-radius: 6px;
   overflow: hidden;
   font-family: 'JetBrains Mono', monospace;
-  transition: height 0.18s ease;
 }
 .hf-internal.iface { border-style: dashed; }
 .hf-internal.added   { border-color: var(--add-line); background: var(--add-bg); }
@@ -1044,19 +1047,6 @@
   stroke-width: 3px;
 }
 .hf-relation-dimmed { opacity: 0.16; }
-
-/* animated flow dots */
-@keyframes hf-flow-dot {
-  to { offset-distance: 100%; opacity: 0; }
-}
-.hf-flow-dot {
-  offset-rotate: 0deg;
-  fill: var(--accent);
-  filter: drop-shadow(0 0 4px var(--accent));
-  animation: hf-flow-dot 2s linear infinite;
-}
-.hf-flow-dot.added   { fill: var(--add-fg); filter: drop-shadow(0 0 6px var(--add-fg)); }
-.hf-flow-dot.changed { fill: var(--chg-fg); filter: drop-shadow(0 0 6px var(--chg-fg)); }
 
 /* comment marker on edges/elements */
 .hf-cmt-marker {
@@ -1359,7 +1349,6 @@
   border-radius: 50%;
   border: 2px solid var(--line-2);
   border-top-color: var(--accent);
-  animation: hf-load-spin 0.9s linear infinite;
   flex-shrink: 0;
 }
 .hf-motif-grid {
@@ -1639,7 +1628,6 @@
   padding: 10px 12px;
   margin-bottom: 6px;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
 }
 .hf-card:hover { background: var(--bg-hover); border-color: var(--line-2); }
 .hf-card.active {
@@ -1786,7 +1774,7 @@
 
 
 /* ─────────────────────────── V4 — merged ─────────────────────────── */
-.v4 .hf-side { position: relative; transition: width 0.18s ease; }
+.v4 .hf-side { position: relative; }
 .hf-collapsible.collapsed { width: 36px !important; min-width: 36px !important; flex-basis: 36px !important; overflow: hidden; }
 .hf-collapsible.collapsed > *:not(.hf-side-toggle):not(.hf-side-vlabel) { display: none !important; }
 
@@ -1935,11 +1923,10 @@
   box-shadow: 0 2px 8px rgba(0,0,0,0.4), 0 0 0 1px var(--accent);
   z-index: 6;
   transform: translate(-4px, -4px);
-  transition: transform 0.12s ease, box-shadow 0.12s;
 }
-.hf-pin-marker:hover { transform: translate(-4px, -6px) scale(1.08); }
+.hf-pin-marker:hover { transform: translate(-4px, -4px); }
 .hf-pin-marker.active {
-  transform: translate(-4px, -4px) scale(1.15);
+  transform: translate(-4px, -4px);
   box-shadow: 0 4px 14px rgba(0,0,0,0.5), 0 0 0 3px var(--accent-bg), 0 0 0 1px var(--accent);
   z-index: 7;
 }

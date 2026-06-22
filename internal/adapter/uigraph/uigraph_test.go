@@ -1,6 +1,8 @@
 package uigraph
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/kgatilin/archai/internal/diff"
@@ -1214,6 +1216,38 @@ func TestProjectEmitsReviewGroupings(t *testing.T) {
 	}
 	if got := groupComponentIDs(groupings["package_owner"], "package_owner:plugins"); !sameStrings(got, []string{"internal/plugins/sessions"}) {
 		t.Errorf("package_owner:plugins ComponentIDs = %v, want [internal/plugins/sessions]", got)
+	}
+}
+
+func TestProjectEmitsEmptyReviewGroupComponentIDsAsArray(t *testing.T) {
+	models := []domain.PackageModel{
+		{Path: "internal/runtime", Name: "runtime", Layer: "runtime"},
+	}
+
+	g, err := Project(models, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	groupings := make(map[string]ReviewGrouping)
+	for _, grouping := range g.ReviewGroupings {
+		groupings[grouping.ID] = grouping
+	}
+
+	got := groupComponentIDs(groupings["review_view"], "review_view:top_level")
+	if got == nil {
+		t.Fatal("review_view:top_level ComponentIDs is nil, want empty slice")
+	}
+	if len(got) != 0 {
+		t.Fatalf("review_view:top_level ComponentIDs = %v, want empty slice", got)
+	}
+
+	data, err := json.Marshal(groupings["review_view"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"componentIds":[]`) {
+		t.Fatalf("review_view JSON = %s, want empty componentIds array", data)
 	}
 }
 

@@ -141,6 +141,36 @@ describe('update — expansion slice', () => {
     expect(closed.ui.internalExpanded.has('a.i')).toBe(true); // not removed, matching current behaviour
   });
 
+  it('ComponentsExpandedAll expands every visible component and internal', () => {
+    const s = update(withTwoComponentGraph(), { type: 'ComponentsExpandedAll' });
+    expect([...s.ui.expanded].sort()).toEqual(['a', 'b']);
+    expect([...s.ui.internalExpanded].sort()).toEqual(['a.Public', 'a.private', 'b.i']);
+  });
+
+  it('ComponentsExpandedAll respects the selected public surface', () => {
+    const base = withTwoComponentGraph();
+    const graph: UIGraph = {
+      ...base.graph!,
+      reviewScopes: [
+        { id: 'everything', title: 'Everything' },
+        { id: 'all_public_api', title: 'All Public API' },
+      ],
+    };
+    const s = update(
+      { ...base, graph, ui: { ...base.ui, reviewScopeId: 'all_public_api' } },
+      { type: 'ComponentsExpandedAll' }
+    );
+    expect([...s.ui.expanded].sort()).toEqual(['a']);
+    expect([...s.ui.internalExpanded].sort()).toEqual(['a.Public']);
+  });
+
+  it('ComponentsCollapsedAll collapses every component and internal', () => {
+    const expanded = update(withTwoComponentGraph(), { type: 'ComponentsExpandedAll' });
+    const s = update(expanded, { type: 'ComponentsCollapsedAll' });
+    expect([...s.ui.expanded]).toEqual([]);
+    expect([...s.ui.internalExpanded]).toEqual([]);
+  });
+
   it('InternalWideToggled toggles one internal in fit-width mode', () => {
     let s = update(withGraph(), { type: 'InternalWideToggled', id: 'a.i' });
     expect(s.ui.internalWide.has('a.i')).toBe(true);

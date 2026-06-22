@@ -9,6 +9,10 @@ export interface CanvasToolbarProps {
   onZoomIn?: () => void;
   /** Reset zoom to fit the diagram in the viewport. */
   onFit?: () => void;
+  /** Expand every visible package card. */
+  onExpandAll?: () => void;
+  /** Collapse every visible package card. */
+  onCollapseAll?: () => void;
   /** Number of manually pinned layout positions in the current review scope. */
   pinnedCount?: number;
   /** Reset saved pinned layout positions for the current review scope. */
@@ -39,6 +43,8 @@ export function CanvasToolbar({
   onZoomOut,
   onZoomIn,
   onFit,
+  onExpandAll,
+  onCollapseAll,
   pinnedCount = 0,
   onResetLayout,
   onResetRepoLayout,
@@ -56,6 +62,8 @@ export function CanvasToolbar({
       <button className="zoom" title="Reset to fit" onClick={onFit}>{pct}%</button>
       <button title="Zoom in" onClick={onZoomIn}>+</button>
       <button title="Fit" onClick={onFit}>⊡</button>
+      {onExpandAll && <button title="Expand all packages" onClick={onExpandAll}>⇲</button>}
+      {onCollapseAll && <button title="Collapse all packages" onClick={onCollapseAll}>⇱</button>}
       {onToggleCardDensity && (
         <button
           className={cardDensity === 'compact' ? 'on' : ''}

@@ -12,6 +12,9 @@
 # live here so parallel worktrees don't collide on ports or target ids.
 .arch/.worktree/
 
+# Local model cache used by archai serve.
+.archai/
+
 # Java analyzer (issue #101) build output
 tools/archai-java-analyzer/target/
 

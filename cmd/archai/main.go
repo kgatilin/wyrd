@@ -427,6 +427,9 @@ Examples:
 	// extract — dumps per-package YAML/JSON (mirror of the MCP extract tool).
 	rootCmd.AddCommand(newExtractCmd())
 
+	// profile — measures expensive project loading/projection stages.
+	rootCmd.AddCommand(newProfileCmd())
+
 	// export — exports architecture data in various formats (POC: UIGraph JSON).
 	rootCmd.AddCommand(newExportCmd())
 

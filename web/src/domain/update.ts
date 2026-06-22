@@ -71,6 +71,40 @@ function expansionSlice(state: AppState, event: Event): AppState {
       const internalExpanded = addInternalsOfExpanded(state.graph, expanded, state.ui.internalExpanded);
       return { ...state, ui: { ...state.ui, expanded, internalExpanded } };
     }
+    case 'ComponentsExpandedAll': {
+      const visible = selectReviewGraph(
+        state.graph,
+        state.ui.reviewViewId,
+        state.ui.reviewScopeId,
+        state.ui.reviewGroupingId,
+        {
+          impactMode: state.ui.reviewImpactMode,
+          changeFilter: state.ui.reviewChangeFilter,
+          hideUnchangedNeighbors: state.ui.hideUnchangedNeighbors,
+          changedDetailsOnly: state.ui.changedDetailsOnly,
+          focusedPackageId: state.ui.focusId,
+        }
+      );
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          expanded: new Set(visible.components.map((component) => component.id)),
+          internalExpanded: new Set(
+            visible.components.flatMap((component) => component.internals.map((internal) => internal.id))
+          ),
+        },
+      };
+    }
+    case 'ComponentsCollapsedAll':
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          expanded: new Set(),
+          internalExpanded: new Set(),
+        },
+      };
     case 'InternalWideToggled': {
       const internalWide = new Set(state.ui.internalWide);
       if (internalWide.has(event.id)) internalWide.delete(event.id);

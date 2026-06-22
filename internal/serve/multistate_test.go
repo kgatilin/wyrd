@@ -169,6 +169,85 @@ func TestMultiState_GetByRefCachesBaseWorktree(t *testing.T) {
 	}
 }
 
+func TestMultiState_GetCoalescesConcurrentLoads(t *testing.T) {
+	root := newGitRepo(t)
+
+	var (
+		loadCount    int64
+		started      = make(chan struct{})
+		release      = make(chan struct{})
+		closeStarted sync.Once
+	)
+	loader := func(_ context.Context, _, path string) (*State, error) {
+		atomic.AddInt64(&loadCount, 1)
+		closeStarted.Do(func() { close(started) })
+		<-release
+		return NewState(path), nil
+	}
+
+	m := NewMultiState(root, loader)
+	if err := m.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	names := m.Names()
+	if len(names) != 1 {
+		t.Fatalf("want 1 worktree, got %d: %v", len(names), names)
+	}
+
+	const callers = 8
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	states := make(chan *State, callers)
+
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			st, err := m.Get(context.Background(), names[0])
+			if err != nil {
+				errs <- err
+				return
+			}
+			states <- st
+		}()
+	}
+
+	close(start)
+	<-started
+	if got := atomic.LoadInt64(&loadCount); got != 1 {
+		t.Fatalf("load count while first load is blocked = %d, want 1", got)
+	}
+	close(release)
+	wg.Wait()
+	close(errs)
+	close(states)
+
+	for err := range errs {
+		t.Errorf("Get returned error: %v", err)
+	}
+
+	var first *State
+	var gotStates int
+	for st := range states {
+		gotStates++
+		if first == nil {
+			first = st
+			continue
+		}
+		if st != first {
+			t.Fatalf("concurrent Get returned different states: %p and %p", first, st)
+		}
+	}
+	if gotStates != callers {
+		t.Fatalf("successful Get count = %d, want %d", gotStates, callers)
+	}
+	if got := atomic.LoadInt64(&loadCount); got != 1 {
+		t.Fatalf("load count after concurrent Gets = %d, want 1", got)
+	}
+}
+
 // runGit runs a git subcommand against repo and fails the test on error.
 func runGit(t *testing.T, repo string, args ...string) {
 	t.Helper()

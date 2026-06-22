@@ -105,6 +105,9 @@ export function selectReviewGraph(
   } else if (internalOnly && hasPublicRelationFlags) {
     relations = relations.filter((relation) => !relation.public);
   }
+  const scopedComponents = components;
+  const scopedEdges = edges;
+  const scopedRelations = relations;
 
   if (graph.pr != null) {
     const projected = selectDiffImpact(
@@ -133,7 +136,16 @@ export function selectReviewGraph(
   }
 
   if (options?.focusedPackageId) {
-    const focused = applyFocusedPackageProjection(graph, components, edges, relations, options.focusedPackageId);
+    const focused = applyFocusedPackageProjection(
+      graph,
+      scopedComponents,
+      scopedEdges,
+      scopedRelations,
+      components,
+      edges,
+      relations,
+      options.focusedPackageId
+    );
     components = focused.components;
     edges = focused.edges;
     relations = focused.relations;
@@ -162,13 +174,16 @@ export function selectReviewGraph(
 
 function applyFocusedPackageProjection(
   graph: UIGraph,
+  sourceComponents: ComponentDef[],
+  sourceEdges: UIGraph['edges'],
+  sourceRelations: SymbolRelation[],
   components: ComponentDef[],
   edges: UIGraph['edges'],
   relations: SymbolRelation[],
   focusedPackageId: string
 ): { components: ComponentDef[]; edges: UIGraph['edges']; relations: SymbolRelation[] } {
-  const fullComponents = new Map(graph.components.map((component) => [component.id, component]));
-  const focused = fullComponents.get(focusedPackageId);
+  const sourceComponentById = new Map(sourceComponents.map((component) => [component.id, component]));
+  const focused = sourceComponentById.get(focusedPackageId);
   if (!focused) return { components, edges, relations };
 
   const componentById = new Map(components.map((component) => [component.id, component]));
@@ -177,20 +192,20 @@ function applyFocusedPackageProjection(
 
   componentById.set(focused.id, focused);
 
-  for (const edge of graph.edges) {
+  for (const edge of sourceEdges) {
     if (edge.from !== focusedPackageId && edge.to !== focusedPackageId) continue;
-    const from = fullComponents.get(edge.from);
-    const to = fullComponents.get(edge.to);
+    const from = sourceComponentById.get(edge.from);
+    const to = sourceComponentById.get(edge.to);
     if (!from || !to) continue;
     componentById.set(from.id, from);
     componentById.set(to.id, to);
     edgeById.set(edge.id, edge);
   }
 
-  for (const relation of graph.relations ?? []) {
+  for (const relation of sourceRelations) {
     if (relation.fromComponentId !== focusedPackageId && relation.toComponentId !== focusedPackageId) continue;
-    const from = fullComponents.get(relation.fromComponentId);
-    const to = fullComponents.get(relation.toComponentId);
+    const from = sourceComponentById.get(relation.fromComponentId);
+    const to = sourceComponentById.get(relation.toComponentId);
     if (!from || !to) continue;
     componentById.set(from.id, from);
     componentById.set(to.id, to);

@@ -38,6 +38,12 @@ export class CanvasHarness extends ComponentHarness {
   async fit(): Promise<void> {
     await (await this.root.locator('.hf-canvas-toolbar button[title="Fit"]').first()).click();
   }
+  async expandAllPackages(): Promise<void> {
+    await (await this.root.locator('.hf-canvas-toolbar button[title="Expand all packages"]').first()).click();
+  }
+  async collapseAllPackages(): Promise<void> {
+    await (await this.root.locator('.hf-canvas-toolbar button[title="Collapse all packages"]').first()).click();
+  }
   async toggleInlineSignatures(): Promise<void> {
     const hide = this.root.locator('.hf-canvas-toolbar button[title="Hide inline signatures"]');
     const show = this.root.locator('.hf-canvas-toolbar button[title="Show inline signatures"]');

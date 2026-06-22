@@ -201,8 +201,14 @@ func (w *Watcher) shouldIgnore(path string) bool {
 // descend into when adding watches. Keeping this list tight is
 // important: each directory adds an inotify (or equivalent) watch.
 func defaultSkipDir(name string) bool {
+	if strings.HasPrefix(name, ".") {
+		return name != ".arch"
+	}
+	if strings.HasPrefix(name, "_") {
+		return true
+	}
 	switch name {
-	case ".git", "node_modules", "vendor", ".idea", ".vscode":
+	case "node_modules", "vendor", "testdata":
 		return true
 	}
 	return false

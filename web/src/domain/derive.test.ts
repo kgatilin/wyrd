@@ -241,6 +241,76 @@ describe('selectReviewGraph', () => {
     ]);
   });
 
+  it('keeps focused package view scoped to public API details', () => {
+    const g = graph({
+      components: [
+        {
+          id: 'api',
+          name: 'api',
+          tech: '',
+          desc: '',
+          bc: 'bc1',
+          ports: [
+            { id: 'api:out:storage', side: 'right', kind: 'out', name: 'use storage', public: true },
+            { id: 'api:out:cache', side: 'right', kind: 'out', name: 'use cache' },
+          ],
+          internals: [
+            {
+              id: 'api.Public',
+              kind: 'class',
+              name: 'Public',
+              exported: true,
+              members: [
+                { id: 'api.Public.Do', kind: 'method', name: 'Do()', exported: true },
+                { id: 'api.Public.helper', kind: 'method', name: 'helper()' },
+              ],
+            },
+            { id: 'api.private', kind: 'class', name: 'private', members: [] },
+          ],
+        },
+        {
+          id: 'storage',
+          name: 'storage',
+          tech: '',
+          desc: '',
+          bc: 'bc1',
+          ports: [{ id: 'storage:in:Repository', side: 'left', kind: 'in', name: 'Repository', public: true }],
+          internals: [{ id: 'storage.Repository', kind: 'iface', name: 'Repository', exported: true, members: [] }],
+        },
+        {
+          id: 'cache',
+          name: 'cache',
+          tech: '',
+          desc: '',
+          bc: 'bc1',
+          ports: [{ id: 'cache:in:Cache', side: 'left', kind: 'in', name: 'Cache' }],
+          internals: [{ id: 'cache.Cache', kind: 'class', name: 'Cache', exported: true, members: [] }],
+        },
+      ],
+      edges: [
+        { id: 'api-storage', from: 'api', to: 'storage', fromPort: 'api:out:storage', toPort: 'storage:in:Repository', label: 'returns', public: true },
+        { id: 'api-cache', from: 'api', to: 'cache', fromPort: 'api:out:cache', toPort: 'cache:in:Cache', label: 'uses' },
+      ],
+    });
+
+    const publicFocus = selectReviewGraph(g, null, 'all_public_api', null, { focusedPackageId: 'api' });
+    expect(publicFocus.components.map((c) => c.id)).toEqual(['api', 'storage', 'cache']);
+    expect(publicFocus.components.find((c) => c.id === 'api')?.internals.map((i) => i.id)).toEqual(['api.Public']);
+    expect(publicFocus.components.find((c) => c.id === 'api')?.internals[0].members.map((m) => m.id)).toEqual([
+      'api.Public.Do',
+    ]);
+    expect(publicFocus.components.find((c) => c.id === 'api')?.ports.map((p) => p.id)).toEqual(['api:out:storage']);
+    expect(publicFocus.edges.map((edge) => edge.id)).toEqual(['api-storage']);
+
+    const fullFocus = selectReviewGraph(g, null, 'everything', null, { focusedPackageId: 'api' });
+    expect(fullFocus.components.map((c) => c.id)).toEqual(['api', 'storage', 'cache']);
+    expect(fullFocus.components.find((c) => c.id === 'api')?.internals.map((i) => i.id)).toEqual([
+      'api.Public',
+      'api.private',
+    ]);
+    expect(fullFocus.edges.map((edge) => edge.id)).toEqual(['api-storage', 'api-cache']);
+  });
+
   it('keeps exported package-level symbols in public API scopes', () => {
     const g = graph({
       components: [

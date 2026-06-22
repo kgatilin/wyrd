@@ -81,6 +81,20 @@ describe('createLayoutEffect', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'LayoutComputed', laid });
   });
 
+  it('re-lays out on global expand/collapse commands', async () => {
+    const laid = { ...graph };
+    const port: LayoutPort = { compute: vi.fn().mockResolvedValue(laid) };
+    const dispatch = vi.fn();
+    const effect = createLayoutEffect(port);
+
+    effect({ type: 'ComponentsExpandedAll' }, () => stateWith(graph), dispatch as (e: Event) => void);
+    await flush();
+    effect({ type: 'ComponentsCollapsedAll' }, () => stateWith(graph), dispatch as (e: Event) => void);
+    await flush();
+
+    expect(port.compute).toHaveBeenCalledTimes(2);
+  });
+
   it('re-lays out using the hide-unchanged-neighbors projection', async () => {
     const reviewGraph: UIGraph = {
       ...graph,

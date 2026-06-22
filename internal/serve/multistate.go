@@ -65,6 +65,11 @@ type MultiState struct {
 	// states is the lazy-loaded State for each worktree name.
 	states map[string]*State
 
+	// loading tracks in-flight State loads by worktree name. Without
+	// this, concurrent first requests for the same worktree can run the
+	// expensive go/packages load more than once and discard the loser.
+	loading map[string]*stateLoad
+
 	// loader is the factory that builds a fresh State for a worktree.
 	loader StateLoader
 
@@ -93,6 +98,7 @@ func NewMultiState(projectRoot string, loader StateLoader) *MultiState {
 		root:     projectRoot,
 		entries:  make(map[string]worktree.Entry),
 		states:   make(map[string]*State),
+		loading:  make(map[string]*stateLoad),
 		loader:   loader,
 		watchers: make(map[string]io.Closer),
 	}
@@ -255,6 +261,10 @@ func (m *MultiState) Default() string {
 // Returns an error when name is unknown or when the underlying load
 // fails. Subsequent calls return the cached State.
 func (m *MultiState) Get(ctx context.Context, name string) (*State, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	m.mu.Lock()
 	entry, ok := m.entries[name]
 	if !ok {
@@ -265,20 +275,30 @@ func (m *MultiState) Get(ctx context.Context, name string) (*State, error) {
 		m.mu.Unlock()
 		return s, nil
 	}
+	if load, ok := m.loading[name]; ok {
+		m.mu.Unlock()
+		return load.wait(ctx)
+	}
+	load := &stateLoad{done: make(chan struct{})}
+	m.loading[name] = load
 	m.mu.Unlock()
 
 	// Load outside the lock so concurrent Get calls for different
-	// worktrees don't serialize. We re-check the cache after loading
-	// so only one State is ever cached per name.
+	// worktrees don't serialize. Same-name concurrent Gets wait on
+	// m.loading above so only one expensive load runs per worktree.
 	loaded, err := m.loader(ctx, name, entry.Path)
 	if err != nil {
+		m.finishLoad(name, load, nil, err)
 		return nil, err
 	}
 
 	m.mu.Lock()
-	if existing, ok := m.states[name]; ok {
+	current, stillKnown := m.entries[name]
+	if !stillKnown || current.Path != entry.Path {
 		m.mu.Unlock()
-		return existing, nil
+		err := fmt.Errorf("serve: worktree %q changed while loading", name)
+		m.finishLoad(name, load, nil, err)
+		return nil, err
 	}
 	m.states[name] = loaded
 	hook := m.watcherHook
@@ -292,22 +312,44 @@ func (m *MultiState) Get(ctx context.Context, name string) (*State, error) {
 	if hook != nil {
 		closer, err := hook(ctx, name, loaded)
 		if err != nil {
-			return loaded, fmt.Errorf("serve: watcher hook for %q: %w", name, err)
+			err = fmt.Errorf("serve: watcher hook for %q: %w", name, err)
+			m.finishLoad(name, load, loaded, err)
+			return loaded, err
 		}
 		if closer != nil {
 			m.mu.Lock()
-			// Replacing an existing closer is unusual but possible if
-			// two concurrent Gets race; close the loser.
-			if prev, ok := m.watchers[name]; ok && prev != nil {
-				m.mu.Unlock()
-				_ = closer.Close()
-				return loaded, nil
-			}
 			m.watchers[name] = closer
 			m.mu.Unlock()
 		}
 	}
+	m.finishLoad(name, load, loaded, nil)
 	return loaded, nil
+}
+
+func (m *MultiState) finishLoad(name string, load *stateLoad, state *State, err error) {
+	m.mu.Lock()
+	if m.loading[name] == load {
+		delete(m.loading, name)
+	}
+	load.state = state
+	load.err = err
+	close(load.done)
+	m.mu.Unlock()
+}
+
+type stateLoad struct {
+	done  chan struct{}
+	state *State
+	err   error
+}
+
+func (l *stateLoad) wait(ctx context.Context) (*State, error) {
+	select {
+	case <-l.done:
+		return l.state, l.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // GetByRef resolves ref with FindRef and returns the cached State for

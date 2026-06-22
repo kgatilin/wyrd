@@ -110,8 +110,7 @@ func configuredGroupsTitle(cfg *overlay.Config) string {
 func groupsFromReviewViews(views []ReviewView) []ReviewGroup {
 	groups := make([]ReviewGroup, 0, len(views))
 	for _, view := range views {
-		ids := append([]string(nil), view.ComponentIDs...)
-		sort.Strings(ids)
+		ids := sortedStringCopy(view.ComponentIDs)
 		groups = append(groups, ReviewGroup{
 			ID:             "review_view:" + view.ID,
 			Title:          view.Title,
@@ -120,6 +119,13 @@ func groupsFromReviewViews(views []ReviewView) []ReviewGroup {
 		})
 	}
 	return groups
+}
+
+func sortedStringCopy(in []string) []string {
+	out := make([]string, 0, len(in))
+	out = append(out, in...)
+	sort.Strings(out)
+	return out
 }
 
 func groupsFromConfiguredCategories(

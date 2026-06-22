@@ -14,8 +14,6 @@ export interface EdgeLayerProps {
   showDiff: boolean;
   /** Currently focused component ID (null = none) */
   focusId: string | null;
-  /** Whether to show animated flow dots */
-  flow?: boolean;
   /** Set of IDs that have comments (for markers on edges) */
   commentTargets?: Set<string>;
   /** Callback to add a comment on an edge */
@@ -159,7 +157,7 @@ function computeEdgePath(
 
 /**
  * SVG layer rendering edges between component ports.
- * Includes bezier paths, arrow markers, diff classes, flow dots, and labels.
+ * Includes bezier paths, arrow markers, diff classes, and labels.
  */
 export function EdgeLayer({
   edges,
@@ -168,7 +166,6 @@ export function EdgeLayer({
   expandedInternals,
   showDiff,
   focusId,
-  flow = false,
   commentTargets,
   onAddComment,
 }: EdgeLayerProps) {
@@ -211,7 +208,7 @@ export function EdgeLayer({
         ))}
       </defs>
 
-      {edges.map((edge, i) => {
+      {edges.map((edge) => {
         const r = computeEdgePath(edge, components, expandedSet, expandedInternals);
         if (!r) return null;
 
@@ -240,18 +237,6 @@ export function EdgeLayer({
               className={`hf-edge ${diffCls}`}
               markerEnd={marker}
             />
-
-            {/* Flow dot animation */}
-            {flow && !dimmed && (
-              <circle
-                r="3"
-                className={`hf-flow-dot ${diffCls}`}
-                style={{
-                  offsetPath: `path("${r.path}")`,
-                  animationDelay: `${i * 0.4}s`,
-                }}
-              />
-            )}
 
             {/* Edge label */}
             {edge.label && (
