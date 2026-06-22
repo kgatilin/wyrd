@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestEmbedder_Embed(t *testing.T) {
@@ -132,7 +134,9 @@ func TestEmbed_BatchesRequests(t *testing.T) {
 	}))
 	defer server.Close()
 
-	e := New(WithEndpoint(server.URL), WithModel("test-model"), WithBatchSize(2))
+	// Concurrency 1 keeps call counting deterministic; this test covers batch
+	// splitting, while TestEmbed_ConcurrentBatches covers parallel dispatch.
+	e := New(WithEndpoint(server.URL), WithModel("test-model"), WithBatchSize(2), WithConcurrency(1))
 	texts := []string{"a", "bb", "ccc", "dddd", "eeeee"} // 5 inputs, batch 2 → 3 calls
 	vecs, err := e.Embed(context.Background(), texts)
 	if err != nil {
@@ -149,6 +153,55 @@ func TestEmbed_BatchesRequests(t *testing.T) {
 	for i, v := range vecs {
 		if len(v) != 1 || v[0] != want[i] {
 			t.Errorf("vec[%d] = %v, want [%v]", i, v, want[i])
+		}
+	}
+}
+
+// TestEmbed_ConcurrentBatches verifies batches are dispatched concurrently
+// (more than one in flight) while results stay in input order.
+func TestEmbed_ConcurrentBatches(t *testing.T) {
+	var mu sync.Mutex
+	inFlight, maxInFlight := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		inFlight++
+		if inFlight > maxInFlight {
+			maxInFlight = inFlight
+		}
+		mu.Unlock()
+
+		time.Sleep(20 * time.Millisecond) // hold the request so others overlap
+
+		var req embedRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		resp := embedResponse{Embeddings: make([][]float64, len(req.Input))}
+		for i, in := range req.Input {
+			resp.Embeddings[i] = []float64{float64(len(in))}
+		}
+		json.NewEncoder(w).Encode(resp)
+
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+	}))
+	defer server.Close()
+
+	// 8 inputs, batch 1 → 8 batches; concurrency 4 → up to 4 in flight.
+	e := New(WithEndpoint(server.URL), WithModel("test-model"), WithBatchSize(1), WithConcurrency(4))
+	texts := []string{"a", "bb", "ccc", "dddd", "eeeee", "ffffff", "ggggggg", "hhhhhhhh"}
+	vecs, err := e.Embed(context.Background(), texts)
+	if err != nil {
+		t.Fatalf("Embed: %v", err)
+	}
+	if maxInFlight < 2 {
+		t.Errorf("expected concurrent batches (maxInFlight>=2), got %d", maxInFlight)
+	}
+	if maxInFlight > 4 {
+		t.Errorf("concurrency exceeded limit: maxInFlight=%d > 4", maxInFlight)
+	}
+	for i, v := range vecs { // order preserved: value encodes input length
+		if len(v) != 1 || v[0] != float32(len(texts[i])) {
+			t.Errorf("vec[%d] = %v, want [%v]", i, v, len(texts[i]))
 		}
 	}
 }

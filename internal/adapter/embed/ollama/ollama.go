@@ -24,6 +24,12 @@ const DefaultModel = "qwen3-embedding:0.6b"
 // request. Batching dramatically speeds up bulk indexing vs one call per node.
 const DefaultBatchSize = 64
 
+// DefaultConcurrency is how many /api/embed batches are sent to Ollama at once.
+// The real bottleneck on bulk indexing is model inference, which Ollama
+// serializes per request; firing several batches concurrently lets Ollama keep
+// multiple workers busy (raise OLLAMA_NUM_PARALLEL to match).
+const DefaultConcurrency = 4
+
 // defaultQueryInstruction is the task description fed to instruction-style
 // retrieval models (Qwen3-Embedding) when embedding a search query. It can be
 // overridden via the ARCHAI_EMBED_QUERY_INSTRUCTION environment variable.
@@ -57,12 +63,13 @@ func detectStyle(model string) promptStyle {
 
 // Embedder implements retrieval.Embedder using a local Ollama server.
 type Embedder struct {
-	endpoint   string
-	model      string
-	client     *http.Client
-	style      promptStyle
-	queryInstr string
-	batchSize  int
+	endpoint    string
+	model       string
+	client      *http.Client
+	style       promptStyle
+	queryInstr  string
+	batchSize   int
+	concurrency int
 
 	// dim is cached after first successful embed
 	dimOnce sync.Once
@@ -134,17 +141,27 @@ func WithBatchSize(n int) Option {
 	}
 }
 
+// WithConcurrency sets how many /api/embed batches are sent concurrently.
+func WithConcurrency(n int) Option {
+	return func(e *Embedder) {
+		if n > 0 {
+			e.concurrency = n
+		}
+	}
+}
+
 // New creates a new Ollama embedder. Configuration is read from:
 // 1. Explicit options (highest priority)
 // 2. Environment variables: ARCHAI_EMBED_ENDPOINT, ARCHAI_EMBED_MODEL
 // 3. Defaults: localhost:11434, qwen3-embedding:0.6b
 func New(opts ...Option) *Embedder {
 	e := &Embedder{
-		endpoint:   DefaultEndpoint,
-		model:      DefaultModel,
-		client:     http.DefaultClient,
-		queryInstr: defaultQueryInstruction,
-		batchSize:  DefaultBatchSize,
+		endpoint:    DefaultEndpoint,
+		model:       DefaultModel,
+		client:      http.DefaultClient,
+		queryInstr:  defaultQueryInstruction,
+		batchSize:   DefaultBatchSize,
+		concurrency: DefaultConcurrency,
 	}
 
 	// Read from environment
@@ -160,6 +177,11 @@ func New(opts ...Option) *Embedder {
 	if env := os.Getenv("ARCHAI_EMBED_BATCH"); env != "" {
 		if n, err := strconv.Atoi(env); err == nil && n > 0 {
 			e.batchSize = n
+		}
+	}
+	if env := os.Getenv("ARCHAI_EMBED_CONCURRENCY"); env != "" {
+		if n, err := strconv.Atoi(env); err == nil && n > 0 {
+			e.concurrency = n
 		}
 	}
 
@@ -212,35 +234,76 @@ func (e *Embedder) EmbedQuery(ctx context.Context, query string) ([]float32, err
 	return vecs[0], nil
 }
 
-// embedPrompts embeds already-templated prompts, splitting them into batches.
+// embedPrompts embeds already-templated prompts, splitting them into batches
+// that are dispatched concurrently (bounded by the configured concurrency).
+// Results are written back in input order; the first error cancels the rest.
 func (e *Embedder) embedPrompts(ctx context.Context, prompts []string) ([][]float32, error) {
 	results := make([][]float32, len(prompts))
 	batch := e.batchSize
 	if batch <= 0 {
 		batch = DefaultBatchSize
 	}
-
-	for start := 0; start < len(prompts); start += batch {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-
-		end := min(start+batch, len(prompts))
-		vecs, err := e.embedBatch(ctx, prompts[start:end])
-		if err != nil {
-			return nil, fmt.Errorf("embedding batch [%d:%d]: %w", start, end, err)
-		}
-		if len(vecs) != end-start {
-			return nil, fmt.Errorf("ollama returned %d embeddings for %d inputs", len(vecs), end-start)
-		}
-		for i, vec := range vecs {
-			results[start+i] = vec
-			e.dimOnce.Do(func() { e.dim = len(vec) })
-		}
+	conc := e.concurrency
+	if conc <= 0 {
+		conc = 1
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	sem := make(chan struct{}, conc)
+	var wg sync.WaitGroup
+	var errOnce sync.Once
+	var firstErr error
+	fail := func(err error) {
+		errOnce.Do(func() {
+			firstErr = err
+			cancel()
+		})
+	}
+
+	for start := 0; start < len(prompts); start += batch {
+		if ctx.Err() != nil {
+			break
+		}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
+
+		start := start
+		end := min(start+batch, len(prompts))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			vecs, err := e.embedBatch(ctx, prompts[start:end])
+			if err != nil {
+				fail(fmt.Errorf("embedding batch [%d:%d]: %w", start, end, err))
+				return
+			}
+			if len(vecs) != end-start {
+				fail(fmt.Errorf("ollama returned %d embeddings for %d inputs", len(vecs), end-start))
+				return
+			}
+			for i, vec := range vecs {
+				results[start+i] = vec
+				e.dimOnce.Do(func() { e.dim = len(vec) })
+			}
+		}()
+	}
+
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return results, nil
 }
 
