@@ -87,8 +87,9 @@ func TestStdio_ToolsList(t *testing.T) {
 	if err := json.Unmarshal(payload, &wrapper); err != nil {
 		t.Fatalf("unmarshal tools: %v", err)
 	}
-	if len(wrapper.Tools) != 11 {
-		t.Fatalf("expected 11 tools, got %d", len(wrapper.Tools))
+	// 11 original tools + 5 retrieval tools
+	if len(wrapper.Tools) != 16 {
+		t.Fatalf("expected 16 tools, got %d", len(wrapper.Tools))
 	}
 }
 

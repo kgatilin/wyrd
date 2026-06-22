@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/kgatilin/archai/internal/domain"
 )
 
 // Service orchestrates the vector and lexical indexes for code search.
@@ -25,6 +27,9 @@ type Service struct {
 
 	// lindex is the BM25 lexical index.
 	lindex LexicalIndex
+
+	// graph holds the adjacency map for expand/neighbor operations.
+	graph *Graph
 
 	// denseAvailable tracks whether dense search is operational.
 	// Set to false if the embedder fails during Index/Refresh.
@@ -298,4 +303,27 @@ func (s *Service) LexicalIndex() LexicalIndex {
 // Root returns the project root directory.
 func (s *Service) Root() string {
 	return s.root
+}
+
+// SetGraph updates the service's graph adjacency map.
+// Called when the model is refreshed.
+func (s *Service) SetGraph(g *Graph) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.graph = g
+}
+
+// Graph returns the current graph (for testing).
+func (s *Service) Graph() *Graph {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.graph
+}
+
+// IndexFromModels builds nodes and graph from domain models, then indexes.
+// This is a convenience method that combines BuildGraph + SetGraph + Index.
+func (s *Service) IndexFromModels(ctx context.Context, models []domain.PackageModel) error {
+	nodes, graph := BuildGraph(models)
+	s.SetGraph(graph)
+	return s.Index(ctx, nodes)
 }

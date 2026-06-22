@@ -17,6 +17,7 @@ import (
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/plugin"
+	"github.com/kgatilin/archai/internal/retrieval"
 	"github.com/kgatilin/archai/internal/serve"
 	"github.com/kgatilin/archai/internal/target"
 	yamlv3 "gopkg.in/yaml.v3"
@@ -277,6 +278,108 @@ func builtinToolDefinitions() []ToolDefinition {
 				"required": []string{"name"},
 			},
 		},
+		// Retrieval tools
+		{
+			Name:        "search",
+			Description: "Hybrid code search combining dense vector similarity (if available) and BM25 lexical matching, fused with reciprocal rank fusion. Returns ranked code symbols matching the query.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Natural language or keyword query to search for.",
+					},
+					"k": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of results to return (default 10).",
+					},
+					"filters": map[string]any{
+						"type":        "object",
+						"description": "Optional filters to constrain results.",
+						"properties": map[string]any{
+							"kinds": map[string]any{
+								"type":        "array",
+								"items":       map[string]any{"type": "string"},
+								"description": "Symbol kinds to include (iface, class, func, type, const, var, error).",
+							},
+							"package_prefix": map[string]any{
+								"type":        "string",
+								"description": "Only include symbols from packages with this prefix.",
+							},
+						},
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
+		{
+			Name:        "search_graph",
+			Description: "Search for code and return a subgraph: the matching symbols plus their neighbors up to N hops away via uses/returns/implements/calls edges.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Natural language or keyword query to search for.",
+					},
+					"k": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of search results to use as seeds (default 10).",
+					},
+					"hops": map[string]any{
+						"type":        "integer",
+						"description": "Number of hops to expand from seed nodes (default 1).",
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
+		{
+			Name:        "expand",
+			Description: "Expand from given node IDs to their neighbors via graph edges. Returns a subgraph of nodes and edges reachable within the specified hops.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"node_ids": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Node IDs to expand from (format: package.SymbolName).",
+					},
+					"hops": map[string]any{
+						"type":        "integer",
+						"description": "Number of hops to expand (default 1).",
+					},
+					"edges": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Edge kinds to traverse (uses, returns, implements, calls). Empty means all.",
+					},
+				},
+				"required": []string{"node_ids"},
+			},
+		},
+		{
+			Name:        "get_node",
+			Description: "Return full detail for a single code symbol including its source body and incident edges.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{
+						"type":        "string",
+						"description": "Node ID in format package.SymbolName.",
+					},
+				},
+				"required": []string{"id"},
+			},
+		},
+		{
+			Name:        "refresh",
+			Description: "Rebuild the retrieval indexes from the current model snapshot. Returns counts of reindexed and removed nodes.",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
 	}
 }
 
@@ -309,6 +412,16 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleListBoundedContexts(state)
 	case "get_bounded_context":
 		return handleGetBoundedContext(state, rawArgs)
+	case "search":
+		return handleSearch(state, rawArgs)
+	case "search_graph":
+		return handleSearchGraph(state, rawArgs)
+	case "expand":
+		return handleExpand(state, rawArgs)
+	case "get_node":
+		return handleGetNode(state, rawArgs)
+	case "refresh":
+		return handleRefresh(state)
 	}
 	if strings.HasPrefix(name, "plugin.") {
 		return dispatchPluginTool(name, rawArgs)
@@ -969,4 +1082,346 @@ func errorResult(msg string) ToolResult {
 		Content: []ToolResultContent{{Type: "text", Text: msg}},
 		IsError: true,
 	}
+}
+
+// --- Retrieval tool handlers ---
+
+// searchArgs is the input schema for the search tool.
+type searchArgs struct {
+	Query   string         `json:"query"`
+	K       int            `json:"k"`
+	Filters searchFilters  `json:"filters"`
+}
+
+type searchFilters struct {
+	Kinds         []string `json:"kinds"`
+	PackagePrefix string   `json:"package_prefix"`
+}
+
+// searchResult is the response structure for the search tool.
+type searchResult struct {
+	Results []searchResultItem `json:"results"`
+	Dense   bool               `json:"dense"`
+}
+
+type searchResultItem struct {
+	NodeID  string  `json:"node_id"`
+	Kind    string  `json:"kind"`
+	File    string  `json:"file"`
+	Doc     string  `json:"doc"`
+	Snippet string  `json:"snippet"`
+	Score   float32 `json:"score"`
+}
+
+// handleSearch performs hybrid code search.
+func handleSearch(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	var args searchArgs
+	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
+		return ToolResult{}, rpcErr
+	}
+	if args.Query == "" {
+		return errorResult("missing required argument: query"), nil
+	}
+
+	if state == nil {
+		return errorResult("no state available"), nil
+	}
+
+	svc := state.Retrieval()
+	if svc == nil {
+		return errorResult("retrieval not initialized"), nil
+	}
+
+	k := args.K
+	if k <= 0 {
+		k = 10
+	}
+
+	ctx := context.Background()
+	filters := retrieval.Filters{
+		Kinds:         args.Filters.Kinds,
+		PackagePrefix: args.Filters.PackagePrefix,
+	}
+
+	results, denseUsed, err := svc.Search(ctx, args.Query, k, filters)
+	if err != nil {
+		return errorResult(fmt.Sprintf("search failed: %v", err)), nil
+	}
+
+	items := make([]searchResultItem, len(results))
+	for i, r := range results {
+		items[i] = searchResultItem{
+			NodeID:  r.NodeID,
+			Kind:    r.Kind,
+			File:    r.File,
+			Doc:     r.Doc,
+			Snippet: r.Snippet,
+			Score:   r.Score,
+		}
+	}
+
+	return textResult(searchResult{Results: items, Dense: denseUsed})
+}
+
+// searchGraphArgs is the input schema for the search_graph tool.
+type searchGraphArgs struct {
+	Query string `json:"query"`
+	K     int    `json:"k"`
+	Hops  int    `json:"hops"`
+}
+
+// subgraphResult is the response structure for search_graph and expand tools.
+type subgraphResult struct {
+	Nodes []nodeInfo `json:"nodes"`
+	Edges []edgeInfo `json:"edges"`
+	Dense bool       `json:"dense,omitempty"`
+}
+
+type nodeInfo struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Package   string `json:"package"`
+	Name      string `json:"name"`
+	Signature string `json:"signature,omitempty"`
+	Doc       string `json:"doc,omitempty"`
+}
+
+type edgeInfo struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Kind string `json:"kind"`
+}
+
+// handleSearchGraph performs search and expands results into a subgraph.
+func handleSearchGraph(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	var args searchGraphArgs
+	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
+		return ToolResult{}, rpcErr
+	}
+	if args.Query == "" {
+		return errorResult("missing required argument: query"), nil
+	}
+
+	if state == nil {
+		return errorResult("no state available"), nil
+	}
+
+	svc := state.Retrieval()
+	if svc == nil {
+		return errorResult("retrieval not initialized"), nil
+	}
+
+	k := args.K
+	if k <= 0 {
+		k = 10
+	}
+	hops := args.Hops
+	if hops <= 0 {
+		hops = 1
+	}
+
+	ctx := context.Background()
+	subgraph, denseUsed, err := svc.SearchGraph(ctx, args.Query, k, hops)
+	if err != nil {
+		return errorResult(fmt.Sprintf("search_graph failed: %v", err)), nil
+	}
+
+	nodes := make([]nodeInfo, len(subgraph.Nodes))
+	for i, n := range subgraph.Nodes {
+		nodes[i] = nodeInfo{
+			ID:        n.ID,
+			Kind:      n.Kind,
+			Package:   n.Package,
+			Name:      n.Name,
+			Signature: n.Signature,
+			Doc:       n.Doc,
+		}
+	}
+
+	edges := make([]edgeInfo, len(subgraph.Edges))
+	for i, e := range subgraph.Edges {
+		edges[i] = edgeInfo{From: e.From, To: e.To, Kind: e.Kind}
+	}
+
+	return textResult(subgraphResult{Nodes: nodes, Edges: edges, Dense: denseUsed})
+}
+
+// expandArgs is the input schema for the expand tool.
+type expandArgs struct {
+	NodeIDs   []string `json:"node_ids"`
+	Hops      int      `json:"hops"`
+	EdgeKinds []string `json:"edges"`
+}
+
+// handleExpand expands from given nodes via graph edges.
+func handleExpand(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	var args expandArgs
+	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
+		return ToolResult{}, rpcErr
+	}
+	if len(args.NodeIDs) == 0 {
+		return errorResult("missing required argument: node_ids"), nil
+	}
+
+	if state == nil {
+		return errorResult("no state available"), nil
+	}
+
+	svc := state.Retrieval()
+	if svc == nil {
+		return errorResult("retrieval not initialized"), nil
+	}
+
+	hops := args.Hops
+	if hops <= 0 {
+		hops = 1
+	}
+
+	ctx := context.Background()
+	subgraph, err := svc.Expand(ctx, args.NodeIDs, hops, args.EdgeKinds)
+	if err != nil {
+		return errorResult(fmt.Sprintf("expand failed: %v", err)), nil
+	}
+
+	nodes := make([]nodeInfo, len(subgraph.Nodes))
+	for i, n := range subgraph.Nodes {
+		nodes[i] = nodeInfo{
+			ID:        n.ID,
+			Kind:      n.Kind,
+			Package:   n.Package,
+			Name:      n.Name,
+			Signature: n.Signature,
+			Doc:       n.Doc,
+		}
+	}
+
+	edges := make([]edgeInfo, len(subgraph.Edges))
+	for i, e := range subgraph.Edges {
+		edges[i] = edgeInfo{From: e.From, To: e.To, Kind: e.Kind}
+	}
+
+	return textResult(subgraphResult{Nodes: nodes, Edges: edges})
+}
+
+// getNodeArgs is the input schema for the get_node tool.
+type getNodeArgs struct {
+	ID string `json:"id"`
+}
+
+// nodeDetailResult is the response structure for the get_node tool.
+type nodeDetailResult struct {
+	NodeID    string     `json:"node_id"`
+	Kind      string     `json:"kind"`
+	Package   string     `json:"package"`
+	Name      string     `json:"name"`
+	File      string     `json:"file"`
+	Signature string     `json:"signature,omitempty"`
+	Doc       string     `json:"doc,omitempty"`
+	Body      string     `json:"body,omitempty"`
+	Edges     []edgeInfo `json:"edges"`
+}
+
+// handleGetNode returns full detail for a single node.
+func handleGetNode(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	var args getNodeArgs
+	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
+		return ToolResult{}, rpcErr
+	}
+	if args.ID == "" {
+		return errorResult("missing required argument: id"), nil
+	}
+
+	if state == nil {
+		return errorResult("no state available"), nil
+	}
+
+	svc := state.Retrieval()
+	if svc == nil {
+		return errorResult("retrieval not initialized"), nil
+	}
+
+	ctx := context.Background()
+	detail, err := svc.Node(ctx, args.ID)
+	if err != nil {
+		return errorResult(fmt.Sprintf("get_node failed: %v", err)), nil
+	}
+
+	if detail.NodeID == "" {
+		return errorResult(fmt.Sprintf("node %q not found", args.ID)), nil
+	}
+
+	edges := make([]edgeInfo, len(detail.Edges))
+	for i, e := range detail.Edges {
+		edges[i] = edgeInfo{From: e.From, To: e.To, Kind: e.Kind}
+	}
+
+	return textResult(nodeDetailResult{
+		NodeID:    detail.NodeID,
+		Kind:      detail.Kind,
+		Package:   detail.Package,
+		Name:      detail.Name,
+		File:      detail.File,
+		Signature: detail.Signature,
+		Doc:       detail.Doc,
+		Body:      detail.Body,
+		Edges:     edges,
+	})
+}
+
+// refreshResult is the response structure for the refresh tool.
+type refreshResult struct {
+	Reindexed int  `json:"reindexed"`
+	Removed   int  `json:"removed"`
+	Dense     bool `json:"dense"`
+}
+
+// handleRefresh rebuilds the retrieval indexes from the current model.
+func handleRefresh(state *serve.State) (ToolResult, *RPCError) {
+	if state == nil {
+		return errorResult("no state available"), nil
+	}
+
+	svc := state.Retrieval()
+	if svc == nil {
+		return errorResult("retrieval not initialized"), nil
+	}
+
+	// Get current model snapshot
+	snap := state.Snapshot()
+	models := snap.Packages
+
+	// Count nodes before
+	oldCount := 0
+	if svc.Graph() != nil {
+		oldCount = len(svc.Graph().NodesByID)
+	}
+
+	// Reindex from models
+	ctx := context.Background()
+	if err := svc.IndexFromModels(ctx, models); err != nil {
+		return errorResult(fmt.Sprintf("refresh failed: %v", err)), nil
+	}
+
+	// Save indexes
+	if err := svc.Save(); err != nil {
+		return errorResult(fmt.Sprintf("save failed: %v", err)), nil
+	}
+
+	// Count nodes after
+	newCount := 0
+	if svc.Graph() != nil {
+		newCount = len(svc.Graph().NodesByID)
+	}
+
+	// Calculate removed
+	removed := 0
+	if oldCount > newCount {
+		removed = oldCount - newCount
+	}
+
+	return textResult(refreshResult{
+		Reindexed: newCount,
+		Removed:   removed,
+		Dense:     svc.DenseAvailable(),
+	})
 }

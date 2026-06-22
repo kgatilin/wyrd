@@ -156,6 +156,18 @@ func WithReader(r service.ModelReader) StateOption {
 	return func(s *State) { s.reader = r }
 }
 
+// WithRetrieval sets a pre-configured retrieval service. Used in tests
+// to inject a retrieval service without triggering full Load.
+func WithRetrieval(svc *retrieval.Service) StateOption {
+	return func(s *State) { s.retrieval = svc }
+}
+
+// NewStateWithRetrieval is a convenience constructor for tests that
+// creates a State with a pre-configured retrieval service.
+func NewStateWithRetrieval(root string, svc *retrieval.Service) *State {
+	return NewState(root, WithRetrieval(svc))
+}
+
 // NewState returns an empty State rooted at root. Callers must invoke
 // Load before querying the state.
 //
@@ -278,15 +290,13 @@ func (s *State) initRetrievalLocked(ctx context.Context, models []domain.Package
 	s.retrieval = svc
 	s.retrievalReady = make(chan struct{})
 
-	// Build nodes from models
-	nodes := retrieval.BuildNodes(models)
-
 	// BM25 indexing is synchronous (fast)
 	// Dense indexing happens in background (may be slow with Ollama)
+	// IndexFromModels builds both nodes and graph adjacency
 	go func() {
 		defer close(s.retrievalReady)
 
-		if err := svc.Index(ctx, nodes); err != nil {
+		if err := svc.IndexFromModels(ctx, models); err != nil {
 			fmt.Fprintf(os.Stderr, "serve: retrieval indexing: %v\n", err)
 			return
 		}
@@ -398,6 +408,10 @@ func (s *State) refreshRetrievalLocked(ctx context.Context, changedNodes []retri
 	if err := s.retrieval.Save(); err != nil {
 		fmt.Fprintf(os.Stderr, "serve: saving retrieval indexes: %v\n", err)
 	}
+	// Rebuild the graph from the full model for expand/search_graph operations
+	allModels := mapValues(s.packages)
+	_, graph := retrieval.BuildGraph(allModels)
+	s.retrieval.SetGraph(graph)
 }
 
 // ReloadOverlay re-reads archai.yaml from disk and updates the cached
