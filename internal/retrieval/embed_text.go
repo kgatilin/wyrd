@@ -62,12 +62,14 @@ func EmbedText(n Node, projectRoot string) (string, error) {
 	return truncateToSignatureHeader(text, n.Signature, EmbedTextBudget), nil
 }
 
-// ContentHash returns a SHA-256 hex digest of the embed text.
+// ContentHash returns a SHA-256 hex digest of the FULL node text (not truncated).
 // Used for freshness detection: if the hash changes, re-embedding is needed.
+// This covers the complete body so that changes to any part of oversized nodes
+// trigger re-embedding.
 func ContentHash(n Node, projectRoot string) (string, error) {
-	text, err := EmbedText(n, projectRoot)
+	text, err := FullTextForHash(n, projectRoot)
 	if err != nil {
-		return "", fmt.Errorf("generating embed text for hash: %w", err)
+		return "", fmt.Errorf("generating full text for hash: %w", err)
 	}
 	h := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(h[:]), nil

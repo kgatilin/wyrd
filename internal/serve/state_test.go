@@ -346,3 +346,73 @@ func touchFile(t *testing.T, path string) {
 		t.Fatalf("chtimes %s: %v", path, err)
 	}
 }
+
+func TestBuildEmbedder_ProviderSelection(t *testing.T) {
+	// Save and restore environment
+	origProvider := os.Getenv("ARCHAI_EMBED_PROVIDER")
+	origDisable := os.Getenv("ARCHAI_EMBED_DISABLE")
+	origAPIKey := os.Getenv("ARCHAI_EMBED_API_KEY")
+	defer func() {
+		os.Setenv("ARCHAI_EMBED_PROVIDER", origProvider)
+		os.Setenv("ARCHAI_EMBED_DISABLE", origDisable)
+		os.Setenv("ARCHAI_EMBED_API_KEY", origAPIKey)
+	}()
+
+	tests := []struct {
+		name     string
+		provider string
+		disable  string
+		apiKey   string
+		wantID   string
+	}{
+		{
+			name:    "default_is_ollama",
+			wantID:  "ollama:nomic-embed-text",
+		},
+		{
+			name:     "explicit_ollama",
+			provider: "ollama",
+			wantID:   "ollama:nomic-embed-text",
+		},
+		{
+			name:     "explicit_noop",
+			provider: "noop",
+			wantID:   "noop",
+		},
+		{
+			name:    "disabled_returns_noop",
+			disable: "1",
+			wantID:  "noop",
+		},
+		{
+			name:     "openai_without_key_falls_back_to_noop",
+			provider: "openai",
+			apiKey:   "",
+			wantID:   "noop",
+		},
+		{
+			name:     "openai_with_key",
+			provider: "openai",
+			apiKey:   "test-key",
+			wantID:   "openai:text-embedding-3-small",
+		},
+		{
+			name:     "unknown_provider_falls_back_to_ollama",
+			provider: "unknown-xyz",
+			wantID:   "ollama:nomic-embed-text",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			os.Setenv("ARCHAI_EMBED_PROVIDER", tc.provider)
+			os.Setenv("ARCHAI_EMBED_DISABLE", tc.disable)
+			os.Setenv("ARCHAI_EMBED_API_KEY", tc.apiKey)
+
+			emb := buildEmbedder()
+			if emb.ID() != tc.wantID {
+				t.Errorf("buildEmbedder().ID() = %q, want %q", emb.ID(), tc.wantID)
+			}
+		})
+	}
+}

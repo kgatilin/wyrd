@@ -19,6 +19,7 @@ import (
 
 	"github.com/kgatilin/archai/internal/adapter/embed/noop"
 	"github.com/kgatilin/archai/internal/adapter/embed/ollama"
+	"github.com/kgatilin/archai/internal/adapter/embed/openai"
 	"github.com/kgatilin/archai/internal/adapter/golang"
 	"github.com/kgatilin/archai/internal/adapter/lindex/bm25"
 	"github.com/kgatilin/archai/internal/adapter/vindex/brute"
@@ -307,14 +308,40 @@ func (s *State) initRetrievalLocked(ctx context.Context, models []domain.Package
 	}()
 }
 
-// buildEmbedder creates an embedder, trying Ollama first then falling back to noop.
+// buildEmbedder creates an embedder based on ARCHAI_EMBED_PROVIDER:
+//   - "ollama" (default): local Ollama server
+//   - "openai": OpenAI-compatible API (requires ARCHAI_EMBED_API_KEY)
+//   - "noop": deterministic pseudo-embeddings for testing
+//
+// Falls back to noop if embedding is disabled or if openai is selected
+// without an API key (logged, not crashed).
 func buildEmbedder() retrieval.Embedder {
-	// Check if Ollama should be disabled
+	// Check if embedding should be disabled entirely
 	if os.Getenv("ARCHAI_EMBED_DISABLE") == "1" {
 		return noop.New()
 	}
-	// Default to Ollama (it will fail gracefully if not running)
-	return ollama.New()
+
+	provider := os.Getenv("ARCHAI_EMBED_PROVIDER")
+	switch provider {
+	case "openai":
+		emb := openai.New()
+		if !emb.HasAPIKey() {
+			fmt.Fprintf(os.Stderr, "serve: openai embedder selected but ARCHAI_EMBED_API_KEY not set, falling back to noop\n")
+			return noop.New()
+		}
+		return emb
+
+	case "noop":
+		return noop.New()
+
+	case "ollama", "":
+		// Default to Ollama (it will fail gracefully if not running)
+		return ollama.New()
+
+	default:
+		fmt.Fprintf(os.Stderr, "serve: unknown ARCHAI_EMBED_PROVIDER %q, falling back to ollama\n", provider)
+		return ollama.New()
+	}
 }
 
 // Retrieval returns the retrieval service, or nil if not initialized.

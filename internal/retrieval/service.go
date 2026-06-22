@@ -243,31 +243,68 @@ func (s *Service) Refresh(ctx context.Context, nodes []Node, removedIDs []string
 }
 
 // embedNodes embeds the given nodes and updates the vector index.
+// For oversized nodes, multiple chunks are embedded and mean-pooled
+// into a single vector to preserve the "one node = one vector" invariant.
 func (s *Service) embedNodes(ctx context.Context, nodes []Node, hashes map[string]string) error {
 	if len(nodes) == 0 {
 		return nil
 	}
 
-	// Prepare texts for embedding
-	texts := make([]string, len(nodes))
+	// Build chunks for all nodes and track which chunks belong to which node
+	type chunkInfo struct {
+		nodeIdx int
+		text    string
+	}
+	var allChunks []chunkInfo
+	chunkCounts := make([]int, len(nodes)) // chunks per node
+
 	for i, node := range nodes {
-		text, _ := EmbedText(node, s.root)
-		texts[i] = text
+		chunks, err := BuildChunks(node, s.root)
+		if err != nil || len(chunks) == 0 {
+			// Fall back to EmbedText for problematic nodes
+			text, _ := EmbedText(node, s.root)
+			allChunks = append(allChunks, chunkInfo{nodeIdx: i, text: text})
+			chunkCounts[i] = 1
+			continue
+		}
+		for _, chunk := range chunks {
+			allChunks = append(allChunks, chunkInfo{nodeIdx: i, text: chunk.Text})
+		}
+		chunkCounts[i] = len(chunks)
 	}
 
-	// Call embedder
+	// Extract texts for embedding
+	texts := make([]string, len(allChunks))
+	for i, c := range allChunks {
+		texts[i] = c.text
+	}
+
+	// Call embedder once with all chunks
 	vectors, err := s.embedder.Embed(ctx, texts)
 	if err != nil {
 		return fmt.Errorf("calling embedder: %w", err)
 	}
 
-	if len(vectors) != len(nodes) {
-		return fmt.Errorf("embedder returned %d vectors for %d texts", len(vectors), len(nodes))
+	if len(vectors) != len(texts) {
+		return fmt.Errorf("embedder returned %d vectors for %d texts", len(vectors), len(texts))
 	}
 
-	// Update vector index
+	// Group vectors by node and mean-pool
+	vecIdx := 0
 	for i, node := range nodes {
-		s.vindex.UpsertWithHash(node.ID, vectors[i], hashes[node.ID])
+		count := chunkCounts[i]
+		nodeVecs := vectors[vecIdx : vecIdx+count]
+		vecIdx += count
+
+		// Mean-pool chunk vectors into single node vector
+		var pooled []float32
+		if len(nodeVecs) == 1 {
+			pooled = nodeVecs[0]
+		} else {
+			pooled = MeanPoolVectors(nodeVecs)
+		}
+
+		s.vindex.UpsertWithHash(node.ID, pooled, hashes[node.ID])
 	}
 
 	return nil
