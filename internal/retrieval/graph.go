@@ -1,6 +1,8 @@
 package retrieval
 
 import (
+	"sort"
+
 	"github.com/kgatilin/archai/internal/domain"
 )
 
@@ -174,7 +176,12 @@ func addEdge(g *Graph, from, to string, kind EdgeKind) {
 
 // NeighborNodes returns the node IDs reachable from the given IDs within hops steps.
 // If edgeKinds is non-empty, only edges of those kinds are traversed.
-func (g *Graph) NeighborNodes(startIDs []string, hops int, edgeKinds []EdgeKind) map[string]bool {
+//
+// maxNodes caps the size of the returned set: once that many nodes have been
+// visited, expansion stops. 0 means uncapped. The cap guards against hub nodes
+// whose 1-hop neighbourhood is effectively the whole graph; the frontier is
+// sorted each step so the truncation is deterministic.
+func (g *Graph) NeighborNodes(startIDs []string, hops int, edgeKinds []EdgeKind, maxNodes int) map[string]bool {
 	if hops < 1 {
 		hops = 1
 	}
@@ -189,15 +196,23 @@ func (g *Graph) NeighborNodes(startIDs []string, hops int, edgeKinds []EdgeKind)
 	for _, id := range startIDs {
 		visited[id] = true
 	}
+	capped := func() bool { return maxNodes > 0 && len(visited) >= maxNodes }
 
 	frontier := make([]string, len(startIDs))
 	copy(frontier, startIDs)
 
-	for step := 0; step < hops && len(frontier) > 0; step++ {
+	for step := 0; step < hops && len(frontier) > 0 && !capped(); step++ {
+		sort.Strings(frontier) // deterministic order for which neighbours fill the budget
 		var next []string
 		for _, id := range frontier {
+			if capped() {
+				break
+			}
 			// Outgoing edges
 			for _, edge := range g.Outgoing[id] {
+				if capped() {
+					break
+				}
 				if filterByKind && !kindSet[edge.Kind] {
 					continue
 				}
@@ -208,6 +223,9 @@ func (g *Graph) NeighborNodes(startIDs []string, hops int, edgeKinds []EdgeKind)
 			}
 			// Incoming edges (bidirectional traversal)
 			for _, edge := range g.Incoming[id] {
+				if capped() {
+					break
+				}
 				if filterByKind && !kindSet[edge.Kind] {
 					continue
 				}

@@ -6,6 +6,17 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/kgatilin/archmotif/pkg/graphval"
+)
+
+// search_graph ranking budget: BFS gathers up to searchGraphCandidateCap nodes
+// around the seeds (bounding hub blow-ups), personalized PageRank ranks them by
+// structural proximity to the seeds, and the top searchGraphResultCap survive.
+const (
+	searchGraphCandidateCap = 400
+	searchGraphResultCap    = 50
+	searchGraphRestart      = 0.15
 )
 
 // Result represents a search result with scoring and context.
@@ -26,12 +37,13 @@ type Subgraph struct {
 
 // NodeInfo is a lightweight node representation for subgraph responses.
 type NodeInfo struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Package   string `json:"package"`
-	Name      string `json:"name"`
-	Signature string `json:"signature,omitempty"`
-	Doc       string `json:"doc,omitempty"`
+	ID        string  `json:"id"`
+	Kind      string  `json:"kind"`
+	Package   string  `json:"package"`
+	Name      string  `json:"name"`
+	Signature string  `json:"signature,omitempty"`
+	Doc       string  `json:"doc,omitempty"`
+	Score     float64 `json:"score,omitempty"`
 }
 
 // EdgeInfo is an edge representation for subgraph responses.
@@ -130,7 +142,12 @@ func (s *Service) Search(ctx context.Context, query string, k int, filters Filte
 	return results, denseUsed, nil
 }
 
-// SearchGraph performs Search then expands the results into a subgraph.
+// SearchGraph performs Search, gathers a bounded candidate neighbourhood around
+// the hits, and ranks it by personalized PageRank (structural proximity to the
+// seeds) — returning the top searchGraphResultCap nodes with their scores. This
+// replaces the old unbounded BFS expansion: the candidate cap stops hub nodes
+// from pulling in the whole graph, and the diffusion ranking surfaces the most
+// relevant neighbours instead of a flat, truncation-prone set.
 func (s *Service) SearchGraph(ctx context.Context, query string, k, hops int) (Subgraph, bool, error) {
 	if hops < 1 {
 		hops = 1
@@ -141,14 +158,98 @@ func (s *Service) SearchGraph(ctx context.Context, query string, k, hops int) (S
 		return Subgraph{}, denseUsed, err
 	}
 
-	// Collect seed node IDs from search results
+	// Collect seed node IDs from search results.
 	seedIDs := make([]string, len(results))
 	for i, r := range results {
 		seedIDs[i] = r.NodeID
 	}
 
-	subgraph, err := s.Expand(ctx, seedIDs, hops, nil)
-	return subgraph, denseUsed, err
+	s.mu.RLock()
+	graph := s.graph
+	s.mu.RUnlock()
+	if graph == nil || len(seedIDs) == 0 {
+		return Subgraph{Nodes: []NodeInfo{}, Edges: []EdgeInfo{}}, denseUsed, nil
+	}
+
+	// Bounded BFS to assemble the candidate pool (cap guards hub blow-ups).
+	candidates := graph.NeighborNodes(seedIDs, hops, nil, searchGraphCandidateCap)
+
+	// Rank candidates by undirected personalized PageRank seeded at the hits,
+	// then keep the strongest searchGraphResultCap.
+	ranked := rankByDiffusion(graph, candidates, seedIDs)
+	if len(ranked) > searchGraphResultCap {
+		ranked = ranked[:searchGraphResultCap]
+	}
+
+	return s.buildRankedSubgraph(graph, ranked), denseUsed, nil
+}
+
+// rankByDiffusion projects the candidate node set and its induced edges into a
+// graphval matrix graph and runs undirected personalized PageRank seeded at the
+// search hits. Results are returned sorted by score descending (graphval's
+// contract). Seeds outside the candidate set are dropped; with no usable seed
+// the scores degrade to global PageRank over the candidates.
+func rankByDiffusion(graph *Graph, candidates map[string]bool, seedIDs []string) []graphval.Score {
+	nodes := make([]graphval.Node, 0, len(candidates))
+	for id := range candidates {
+		nodes = append(nodes, graphval.Node{Name: id})
+	}
+	var edges []graphval.Edge
+	for _, e := range graph.InducedEdges(candidates) {
+		edges = append(edges, graphval.Edge{From: e.From, To: e.To})
+	}
+	gv, err := graphval.New(nodes, edges)
+	if err != nil {
+		return nil
+	}
+	seeds := make([]string, 0, len(seedIDs))
+	for _, id := range seedIDs {
+		if candidates[id] {
+			seeds = append(seeds, id)
+		}
+	}
+	return gv.PersonalizedPageRankByNames(seeds, searchGraphRestart, true)
+}
+
+// buildRankedSubgraph materialises the ranked node IDs into a Subgraph: each
+// node carries its diffusion score, and the induced edges among the kept nodes
+// are included.
+func (s *Service) buildRankedSubgraph(graph *Graph, ranked []graphval.Score) Subgraph {
+	keep := make(map[string]bool, len(ranked))
+	nodes := make([]NodeInfo, 0, len(ranked))
+	for _, sc := range ranked {
+		node, ok := graph.NodesByID[sc.Name]
+		if !ok {
+			continue
+		}
+		keep[sc.Name] = true
+		nodes = append(nodes, NodeInfo{
+			ID:        node.ID,
+			Kind:      node.Kind,
+			Package:   node.Package,
+			Name:      node.Name,
+			Signature: node.Signature,
+			Doc:       truncateString(node.Doc, 200),
+			Score:     sc.Score,
+		})
+	}
+
+	rawEdges := graph.InducedEdges(keep)
+	edges := make([]EdgeInfo, len(rawEdges))
+	for i, e := range rawEdges {
+		edges[i] = EdgeInfo{From: e.From, To: e.To, Kind: string(e.Kind)}
+	}
+	sort.Slice(edges, func(i, j int) bool {
+		if edges[i].From != edges[j].From {
+			return edges[i].From < edges[j].From
+		}
+		if edges[i].To != edges[j].To {
+			return edges[i].To < edges[j].To
+		}
+		return edges[i].Kind < edges[j].Kind
+	})
+
+	return Subgraph{Nodes: nodes, Edges: edges}
 }
 
 // Expand performs BFS from the given node IDs up to hops steps.
@@ -168,8 +269,9 @@ func (s *Service) Expand(ctx context.Context, nodeIDs []string, hops int, edgeKi
 		kinds = append(kinds, EdgeKind(k))
 	}
 
-	// BFS to find neighbor nodes
-	nodeSet := graph.NeighborNodes(nodeIDs, hops, kinds)
+	// BFS to find neighbor nodes (uncapped: the explicit expand endpoint keeps
+	// its full-neighbourhood contract).
+	nodeSet := graph.NeighborNodes(nodeIDs, hops, kinds, 0)
 
 	// Build node info list
 	var nodes []NodeInfo

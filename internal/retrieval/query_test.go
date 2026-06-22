@@ -90,7 +90,7 @@ func TestExpandBFS(t *testing.T) {
 	}
 
 	t.Run("1 hop from A", func(t *testing.T) {
-		nodes := graph.NeighborNodes([]string{"A"}, 1, nil)
+		nodes := graph.NeighborNodes([]string{"A"}, 1, nil, 0)
 		// Should include A, B, D
 		if !nodes["A"] || !nodes["B"] || !nodes["D"] {
 			t.Errorf("expected A, B, D in 1-hop from A, got %v", nodes)
@@ -101,7 +101,7 @@ func TestExpandBFS(t *testing.T) {
 	})
 
 	t.Run("2 hops from A", func(t *testing.T) {
-		nodes := graph.NeighborNodes([]string{"A"}, 2, nil)
+		nodes := graph.NeighborNodes([]string{"A"}, 2, nil, 0)
 		// Should include A, B, D, C
 		if !nodes["A"] || !nodes["B"] || !nodes["C"] || !nodes["D"] {
 			t.Errorf("expected A, B, C, D in 2-hop from A, got %v", nodes)
@@ -112,7 +112,7 @@ func TestExpandBFS(t *testing.T) {
 	})
 
 	t.Run("1 hop from A with calls edge filter", func(t *testing.T) {
-		nodes := graph.NeighborNodes([]string{"A"}, 1, []EdgeKind{EdgeCalls})
+		nodes := graph.NeighborNodes([]string{"A"}, 1, []EdgeKind{EdgeCalls}, 0)
 		// Should include A, B only (calls edge)
 		if !nodes["A"] || !nodes["B"] {
 			t.Errorf("expected A, B in 1-hop (calls only), got %v", nodes)
