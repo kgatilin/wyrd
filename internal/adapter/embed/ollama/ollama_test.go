@@ -11,7 +11,7 @@ import (
 func TestEmbedder_Embed(t *testing.T) {
 	// Create a fake Ollama server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/embeddings" {
+		if r.URL.Path != "/api/embed" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -23,21 +23,23 @@ func TestEmbedder_Embed(t *testing.T) {
 			return
 		}
 
-		var req embeddingRequest
+		var req embedRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("decoding request: %v", err)
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
 
-		// Return a fake embedding based on text length
+		// Return one fake embedding per input, based on text length.
 		dim := 8
-		embedding := make([]float64, dim)
-		for i := range embedding {
-			embedding[i] = float64(len(req.Prompt)+i) / 100.0
+		resp := embedResponse{Embeddings: make([][]float64, len(req.Input))}
+		for k, in := range req.Input {
+			emb := make([]float64, dim)
+			for i := range emb {
+				emb[i] = float64(len(in)+i) / 100.0
+			}
+			resp.Embeddings[k] = emb
 		}
-
-		resp := embeddingResponse{Embedding: embedding}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	}))
@@ -94,12 +96,12 @@ func TestPromptTemplates(t *testing.T) {
 // TestEmbedQuery_SendsTemplatedPrompt verifies that EmbedQuery sends the
 // query-side template (not the raw query) to the server.
 func TestEmbedQuery_SendsTemplatedPrompt(t *testing.T) {
-	var gotPrompt string
+	var gotInput []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req embeddingRequest
+		var req embedRequest
 		json.NewDecoder(r.Body).Decode(&req)
-		gotPrompt = req.Prompt
-		json.NewEncoder(w).Encode(embeddingResponse{Embedding: []float64{1, 2, 3}})
+		gotInput = req.Input
+		json.NewEncoder(w).Encode(embedResponse{Embeddings: [][]float64{{1, 2, 3}}})
 	}))
 	defer server.Close()
 
@@ -107,8 +109,47 @@ func TestEmbedQuery_SendsTemplatedPrompt(t *testing.T) {
 	if _, err := e.EmbedQuery(context.Background(), "hello"); err != nil {
 		t.Fatalf("EmbedQuery: %v", err)
 	}
-	if gotPrompt != "search_query: hello" {
-		t.Errorf("server received prompt %q, want %q", gotPrompt, "search_query: hello")
+	if len(gotInput) != 1 || gotInput[0] != "search_query: hello" {
+		t.Errorf("server received input %q, want [%q]", gotInput, "search_query: hello")
+	}
+}
+
+// TestEmbed_BatchesRequests verifies that more inputs than the batch size are
+// split across multiple /api/embed calls and reassembled in order.
+func TestEmbed_BatchesRequests(t *testing.T) {
+	var calls int
+	var batchSizes []int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req embedRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		calls++
+		batchSizes = append(batchSizes, len(req.Input))
+		resp := embedResponse{Embeddings: make([][]float64, len(req.Input))}
+		for i, in := range req.Input {
+			resp.Embeddings[i] = []float64{float64(len(in))} // 1-dim, encodes input length
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	e := New(WithEndpoint(server.URL), WithModel("test-model"), WithBatchSize(2))
+	texts := []string{"a", "bb", "ccc", "dddd", "eeeee"} // 5 inputs, batch 2 → 3 calls
+	vecs, err := e.Embed(context.Background(), texts)
+	if err != nil {
+		t.Fatalf("Embed: %v", err)
+	}
+	if calls != 3 {
+		t.Errorf("expected 3 batched calls, got %d (sizes %v)", calls, batchSizes)
+	}
+	if len(vecs) != 5 {
+		t.Fatalf("expected 5 vectors, got %d", len(vecs))
+	}
+	// Order preserved: vec value encodes input length (docPrompt is raw for test-model).
+	want := []float32{1, 2, 3, 4, 5}
+	for i, v := range vecs {
+		if len(v) != 1 || v[0] != want[i] {
+			t.Errorf("vec[%d] = %v, want [%v]", i, v, want[i])
+		}
 	}
 }
 
@@ -164,8 +205,8 @@ func TestEmbedder_ID(t *testing.T) {
 	}
 
 	embedder2 := New() // Uses default
-	if id := embedder2.ID(); id != "ollama:nomic-embed-text" {
-		t.Errorf("expected ID 'ollama:nomic-embed-text', got %q", id)
+	if id := embedder2.ID(); id != "ollama:"+DefaultModel {
+		t.Errorf("expected ID 'ollama:%s', got %q", DefaultModel, id)
 	}
 }
 

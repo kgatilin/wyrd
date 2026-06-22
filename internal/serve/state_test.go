@@ -367,12 +367,12 @@ func TestBuildEmbedder_ProviderSelection(t *testing.T) {
 	}{
 		{
 			name:    "default_is_ollama",
-			wantID:  "ollama:nomic-embed-text",
+			wantID:  "ollama:qwen3-embedding:0.6b",
 		},
 		{
 			name:     "explicit_ollama",
 			provider: "ollama",
-			wantID:   "ollama:nomic-embed-text",
+			wantID:   "ollama:qwen3-embedding:0.6b",
 		},
 		{
 			name:     "explicit_noop",
@@ -399,7 +399,7 @@ func TestBuildEmbedder_ProviderSelection(t *testing.T) {
 		{
 			name:     "unknown_provider_falls_back_to_ollama",
 			provider: "unknown-xyz",
-			wantID:   "ollama:nomic-embed-text",
+			wantID:   "ollama:qwen3-embedding:0.6b",
 		},
 	}
 
