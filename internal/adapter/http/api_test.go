@@ -17,6 +17,13 @@ import (
 	"github.com/kgatilin/archai/internal/serve"
 )
 
+func TestMain(m *testing.M) {
+	// Disable retrieval in tests to avoid background goroutines
+	// that interfere with temp directory cleanup.
+	os.Setenv("ARCHAI_RETRIEVAL_DISABLE", "1")
+	os.Exit(m.Run())
+}
+
 // newAPITestServer builds a Server rooted at a tiny Go module with two
 // packages so every API endpoint has something to return.
 func newAPITestServer(t *testing.T) (*httptest.Server, *serve.State, string) {

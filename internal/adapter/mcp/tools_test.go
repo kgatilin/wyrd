@@ -12,6 +12,13 @@ import (
 	"github.com/kgatilin/archai/internal/serve"
 )
 
+func TestMain(m *testing.M) {
+	// Disable retrieval in tests to avoid background goroutines
+	// that interfere with temp directory cleanup.
+	os.Setenv("ARCHAI_RETRIEVAL_DISABLE", "1")
+	os.Exit(m.Run())
+}
+
 // loadFakeState creates a tiny Go module on disk with two packages
 // and loads it into a serve.State. Slow-ish (calls go/packages) but
 // it exercises the full integration.

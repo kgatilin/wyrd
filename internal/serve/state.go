@@ -17,10 +17,15 @@ import (
 
 	"time"
 
+	"github.com/kgatilin/archai/internal/adapter/embed/noop"
+	"github.com/kgatilin/archai/internal/adapter/embed/ollama"
 	"github.com/kgatilin/archai/internal/adapter/golang"
+	"github.com/kgatilin/archai/internal/adapter/lindex/bm25"
+	"github.com/kgatilin/archai/internal/adapter/vindex/brute"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/overlay"
 	"github.com/kgatilin/archai/internal/plugin"
+	"github.com/kgatilin/archai/internal/retrieval"
 	"github.com/kgatilin/archai/internal/service"
 	"github.com/kgatilin/archai/internal/target"
 )
@@ -58,6 +63,14 @@ type State struct {
 	// constructed on first access via Bus(); shared by every Host
 	// adapter built from this State.
 	bus *plugin.EventBus
+
+	// retrieval is the code search service holding dense+BM25 indexes.
+	// May be nil if retrieval is disabled.
+	retrieval *retrieval.Service
+
+	// retrievalReady is closed when the initial retrieval indexing completes.
+	// Nil if retrieval is disabled.
+	retrievalReady chan struct{}
 }
 
 // Bus returns the State's plugin event bus, creating it on first
@@ -203,6 +216,10 @@ func (s *State) Root() string {
 // archai.yaml overlay (if present), and the active target id
 // (.arch/targets/CURRENT). Errors extracting packages are returned; a
 // missing overlay or CURRENT file is not an error.
+//
+// Load also initializes the retrieval service and starts background
+// indexing. Dense embedding (Ollama) runs in a background goroutine
+// to avoid blocking serve startup. BM25 indexing is synchronous (fast).
 func (s *State) Load(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -229,12 +246,86 @@ func (s *State) Load(ctx context.Context) error {
 	}
 	s.currentTarget = cur
 
+	// Initialize retrieval service with indexes
+	s.initRetrievalLocked(ctx, models)
+
 	return nil
+}
+
+// initRetrievalLocked sets up the retrieval service and starts background indexing.
+// Must be called with mu held.
+func (s *State) initRetrievalLocked(ctx context.Context, models []domain.PackageModel) {
+	// Skip retrieval initialization if disabled
+	if os.Getenv("ARCHAI_RETRIEVAL_DISABLE") == "1" {
+		return
+	}
+
+	// Build embedder - try Ollama, fall back to noop
+	emb := buildEmbedder()
+
+	// Create indexes
+	vidx := brute.New(emb.ID(), emb.Dim())
+	lidx := bm25.New()
+
+	// Create service
+	svc := retrieval.NewService(s.root, emb, vidx, lidx)
+
+	// Try to load persisted indexes
+	if err := svc.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: loading retrieval indexes: %v\n", err)
+	}
+
+	s.retrieval = svc
+	s.retrievalReady = make(chan struct{})
+
+	// Build nodes from models
+	nodes := retrieval.BuildNodes(models)
+
+	// BM25 indexing is synchronous (fast)
+	// Dense indexing happens in background (may be slow with Ollama)
+	go func() {
+		defer close(s.retrievalReady)
+
+		if err := svc.Index(ctx, nodes); err != nil {
+			fmt.Fprintf(os.Stderr, "serve: retrieval indexing: %v\n", err)
+			return
+		}
+
+		if err := svc.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "serve: saving retrieval indexes: %v\n", err)
+		}
+	}()
+}
+
+// buildEmbedder creates an embedder, trying Ollama first then falling back to noop.
+func buildEmbedder() retrieval.Embedder {
+	// Check if Ollama should be disabled
+	if os.Getenv("ARCHAI_EMBED_DISABLE") == "1" {
+		return noop.New()
+	}
+	// Default to Ollama (it will fail gracefully if not running)
+	return ollama.New()
+}
+
+// Retrieval returns the retrieval service, or nil if not initialized.
+func (s *State) Retrieval() *retrieval.Service {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.retrieval
+}
+
+// RetrievalReady returns a channel that is closed when initial retrieval indexing completes.
+// Returns nil if retrieval is disabled.
+func (s *State) RetrievalReady() <-chan struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.retrievalReady
 }
 
 // ReloadPackage re-extracts the single package identified by its
 // module-relative path (e.g. "internal/serve") and splices the result
 // into the in-memory model. A package that no longer exists is removed.
+// Also refreshes the retrieval indexes for changed/removed nodes.
 func (s *State) ReloadPackage(ctx context.Context, pkgPath string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -243,27 +334,25 @@ func (s *State) ReloadPackage(ctx context.Context, pkgPath string) error {
 		return fmt.Errorf("serve: empty package path")
 	}
 
-	pattern := "./" + strings.TrimPrefix(pkgPath, "./")
-	if pkgPath == "." {
-		pattern = "./"
+	// Collect old node IDs for this package (to detect removals)
+	var oldNodeIDs []string
+	if oldPkg, ok := s.packages[pkgPath]; ok {
+		oldNodes := retrieval.BuildNodes([]domain.PackageModel{oldPkg})
+		for _, n := range oldNodes {
+			oldNodeIDs = append(oldNodeIDs, n.ID)
+		}
 	}
 
-	// The Go reader resolves relative patterns against cwd; scope the
-	// change to this call so caller-visible cwd is untouched.
-	prevCwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("serve: resolving cwd: %w", err)
-	}
-	if err := os.Chdir(s.root); err != nil {
-		return fmt.Errorf("serve: chdir %s: %w", s.root, err)
-	}
-	defer func() { _ = os.Chdir(prevCwd) }()
-
-	models, err := s.reader.Read(ctx, []string{pattern})
+	models, err := s.readPackageSet(ctx, []string{pkgPath})
 	if err != nil {
 		// Package may have been removed; drop it and return no error so
 		// the watcher loop stays alive.
 		delete(s.packages, pkgPath)
+		if err := s.writeModelCache(mapValues(s.packages)); err != nil {
+			fmt.Fprintf(os.Stderr, "serve: write model cache: %v\n", err)
+		}
+		// Refresh retrieval: all old nodes are now removed
+		s.refreshRetrievalLocked(ctx, nil, oldNodeIDs)
 		return nil
 	}
 
@@ -273,7 +362,42 @@ func (s *State) ReloadPackage(ctx context.Context, pkgPath string) error {
 	for _, m := range models {
 		s.packages[m.Path] = m
 	}
+	if err := s.writeModelCache(mapValues(s.packages)); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: write model cache: %v\n", err)
+	}
+
+	// Refresh retrieval indexes
+	newNodes := retrieval.BuildNodes(models)
+
+	// Compute removed IDs: old IDs that are not in new nodes
+	newNodeSet := make(map[string]bool)
+	for _, n := range newNodes {
+		newNodeSet[n.ID] = true
+	}
+	var removedIDs []string
+	for _, id := range oldNodeIDs {
+		if !newNodeSet[id] {
+			removedIDs = append(removedIDs, id)
+		}
+	}
+
+	s.refreshRetrievalLocked(ctx, newNodes, removedIDs)
 	return nil
+}
+
+// refreshRetrievalLocked updates the retrieval indexes for changed nodes.
+// Must be called with mu held.
+func (s *State) refreshRetrievalLocked(ctx context.Context, changedNodes []retrieval.Node, removedIDs []string) {
+	if s.retrieval == nil {
+		return
+	}
+	if err := s.retrieval.Refresh(ctx, changedNodes, removedIDs); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: retrieval refresh: %v\n", err)
+		return
+	}
+	if err := s.retrieval.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: saving retrieval indexes: %v\n", err)
+	}
 }
 
 // ReloadOverlay re-reads archai.yaml from disk and updates the cached
@@ -292,24 +416,6 @@ func (s *State) SwitchTarget(id string) error {
 	defer s.mu.Unlock()
 	s.currentTarget = id
 	return nil
-}
-
-// readAll runs the Go reader over the whole project. Extracted into a
-// helper so Load can be kept readable.
-func (s *State) readAll(ctx context.Context) ([]domain.PackageModel, error) {
-	// We resolve paths relative to the configured root by temporarily
-	// changing working directory. go/packages loads relative patterns
-	// based on cwd; the project may be anywhere on disk.
-	prevCwd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	if err := os.Chdir(s.root); err != nil {
-		return nil, err
-	}
-	defer func() { _ = os.Chdir(prevCwd) }()
-
-	return s.reader.Read(ctx, []string{"./..."})
 }
 
 // reloadOverlayLocked reloads the overlay assuming the caller holds the
@@ -336,6 +442,14 @@ func (s *State) reloadOverlayLocked() error {
 		s.goModPath = ""
 	}
 	return nil
+}
+
+func mapValues(in map[string]domain.PackageModel) []domain.PackageModel {
+	out := make([]domain.PackageModel, 0, len(in))
+	for _, value := range in {
+		out = append(out, value)
+	}
+	return out
 }
 
 // FindOwningPackage walks up from the directory of path until it finds
