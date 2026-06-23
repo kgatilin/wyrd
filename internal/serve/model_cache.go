@@ -2,11 +2,14 @@ package serve
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -19,13 +22,68 @@ const (
 	modelCacheVersion = 1
 )
 
+// modelCacheSchemaFingerprint is a structural hash of domain.PackageModel.
+// It is recomputed from the live type at startup, so adding/removing/renaming
+// any field anywhere in the model tree changes the fingerprint and forces
+// stale caches (written by a binary with a different model shape) to be
+// rejected and re-parsed. Without this, a cache written before a field was
+// added (e.g. Span on the symbol types) is silently reused and JSON unmarshal
+// leaves the new field zero-valued — which previously dropped source spans and
+// broke search `file`/`body` and body-aware embeddings.
+var modelCacheSchemaFingerprint = computeSchemaFingerprint(reflect.TypeOf(domain.PackageModel{}))
+
 type modelCacheFile struct {
-	Schema       string                 `json:"schema"`
-	Version      int                    `json:"version"`
-	WrittenAt    time.Time              `json:"written_at"`
-	Packages     []domain.PackageModel  `json:"packages"`
-	PackageFiles map[string][]fileStamp `json:"package_files"`
-	ProjectFiles []fileStamp            `json:"project_files"`
+	Schema            string                 `json:"schema"`
+	Version           int                    `json:"version"`
+	SchemaFingerprint string                 `json:"schema_fingerprint"`
+	WrittenAt         time.Time              `json:"written_at"`
+	Packages          []domain.PackageModel  `json:"packages"`
+	PackageFiles      map[string][]fileStamp `json:"package_files"`
+	ProjectFiles      []fileStamp            `json:"project_files"`
+}
+
+// computeSchemaFingerprint walks the structural shape of t (field names and
+// types, recursing through structs/slices/maps/pointers) and returns a stable
+// short hash. Recursive types are broken with a type-name marker.
+func computeSchemaFingerprint(t reflect.Type) string {
+	var sb strings.Builder
+	writeTypeShape(&sb, t, map[reflect.Type]bool{})
+	sum := sha256.Sum256([]byte(sb.String()))
+	return hex.EncodeToString(sum[:8])
+}
+
+func writeTypeShape(sb *strings.Builder, t reflect.Type, seen map[reflect.Type]bool) {
+	switch t.Kind() {
+	case reflect.Ptr, reflect.Slice, reflect.Array:
+		sb.WriteByte('[')
+		writeTypeShape(sb, t.Elem(), seen)
+		sb.WriteByte(']')
+	case reflect.Map:
+		sb.WriteString("map[")
+		writeTypeShape(sb, t.Key(), seen)
+		sb.WriteByte(']')
+		writeTypeShape(sb, t.Elem(), seen)
+	case reflect.Struct:
+		if seen[t] {
+			sb.WriteString("@" + t.String())
+			return
+		}
+		seen[t] = true
+		sb.WriteByte('{')
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			if f.PkgPath != "" {
+				continue // unexported: not serialized by encoding/json
+			}
+			sb.WriteString(f.Name)
+			sb.WriteByte(':')
+			writeTypeShape(sb, f.Type, seen)
+			sb.WriteByte(';')
+		}
+		sb.WriteByte('}')
+	default:
+		sb.WriteString(t.Kind().String())
+	}
 }
 
 type fileStamp struct {
@@ -112,12 +170,13 @@ func (s *State) readModelCache(ctx context.Context) ([]domain.PackageModel, *mod
 		len(cache.Packages) != len(models)
 	if needsWrite {
 		next := modelCacheFile{
-			Schema:       modelCacheSchema,
-			Version:      modelCacheVersion,
-			WrittenAt:    time.Now().UTC(),
-			Packages:     models,
-			PackageFiles: current,
-			ProjectFiles: projectFiles,
+			Schema:            modelCacheSchema,
+			Version:           modelCacheVersion,
+			SchemaFingerprint: modelCacheSchemaFingerprint,
+			WrittenAt:         time.Now().UTC(),
+			Packages:          models,
+			PackageFiles:      current,
+			ProjectFiles:      projectFiles,
 		}
 		if err := writeModelCache(s.root, next); err != nil {
 			fmt.Fprintf(os.Stderr, "serve: write model cache: %v\n", err)
@@ -176,12 +235,13 @@ func (s *State) writeModelCache(models []domain.PackageModel) error {
 		return err
 	}
 	return writeModelCache(s.root, modelCacheFile{
-		Schema:       modelCacheSchema,
-		Version:      modelCacheVersion,
-		WrittenAt:    time.Now().UTC(),
-		Packages:     sortedPackageModels(models),
-		PackageFiles: packageFiles,
-		ProjectFiles: projectFiles,
+		Schema:            modelCacheSchema,
+		Version:           modelCacheVersion,
+		SchemaFingerprint: modelCacheSchemaFingerprint,
+		WrittenAt:         time.Now().UTC(),
+		Packages:          sortedPackageModels(models),
+		PackageFiles:      packageFiles,
+		ProjectFiles:      projectFiles,
 	})
 }
 
@@ -200,6 +260,10 @@ func loadModelCache(root string) (modelCacheFile, error) {
 	if cache.Schema != modelCacheSchema || cache.Version != modelCacheVersion {
 		return modelCacheFile{}, fmt.Errorf("cache schema/version mismatch: got %q v%d, want %q v%d",
 			cache.Schema, cache.Version, modelCacheSchema, modelCacheVersion)
+	}
+	if cache.SchemaFingerprint != modelCacheSchemaFingerprint {
+		return modelCacheFile{}, fmt.Errorf("cache model-shape fingerprint mismatch: got %q, want %q (model struct changed; re-parsing)",
+			cache.SchemaFingerprint, modelCacheSchemaFingerprint)
 	}
 	if cache.PackageFiles == nil {
 		return modelCacheFile{}, fmt.Errorf("cache missing package manifest")
