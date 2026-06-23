@@ -24,6 +24,7 @@ type Result struct {
 	NodeID  string  `json:"node_id"`
 	Kind    string  `json:"kind"`
 	File    string  `json:"file"`
+	Line    int     `json:"line"`
 	Doc     string  `json:"doc"`
 	Snippet string  `json:"snippet"`
 	Score   float32 `json:"score"`
@@ -41,6 +42,8 @@ type NodeInfo struct {
 	Kind      string  `json:"kind"`
 	Package   string  `json:"package"`
 	Name      string  `json:"name"`
+	File      string  `json:"file,omitempty"`
+	Line      int     `json:"line,omitempty"`
 	Signature string  `json:"signature,omitempty"`
 	Doc       string  `json:"doc,omitempty"`
 	Score     float64 `json:"score,omitempty"`
@@ -60,6 +63,7 @@ type NodeDetail struct {
 	Package   string     `json:"package"`
 	Name      string     `json:"name"`
 	File      string     `json:"file"`
+	Line      int        `json:"line"`
 	Signature string     `json:"signature,omitempty"`
 	Doc       string     `json:"doc,omitempty"`
 	Body      string     `json:"body,omitempty"`
@@ -128,6 +132,7 @@ func (s *Service) Search(ctx context.Context, query string, k int, filters Filte
 			NodeID:  node.ID,
 			Kind:    node.Kind,
 			File:    node.Span.File,
+			Line:    node.Span.StartLine,
 			Doc:     truncateString(node.Doc, 200),
 			Snippet: buildSnippet(node, s.root),
 			Score:   item.Score,
@@ -228,6 +233,8 @@ func (s *Service) buildRankedSubgraph(graph *Graph, ranked []graphval.Score) Sub
 			Kind:      node.Kind,
 			Package:   node.Package,
 			Name:      node.Name,
+			File:      node.Span.File,
+			Line:      node.Span.StartLine,
 			Signature: node.Signature,
 			Doc:       truncateString(node.Doc, 200),
 			Score:     sc.Score,
@@ -361,6 +368,7 @@ func (s *Service) Node(ctx context.Context, id string) (NodeDetail, error) {
 		Package:   node.Package,
 		Name:      node.Name,
 		File:      node.Span.File,
+		Line:      node.Span.StartLine,
 		Signature: node.Signature,
 		Doc:       node.Doc,
 		Body:      body,

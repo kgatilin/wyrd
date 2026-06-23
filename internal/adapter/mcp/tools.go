@@ -1108,6 +1108,7 @@ type searchResultItem struct {
 	NodeID  string  `json:"node_id"`
 	Kind    string  `json:"kind"`
 	File    string  `json:"file"`
+	Line    int     `json:"line"`
 	Doc     string  `json:"doc"`
 	Snippet string  `json:"snippet"`
 	Score   float32 `json:"score"`
@@ -1154,6 +1155,7 @@ func handleSearch(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 			NodeID:  r.NodeID,
 			Kind:    r.Kind,
 			File:    r.File,
+			Line:    r.Line,
 			Doc:     r.Doc,
 			Snippet: r.Snippet,
 			Score:   r.Score,
@@ -1182,6 +1184,8 @@ type nodeInfo struct {
 	Kind      string  `json:"kind"`
 	Package   string  `json:"package"`
 	Name      string  `json:"name"`
+	File      string  `json:"file,omitempty"`
+	Line      int     `json:"line,omitempty"`
 	Signature string  `json:"signature,omitempty"`
 	Doc       string  `json:"doc,omitempty"`
 	Score     float64 `json:"score,omitempty"`
@@ -1234,6 +1238,8 @@ func handleSearchGraph(state *serve.State, rawArgs json.RawMessage) (ToolResult,
 			Kind:      n.Kind,
 			Package:   n.Package,
 			Name:      n.Name,
+			File:      n.File,
+			Line:      n.Line,
 			Signature: n.Signature,
 			Doc:       n.Doc,
 			Score:     n.Score,
@@ -1292,6 +1298,8 @@ func handleExpand(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 			Kind:      n.Kind,
 			Package:   n.Package,
 			Name:      n.Name,
+			File:      n.File,
+			Line:      n.Line,
 			Signature: n.Signature,
 			Doc:       n.Doc,
 			Score:     n.Score,
@@ -1318,6 +1326,7 @@ type nodeDetailResult struct {
 	Package   string     `json:"package"`
 	Name      string     `json:"name"`
 	File      string     `json:"file"`
+	Line      int        `json:"line"`
 	Signature string     `json:"signature,omitempty"`
 	Doc       string     `json:"doc,omitempty"`
 	Body      string     `json:"body,omitempty"`
@@ -1364,6 +1373,7 @@ func handleGetNode(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RP
 		Package:   detail.Package,
 		Name:      detail.Name,
 		File:      detail.File,
+		Line:      detail.Line,
 		Signature: detail.Signature,
 		Doc:       detail.Doc,
 		Body:      detail.Body,
