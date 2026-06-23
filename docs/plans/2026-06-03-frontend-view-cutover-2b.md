@@ -8,7 +8,7 @@
 
 **Tech Stack:** React 18, the Plan-1/2a store/effects/adapters, Vitest+jsdom, Playwright e2e (the canvas spec is the gate for pan/zoom/scroll).
 
-**Reference:** `docs/plans/2026-06-03-frontend-view-cutover-2a.md` (Plan 2a, complete). Run from `/Users/forkiy/Projects/archai/web`; binaries directly (`./node_modules/.bin/...`). Commit onto `poc/arch-review-ui`.
+**Reference:** `docs/plans/2026-06-03-frontend-view-cutover-2a.md` (Plan 2a, complete). Run from `web/`; binaries directly (`./node_modules/.bin/...`). Commit onto `poc/arch-review-ui`.
 
 ---
 

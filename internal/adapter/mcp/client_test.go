@@ -144,7 +144,7 @@ func TestClient_ToolsCall_WorktreePrefix_RoutesToWorktree(t *testing.T) {
 	// client must POST to that prefixed path, not the bare one.
 	var gotPath string
 	mux := nethttp.NewServeMux()
-	mux.HandleFunc("/w/cannes26/api/mcp/tools/call", func(w nethttp.ResponseWriter, r *nethttp.Request) {
+	mux.HandleFunc("/w/feature-x/api/mcp/tools/call", func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(ToolResult{
@@ -160,13 +160,13 @@ func TestClient_ToolsCall_WorktreePrefix_RoutesToWorktree(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	opts := ClientOptions{Endpoint: ts.URL, WorktreePrefix: "/w/cannes26"}
+	opts := ClientOptions{Endpoint: ts.URL, WorktreePrefix: "/w/feature-x"}
 	if err := serveClientIO(ctx, opts, &in, &out, &errOut); err != nil {
 		t.Fatalf("serveClientIO: %v (stderr=%s)", err, errOut.String())
 	}
 
-	if gotPath != "/w/cannes26/api/mcp/tools/call" {
-		t.Fatalf("daemon got path=%q, want /w/cannes26/api/mcp/tools/call (stdout=%s)", gotPath, out.String())
+	if gotPath != "/w/feature-x/api/mcp/tools/call" {
+		t.Fatalf("daemon got path=%q, want /w/feature-x/api/mcp/tools/call (stdout=%s)", gotPath, out.String())
 	}
 	var resp Response
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &resp); err != nil {

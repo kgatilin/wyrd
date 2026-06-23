@@ -32,8 +32,8 @@ archai serve --repo /path/to/repo --ui
 Then in the UI:
 
 ```text
-Repo: myapp
-Compare: branch-694 vs main
+Repo: myproject
+Compare: feature-123 vs main
 View: Framework API
 Scope: Top-level Public API
 Show: Changes + impacted neighbors
@@ -71,7 +71,7 @@ The highest-signal review mode.
 This scope focuses on exported types, functions, interfaces, methods, fields,
 constants, and config structs in the packages that form the framework-facing API.
 
-For myapp, this is the mode used to answer:
+For a framework project, this is the mode used to answer:
 
 ```text
 Did this branch change the framework API that consumers depend on?

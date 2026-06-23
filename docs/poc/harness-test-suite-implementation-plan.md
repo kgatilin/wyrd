@@ -11,7 +11,7 @@
 **Toolchain note (nvm is broken non-interactively):** always run npm/npx via the absolute Homebrew paths and project-local binaries:
 - `/opt/homebrew/bin/npm`, `/opt/homebrew/bin/npx`, `/opt/homebrew/bin/node`
 - `./node_modules/.bin/tsc`, `./node_modules/.bin/vitest`
-- All commands below run from `/Users/forkiy/Projects/archai/web`.
+- All commands below run from `web/`.
 
 **Branch:** `poc/arch-review-ui`.
 

@@ -24,8 +24,8 @@ type ClientOptions struct {
 
 	// WorktreePrefix, when non-empty, is inserted between Endpoint and
 	// the API path so tool calls are routed to a specific worktree of a
-	// multi-worktree daemon (e.g. "/w/cannes26" yields
-	// "http://addr/w/cannes26/api/mcp/tools/call"). Empty preserves the
+	// multi-worktree daemon (e.g. "/w/feature-x" yields
+	// "http://addr/w/feature-x/api/mcp/tools/call"). Empty preserves the
 	// classic single-worktree path.
 	WorktreePrefix string
 }

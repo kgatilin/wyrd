@@ -8,7 +8,7 @@
 
 **Tech Stack:** React 18, the Plan-1/2a/2b store/effects/adapters, Vitest+jsdom, Playwright e2e (the comment-popover + canvas specs gate comments).
 
-**Reference:** `docs/plans/2026-06-03-frontend-view-cutover-2b.md` (Plan 2b, complete). The `commentsSlice` (`CommentStarted`/`CommentSubmitted`/`CommentCancelled`/`MarkerActivated`/`CanvasCleared`) already exists and is unit-tested from Plan 1 — this plan WIRES it. Run from `/Users/forkiy/Projects/archai/web`; binaries directly. Commit onto `poc/arch-review-ui`.
+**Reference:** `docs/plans/2026-06-03-frontend-view-cutover-2b.md` (Plan 2b, complete). The `commentsSlice` (`CommentStarted`/`CommentSubmitted`/`CommentCancelled`/`MarkerActivated`/`CanvasCleared`) already exists and is unit-tested from Plan 1 — this plan WIRES it. Run from `web/`; binaries directly. Commit onto `poc/arch-review-ui`.
 
 ---
 

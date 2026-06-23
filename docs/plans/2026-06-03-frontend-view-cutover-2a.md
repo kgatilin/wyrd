@@ -38,7 +38,7 @@ The jsdom harness (`testing/harness/dom-env.ts` `mountAppDom`) stubs `fetch` and
 | `web/src/state/hooks.ts` | Modify | Remove now-dead `useExpanded`/`useExpansion`/`useFocus`; KEEP `computeExpandedHeight` (EdgeLayer uses it). |
 | `web/src/main.tsx` | Unchanged | Stays `render(<App/>)` — App self-bootstraps. |
 
-**Verification model (this is a behavior-preserving refactor):** each task's gate is **`./node_modules/.bin/tsc --noEmit` clean + the existing test suite green** (the jsdom harness smoke test `src/components/__tests__/harness-smoke.harness.test.tsx` exercises load/auto-expand/expand-all/diff through the real `<App/>`), plus a final **Playwright e2e** checkpoint (`canvas`, `component-card`, `context-tree`, `diff-mode`). Run from `/Users/forkiy/Projects/archai/web`; call binaries directly (`./node_modules/.bin/...`) — npx misbehaves in this shell. Commit onto branch `poc/arch-review-ui` (do NOT branch).
+**Verification model (this is a behavior-preserving refactor):** each task's gate is **`./node_modules/.bin/tsc --noEmit` clean + the existing test suite green** (the jsdom harness smoke test `src/components/__tests__/harness-smoke.harness.test.tsx` exercises load/auto-expand/expand-all/diff through the real `<App/>`), plus a final **Playwright e2e** checkpoint (`canvas`, `component-card`, `context-tree`, `diff-mode`). Run from `web/`; call binaries directly (`./node_modules/.bin/...`) — npx misbehaves in this shell. Commit onto branch `poc/arch-review-ui` (do NOT branch).
 
 ---
 
