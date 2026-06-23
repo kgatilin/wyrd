@@ -337,6 +337,12 @@ manual verification and as a base for future features.`,
 	// call against a freshly-loaded in-memory model in the same
 	// process (no fsnotify).
 	serveCmd.Flags().Bool("no-daemon", false, "With --mcp-stdio: skip auto-start and run one-shot in-process (no HTTP daemon, no watcher)")
+	// --shared switches --mcp-stdio to attach to the repo-root
+	// multi-worktree daemon (archai serve --multi) instead of a local
+	// per-worktree daemon. The worktree name is derived from cwd and
+	// every tool call is scoped to that daemon's /w/{name}/ routes, so a
+	// single warm daemon serves every worktree's MCP without re-parsing.
+	serveCmd.Flags().Bool("shared", false, "With --mcp-stdio: attach to the repo-root --multi daemon and scope tool calls to this worktree's /w/{name}/ routes")
 	// M11 idle-timeout: when non-zero, the HTTP daemon exits after
 	// this duration without any requests. Auto-started daemons pass
 	// 15m to keep untracked idle daemons from outliving their MCP
@@ -468,7 +474,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	debug, _ := cmd.Flags().GetBool("debug")
 	multi, _ := cmd.Flags().GetBool("multi")
 	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
+	shared, _ := cmd.Flags().GetBool("shared")
 	idleTimeout, _ := cmd.Flags().GetDuration("idle-timeout")
+
+	if shared && !mcpStdio {
+		return fmt.Errorf("--shared requires --mcp-stdio")
+	}
 
 	var err error
 	root, multi, err = resolveServeRootMode(root, cmd.Flags().Changed("root"), repo, multi)
@@ -488,8 +499,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Resolve --http precedence: explicit flag > overlay serve.http_addr
 	// > flag default. Only consult the overlay when the user did not
-	// pass --http on the command line.
-	if !httpAddrFromFlag {
+	// pass --http on the command line. Skip it entirely in MCP stdio
+	// modes: the thin/shared client gets its address from serve.json (or
+	// the shared daemon) and one-shot mode binds no HTTP at all, so
+	// parsing the worktree overlay here only adds a failure mode (e.g. a
+	// worktree whose archai.yaml uses a newer schema than this binary).
+	if !httpAddrFromFlag && !mcpStdio {
 		overlayAddr, err := loadServeHTTPAddrFromOverlay(root)
 		if err != nil {
 			return err
@@ -512,6 +527,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if mcpStdio {
 		if multi {
 			return fmt.Errorf("--multi is not compatible with --mcp-stdio")
+		}
+		if shared {
+			if noDaemon {
+				return fmt.Errorf("--shared is not compatible with --no-daemon")
+			}
+			return runMCPSharedClient(ctx, root)
 		}
 		if !noDaemon {
 			return runMCPThinClient(ctx, root)
@@ -756,6 +777,47 @@ func runMCPThinClient(ctx context.Context, root string) error {
 
 	return mcp.ServeClient(ctx, mcp.ClientOptions{
 		Endpoint: "http://" + rec.HTTPAddr,
+	})
+}
+
+// runMCPSharedClient implements `archai serve --mcp-stdio --shared`. It
+// resolves the repo root for the (possibly linked) worktree at root,
+// attaches to the repo-root multi-worktree daemon recorded there, and
+// runs the MCP stdio transport scoped to this worktree's /w/{name}/
+// routes. Unlike the per-worktree thin client it never auto-starts a
+// daemon: the shared --multi daemon is operated independently (e.g.
+// alongside the browser UI), so a missing one is a hard error with
+// guidance rather than a silent local spawn.
+func runMCPSharedClient(ctx context.Context, root string) error {
+	if root == "" {
+		root = "."
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolving root %s: %w", root, err)
+	}
+
+	repoRoot, ok := worktree.RepoRoot(absRoot)
+	if !ok {
+		return fmt.Errorf("mcp-client: --shared requires a git worktree; could not resolve repo root from %s", absRoot)
+	}
+	wtName := worktree.Name(absRoot)
+	daemonName := worktree.Name(repoRoot)
+
+	rec, err := worktree.ReadServe(repoRoot, daemonName)
+	if err != nil {
+		return fmt.Errorf("mcp-client: read shared daemon record: %w", err)
+	}
+	if rec == nil || !worktree.PIDAlive(rec.PID) {
+		return fmt.Errorf("mcp-client: no live multi-worktree daemon for %s; start one with "+
+			"`archai serve --multi --root %s --http 127.0.0.1:PORT`", repoRoot, repoRoot)
+	}
+	fmt.Fprintf(os.Stderr, "mcp-client: attached to shared daemon pid=%d addr=%s worktree=%s\n",
+		rec.PID, rec.HTTPAddr, wtName)
+
+	return mcp.ServeClient(ctx, mcp.ClientOptions{
+		Endpoint:       "http://" + rec.HTTPAddr,
+		WorktreePrefix: "/w/" + wtName,
 	})
 }
 

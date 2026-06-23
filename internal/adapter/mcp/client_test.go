@@ -138,6 +138,49 @@ func TestClient_ToolsCall_ForwardsToDaemon(t *testing.T) {
 	}
 }
 
+func TestClient_ToolsCall_WorktreePrefix_RoutesToWorktree(t *testing.T) {
+	// A multi-worktree daemon exposes the tool surface under
+	// /w/{name}/api/mcp/tools/call. With WorktreePrefix set the thin
+	// client must POST to that prefixed path, not the bare one.
+	var gotPath string
+	mux := nethttp.NewServeMux()
+	mux.HandleFunc("/w/cannes26/api/mcp/tools/call", func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(ToolResult{
+			Content: []ToolResultContent{{Type: "text", Text: `[{"path":"alpha"}]`}},
+		})
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	var in bytes.Buffer
+	in.WriteString(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"list_packages","arguments":{}}}` + "\n")
+	var out, errOut bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	opts := ClientOptions{Endpoint: ts.URL, WorktreePrefix: "/w/cannes26"}
+	if err := serveClientIO(ctx, opts, &in, &out, &errOut); err != nil {
+		t.Fatalf("serveClientIO: %v (stderr=%s)", err, errOut.String())
+	}
+
+	if gotPath != "/w/cannes26/api/mcp/tools/call" {
+		t.Fatalf("daemon got path=%q, want /w/cannes26/api/mcp/tools/call (stdout=%s)", gotPath, out.String())
+	}
+	var resp Response
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	payload, _ := json.Marshal(resp.Result)
+	if !strings.Contains(string(payload), "alpha") {
+		t.Errorf("response missing alpha payload: %s", payload)
+	}
+}
+
 func TestClient_ToolsCall_DaemonError_Surfaces(t *testing.T) {
 	ts := fakeDaemon(t, func(name string, args json.RawMessage) (ToolResult, int) {
 		// Write a JSON-error envelope like writeJSONError does.

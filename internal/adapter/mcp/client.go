@@ -21,6 +21,13 @@ import (
 type ClientOptions struct {
 	Endpoint   string
 	HTTPClient *nethttp.Client
+
+	// WorktreePrefix, when non-empty, is inserted between Endpoint and
+	// the API path so tool calls are routed to a specific worktree of a
+	// multi-worktree daemon (e.g. "/w/cannes26" yields
+	// "http://addr/w/cannes26/api/mcp/tools/call"). Empty preserves the
+	// classic single-worktree path.
+	WorktreePrefix string
 }
 
 // ServeClient runs the MCP stdio transport in thin-client mode. It
@@ -85,7 +92,7 @@ func serveClientIO(ctx context.Context, opts ClientOptions, in io.Reader, out io
 			return nil
 		case r := <-readCh:
 			if len(r.line) > 0 {
-				if err := handleClientLine(ctx, client, opts.Endpoint, r.line, writeLine, errOut); err != nil {
+				if err := handleClientLine(ctx, client, opts.Endpoint, opts.WorktreePrefix, r.line, writeLine, errOut); err != nil {
 					fmt.Fprintf(errOut, "mcp-client: write response: %v\n", err)
 				}
 			}
@@ -106,6 +113,7 @@ func handleClientLine(
 	ctx context.Context,
 	httpClient *nethttp.Client,
 	endpoint string,
+	worktreePrefix string,
 	line []byte,
 	writeLine func(Response) error,
 	errOut io.Writer,
@@ -135,7 +143,7 @@ func handleClientLine(
 		if isNotification {
 			return nil
 		}
-		return forwardToolsCall(ctx, httpClient, endpoint, req, writeLine, errOut)
+		return forwardToolsCall(ctx, httpClient, endpoint, worktreePrefix, req, writeLine, errOut)
 	case "ping":
 		if isNotification {
 			return nil
@@ -158,12 +166,13 @@ func forwardToolsCall(
 	ctx context.Context,
 	httpClient *nethttp.Client,
 	endpoint string,
+	worktreePrefix string,
 	req Request,
 	writeLine func(Response) error,
 	errOut io.Writer,
 ) error {
 	// Forward params verbatim — they are already {name, arguments}.
-	url := endpoint + "/api/mcp/tools/call"
+	url := endpoint + worktreePrefix + "/api/mcp/tools/call"
 	var body io.Reader
 	if len(req.Params) > 0 {
 		body = bytes.NewReader(req.Params)

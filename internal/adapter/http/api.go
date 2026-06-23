@@ -166,7 +166,7 @@ func (s *Server) handleAPIToolsCall(w nethttp.ResponseWriter, r *nethttp.Request
 		writeJSONErrorText(w, nethttp.StatusBadRequest, "missing tool name")
 		return
 	}
-	res, rpcErr := mcp.Dispatch(s.state, req.Name, req.Arguments)
+	res, rpcErr := mcp.Dispatch(s.stateFor(r), req.Name, req.Arguments)
 	if rpcErr != nil {
 		writeJSONError(w, rpcErr.Code, rpcErr.Message)
 		return
@@ -189,7 +189,7 @@ func (s *Server) handleAPIExtract(w nethttp.ResponseWriter, r *nethttp.Request) 
 		args["paths"] = paths
 	}
 	rawArgs, _ := json.Marshal(args)
-	res, rpcErr := mcp.Dispatch(s.state, "extract", rawArgs)
+	res, rpcErr := mcp.Dispatch(s.stateFor(r), "extract", rawArgs)
 	writeAPIToolResult(w, res, rpcErr)
 }
 
@@ -199,7 +199,7 @@ func (s *Server) handleAPIPackages(w nethttp.ResponseWriter, r *nethttp.Request)
 		nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
 		return
 	}
-	res, rpcErr := mcp.Dispatch(s.state, "list_packages", nil)
+	res, rpcErr := mcp.Dispatch(s.stateFor(r), "list_packages", nil)
 	writeAPIToolResult(w, res, rpcErr)
 }
 
@@ -222,7 +222,7 @@ func (s *Server) handleAPIPackageGet(w nethttp.ResponseWriter, r *nethttp.Reques
 		return
 	}
 	args, _ := json.Marshal(map[string]string{"path": pkgPath})
-	res, rpcErr := mcp.Dispatch(s.state, "get_package", args)
+	res, rpcErr := mcp.Dispatch(s.stateFor(r), "get_package", args)
 	writeAPIToolResult(w, res, rpcErr)
 }
 
@@ -232,7 +232,7 @@ func (s *Server) handleAPITargets(w nethttp.ResponseWriter, r *nethttp.Request) 
 		nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
 		return
 	}
-	res, rpcErr := mcp.Dispatch(s.state, "list_targets", nil)
+	res, rpcErr := mcp.Dispatch(s.stateFor(r), "list_targets", nil)
 	writeAPIToolResult(w, res, rpcErr)
 }
 
@@ -248,7 +248,7 @@ func (s *Server) handleAPITargetsLock(w nethttp.ResponseWriter, r *nethttp.Reque
 		writeJSONErrorText(w, nethttp.StatusBadRequest, err.Error())
 		return
 	}
-	res, rpcErr := mcp.Dispatch(s.state, "lock_target", raw)
+	res, rpcErr := mcp.Dispatch(s.stateFor(r), "lock_target", raw)
 	writeAPIToolResult(w, res, rpcErr)
 }
 
@@ -264,7 +264,7 @@ func (s *Server) handleAPITargetsCurrent(w nethttp.ResponseWriter, r *nethttp.Re
 		writeJSONErrorText(w, nethttp.StatusBadRequest, err.Error())
 		return
 	}
-	res, rpcErr := mcp.Dispatch(s.state, "set_current_target", raw)
+	res, rpcErr := mcp.Dispatch(s.stateFor(r), "set_current_target", raw)
 	writeAPIToolResult(w, res, rpcErr)
 }
 
@@ -279,7 +279,7 @@ func (s *Server) handleAPIDiff(w nethttp.ResponseWriter, r *nethttp.Request) {
 		args["target"] = t
 	}
 	rawArgs, _ := json.Marshal(args)
-	res, rpcErr := mcp.Dispatch(s.state, "diff", rawArgs)
+	res, rpcErr := mcp.Dispatch(s.stateFor(r), "diff", rawArgs)
 	writeAPIToolResult(w, res, rpcErr)
 }
 
@@ -295,7 +295,7 @@ func (s *Server) handleAPIDiffApply(w nethttp.ResponseWriter, r *nethttp.Request
 		writeJSONErrorText(w, nethttp.StatusBadRequest, err.Error())
 		return
 	}
-	res, rpcErr := mcp.Dispatch(s.state, "apply_diff", raw)
+	res, rpcErr := mcp.Dispatch(s.stateFor(r), "apply_diff", raw)
 	writeAPIToolResult(w, res, rpcErr)
 }
 
@@ -319,7 +319,7 @@ func (s *Server) handleAPIValidate(w nethttp.ResponseWriter, r *nethttp.Request)
 	} else if t := r.URL.Query().Get("target"); t != "" {
 		raw, _ = json.Marshal(map[string]string{"target": t})
 	}
-	res, rpcErr := mcp.Dispatch(s.state, "validate", raw)
+	res, rpcErr := mcp.Dispatch(s.stateFor(r), "validate", raw)
 	writeAPIToolResult(w, res, rpcErr)
 }
 

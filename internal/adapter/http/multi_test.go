@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/serve"
 	"github.com/kgatilin/archai/internal/worktree"
 )
@@ -296,6 +297,68 @@ func TestMultiServer_LazyLoadCached(t *testing.T) {
 	mustGet("/w/beta/layers")
 	if atomic.LoadInt64(count) != 2 {
 		t.Errorf("load count after beta hit = %d, want 2", *count)
+	}
+}
+
+// taggedReader is a fake service.ModelReader that returns a single
+// package whose Path encodes a tag, so a test can tell which worktree's
+// state answered a request.
+type taggedReader struct{ tag string }
+
+func (r taggedReader) Read(ctx context.Context, paths []string) ([]domain.PackageModel, error) {
+	return []domain.PackageModel{{Path: "pkg/" + r.tag, Name: r.tag}}, nil
+}
+
+// TestMultiServer_MCPToolsCall_UsesWorktreeState is the regression guard
+// for the multi-mode MCP API: the /api/mcp/* handlers must dispatch
+// against the per-worktree state resolved from the request context
+// (stateFor), not the nil single-mode s.state. Each worktree is loaded
+// with a reader that tags its package by worktree name, so a tool call
+// to /w/{name}/api/mcp/tools/call must return that worktree's tag.
+func TestMultiServer_MCPToolsCall_UsesWorktreeState(t *testing.T) {
+	t.Setenv("ARCHAI_RETRIEVAL_DISABLE", "1")
+	primary := buildTwoWorktreeRepo(t)
+
+	loader := func(ctx context.Context, name, path string) (*serve.State, error) {
+		st := serve.NewState(path, serve.WithReader(taggedReader{tag: name}))
+		if err := st.Load(ctx); err != nil {
+			return nil, err
+		}
+		return st, nil
+	}
+	multi := serve.NewMultiState(primary, loader)
+	if err := multi.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	srv, err := NewMultiServer(multi)
+	if err != nil {
+		t.Fatalf("NewMultiServer: %v", err)
+	}
+	mux := nethttp.NewServeMux()
+	srv.routes(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	call := func(wt string) string {
+		resp, err := nethttp.Post(ts.URL+"/w/"+wt+"/api/mcp/tools/call",
+			"application/json", strings.NewReader(`{"name":"list_packages","arguments":{}}`))
+		if err != nil {
+			t.Fatalf("POST /w/%s: %v", wt, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != nethttp.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("POST /w/%s status=%d body=%s", wt, resp.StatusCode, body)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		return string(body)
+	}
+
+	if got := call("alpha"); !strings.Contains(got, "pkg/alpha") || strings.Contains(got, "pkg/beta") {
+		t.Errorf("/w/alpha list_packages = %s, want it to contain pkg/alpha and not pkg/beta", got)
+	}
+	if got := call("beta"); !strings.Contains(got, "pkg/beta") || strings.Contains(got, "pkg/alpha") {
+		t.Errorf("/w/beta list_packages = %s, want it to contain pkg/beta and not pkg/alpha", got)
 	}
 }
 

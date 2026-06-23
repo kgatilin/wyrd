@@ -44,6 +44,62 @@ func TestName_UsesGitTopLevelBasename(t *testing.T) {
 	}
 }
 
+func TestRepoRoot_LinkedWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	root := t.TempDir()
+	main := filepath.Join(root, "code")
+	if err := os.MkdirAll(main, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	run := func(dir string, args ...string) {
+		t.Helper()
+		full := append([]string{"-C", dir}, args...)
+		if out, err := exec.Command("git", full...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	run(main, "init")
+	run(main, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init")
+	// Add a linked worktree under <main>/.worktrees/feature.
+	linked := filepath.Join(main, ".worktrees", "feature")
+	run(main, "worktree", "add", "-b", "feature", linked)
+
+	eval := func(p string) string {
+		r, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			t.Fatalf("eval %s: %v", p, err)
+		}
+		return r
+	}
+	wantRoot := eval(main)
+
+	// From the main worktree, RepoRoot resolves to itself.
+	if got, ok := RepoRoot(main); !ok || eval(got) != wantRoot {
+		t.Errorf("RepoRoot(main) = (%q, %v), want (%q, true)", got, ok, wantRoot)
+	}
+	// From the linked worktree, RepoRoot resolves back to the main repo.
+	if got, ok := RepoRoot(linked); !ok || eval(got) != wantRoot {
+		t.Errorf("RepoRoot(linked) = (%q, %v), want (%q, true)", got, ok, wantRoot)
+	}
+	// And the linked worktree's own Name is distinct ("feature").
+	if got := Name(linked); got != "feature" {
+		t.Errorf("Name(linked) = %q, want %q", got, "feature")
+	}
+}
+
+func TestRepoRoot_NotAGitRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	// A bare temp dir with no git repo anywhere above it should fail.
+	dir := t.TempDir()
+	if got, ok := RepoRoot(dir); ok {
+		t.Errorf("RepoRoot(non-repo) = (%q, true), want (_, false)", got)
+	}
+}
+
 func TestCurrent_RoundTrip(t *testing.T) {
 	root := t.TempDir()
 	name := "wt1"

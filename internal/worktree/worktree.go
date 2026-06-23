@@ -53,6 +53,34 @@ func Name(projectRoot string) string {
 	return filepath.Base(abs)
 }
 
+// RepoRoot returns the main-worktree root for a (possibly linked) git
+// worktree at dir. It runs `git -C <dir> rev-parse --git-common-dir`
+// and takes the parent of the common .git directory, so a linked
+// worktree under <repo>/.worktrees/<branch> resolves back to <repo>.
+// In the main worktree it returns the worktree root itself. The second
+// return value is false when git is unavailable or dir is not inside a
+// git repository.
+//
+// This is how the --shared MCP thin client finds the repo-root
+// multi-worktree daemon (whose serve.json lives under the repo root,
+// not the linked worktree's .arch tree).
+func RepoRoot(dir string) (string, bool) {
+	common, ok := gitCommonDir(dir)
+	if !ok {
+		return "", false
+	}
+	if !filepath.IsAbs(common) {
+		joined := filepath.Join(dir, common)
+		abs, err := filepath.Abs(joined)
+		if err != nil {
+			return "", false
+		}
+		common = abs
+	}
+	// common is typically <repo>/.git; the repo root is its parent.
+	return filepath.Dir(common), true
+}
+
 // Dir returns the per-worktree state directory
 // (.arch/.worktree/<name>/) under projectRoot. The directory is NOT
 // created by this function.
@@ -250,6 +278,25 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 // is unavailable or dir is not inside a git worktree.
 func gitTopLevel(dir string) (string, bool) {
 	cmd := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel")
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	if err := cmd.Run(); err != nil {
+		return "", false
+	}
+	out := strings.TrimSpace(buf.String())
+	if out == "" {
+		return "", false
+	}
+	return out, true
+}
+
+// gitCommonDir returns the output of `git -C dir rev-parse
+// --git-common-dir`, trimmed. For a linked worktree this is the main
+// repository's .git directory (absolute or relative to dir); for the
+// main worktree it is typically ".git". The second return value is
+// false when git is unavailable or dir is not inside a git worktree.
+func gitCommonDir(dir string) (string, bool) {
+	cmd := exec.Command("git", "-C", dir, "rev-parse", "--git-common-dir")
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	if err := cmd.Run(); err != nil {
