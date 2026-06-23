@@ -281,7 +281,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		// Retrieval tools
 		{
 			Name:        "search",
-			Description: "Hybrid code search combining dense vector similarity (if available) and BM25 lexical matching, fused with reciprocal rank fusion. Returns ranked code symbols matching the query.",
+			Description: "Hybrid semantic + lexical code search: dense vector similarity (when an embedder is configured) and BM25 lexical matching, fused with reciprocal rank fusion. Use it as a semantic entry point to locate code when you don't know exact symbol names — it complements literal text search (which needs exact strings) and editor go-to-definition (which needs an already-known symbol). Each result carries node_id, kind, file, line, doc, and a source snippet, so file:line lets you jump straight to the code. Scores are fused RRF ranks (small values, often ~0.03), not absolute 0..1 relevance — use them only to order results, never as a cutoff threshold. The `dense` flag in the response reports whether vector similarity was active for this query. Results reflect the last indexed snapshot; symbols written since then stay invisible until you call `refresh`. Narrow noise with filters.kinds / filters.package_prefix when you already know the symbol kind or package.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -314,7 +314,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "search_graph",
-			Description: "Search for code and return a subgraph: the matching symbols plus their neighbors up to N hops away via uses/returns/implements/calls edges.",
+			Description: "Like `search`, but returns a subgraph instead of a flat list: the matching seed symbols plus their neighbors up to `hops` away via uses/returns/implements/calls edges. Use it to see how matched code connects — callers, callees, implementations — in a single call. Output grows fast with `k` and `hops` (a broad query can return hundreds of nodes and edges), so keep `k` small (~5) and `hops` at 1–2 unless you deliberately want a wider blast radius. Same snapshot freshness (call `refresh` to pick up new code) and same RRF scoring semantics as `search`.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -336,7 +336,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "expand",
-			Description: "Expand from given node IDs to their neighbors via graph edges. Returns a subgraph of nodes and edges reachable within the specified hops.",
+			Description: "Expand from node IDs you already have (from a prior `search` or `search_graph` result) to their neighbors via graph edges, up to `hops` away. Use it to widen the graph around symbols you've already found without re-running a query. Restrict `edges` to specific kinds (uses, returns, implements, calls) to keep the result focused; node IDs use the package.SymbolName format returned by search.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -360,7 +360,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "get_node",
-			Description: "Return full detail for a single code symbol including its source body and incident edges.",
+			Description: "Return full detail for a single symbol — its complete source body and incident edges — given a node_id (package.SymbolName) from a `search` or `search_graph` result. Use it to read the actual code once search has located the symbol.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -374,7 +374,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "refresh",
-			Description: "Rebuild the retrieval indexes from the current model snapshot. Returns counts of reindexed and removed nodes.",
+			Description: "Rebuild the retrieval indexes from the current model snapshot, picking up code written since the last index. `search` and `search_graph` read this snapshot, so newly added or changed symbols stay invisible to them until you refresh. Returns counts of reindexed and removed nodes.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
