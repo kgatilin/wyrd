@@ -1850,11 +1850,15 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 		}
 	}
 
-	// Call spectral clustering on the semantic graph
+	// Call spectral clustering on the semantic graph.
+	// We use "references" edges for semantic similarity since archmotifimport
+	// only accepts known DependencyKind values (dependsOn, calls, references,
+	// embeds, returns, usesType). "references" is semantically closest to
+	// "these symbols are related by meaning".
 	opts := spectralcluster.DefaultOptions()
 	opts.K = k
 	opts.NodeIDs = survivingNodeIDs
-	opts.EdgeKinds = []string{"semantic"} // our semantic edge kind
+	opts.EdgeKinds = []string{"references"} // semantic kNN edges use references kind
 
 	result, err := spectralcluster.SpectralCluster(semanticGraph, opts)
 	if err != nil {
@@ -1946,13 +1950,41 @@ type semanticNode struct {
 func buildSemanticKNNGraph(nodes []semanticNode, knn int, minSim float64) (*archmotifimport.Graph, int, error) {
 	b := archmotifimport.NewBuilder()
 
-	// Add all nodes as type nodes (archmotif expects typed nodes)
+	// Pass 1: Collect unique packages and register them first.
+	// archmotifimport.Builder requires parent package nodes to exist
+	// before AddType/AddFunction can reference them.
+	pkgPaths := make(map[string]bool)
 	for _, n := range nodes {
-		// Extract package path from archmotif ID
 		pkgPath := extractPackagePath(n.archmotifID)
-		// Add as a type node with empty role
-		if err := b.AddType(n.archmotifID, "pkg:"+pkgPath, false, ""); err != nil {
-			return nil, 0, fmt.Errorf("adding node %s: %w", n.archmotifID, err)
+		pkgPaths[pkgPath] = true
+	}
+	// Sort for deterministic output.
+	sortedPkgs := make([]string, 0, len(pkgPaths))
+	for p := range pkgPaths {
+		sortedPkgs = append(sortedPkgs, p)
+	}
+	sort.Strings(sortedPkgs)
+	for _, pkgPath := range sortedPkgs {
+		if err := b.AddPackage("pkg:"+pkgPath, "", ""); err != nil {
+			return nil, 0, fmt.Errorf("adding package %s: %w", pkgPath, err)
+		}
+	}
+
+	// Pass 2: Add all symbol nodes (types/functions).
+	// archmotif expects typed nodes; we add them as type nodes with empty role.
+	for _, n := range nodes {
+		pkgPath := extractPackagePath(n.archmotifID)
+		pkgID := "pkg:" + pkgPath
+		// Determine whether this is a function or a type based on the ID prefix.
+		if strings.HasPrefix(n.archmotifID, "fn:") {
+			if err := b.AddFunction(n.archmotifID, pkgID); err != nil {
+				return nil, 0, fmt.Errorf("adding node %s: %w", n.archmotifID, err)
+			}
+		} else {
+			// type:, method:, field: - add as type node
+			if err := b.AddType(n.archmotifID, pkgID, false, ""); err != nil {
+				return nil, 0, fmt.Errorf("adding node %s: %w", n.archmotifID, err)
+			}
 		}
 	}
 
@@ -1988,9 +2020,11 @@ func buildSemanticKNNGraph(nodes []semanticNode, knn int, minSim float64) (*arch
 
 		for _, sp := range similarities[:limit] {
 			nj := nodes[sp.idx]
-			// Add edge with "semantic" kind
-			// Note: directed edge from ni to nj; the graph's undirected view will symmetrize
-			if err := b.AddDependency(ni.archmotifID, nj.archmotifID, "semantic"); err != nil {
+			// Add edge with "references" kind (archmotifimport's valid kind for
+			// semantic similarity; the underlying meaning is "these symbols are
+			// semantically related").
+			// Note: directed edge from ni to nj; the graph's undirected view will symmetrize.
+			if err := b.AddDependency(ni.archmotifID, nj.archmotifID, archmotifimport.DependencyReferences); err != nil {
 				// Edge may already exist from the reverse direction; skip duplicates
 				continue
 			}
