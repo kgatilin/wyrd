@@ -222,8 +222,14 @@ func (r *reader) convertPackage(pkg *packages.Package) (domain.PackageModel, err
 	// Extract package-level variables and sentinel errors.
 	model.Variables, model.Errors = r.extractVarsAndErrors(pkg, astFiles)
 
-	// Collect dependencies
+	// Collect dependencies from type signatures (params, returns, fields).
 	model.Dependencies = r.collectDependencies(pkg, &model)
+
+	// Collect construction dependencies from composite literals in function/method bodies.
+	// This captures T{...} / &T{...} patterns that structural signature analysis misses,
+	// particularly when the resulting value is passed through interface{}/any.
+	constructDeps := r.collectConstructionDependencies(pkg, &model, astFiles)
+	model.Dependencies = append(model.Dependencies, constructDeps...)
 
 	// Apply stereotype detection
 	r.applyStereotypes(&model)
@@ -1145,7 +1151,17 @@ func (r *reader) collectDependencies(pkg *packages.Package, model *domain.Packag
 		for _, method := range iface.Methods {
 			// Interface + exported method = through exported
 			throughExported := iface.IsExported && method.IsExported
+
+			// Emit interface-level edge (existing behavior).
 			r.collectMethodDependenciesWithVisibility(fromRef, method, pkg, throughExported, addDep)
+
+			// Emit method-level edge for graph connectivity.
+			methodRef := domain.SymbolRef{
+				Package: model.Path,
+				File:    iface.SourceFile,
+				Symbol:  iface.Name + "." + method.Name,
+			}
+			r.collectMethodDependenciesWithVisibility(methodRef, method, pkg, throughExported, addDep)
 		}
 	}
 
@@ -1157,25 +1173,36 @@ func (r *reader) collectDependencies(pkg *packages.Package, model *domain.Packag
 			Symbol:  s.Name,
 		}
 
-		// Field dependencies
+		// Field dependencies — use typeRefToSymbolRefs to capture map/slice element types.
 		for _, field := range s.Fields {
-			if toRef := r.typeRefToSymbolRef(field.Type, pkg); toRef != nil {
-				// Struct + exported field = through exported
-				throughExported := s.IsExported && field.IsExported
+			throughExported := s.IsExported && field.IsExported
+			for _, toRef := range r.typeRefToSymbolRefs(field.Type, pkg) {
 				addDep(domain.Dependency{
 					From:            fromRef,
-					To:              *toRef,
+					To:              toRef,
 					Kind:            domain.DependencyUses,
 					ThroughExported: throughExported,
 				})
 			}
 		}
 
-		// Method dependencies
+		// Method dependencies — emit edges from BOTH the struct (for backward
+		// compatibility / aggregate-level views) AND the method node itself
+		// (for method-level connectivity in the graph).
 		for _, method := range s.Methods {
 			// Struct + exported method = through exported
 			throughExported := s.IsExported && method.IsExported
+
+			// Emit struct-level edge (existing behavior).
 			r.collectMethodDependenciesWithVisibility(fromRef, method, pkg, throughExported, addDep)
+
+			// Emit method-level edge for graph connectivity.
+			methodRef := domain.SymbolRef{
+				Package: model.Path,
+				File:    s.SourceFile,
+				Symbol:  s.Name + "." + method.Name,
+			}
+			r.collectMethodDependenciesWithVisibility(methodRef, method, pkg, throughExported, addDep)
 		}
 	}
 
@@ -1190,24 +1217,24 @@ func (r *reader) collectDependencies(pkg *packages.Package, model *domain.Packag
 		// Function is its own visibility gate
 		throughExported := fn.IsExported
 
-		// Parameter dependencies
+		// Parameter dependencies — use typeRefToSymbolRefs to capture map/slice element types.
 		for _, param := range fn.Params {
-			if toRef := r.typeRefToSymbolRef(param.Type, pkg); toRef != nil {
+			for _, toRef := range r.typeRefToSymbolRefs(param.Type, pkg) {
 				addDep(domain.Dependency{
 					From:            fromRef,
-					To:              *toRef,
+					To:              toRef,
 					Kind:            domain.DependencyUses,
 					ThroughExported: throughExported,
 				})
 			}
 		}
 
-		// Return type dependencies
+		// Return type dependencies — use typeRefToSymbolRefs to capture map/slice element types.
 		for _, ret := range fn.Returns {
-			if toRef := r.typeRefToSymbolRef(ret, pkg); toRef != nil {
+			for _, toRef := range r.typeRefToSymbolRefs(ret, pkg) {
 				addDep(domain.Dependency{
 					From:            fromRef,
-					To:              *toRef,
+					To:              toRef,
 					Kind:            domain.DependencyReturns,
 					ThroughExported: throughExported,
 				})
@@ -1215,7 +1242,211 @@ func (r *reader) collectDependencies(pkg *packages.Package, model *domain.Packag
 		}
 	}
 
+	// Process constants — emit uses edge to the constant's declared type.
+	for _, c := range model.Constants {
+		// Skip untyped constants (empty Type).
+		if c.Type.Name == "" {
+			continue
+		}
+		fromRef := domain.SymbolRef{
+			Package: model.Path,
+			File:    c.SourceFile,
+			Symbol:  c.Name,
+		}
+		for _, toRef := range r.typeRefToSymbolRefs(c.Type, pkg) {
+			addDep(domain.Dependency{
+				From:            fromRef,
+				To:              toRef,
+				Kind:            domain.DependencyUses,
+				ThroughExported: c.IsExported,
+			})
+		}
+	}
+
+	// Process variables — emit uses edge to the variable's declared type.
+	for _, v := range model.Variables {
+		// Skip variables with unresolved types.
+		if v.Type.Name == "" {
+			continue
+		}
+		fromRef := domain.SymbolRef{
+			Package: model.Path,
+			File:    v.SourceFile,
+			Symbol:  v.Name,
+		}
+		for _, toRef := range r.typeRefToSymbolRefs(v.Type, pkg) {
+			addDep(domain.Dependency{
+				From:            fromRef,
+				To:              toRef,
+				Kind:            domain.DependencyUses,
+				ThroughExported: v.IsExported,
+			})
+		}
+	}
+
+	// Process sentinel errors — they don't have Type (they are error values),
+	// but if we wanted to emit edges to 'error' interface, we'd do it here.
+	// For now, errors are connectivity sinks (degree-0 is acceptable for sentinel errors).
+
 	return deps
+}
+
+// collectConstructionDependencies walks function and method bodies looking for
+// composite literal constructions (T{...}, &T{...}) of named types from the
+// loaded package set. For each, it emits a DependencyUses edge from the
+// enclosing function/method to the constructed type. This captures connectivity
+// that structural signature analysis misses — particularly when the constructed
+// value is passed through interface{}/any.
+func (r *reader) collectConstructionDependencies(pkg *packages.Package, model *domain.PackageModel, astFiles map[string]*ast.File) []domain.Dependency {
+	var deps []domain.Dependency
+	seenDeps := make(map[string]bool)
+
+	addDep := func(dep domain.Dependency) {
+		key := dep.From.Package + "." + dep.From.Symbol + "->" + dep.To.Package + "." + dep.To.Symbol + ":" + string(dep.Kind)
+		if !seenDeps[key] {
+			seenDeps[key] = true
+			deps = append(deps, dep)
+		}
+	}
+
+	// Collect named types by package for quick lookup.
+	loadedTypes := make(map[*types.Package]bool)
+	if pkg.Types != nil {
+		loadedTypes[pkg.Types] = true
+	}
+	for _, imp := range pkg.Imports {
+		if imp.Types != nil {
+			loadedTypes[imp.Types] = true
+		}
+	}
+
+	for _, file := range pkg.Syntax {
+		for _, decl := range file.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Body == nil {
+				continue
+			}
+
+			// Determine the "from" symbol for this function/method.
+			var fromRef domain.SymbolRef
+			var throughExported bool
+			if fd.Recv == nil {
+				// Package-level function.
+				fn := findFunctionDef(model.Functions, fd.Name.Name)
+				if fn == nil {
+					continue
+				}
+				fromRef = domain.SymbolRef{
+					Package: model.Path,
+					File:    fn.SourceFile,
+					Symbol:  fn.Name,
+				}
+				throughExported = fn.IsExported
+			} else {
+				// Method.
+				recvName := receiverTypeName(fd.Recv)
+				if recvName == "" {
+					continue
+				}
+				// Find the struct or interface owning this method.
+				s := findStructDef(model.Structs, recvName)
+				if s != nil {
+					m := findMethodInStruct(s, fd.Name.Name)
+					if m == nil {
+						continue
+					}
+					fromRef = domain.SymbolRef{
+						Package: model.Path,
+						File:    s.SourceFile,
+						Symbol:  s.Name,
+					}
+					throughExported = s.IsExported && m.IsExported
+				} else {
+					// Could be an interface method (rare to have body).
+					continue
+				}
+			}
+
+			// Walk the body looking for composite literals.
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				cl, ok := n.(*ast.CompositeLit)
+				if !ok {
+					return true
+				}
+
+				// Resolve the composite literal's type.
+				tv, ok := pkg.TypesInfo.Types[cl]
+				if !ok {
+					return true
+				}
+
+				// Unwrap pointer type (for &T{}).
+				t := tv.Type
+				if ptr, ok := t.(*types.Pointer); ok {
+					t = ptr.Elem()
+				}
+
+				named, ok := t.(*types.Named)
+				if !ok {
+					return true
+				}
+
+				// Check if the type's package is in the loaded set.
+				typePkg := named.Obj().Pkg()
+				if typePkg == nil || !loadedTypes[typePkg] {
+					return true
+				}
+
+				// Emit a uses dependency to the constructed type.
+				toRef := domain.SymbolRef{
+					Package:  r.relativePath(typePkg.Path()),
+					Symbol:   named.Obj().Name(),
+					External: false,
+				}
+
+				addDep(domain.Dependency{
+					From:            fromRef,
+					To:              toRef,
+					Kind:            domain.DependencyUses,
+					ThroughExported: throughExported,
+				})
+
+				return true
+			})
+		}
+	}
+
+	return deps
+}
+
+// findFunctionDef finds a FunctionDef by name.
+func findFunctionDef(fns []domain.FunctionDef, name string) *domain.FunctionDef {
+	for i := range fns {
+		if fns[i].Name == name {
+			return &fns[i]
+		}
+	}
+	return nil
+}
+
+// findStructDef finds a StructDef by name.
+func findStructDef(structs []domain.StructDef, name string) *domain.StructDef {
+	for i := range structs {
+		if structs[i].Name == name {
+			return &structs[i]
+		}
+	}
+	return nil
+}
+
+// findMethodInStruct finds a method by name in a struct.
+func findMethodInStruct(s *domain.StructDef, methodName string) *domain.MethodDef {
+	for i := range s.Methods {
+		if s.Methods[i].Name == methodName {
+			return &s.Methods[i]
+		}
+	}
+	return nil
 }
 
 // collectMethodDependenciesWithVisibility collects dependencies from a method's parameters and returns.
@@ -1227,26 +1458,26 @@ func (r *reader) collectMethodDependenciesWithVisibility(
 	throughExported bool,
 	addDep func(domain.Dependency),
 ) {
-	// Parameter dependencies
+	// Parameter dependencies — use typeRefToSymbolRefs to capture map/slice element types.
 	for _, param := range method.Params {
-		if toRef := r.typeRefToSymbolRef(param.Type, pkg); toRef != nil {
+		for _, toRef := range r.typeRefToSymbolRefs(param.Type, pkg) {
 			addDep(domain.Dependency{
 				From:            fromRef,
-				To:              *toRef,
+				To:              toRef,
 				Kind:            domain.DependencyUses,
 				ThroughExported: throughExported,
 			})
 		}
 	}
 
-	// Return type dependencies
+	// Return type dependencies — use typeRefToSymbolRefs to capture map/slice element types.
 	for _, ret := range method.Returns {
-		if toRef := r.typeRefToSymbolRef(ret, pkg); toRef != nil {
+		for _, toRef := range r.typeRefToSymbolRefs(ret, pkg) {
 			addDep(domain.Dependency{
 				From:            fromRef,
-				ThroughExported: throughExported,
-				To:              *toRef,
+				To:              toRef,
 				Kind:            domain.DependencyReturns,
+				ThroughExported: throughExported,
 			})
 		}
 	}
@@ -1254,11 +1485,10 @@ func (r *reader) collectMethodDependenciesWithVisibility(
 
 // typeRefToSymbolRef converts a TypeRef to a SymbolRef for dependency tracking.
 // Returns nil for basic types that don't create meaningful dependencies.
+// For composite types (maps, slices, channels), use typeRefToSymbolRefs to get all component types.
 func (r *reader) typeRefToSymbolRef(ref domain.TypeRef, pkg *packages.Package) *domain.SymbolRef {
-	// Handle maps - collect dependencies for key and value types
+	// Handle maps - delegate to typeRefToSymbolRefs for multi-type extraction.
 	if ref.IsMap {
-		// We don't create a single dependency for maps, the caller should handle
-		// key and value types separately if needed
 		return nil
 	}
 
@@ -1302,6 +1532,45 @@ func (r *reader) typeRefToSymbolRef(ref domain.TypeRef, pkg *packages.Package) *
 	}
 
 	return symRef
+}
+
+// typeRefToSymbolRefs extracts all symbol references from a TypeRef, including
+// composite type components (map keys/values, slice elements). Returns an empty
+// slice for basic types. This captures dependencies that typeRefToSymbolRef misses.
+func (r *reader) typeRefToSymbolRefs(ref domain.TypeRef, pkg *packages.Package) []domain.SymbolRef {
+	var refs []domain.SymbolRef
+
+	// Handle maps — extract both key and value types.
+	if ref.IsMap {
+		if ref.KeyType != nil {
+			refs = append(refs, r.typeRefToSymbolRefs(*ref.KeyType, pkg)...)
+		}
+		if ref.ValueType != nil {
+			refs = append(refs, r.typeRefToSymbolRefs(*ref.ValueType, pkg)...)
+		}
+		return refs
+	}
+
+	// Handle slices — extract element type from the underlying Name after stripping [].
+	if ref.IsSlice {
+		// The element type info should be in Name without the leading [].
+		// However, TypeRef for slices has IsSlice=true and Name = element type name.
+		// So we recurse with a TypeRef for the element.
+		elemRef := domain.TypeRef{
+			Name:      ref.Name,
+			Package:   ref.Package,
+			IsPointer: ref.IsPointer,
+			TypeArgs:  ref.TypeArgs,
+		}
+		return r.typeRefToSymbolRefs(elemRef, pkg)
+	}
+
+	// For non-composite types, use the existing single-ref logic.
+	if symRef := r.typeRefToSymbolRef(ref, pkg); symRef != nil {
+		refs = append(refs, *symRef)
+	}
+
+	return refs
 }
 
 // findSymbolFile finds the source file for a symbol in a package.

@@ -143,6 +143,14 @@ func ToArchmotifGraph(models []domain.PackageModel, _ *overlay.Config) (*archmot
 		return nil, err
 	}
 
+	// Pass 6: call edges from function/method bodies. These are
+	// behavioral edges captured by the Go reader's call-extraction pass.
+	// They provide the dynamic connectivity that structural
+	// uses/returns edges miss (e.g., handler → DTO construction).
+	if err := addCallEdges(b, models, pkgByPath); err != nil {
+		return nil, err
+	}
+
 	return b.Build()
 }
 
@@ -374,6 +382,114 @@ func addPackageDependsOn(b *archmotifimport.Builder, models []domain.PackageMode
 	return nil
 }
 
+// addCallEdges emits call edges from function/method bodies to their
+// call targets. These behavioral edges complement the structural
+// uses/returns edges and are essential for graph connectivity (e.g.,
+// a handler that constructs a DTO has no structural edge to it, but
+// the call graph captures that the handler's body references the DTO).
+func addCallEdges(b *archmotifimport.Builder, models []domain.PackageModel, pkgByPath map[string]*domain.PackageModel) error {
+	type callEdge struct {
+		fromID string
+		toID   string
+	}
+	seen := map[callEdge]bool{}
+	var edges []callEdge
+
+	// emitCalls processes call edges from a single callable.
+	emitCalls := func(fromID string, calls []domain.CallEdge) {
+		for _, c := range calls {
+			toID, ok := resolveCallTarget(c.To, pkgByPath)
+			if !ok {
+				continue
+			}
+			if fromID == toID {
+				continue // skip self-calls
+			}
+			e := callEdge{fromID, toID}
+			if seen[e] {
+				continue
+			}
+			seen[e] = true
+			edges = append(edges, e)
+		}
+	}
+
+	for _, p := range models {
+		// Package-level functions.
+		for _, fn := range p.Functions {
+			emitCalls(functionID(p.Path, fn.Name), fn.Calls)
+		}
+		// Struct methods.
+		for _, s := range p.Structs {
+			for _, m := range s.Methods {
+				emitCalls(methodID(p.Path, s.Name, m.Name), m.Calls)
+			}
+		}
+		// Interface methods (rarely have bodies, but included for completeness).
+		for _, iface := range p.Interfaces {
+			for _, m := range iface.Methods {
+				emitCalls(methodID(p.Path, iface.Name, m.Name), m.Calls)
+			}
+		}
+	}
+
+	// Sort for deterministic output.
+	sort.Slice(edges, func(i, j int) bool {
+		if edges[i].fromID != edges[j].fromID {
+			return edges[i].fromID < edges[j].fromID
+		}
+		return edges[i].toID < edges[j].toID
+	})
+
+	for _, e := range edges {
+		if err := b.AddDependency(e.fromID, e.toID, archmotifimport.DependencyCalls); err != nil {
+			return fmt.Errorf("archmotif: call %s->%s: %w", e.fromID, e.toID, err)
+		}
+	}
+	return nil
+}
+
+// resolveCallTarget maps a CallEdge's To SymbolRef to an archmotif node ID.
+// Call targets can be functions or methods (Struct.Method format in Symbol).
+func resolveCallTarget(ref domain.SymbolRef, pkgByPath map[string]*domain.PackageModel) (string, bool) {
+	if ref.External {
+		return "", false
+	}
+	p, ok := pkgByPath[ref.Package]
+	if !ok {
+		return "", false
+	}
+
+	// CallEdge.To.Symbol may be:
+	//   - "FunctionName" for package-level functions
+	//   - "TypeName.MethodName" for methods
+	if idx := indexDot(ref.Symbol); idx >= 0 {
+		// Method call: "Struct.Method"
+		typeName := ref.Symbol[:idx]
+		// Verify the type exists in the package.
+		if packageHasStruct(p, typeName) || packageHasInterface(p, typeName) {
+			return methodID(ref.Package, typeName, ref.Symbol[idx+1:]), true
+		}
+		return "", false
+	}
+
+	// Package-level function.
+	if packageHasFunction(p, ref.Symbol) {
+		return functionID(ref.Package, ref.Symbol), true
+	}
+	return "", false
+}
+
+// indexDot returns the index of the first '.' in s, or -1 if not found.
+func indexDot(s string) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '.' {
+			return i
+		}
+	}
+	return -1
+}
+
 // nestedInSentinel marks a dependency that should be exported as a
 // structural contains edge rather than a typed dependency. It is
 // distinct from any real DependencyKind value.
@@ -437,6 +553,21 @@ func resolveSymbolID(ref domain.SymbolRef, pkgByPath map[string]*domain.PackageM
 	if !ok {
 		return "", false
 	}
+
+	// Check for method symbol format: "Type.Method".
+	if idx := indexDot(ref.Symbol); idx >= 0 {
+		typeName := ref.Symbol[:idx]
+		methodName := ref.Symbol[idx+1:]
+		// Verify the type exists in the package.
+		if packageHasStruct(p, typeName) && packageHasMethod(p, typeName, methodName) {
+			return methodID(ref.Package, typeName, methodName), true
+		}
+		if packageHasInterface(p, typeName) && packageHasInterfaceMethod(p, typeName, methodName) {
+			return methodID(ref.Package, typeName, methodName), true
+		}
+		return "", false
+	}
+
 	// Resolve in symbol-priority order: interface, struct, typedef,
 	// function. Methods/fields are not first-class targets of
 	// dependency edges in archai today.
@@ -502,6 +633,34 @@ func packageHasFunction(p *domain.PackageModel, name string) bool {
 	for _, f := range p.Functions {
 		if f.Name == name {
 			return true
+		}
+	}
+	return false
+}
+
+func packageHasMethod(p *domain.PackageModel, structName, methodName string) bool {
+	for _, s := range p.Structs {
+		if s.Name == structName {
+			for _, m := range s.Methods {
+				if m.Name == methodName {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
+func packageHasInterfaceMethod(p *domain.PackageModel, ifaceName, methodName string) bool {
+	for _, i := range p.Interfaces {
+		if i.Name == ifaceName {
+			for _, m := range i.Methods {
+				if m.Name == methodName {
+					return true
+				}
+			}
+			return false
 		}
 	}
 	return false
