@@ -24,6 +24,7 @@ import (
 	"github.com/kgatilin/archai/internal/target"
 	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
 	archmotifComponents "github.com/kgatilin/archmotif/pkg/components"
+	archmotifFilestats "github.com/kgatilin/archmotif/pkg/filestats"
 	"github.com/kgatilin/archmotif/pkg/spectralcluster"
 	archmotifTrophic "github.com/kgatilin/archmotif/pkg/trophic"
 	yamlv3 "gopkg.in/yaml.v3"
@@ -423,6 +424,10 @@ func builtinToolDefinitions() []ToolDefinition {
 						},
 						"description": "Number of clusters: \"auto\" uses eigengap heuristic, or specify an integer >= 1.",
 					},
+					"collapse_members": map[string]any{
+						"type":        "boolean",
+						"description": "Contract method and field nodes into their owning type nodes, re-pointing their edges. Use this to cluster at the same type+function granularity as semantic_cluster (default false).",
+					},
 				},
 			},
 		},
@@ -486,6 +491,24 @@ func builtinToolDefinitions() []ToolDefinition {
 						"description": "Minimum cosine similarity to create an edge (default 0.0, disabled).",
 					},
 				},
+			},
+		},
+		{
+			Name:        "file_hotspots",
+			Description: "Find structurally overloaded source files in a package — those carrying an outlier number of top-level declarations (types + functions). Returns per-file declaration counts sorted high-to-low, the median and max, and flags outliers (>= max(3x median, 20)). Use it to spot god-files that should be split. Methods and fields are not counted — they are not file-attributed in the model.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{
+						"type":        "string",
+						"description": "Package path to analyze. Required.",
+					},
+					"include_subpackages": map[string]any{
+						"type":        "boolean",
+						"description": "Include subpackages of the given package (default true).",
+					},
+				},
+				"required": []string{"package"},
 			},
 		},
 		{
@@ -556,6 +579,8 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleComponents(state, rawArgs)
 	case "trophic_layers":
 		return handleTrophicLayers(state, rawArgs)
+	case "file_hotspots":
+		return handleFileHotspots(state, rawArgs)
 	}
 	if strings.HasPrefix(name, "plugin.") {
 		return dispatchPluginTool(name, rawArgs)
@@ -1577,8 +1602,9 @@ func handleRefresh(state *serve.State) (ToolResult, *RPCError) {
 
 // spectralClusterArgs is the input schema for the spectral_cluster tool.
 type spectralClusterArgs struct {
-	Selector spectralSelector `json:"selector"`
-	K        any              `json:"k"` // "auto" or integer
+	Selector        spectralSelector `json:"selector"`
+	K               any              `json:"k"`                // "auto" or integer
+	CollapseMembers bool             `json:"collapse_members"` // contract method/field nodes into owning type
 }
 
 type spectralSelector struct {
@@ -1672,13 +1698,28 @@ func handleSpectralCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 		}
 	}
 
+	// If collapse_members is set, contract method/field nodes into their owning types.
+	clusterGraph := graph
+	clusterNodeIDs := nodeIDs
+	edgeCount := graph.EdgeCount()
+
+	if args.CollapseMembers {
+		collapsed, collapsedNodeIDs, collapsedEdgeCount, collapseErr := buildCollapsedGraph(graph, nodeIDs)
+		if collapseErr != nil {
+			return errorResult(fmt.Sprintf("collapsing members: %v", collapseErr)), nil
+		}
+		clusterGraph = collapsed
+		clusterNodeIDs = collapsedNodeIDs
+		edgeCount = collapsedEdgeCount
+	}
+
 	// Call spectral clustering.
 	opts := spectralcluster.DefaultOptions()
 	opts.K = k
-	opts.NodeIDs = nodeIDs
+	opts.NodeIDs = clusterNodeIDs
 	opts.EdgeKinds = args.Selector.EdgeKinds
 
-	result, err := spectralcluster.SpectralCluster(graph, opts)
+	result, err := spectralcluster.SpectralCluster(clusterGraph, opts)
 	if err != nil {
 		return errorResult(fmt.Sprintf("spectral clustering failed: %v", err)), nil
 	}
@@ -1706,8 +1747,8 @@ func handleSpectralCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 	}
 
 	resp := spectralClusterResponse{
-		NodeCount: len(nodeIDs),
-		EdgeCount: graph.EdgeCount(),
+		NodeCount: len(clusterNodeIDs),
+		EdgeCount: edgeCount,
 		CutAnalysis: spectralCutAnalysis{
 			ChosenK:    result.ChosenK,
 			KSource:    result.KSource,
@@ -1722,6 +1763,210 @@ func handleSpectralCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 	}
 
 	return textResult(resp)
+}
+
+// buildCollapsedGraph contracts method and field nodes into their owning type nodes.
+// It re-points edges from members to their owning type, removes self-loops, and dedupes
+// parallel edges. Returns the collapsed graph, surviving node IDs, edge count, and any error.
+func buildCollapsedGraph(original *archmotifimport.Graph, selectedNodeIDs []string) (*archmotifimport.Graph, []string, int, error) {
+	// Build maps:
+	// - memberToOwner: maps method:/field: IDs to their owning type: ID
+	// - survivingNodes: set of non-member node IDs that will remain
+	memberToOwner := make(map[string]string)
+	survivingNodes := make(map[string]bool)
+
+	for _, id := range selectedNodeIDs {
+		ownerID := memberOwnerID(id)
+		if ownerID != "" {
+			// This is a member node; map it to its owner
+			memberToOwner[id] = ownerID
+		} else {
+			// Not a member node; it survives
+			survivingNodes[id] = true
+		}
+	}
+
+	// Collect unique packages from surviving nodes to register first.
+	pkgPaths := make(map[string]bool)
+	for id := range survivingNodes {
+		pkgPath := extractPackagePath(id)
+		pkgPaths[pkgPath] = true
+	}
+	sortedPkgs := make([]string, 0, len(pkgPaths))
+	for p := range pkgPaths {
+		sortedPkgs = append(sortedPkgs, p)
+	}
+	sort.Strings(sortedPkgs)
+
+	b := archmotifimport.NewBuilder()
+
+	// Register packages.
+	for _, pkgPath := range sortedPkgs {
+		if err := b.AddPackage("pkg:"+pkgPath, "", ""); err != nil {
+			return nil, nil, 0, fmt.Errorf("adding package %s: %w", pkgPath, err)
+		}
+	}
+
+	// Add surviving nodes (types and functions).
+	sortedSurviving := make([]string, 0, len(survivingNodes))
+	for id := range survivingNodes {
+		sortedSurviving = append(sortedSurviving, id)
+	}
+	sort.Strings(sortedSurviving)
+
+	for _, id := range sortedSurviving {
+		pkgPath := extractPackagePath(id)
+		pkgID := "pkg:" + pkgPath
+		if strings.HasPrefix(id, "fn:") {
+			if err := b.AddFunction(id, pkgID); err != nil {
+				return nil, nil, 0, fmt.Errorf("adding function %s: %w", id, err)
+			}
+		} else {
+			// type:, const:, var:, etc. - add as type node
+			if err := b.AddType(id, pkgID, false, ""); err != nil {
+				return nil, nil, 0, fmt.Errorf("adding type %s: %w", id, err)
+			}
+		}
+	}
+
+	// Collect edges from original graph, re-pointing member endpoints to their owners.
+	// Dedupe and remove self-loops.
+	type edgeKey struct {
+		from, to string
+		kind     string // EdgeKind is a string
+	}
+	seenEdges := make(map[edgeKey]bool)
+	var edgesToAdd []edgeKey
+
+	// Build a set of selected node IDs for quick lookup
+	selectedSet := make(map[string]bool, len(selectedNodeIDs))
+	for _, id := range selectedNodeIDs {
+		selectedSet[id] = true
+	}
+
+	for _, e := range original.Edges() {
+		// Only process edges where both endpoints are in our selection
+		if !selectedSet[e.From] || !selectedSet[e.To] {
+			continue
+		}
+
+		fromID := e.From
+		toID := e.To
+
+		// Re-point member nodes to their owners
+		if owner, ok := memberToOwner[fromID]; ok {
+			fromID = owner
+		}
+		if owner, ok := memberToOwner[toID]; ok {
+			toID = owner
+		}
+
+		// Skip self-loops
+		if fromID == toID {
+			continue
+		}
+
+		// Skip if either endpoint is not a surviving node
+		if !survivingNodes[fromID] || !survivingNodes[toID] {
+			continue
+		}
+
+		// Dedupe
+		key := edgeKey{from: fromID, to: toID, kind: string(e.Kind)}
+		if seenEdges[key] {
+			continue
+		}
+		seenEdges[key] = true
+		edgesToAdd = append(edgesToAdd, key)
+	}
+
+	// Sort edges for deterministic output
+	sort.Slice(edgesToAdd, func(i, j int) bool {
+		if edgesToAdd[i].from != edgesToAdd[j].from {
+			return edgesToAdd[i].from < edgesToAdd[j].from
+		}
+		if edgesToAdd[i].to != edgesToAdd[j].to {
+			return edgesToAdd[i].to < edgesToAdd[j].to
+		}
+		return string(edgesToAdd[i].kind) < string(edgesToAdd[j].kind)
+	})
+
+	// Add edges to builder.
+	// Map edge kind strings back to archmotifimport.DependencyKind.
+	// Skip structural edges (contains, implements) which have dedicated methods.
+	for _, e := range edgesToAdd {
+		depKind := edgeKindToDependencyKind(e.kind)
+		if depKind == "" {
+			// Skip structural edges that can't be added via AddDependency
+			continue
+		}
+		if err := b.AddDependency(e.from, e.to, depKind); err != nil {
+			// Skip errors (e.g., duplicate edges from asymmetric views)
+			continue
+		}
+	}
+
+	g, err := b.Build()
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("building collapsed graph: %w", err)
+	}
+
+	return g, sortedSurviving, len(edgesToAdd), nil
+}
+
+// memberOwnerID returns the owning type ID for a method or field node ID,
+// or empty string if the node is not a member.
+// method:pkg.Recv.Method -> type:pkg.Recv
+// field:pkg.Struct.Field -> type:pkg.Struct
+func memberOwnerID(id string) string {
+	switch {
+	case strings.HasPrefix(id, "method:"):
+		// method:internal/domain.StructName.MethodName -> type:internal/domain.StructName
+		rest := strings.TrimPrefix(id, "method:")
+		// Find the last dot (before method name) and second-to-last dot (before receiver name)
+		lastDot := strings.LastIndex(rest, ".")
+		if lastDot < 0 {
+			return ""
+		}
+		// rest[:lastDot] is "internal/domain.StructName"
+		return "type:" + rest[:lastDot]
+
+	case strings.HasPrefix(id, "field:"):
+		// field:internal/domain.StructName.FieldName -> type:internal/domain.StructName
+		rest := strings.TrimPrefix(id, "field:")
+		lastDot := strings.LastIndex(rest, ".")
+		if lastDot < 0 {
+			return ""
+		}
+		return "type:" + rest[:lastDot]
+	}
+	return ""
+}
+
+// edgeKindToDependencyKind maps archmotif EdgeKind strings to archmotifimport.DependencyKind.
+// Returns empty string for structural edges (contains, implements) that can't be added via AddDependency.
+func edgeKindToDependencyKind(kind string) archmotifimport.DependencyKind {
+	switch kind {
+	case "dependsOn":
+		return archmotifimport.DependencyDependsOn
+	case "calls":
+		return archmotifimport.DependencyCalls
+	case "callsFrom":
+		return archmotifimport.DependencyCallsFrom
+	case "references":
+		return archmotifimport.DependencyReferences
+	case "embeds":
+		return archmotifimport.DependencyEmbeds
+	case "returns":
+		return archmotifimport.DependencyReturns
+	case "usesType":
+		return archmotifimport.DependencyUsesType
+	case "contains", "implements":
+		// Structural edges - skip, they have dedicated AddContains/AddImplements methods
+		return ""
+	default:
+		return ""
+	}
 }
 
 // --- Semantic cluster tool handler ---
@@ -2460,4 +2705,100 @@ func sampleStrings(s []string, limit int) []string {
 		return s
 	}
 	return s[:limit]
+}
+
+type fileHotspotsArgs struct {
+	Package            string `json:"package"`
+	IncludeSubpackages *bool  `json:"include_subpackages,omitempty"`
+}
+
+type fileHotspotInfo struct {
+	File        string `json:"file"`
+	SymbolCount int    `json:"symbol_count"`
+	Outlier     bool   `json:"outlier"`
+}
+
+type fileHotspotsResponse struct {
+	FileCount     int               `json:"file_count"`
+	TotalSymbols  int               `json:"total_symbols"`
+	MedianSymbols float64           `json:"median_symbols"`
+	MaxSymbols    int               `json:"max_symbols"`
+	OutlierCount  int               `json:"outlier_count"`
+	Files         []fileHotspotInfo `json:"files"`
+}
+
+func handleFileHotspots(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	var args fileHotspotsArgs
+	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
+		return ToolResult{}, rpcErr
+	}
+	if args.Package == "" {
+		return errorResult("package is required"), nil
+	}
+	if state == nil {
+		return errorResult("no state available"), nil
+	}
+
+	snap := state.Snapshot()
+	if len(snap.Packages) == 0 {
+		return errorResult("no packages loaded"), nil
+	}
+
+	graph, err := archmotifAdapter.ToArchmotifGraph(snap.Packages, snap.Overlay)
+	if err != nil {
+		return errorResult(fmt.Sprintf("building graph: %v", err)), nil
+	}
+
+	includeSubpkgs := true
+	if args.IncludeSubpackages != nil {
+		includeSubpkgs = *args.IncludeSubpackages
+	}
+	matchingPkgs := map[string]bool{}
+	for _, pkg := range snap.Packages {
+		if pkg.Path == args.Package {
+			matchingPkgs[pkg.Path] = true
+		} else if includeSubpkgs && strings.HasPrefix(pkg.Path, args.Package+"/") {
+			matchingPkgs[pkg.Path] = true
+		}
+	}
+	if len(matchingPkgs) == 0 {
+		return errorResult(fmt.Sprintf("no packages match %q", args.Package)), nil
+	}
+
+	// Select file nodes belonging to the matching packages.
+	var fileIDs []string
+	for _, n := range graph.Nodes() {
+		if n.Kind != "file" {
+			continue
+		}
+		if matchingPkgs[extractPackagePath(n.ID)] {
+			fileIDs = append(fileIDs, n.ID)
+		}
+	}
+	if len(fileIDs) == 0 {
+		return errorResult("no file nodes in the selected packages"), nil
+	}
+
+	result := archmotifFilestats.Analyze(graph, archmotifFilestats.Options{NodeIDs: fileIDs})
+
+	// Cap the per-file list to the heaviest files; the summary keeps the
+	// full counts.
+	const fileLimit = 30
+	files := make([]fileHotspotInfo, 0, len(result.Files))
+	for i, f := range result.Files {
+		if i >= fileLimit {
+			break
+		}
+		files = append(files, fileHotspotInfo{File: f.File, SymbolCount: f.SymbolCount, Outlier: f.Outlier})
+	}
+
+	resp := fileHotspotsResponse{
+		FileCount:     result.FileCount,
+		TotalSymbols:  result.TotalSymbols,
+		MedianSymbols: result.MedianSymbols,
+		MaxSymbols:    result.MaxSymbols,
+		OutlierCount:  result.OutlierCount,
+		Files:         files,
+	}
+	return textResult(resp)
 }

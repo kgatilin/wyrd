@@ -10,6 +10,7 @@ import (
 
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/serve"
+	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
 )
 
 func TestMain(m *testing.M) {
@@ -59,9 +60,9 @@ func mustWrite(t *testing.T, path, body string) {
 
 func TestToolDefinitions(t *testing.T) {
 	defs := ToolDefinitions()
-	// 11 original tools + 5 retrieval tools (search, search_graph, expand, get_node, refresh) + spectral_cluster + components + trophic_layers + semantic_cluster
-	if len(defs) != 20 {
-		t.Fatalf("expected 20 tool definitions, got %d", len(defs))
+	// 11 original tools + 5 retrieval tools (search, search_graph, expand, get_node, refresh) + spectral_cluster + components + trophic_layers + semantic_cluster + file_hotspots
+	if len(defs) != 21 {
+		t.Fatalf("expected 21 tool definitions, got %d", len(defs))
 	}
 	names := map[string]bool{}
 	for _, d := range defs {
@@ -73,7 +74,7 @@ func TestToolDefinitions(t *testing.T) {
 			t.Errorf("tool %q missing input schema", d.Name)
 		}
 	}
-	for _, want := range []string{"extract", "list_packages", "get_package", "lock_target", "list_targets", "set_current_target", "diff", "apply_diff", "validate", "list_bounded_contexts", "get_bounded_context", "trophic_layers"} {
+	for _, want := range []string{"extract", "list_packages", "get_package", "lock_target", "list_targets", "set_current_target", "diff", "apply_diff", "validate", "list_bounded_contexts", "get_bounded_context", "trophic_layers", "file_hotspots"} {
 		if !names[want] {
 			t.Errorf("missing tool definition for %q", want)
 		}
@@ -106,6 +107,33 @@ func TestDispatch_TrophicLayers(t *testing.T) {
 	}
 	if resp.Coherence.Verdict == "" {
 		t.Errorf("coherence verdict missing")
+	}
+}
+
+func TestDispatch_FileHotspots(t *testing.T) {
+	state := loadFakeState(t)
+
+	res, rpcErr := Dispatch(state, "file_hotspots", json.RawMessage(`{"package":"alpha"}`))
+	if rpcErr != nil {
+		t.Fatalf("dispatch error: %v", rpcErr)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %s", res.Content[0].Text)
+	}
+
+	var resp fileHotspotsResponse
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	// alpha.go holds Service, Impl, New -> one file with 3 top-level decls.
+	if resp.FileCount != 1 {
+		t.Fatalf("file_count = %d, want 1", resp.FileCount)
+	}
+	if resp.MaxSymbols != 3 {
+		t.Errorf("max_symbols = %d, want 3", resp.MaxSymbols)
+	}
+	if len(resp.Files) == 0 || resp.Files[0].SymbolCount != 3 {
+		t.Errorf("top file = %+v, want symbol_count 3", resp.Files)
 	}
 }
 
@@ -430,6 +458,143 @@ func TestArchmotifIDToRetrievalID(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("archmotifIDToRetrievalID(%q) = %q, want %q", tc.amid, got, tc.want)
 		}
+	}
+}
+
+// TestMemberOwnerID verifies the member-to-owner ID mapping for collapse_members.
+func TestMemberOwnerID(t *testing.T) {
+	cases := []struct {
+		id   string
+		want string
+	}{
+		// Methods map to their owning type
+		{"method:internal/domain.State.DoSomething", "type:internal/domain.State"},
+		{"method:pkg.Receiver.Method", "type:pkg.Receiver"},
+		// Fields map to their owning type
+		{"field:internal/domain.State.Name", "type:internal/domain.State"},
+		{"field:pkg.Struct.Field", "type:pkg.Struct"},
+		// Non-members return empty string
+		{"type:internal/domain.State", ""},
+		{"fn:internal/service.NewService", ""},
+		{"pkg:internal/domain", ""},
+		{"file:internal/domain/model.go", ""},
+	}
+	for _, tc := range cases {
+		got := memberOwnerID(tc.id)
+		if got != tc.want {
+			t.Errorf("memberOwnerID(%q) = %q, want %q", tc.id, got, tc.want)
+		}
+	}
+}
+
+// TestBuildCollapsedGraph verifies that method/field nodes are contracted into
+// their owning type and edges are re-pointed correctly.
+func TestBuildCollapsedGraph(t *testing.T) {
+	// Build a small graph with:
+	// - type:pkg.TypeA
+	// - type:pkg.TypeB
+	// - method:pkg.TypeA.DoSomething with an edge to type:pkg.TypeB
+	// After collapse, we expect:
+	// - type:pkg.TypeA with edge to type:pkg.TypeB (the method is gone)
+	b := archmotifimport.NewBuilder()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("builder error: %v", err)
+		}
+	}
+
+	must(b.AddPackage("pkg:mypkg", "", ""))
+	must(b.AddType("type:mypkg.TypeA", "pkg:mypkg", false, ""))
+	must(b.AddType("type:mypkg.TypeB", "pkg:mypkg", false, ""))
+	must(b.AddMethod("method:mypkg.TypeA.DoSomething", "type:mypkg.TypeA"))
+	// Edge from method to TypeB (the method uses TypeB)
+	must(b.AddDependency("method:mypkg.TypeA.DoSomething", "type:mypkg.TypeB", archmotifimport.DependencyUsesType))
+
+	original, err := b.Build()
+	if err != nil {
+		t.Fatalf("build original graph: %v", err)
+	}
+
+	// Selected nodes include the method
+	selectedNodeIDs := []string{
+		"type:mypkg.TypeA",
+		"type:mypkg.TypeB",
+		"method:mypkg.TypeA.DoSomething",
+	}
+
+	collapsed, survivingNodeIDs, edgeCount, err := buildCollapsedGraph(original, selectedNodeIDs)
+	if err != nil {
+		t.Fatalf("buildCollapsedGraph failed: %v", err)
+	}
+
+	// Verify method node is gone
+	for _, id := range survivingNodeIDs {
+		if strings.HasPrefix(id, "method:") {
+			t.Errorf("method node %q should not survive collapse", id)
+		}
+	}
+
+	// Verify we have exactly 2 surviving nodes (the two types)
+	if len(survivingNodeIDs) != 2 {
+		t.Errorf("expected 2 surviving nodes, got %d: %v", len(survivingNodeIDs), survivingNodeIDs)
+	}
+
+	// Verify edge was re-pointed: TypeA -> TypeB
+	if edgeCount != 1 {
+		t.Errorf("expected 1 edge after collapse, got %d", edgeCount)
+	}
+
+	// Verify graph can be used (has nodes and edges)
+	if collapsed.NodeCount() == 0 {
+		t.Error("collapsed graph has no nodes")
+	}
+	if collapsed.EdgeCount() == 0 {
+		t.Error("collapsed graph has no edges")
+	}
+}
+
+// TestBuildCollapsedGraph_SelfLoopRemoval verifies that edges that become self-loops
+// after collapse are removed.
+func TestBuildCollapsedGraph_SelfLoopRemoval(t *testing.T) {
+	// Build a graph where a method has an edge to its own type (self-loop after collapse)
+	b := archmotifimport.NewBuilder()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("builder error: %v", err)
+		}
+	}
+
+	must(b.AddPackage("pkg:mypkg", "", ""))
+	must(b.AddType("type:mypkg.TypeA", "pkg:mypkg", false, ""))
+	must(b.AddMethod("method:mypkg.TypeA.Method", "type:mypkg.TypeA"))
+	// This edge should become TypeA -> TypeA (self-loop) and be removed
+	must(b.AddDependency("method:mypkg.TypeA.Method", "type:mypkg.TypeA", archmotifimport.DependencyUsesType))
+
+	original, err := b.Build()
+	if err != nil {
+		t.Fatalf("build original graph: %v", err)
+	}
+
+	selectedNodeIDs := []string{
+		"type:mypkg.TypeA",
+		"method:mypkg.TypeA.Method",
+	}
+
+	collapsed, _, edgeCount, err := buildCollapsedGraph(original, selectedNodeIDs)
+	if err != nil {
+		t.Fatalf("buildCollapsedGraph failed: %v", err)
+	}
+
+	// Self-loop should be removed
+	if edgeCount != 0 {
+		t.Errorf("expected 0 edges (self-loop removed), got %d", edgeCount)
+	}
+
+	// Graph should still be valid
+	if collapsed == nil {
+		t.Fatal("collapsed graph is nil")
 	}
 }
 

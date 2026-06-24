@@ -88,8 +88,8 @@ func TestStdio_ToolsList(t *testing.T) {
 		t.Fatalf("unmarshal tools: %v", err)
 	}
 	// 11 original tools + 5 retrieval tools + spectral_cluster + components + trophic_layers + semantic_cluster
-	if len(wrapper.Tools) != 20 {
-		t.Fatalf("expected 20 tools, got %d", len(wrapper.Tools))
+	if len(wrapper.Tools) != 21 {
+		t.Fatalf("expected 21 tools, got %d", len(wrapper.Tools))
 	}
 }
 
