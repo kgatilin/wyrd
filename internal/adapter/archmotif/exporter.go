@@ -22,6 +22,7 @@
 //	function         fn:<package-path>.<Name>
 //	method           method:<package-path>.<RecvName>.<MethodName>
 //	field            field:<package-path>.<StructName>.<FieldName>
+//	file             file:<package-path>/<basename>
 //
 // External symbols (Dependency.To.External == true) are skipped:
 // archmotif's typed graph models the loaded package set, not
@@ -110,6 +111,18 @@ func ToArchmotifGraph(models []domain.PackageModel, _ *overlay.Config) (*archmot
 	for _, path := range paths {
 		p := pkgByPath[path]
 		if err := addPackageContents(b, p); err != nil {
+			return nil, err
+		}
+	}
+
+	// Pass 2b: file nodes and file→symbol contains edges, derived from
+	// each top-level declaration's SourceFile. Models physical layout so
+	// per-file structure (how many symbols a file carries) is analyzable.
+	// Methods/fields are not file-tagged by the reader, so only top-level
+	// declarations (types, functions) are attributed to files.
+	for _, path := range paths {
+		p := pkgByPath[path]
+		if err := addFileNodes(b, p); err != nil {
 			return nil, err
 		}
 	}
@@ -230,6 +243,57 @@ func addPackageContents(b *archmotifimport.Builder, p *domain.PackageModel) erro
 		}
 	}
 
+	return nil
+}
+
+// addFileNodes creates a NodeFile per source file in the package and a
+// contains-edge from that file to each top-level declaration (type, function)
+// it holds. Symbols with an empty SourceFile are skipped. Files are created
+// and linked in sorted order for deterministic output.
+func addFileNodes(b *archmotifimport.Builder, p *domain.PackageModel) error {
+	pkgID := packageID(p.Path)
+
+	type fileChild struct{ file, child string }
+	var pairs []fileChild
+	add := func(srcFile, childID string) {
+		if srcFile == "" {
+			return
+		}
+		pairs = append(pairs, fileChild{srcFile, childID})
+	}
+	for _, iface := range p.Interfaces {
+		add(iface.SourceFile, typeID(p.Path, iface.Name))
+	}
+	for _, s := range p.Structs {
+		add(s.SourceFile, typeID(p.Path, s.Name))
+	}
+	for _, td := range p.TypeDefs {
+		add(td.SourceFile, typeID(p.Path, td.Name))
+	}
+	for _, fn := range p.Functions {
+		add(fn.SourceFile, functionID(p.Path, fn.Name))
+	}
+
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].file != pairs[j].file {
+			return pairs[i].file < pairs[j].file
+		}
+		return pairs[i].child < pairs[j].child
+	})
+
+	created := map[string]bool{}
+	for _, pc := range pairs {
+		fid := fileID(p.Path, pc.file)
+		if !created[fid] {
+			if err := b.AddFile(fid, pkgID); err != nil {
+				return fmt.Errorf("archmotif: file %s: %w", fid, err)
+			}
+			created[fid] = true
+		}
+		if err := b.AddContains(fid, pc.child); err != nil {
+			return fmt.Errorf("archmotif: file-contains %s->%s: %w", fid, pc.child, err)
+		}
+	}
 	return nil
 }
 
@@ -612,6 +676,7 @@ func methodID(pkg, recv, method string) string {
 func fieldID(pkg, structName, field string) string {
 	return "field:" + pkg + "." + structName + "." + field
 }
+func fileID(pkg, base string) string { return "file:" + pkg + "/" + base }
 
 // --- lookup helpers ------------------------------------------------------
 

@@ -1721,8 +1721,9 @@ func selectNodes(graph *spectralcluster.Graph, packages []domain.PackageModel, s
 			}
 		}
 
-		// Exclude package nodes by default (we want symbol-level clustering).
-		if n.Kind == "package" && len(sel.NodeKinds) == 0 {
+		// Exclude package and file containers by default (we want
+		// symbol-level clustering, not the structural layout).
+		if (n.Kind == "package" || n.Kind == "file") && len(sel.NodeKinds) == 0 {
 			continue
 		}
 
@@ -1756,6 +1757,13 @@ func extractPackagePath(id string) string {
 		// field:<path>.<Struct>.<Field> - need to strip last two segments
 		rest := strings.TrimPrefix(id, "field:")
 		return extractPathBeforeLastNDots(rest, 2)
+	case strings.HasPrefix(id, "file:"):
+		// file:<path>/<basename> -> strip the trailing /<basename>
+		rest := strings.TrimPrefix(id, "file:")
+		if i := strings.LastIndex(rest, "/"); i >= 0 {
+			return rest[:i]
+		}
+		return rest
 	}
 	return ""
 }
@@ -1865,7 +1873,7 @@ func handleComponents(state *serve.State, rawArgs json.RawMessage) (ToolResult, 
 			continue
 		}
 		// Exclude package and external nodes.
-		if n.Kind == "package" || n.Kind == "external" {
+		if n.Kind == "package" || n.Kind == "external" || n.Kind == "file" {
 			continue
 		}
 		nodeIDs = append(nodeIDs, n.ID)
@@ -2000,7 +2008,7 @@ func handleTrophicLayers(state *serve.State, rawArgs json.RawMessage) (ToolResul
 		if !matchingPkgs[extractPackagePath(n.ID)] {
 			continue
 		}
-		if n.Kind == "package" || n.Kind == "external" {
+		if n.Kind == "package" || n.Kind == "external" || n.Kind == "file" {
 			continue
 		}
 		nodeIDs = append(nodeIDs, n.ID)

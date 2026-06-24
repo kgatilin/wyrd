@@ -113,6 +113,67 @@ func TestToArchmotifGraph_NodeAndEdgeCounts(t *testing.T) {
 	}
 }
 
+// TestToArchmotifGraph_FileNodes verifies that top-level declarations with a
+// SourceFile produce file nodes and file->symbol contains edges, so per-file
+// structure is analyzable.
+func TestToArchmotifGraph_FileNodes(t *testing.T) {
+	models := []domain.PackageModel{
+		{
+			Path: "p",
+			Name: "p",
+			Structs: []domain.StructDef{
+				{Name: "A", SourceFile: "a.go"},
+				{Name: "B", SourceFile: "b.go"},
+			},
+			Functions: []domain.FunctionDef{
+				{Name: "F", SourceFile: "a.go"},
+				{Name: "G", SourceFile: ""}, // no source file -> not file-attributed
+			},
+		},
+	}
+
+	g, err := ToArchmotifGraph(models, nil)
+	if err != nil {
+		t.Fatalf("ToArchmotifGraph: %v", err)
+	}
+
+	for _, id := range []string{"file:p/a.go", "file:p/b.go"} {
+		n, ok := g.Node(id)
+		if !ok {
+			t.Fatalf("missing file node %q", id)
+		}
+		if string(n.Kind) != "file" {
+			t.Errorf("%s kind = %q, want file", id, n.Kind)
+		}
+	}
+
+	hasContains := func(from, to string) bool {
+		for _, e := range g.Edges() {
+			if string(e.Kind) == "contains" && e.From == from && e.To == to {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !hasContains("pkg:p", "file:p/a.go") {
+		t.Error("missing contains pkg:p -> file:p/a.go")
+	}
+	if !hasContains("file:p/a.go", "type:p.A") {
+		t.Error("missing contains file:p/a.go -> type:p.A")
+	}
+	if !hasContains("file:p/a.go", "fn:p.F") {
+		t.Error("missing contains file:p/a.go -> fn:p.F")
+	}
+	if !hasContains("file:p/b.go", "type:p.B") {
+		t.Error("missing contains file:p/b.go -> type:p.B")
+	}
+	// G has no SourceFile -> no file node should claim it.
+	if hasContains("file:p/a.go", "fn:p.G") || hasContains("file:p/b.go", "fn:p.G") {
+		t.Error("fn:p.G should not be file-attributed (empty SourceFile)")
+	}
+}
+
 // TestToArchmotifGraph_StableIDs checks that two runs over the same
 // input produce identical node-id sets and that permuting the input
 // slice ordering does not change the output id set.
