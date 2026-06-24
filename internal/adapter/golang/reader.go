@@ -1367,8 +1367,38 @@ func (r *reader) collectConstructionDependencies(pkg *packages.Package, model *d
 				}
 			}
 
-			// Walk the body looking for composite literals.
+			// Walk the body looking for composite literals and generic
+			// instantiations.
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				// Generic instantiation: Foo[Bar] or GenerateSchema[Bar]().
+				// The enclosing function uses each named type argument. These
+				// are invisible to signature- and composite-literal analysis
+				// when the instantiated value only ever flows through any —
+				// e.g. a schema generated from a type that never appears in a
+				// typed parameter or return.
+				if ident, ok := n.(*ast.Ident); ok {
+					inst, ok := pkg.TypesInfo.Instances[ident]
+					if !ok || inst.TypeArgs == nil {
+						return true
+					}
+					var named []*types.Named
+					for i := 0; i < inst.TypeArgs.Len(); i++ {
+						collectLoadedNamedTypes(inst.TypeArgs.At(i), loadedTypes, &named)
+					}
+					for _, nt := range named {
+						addDep(domain.Dependency{
+							From: fromRef,
+							To: domain.SymbolRef{
+								Package: r.relativePath(nt.Obj().Pkg().Path()),
+								Symbol:  nt.Obj().Name(),
+							},
+							Kind:            domain.DependencyUses,
+							ThroughExported: throughExported,
+						})
+					}
+					return true
+				}
+
 				cl, ok := n.(*ast.CompositeLit)
 				if !ok {
 					return true
@@ -1417,6 +1447,37 @@ func (r *reader) collectConstructionDependencies(pkg *packages.Package, model *d
 	}
 
 	return deps
+}
+
+// collectLoadedNamedTypes appends every named type reachable from t that
+// belongs to the loaded package set, descending through pointers, slices,
+// arrays, channels, maps, and nested generic type arguments. Type parameters
+// and types from outside the loaded set are skipped. It turns a generic
+// instantiation's type arguments into uses-dependency targets.
+func collectLoadedNamedTypes(t types.Type, loaded map[*types.Package]bool, out *[]*types.Named) {
+	switch tt := t.(type) {
+	case *types.Named:
+		if obj := tt.Obj(); obj != nil && obj.Pkg() != nil && loaded[obj.Pkg()] {
+			*out = append(*out, tt)
+		}
+		// Descend into the named type's own arguments, e.g. Box[Bar].
+		if args := tt.TypeArgs(); args != nil {
+			for i := 0; i < args.Len(); i++ {
+				collectLoadedNamedTypes(args.At(i), loaded, out)
+			}
+		}
+	case *types.Pointer:
+		collectLoadedNamedTypes(tt.Elem(), loaded, out)
+	case *types.Slice:
+		collectLoadedNamedTypes(tt.Elem(), loaded, out)
+	case *types.Array:
+		collectLoadedNamedTypes(tt.Elem(), loaded, out)
+	case *types.Chan:
+		collectLoadedNamedTypes(tt.Elem(), loaded, out)
+	case *types.Map:
+		collectLoadedNamedTypes(tt.Key(), loaded, out)
+		collectLoadedNamedTypes(tt.Elem(), loaded, out)
+	}
 }
 
 // findFunctionDef finds a FunctionDef by name.
@@ -1568,6 +1629,14 @@ func (r *reader) typeRefToSymbolRefs(ref domain.TypeRef, pkg *packages.Package) 
 	// For non-composite types, use the existing single-ref logic.
 	if symRef := r.typeRefToSymbolRef(ref, pkg); symRef != nil {
 		refs = append(refs, *symRef)
+	}
+
+	// Walk generic type arguments: a signature mentioning Box[Bar] depends on
+	// Bar as well as Box. Without this, a type that appears only as a generic
+	// type argument in a parameter, return, or field is invisible to
+	// dependency analysis and ends up as a disconnected node.
+	for i := range ref.TypeArgs {
+		refs = append(refs, r.typeRefToSymbolRefs(ref.TypeArgs[i], pkg)...)
 	}
 
 	return refs

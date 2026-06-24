@@ -531,6 +531,56 @@ type Result[T any] []T
 	}
 }
 
+// TestReader_GenericTypeArgDependencies verifies that a type appearing only as
+// a generic type argument still produces a uses-dependency edge — both when the
+// argument sits in a signature (Box[barOutput]) and when it appears only inside
+// a body-level generic call whose result flows through any (Schema[fooInput]()).
+// Without this, such types orphan into disconnected graph nodes.
+func TestReader_GenericTypeArgDependencies(t *testing.T) {
+	model := loadSingleModelFromSources(t, map[string]string{
+		"gen.go": `package p
+
+type fooInput struct{}
+
+type barOutput struct{}
+
+type Box[T any] struct{ V T }
+
+// Schema is a generic helper whose type argument is the only place its
+// argument type is mentioned; the value is handed back as any.
+func Schema[T any]() any { return nil }
+
+// register instantiates Schema[fooInput] in its body and returns the result as
+// any — fooInput never appears in a typed signature.
+func register() any {
+	return Schema[fooInput]()
+}
+
+// useBox mentions barOutput only as a generic type argument in its parameter.
+func useBox(b Box[barOutput]) {}
+`,
+	})
+
+	hasUses := func(from, to string) bool {
+		for _, d := range model.Dependencies {
+			if d.Kind == domain.DependencyUses && d.From.Symbol == from && d.To.Symbol == to {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Gap 1: type argument of a body-level generic call (result flows through any).
+	if !hasUses("register", "fooInput") {
+		t.Errorf("missing uses edge register -> fooInput (body-level generic type arg)")
+	}
+
+	// Gap 2: type argument inside a parameter-signature instantiation.
+	if !hasUses("useBox", "barOutput") {
+		t.Errorf("missing uses edge useBox -> barOutput (signature generic type arg)")
+	}
+}
+
 // TestReader_ExtractsStandaloneConstants verifies that plain package-level
 // constants surface in PackageModel.Constants and that enum constants are
 // left on their owning TypeDef rather than duplicated.
