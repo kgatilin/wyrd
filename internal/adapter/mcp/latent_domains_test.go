@@ -124,3 +124,33 @@ func TestLabelMap(t *testing.T) {
 		t.Error("labelMap should not contain unknown node")
 	}
 }
+
+func TestAdjustedMutualInfo_Identical(t *testing.T) {
+	a := []int{0, 0, 1, 1, 2, 2}
+	if got := adjustedMutualInfo(a, a); math.Abs(got-1.0) > 1e-9 {
+		t.Errorf("identical AMI = %v, want 1", got)
+	}
+}
+
+func TestAdjustedMutualInfo_BlobIsZero(t *testing.T) {
+	a := []int{0, 1, 0, 1, 0, 1}
+	b := []int{0, 0, 0, 0, 0, 0} // one cluster -> no information
+	if got := adjustedMutualInfo(a, b); got != 0 {
+		t.Errorf("structure-vs-blob AMI = %v, want 0", got)
+	}
+}
+
+// AMI corrects for chance, so on a partial-overlap case it sits strictly below
+// the raw NMI — this is exactly why it doesn't inflate the verdict as K grows.
+func TestAdjustedMutualInfo_BelowNMI(t *testing.T) {
+	a := []int{0, 0, 1, 1, 2, 2}
+	b := []int{0, 0, 1, 1, 1, 2}
+	ami := adjustedMutualInfo(a, b)
+	nmi := normalizedMutualInfo(a, b)
+	if ami < 0 || ami > 1 {
+		t.Errorf("AMI = %v, want in [0,1]", ami)
+	}
+	if ami >= nmi {
+		t.Errorf("AMI (%v) should be < NMI (%v) — chance correction lowers it", ami, nmi)
+	}
+}

@@ -1665,6 +1665,8 @@ type spectralClusterResponse struct {
 	BoundarySymbols     []string                 `json:"boundary_symbols"`
 	BoundarySymbolCount int                      `json:"boundary_symbol_count"`
 	CutQuality          spectralCutQualityResult `json:"cut_quality"`
+	Modularity          float64                  `json:"modularity"`            // Newman Q of the partition; ~0 = hairball
+	Eigenvalues         []float64                `json:"eigenvalues,omitempty"` // smallest Laplacian eigenvalues the K was read from
 }
 
 type spectralCutAnalysis struct {
@@ -1675,7 +1677,9 @@ type spectralCutAnalysis struct {
 
 type spectralKCandidate struct {
 	K          int     `json:"k"`
-	GapRatio   float64 `json:"gap_ratio"`
+	Gap        float64 `json:"gap"`        // absolute eigengap (selection metric)
+	GapRatio   float64 `json:"gap_ratio"`  // ratio (context only)
+	Modularity float64 `json:"modularity"` // Q of this K's partition (0 if not evaluated)
 	Confidence string  `json:"confidence"`
 }
 
@@ -1819,7 +1823,9 @@ func handleSpectralCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 	for i, c := range result.Candidates {
 		candidates[i] = spectralKCandidate{
 			K:          c.K,
+			Gap:        c.Gap,
 			GapRatio:   c.GapRatio,
+			Modularity: c.Modularity,
 			Confidence: c.Confidence,
 		}
 	}
@@ -1839,6 +1845,8 @@ func handleSpectralCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 			IntraEdges: result.CutQuality.IntraEdges,
 			InterEdges: result.CutQuality.InterEdges,
 		},
+		Modularity:  result.Modularity,
+		Eigenvalues: result.Eigenvalues,
 	}
 
 	return textResult(resp)
@@ -2197,7 +2205,9 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 	for i, c := range result.Candidates {
 		candidates[i] = spectralKCandidate{
 			K:          c.K,
+			Gap:        c.Gap,
 			GapRatio:   c.GapRatio,
+			Modularity: c.Modularity,
 			Confidence: c.Confidence,
 		}
 	}
@@ -2218,6 +2228,8 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 				IntraEdges: result.CutQuality.IntraEdges,
 				InterEdges: result.CutQuality.InterEdges,
 			},
+			Modularity:  result.Modularity,
+			Eigenvalues: result.Eigenvalues,
 		},
 		DroppedNodes: droppedCount,
 	}
