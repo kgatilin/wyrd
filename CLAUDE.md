@@ -133,7 +133,15 @@ All take `{package, include_subpackages}` and run on the package subgraph.
   needed). Solves a graph-Laplacian for a trophic height per node; reports
   `F0` incoherence ∈ [0,1] (~0 layered, >0.4 tangled), integer layers
   (0 = foundation, top = entry points), backward edges (inversions), and cycles.
-- **`spectral_cluster`** — natural module clusters via the eigengap heuristic.
+- **`spectral_cluster`** — natural module clusters via the eigengap heuristic,
+  over *structural* dependency edges.
+- **`semantic_cluster`** — same spectral core and output as `spectral_cluster`,
+  but the graph is a kNN graph over *embedding cosine similarity* instead of
+  structural edges (clusters by what code is *about*, not how it's wired).
+  Requires a configured embedder + indexed vectors (`refresh` first); reports
+  `dropped_nodes` for symbols with no embedding. Compare against
+  `spectral_cluster`: agreement ⇒ real module boundary; divergence ⇒ leaky
+  coupling or a latent (semantically cohesive, structurally scattered) module.
 
 ### Key concepts (hard-won)
 
@@ -158,6 +166,8 @@ All take `{package, include_subpackages}` and run on the package subgraph.
 - Graph build: `internal/adapter/golang/reader.go` (parse) →
   `internal/adapter/archmotif/exporter.go` (→ archmotif graph).
 - Analysis: `github.com/kgatilin/archmotif/pkg/{components,filestats,trophic,spectralcluster}`.
+  `semantic_cluster` reuses `spectralcluster` over a kNN graph built in
+  `tools.go` (`buildSemanticKNNGraph`) from retrieval-service embedding vectors.
 - MCP handlers: `internal/adapter/mcp/tools.go` (`handle*`, registered in
   `builtinToolDefinitions` + `Dispatch`).
 
