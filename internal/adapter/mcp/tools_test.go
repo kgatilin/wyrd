@@ -59,9 +59,9 @@ func mustWrite(t *testing.T, path, body string) {
 
 func TestToolDefinitions(t *testing.T) {
 	defs := ToolDefinitions()
-	// 11 original tools + 5 retrieval tools (search, search_graph, expand, get_node, refresh) + spectral_cluster + components
-	if len(defs) != 18 {
-		t.Fatalf("expected 18 tool definitions, got %d", len(defs))
+	// 11 original tools + 5 retrieval tools (search, search_graph, expand, get_node, refresh) + spectral_cluster + components + trophic_layers
+	if len(defs) != 19 {
+		t.Fatalf("expected 19 tool definitions, got %d", len(defs))
 	}
 	names := map[string]bool{}
 	for _, d := range defs {
@@ -73,10 +73,39 @@ func TestToolDefinitions(t *testing.T) {
 			t.Errorf("tool %q missing input schema", d.Name)
 		}
 	}
-	for _, want := range []string{"extract", "list_packages", "get_package", "lock_target", "list_targets", "set_current_target", "diff", "apply_diff", "validate", "list_bounded_contexts", "get_bounded_context"} {
+	for _, want := range []string{"extract", "list_packages", "get_package", "lock_target", "list_targets", "set_current_target", "diff", "apply_diff", "validate", "list_bounded_contexts", "get_bounded_context", "trophic_layers"} {
 		if !names[want] {
 			t.Errorf("missing tool definition for %q", want)
 		}
+	}
+}
+
+func TestDispatch_TrophicLayers(t *testing.T) {
+	state := loadFakeState(t)
+
+	res, rpcErr := Dispatch(state, "trophic_layers", json.RawMessage(`{"package":"alpha"}`))
+	if rpcErr != nil {
+		t.Fatalf("dispatch error: %v", rpcErr)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %s", res.Content[0].Text)
+	}
+	if len(res.Content) == 0 {
+		t.Fatal("empty content")
+	}
+
+	var resp trophicLayersResponse
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(resp.EdgeKindsUsed) == 0 {
+		t.Errorf("edge_kinds_used not echoed")
+	}
+	if resp.NodeCount == 0 {
+		t.Errorf("node_count = 0, want > 0")
+	}
+	if resp.Coherence.Verdict == "" {
+		t.Errorf("coherence verdict missing")
 	}
 }
 

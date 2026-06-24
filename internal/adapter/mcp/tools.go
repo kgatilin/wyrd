@@ -23,6 +23,7 @@ import (
 	"github.com/kgatilin/archai/internal/target"
 	archmotifComponents "github.com/kgatilin/archmotif/pkg/components"
 	"github.com/kgatilin/archmotif/pkg/spectralcluster"
+	archmotifTrophic "github.com/kgatilin/archmotif/pkg/trophic"
 	yamlv3 "gopkg.in/yaml.v3"
 )
 
@@ -441,6 +442,24 @@ func builtinToolDefinitions() []ToolDefinition {
 				"required": []string{"package"},
 			},
 		},
+		{
+			Name:        "trophic_layers",
+			Description: "Derive emergent architectural layers from dependency direction — no policy required. Solves for a trophic height per node, then reports F0 (an incoherence score in [0,1]: ~0 = cleanly layered, >0.4 = tangled), the emergent layers (level 0 = foundation, top = entry points/CLI), backward edges that point UP the hierarchy (dependency inversions — the main actionable output, sorted by how far up they reach), and cycles where layering breaks down. Use this on unfamiliar code to ask \"are there layers, and where are the inversions?\" — unlike a policy check it needs no declared rules. The edge set analyzed is fixed (directional dependency edges); there is intentionally no knob for it, so the layering stays comparable across runs.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{
+						"type":        "string",
+						"description": "Package path to analyze. Required.",
+					},
+					"include_subpackages": map[string]any{
+						"type":        "boolean",
+						"description": "Include subpackages of the given package (default true).",
+					},
+				},
+				"required": []string{"package"},
+			},
+		},
 	}
 }
 
@@ -487,6 +506,8 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleSpectralCluster(state, rawArgs)
 	case "components":
 		return handleComponents(state, rawArgs)
+	case "trophic_layers":
+		return handleTrophicLayers(state, rawArgs)
 	}
 	if strings.HasPrefix(name, "plugin.") {
 		return dispatchPluginTool(name, rawArgs)
@@ -1153,9 +1174,9 @@ func errorResult(msg string) ToolResult {
 
 // searchArgs is the input schema for the search tool.
 type searchArgs struct {
-	Query   string         `json:"query"`
-	K       int            `json:"k"`
-	Filters searchFilters  `json:"filters"`
+	Query   string        `json:"query"`
+	K       int           `json:"k"`
+	Filters searchFilters `json:"filters"`
 }
 
 type searchFilters struct {
@@ -1778,17 +1799,17 @@ type componentsArgs struct {
 }
 
 type componentInfo struct {
-	Size         int      `json:"size"`
-	Center       string   `json:"center"`
-	Centrality   float64  `json:"centrality"`
-	Members      []string `json:"members,omitempty"`
+	Size       int      `json:"size"`
+	Center     string   `json:"center"`
+	Centrality float64  `json:"centrality"`
+	Members    []string `json:"members,omitempty"`
 }
 
 type componentsResponse struct {
-	NodeCount      int            `json:"node_count"`
-	EdgeCount      int            `json:"edge_count"`
-	ComponentCount int            `json:"component_count"`
-	SizeHistogram  map[int]int    `json:"size_histogram"`
+	NodeCount      int             `json:"node_count"`
+	EdgeCount      int             `json:"edge_count"`
+	ComponentCount int             `json:"component_count"`
+	SizeHistogram  map[int]int     `json:"size_histogram"`
 	Components     []componentInfo `json:"components"`
 }
 
@@ -1878,4 +1899,174 @@ func handleComponents(state *serve.State, rawArgs json.RawMessage) (ToolResult, 
 	}
 
 	return textResult(resp)
+}
+
+type trophicLayersArgs struct {
+	Package            string `json:"package"`
+	IncludeSubpackages *bool  `json:"include_subpackages,omitempty"`
+}
+
+type trophicCoherence struct {
+	F0      float64 `json:"f0"`
+	Verdict string  `json:"verdict"`
+}
+
+type trophicLayerInfo struct {
+	Level  int      `json:"level"`
+	Size   int      `json:"size"`
+	Center string   `json:"center"`
+	Sample []string `json:"sample,omitempty"`
+}
+
+type trophicCycleInfo struct {
+	Size          int      `json:"size"`
+	Center        string   `json:"center"`
+	MembersSample []string `json:"members_sample,omitempty"`
+}
+
+type trophicBackwardEdge struct {
+	From string  `json:"from"`
+	To   string  `json:"to"`
+	Span float64 `json:"span"`
+}
+
+type trophicLayersResponse struct {
+	EdgeKindsUsed     []string              `json:"edge_kinds_used"`
+	NodeCount         int                   `json:"node_count"`
+	EdgeCount         int                   `json:"edge_count"`
+	Coherence         trophicCoherence      `json:"coherence"`
+	LayerCount        int                   `json:"layer_count"`
+	Layers            []trophicLayerInfo    `json:"layers"`
+	Cycles            []trophicCycleInfo    `json:"cycles,omitempty"`
+	BackwardEdges     []trophicBackwardEdge `json:"backward_edges,omitempty"`
+	BackwardEdgeCount int                   `json:"backward_edge_count"`
+}
+
+// trophicVerdict maps the incoherence F0 to a human-readable verdict.
+func trophicVerdict(f0 float64) string {
+	switch {
+	case f0 < 0.05:
+		return "layered"
+	case f0 < 0.25:
+		return "mostly_layered"
+	case f0 < 0.45:
+		return "partially_layered"
+	default:
+		return "tangled"
+	}
+}
+
+func handleTrophicLayers(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	var args trophicLayersArgs
+	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
+		return ToolResult{}, rpcErr
+	}
+
+	if args.Package == "" {
+		return errorResult("package is required"), nil
+	}
+	if state == nil {
+		return errorResult("no state available"), nil
+	}
+
+	snap := state.Snapshot()
+	if len(snap.Packages) == 0 {
+		return errorResult("no packages loaded"), nil
+	}
+
+	graph, err := archmotifAdapter.ToArchmotifGraph(snap.Packages, snap.Overlay)
+	if err != nil {
+		return errorResult(fmt.Sprintf("building graph: %v", err)), nil
+	}
+
+	includeSubpkgs := true
+	if args.IncludeSubpackages != nil {
+		includeSubpkgs = *args.IncludeSubpackages
+	}
+	matchingPkgs := map[string]bool{}
+	for _, pkg := range snap.Packages {
+		if pkg.Path == args.Package {
+			matchingPkgs[pkg.Path] = true
+		} else if includeSubpkgs && strings.HasPrefix(pkg.Path, args.Package+"/") {
+			matchingPkgs[pkg.Path] = true
+		}
+	}
+	if len(matchingPkgs) == 0 {
+		return errorResult(fmt.Sprintf("no packages match %q", args.Package)), nil
+	}
+
+	var nodeIDs []string
+	for _, n := range graph.Nodes() {
+		if !matchingPkgs[extractPackagePath(n.ID)] {
+			continue
+		}
+		if n.Kind == "package" || n.Kind == "external" {
+			continue
+		}
+		nodeIDs = append(nodeIDs, n.ID)
+	}
+	sort.Strings(nodeIDs)
+	if len(nodeIDs) == 0 {
+		return errorResult("no symbol nodes in the selected packages"), nil
+	}
+
+	result := archmotifTrophic.Analyze(graph, archmotifTrophic.Options{NodeIDs: nodeIDs})
+
+	const (
+		layerSampleLimit  = 8
+		cycleSampleLimit  = 8
+		backwardEdgeLimit = 25
+	)
+
+	layers := make([]trophicLayerInfo, len(result.Layers))
+	for i, l := range result.Layers {
+		layers[i] = trophicLayerInfo{
+			Level:  l.Level,
+			Size:   l.Size,
+			Center: l.Center,
+			Sample: sampleStrings(l.Members, layerSampleLimit),
+		}
+	}
+
+	cycles := make([]trophicCycleInfo, len(result.Cycles))
+	for i, c := range result.Cycles {
+		cycles[i] = trophicCycleInfo{
+			Size:          c.Size,
+			Center:        c.Center,
+			MembersSample: sampleStrings(c.Members, cycleSampleLimit),
+		}
+	}
+
+	backward := make([]trophicBackwardEdge, 0, len(result.BackwardEdges))
+	for i, be := range result.BackwardEdges {
+		if i >= backwardEdgeLimit {
+			break
+		}
+		backward = append(backward, trophicBackwardEdge{From: be.From, To: be.To, Span: be.Span})
+	}
+
+	resp := trophicLayersResponse{
+		EdgeKindsUsed: result.EdgeKindsUsed,
+		NodeCount:     result.NodeCount,
+		EdgeCount:     result.EdgeCount,
+		Coherence: trophicCoherence{
+			F0:      result.IncoherenceF0,
+			Verdict: trophicVerdict(result.IncoherenceF0),
+		},
+		LayerCount:        result.LayerCount,
+		Layers:            layers,
+		Cycles:            cycles,
+		BackwardEdges:     backward,
+		BackwardEdgeCount: result.BackwardEdgeCount,
+	}
+
+	return textResult(resp)
+}
+
+// sampleStrings returns at most limit elements of s (a representative sample).
+func sampleStrings(s []string, limit int) []string {
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit]
 }
