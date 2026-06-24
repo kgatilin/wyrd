@@ -21,6 +21,7 @@ import (
 	"github.com/kgatilin/archai/internal/retrieval"
 	"github.com/kgatilin/archai/internal/serve"
 	"github.com/kgatilin/archai/internal/target"
+	archmotifComponents "github.com/kgatilin/archmotif/pkg/components"
 	"github.com/kgatilin/archmotif/pkg/spectralcluster"
 	yamlv3 "gopkg.in/yaml.v3"
 )
@@ -422,6 +423,24 @@ func builtinToolDefinitions() []ToolDefinition {
 				},
 			},
 		},
+		{
+			Name:        "components",
+			Description: "Compute connected components of a package subgraph. Returns component count, size histogram, and per-component details including the center node (highest eigenvector centrality) for each. Use this to diagnose graph shatteredness before spectral clustering — a healthy package should have one dominant component with few isolated nodes. Singletons (size-1 components) indicate missing edges.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{
+						"type":        "string",
+						"description": "Package path to analyze. Required.",
+					},
+					"include_subpackages": map[string]any{
+						"type":        "boolean",
+						"description": "Include subpackages of the given package (default true).",
+					},
+				},
+				"required": []string{"package"},
+			},
+		},
 	}
 }
 
@@ -466,6 +485,8 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleRefresh(state)
 	case "spectral_cluster":
 		return handleSpectralCluster(state, rawArgs)
+	case "components":
+		return handleComponents(state, rawArgs)
 	}
 	if strings.HasPrefix(name, "plugin.") {
 		return dispatchPluginTool(name, rawArgs)
@@ -1747,4 +1768,114 @@ func mapNodeIDsToSymbols(nodeIDs []string) []string {
 	out := make([]string, len(nodeIDs))
 	copy(out, nodeIDs)
 	return out
+}
+
+// --- components tool ---
+
+type componentsArgs struct {
+	Package            string `json:"package"`
+	IncludeSubpackages *bool  `json:"include_subpackages,omitempty"`
+}
+
+type componentInfo struct {
+	Size         int      `json:"size"`
+	Center       string   `json:"center"`
+	Centrality   float64  `json:"centrality"`
+	Members      []string `json:"members,omitempty"`
+}
+
+type componentsResponse struct {
+	NodeCount      int            `json:"node_count"`
+	EdgeCount      int            `json:"edge_count"`
+	ComponentCount int            `json:"component_count"`
+	SizeHistogram  map[int]int    `json:"size_histogram"`
+	Components     []componentInfo `json:"components"`
+}
+
+func handleComponents(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	var args componentsArgs
+	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
+		return ToolResult{}, rpcErr
+	}
+
+	if args.Package == "" {
+		return errorResult("package is required"), nil
+	}
+
+	if state == nil {
+		return errorResult("no state available"), nil
+	}
+
+	snap := state.Snapshot()
+	if len(snap.Packages) == 0 {
+		return errorResult("no packages loaded"), nil
+	}
+
+	// Build archmotif graph from the model.
+	graph, err := archmotifAdapter.ToArchmotifGraph(snap.Packages, snap.Overlay)
+	if err != nil {
+		return errorResult(fmt.Sprintf("building graph: %v", err)), nil
+	}
+
+	// Select nodes matching the package filter.
+	includeSubpkgs := true
+	if args.IncludeSubpackages != nil {
+		includeSubpkgs = *args.IncludeSubpackages
+	}
+
+	matchingPkgs := map[string]bool{}
+	for _, pkg := range snap.Packages {
+		if pkg.Path == args.Package {
+			matchingPkgs[pkg.Path] = true
+		} else if includeSubpkgs && strings.HasPrefix(pkg.Path, args.Package+"/") {
+			matchingPkgs[pkg.Path] = true
+		}
+	}
+
+	if len(matchingPkgs) == 0 {
+		return errorResult(fmt.Sprintf("no packages match %q", args.Package)), nil
+	}
+
+	// Collect all symbol-level node IDs (exclude package nodes).
+	var nodeIDs []string
+	for _, n := range graph.Nodes() {
+		pkgPath := extractPackagePath(n.ID)
+		if !matchingPkgs[pkgPath] {
+			continue
+		}
+		// Exclude package and external nodes.
+		if n.Kind == "package" || n.Kind == "external" {
+			continue
+		}
+		nodeIDs = append(nodeIDs, n.ID)
+	}
+	sort.Strings(nodeIDs)
+
+	if len(nodeIDs) == 0 {
+		return errorResult("no symbol nodes in the selected packages"), nil
+	}
+
+	// Call the components analysis.
+	result := archmotifComponents.Analyze(graph, nodeIDs)
+
+	// Build response.
+	components := make([]componentInfo, len(result.Components))
+	for i, c := range result.Components {
+		components[i] = componentInfo{
+			Size:       c.Size,
+			Center:     c.CenterNodeID,
+			Centrality: c.Centrality,
+			Members:    c.Members,
+		}
+	}
+
+	resp := componentsResponse{
+		NodeCount:      result.NodeCount,
+		EdgeCount:      result.EdgeCount,
+		ComponentCount: result.ComponentCount,
+		SizeHistogram:  result.SizeHistogram,
+		Components:     components,
+	}
+
+	return textResult(resp)
 }
