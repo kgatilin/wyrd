@@ -1616,12 +1616,13 @@ type spectralSelector struct {
 
 // spectralClusterResponse is the output structure for spectral_cluster.
 type spectralClusterResponse struct {
-	NodeCount       int                      `json:"node_count"`
-	EdgeCount       int                      `json:"edge_count"`
-	CutAnalysis     spectralCutAnalysis      `json:"cut_analysis"`
-	Clusters        []spectralClusterInfo    `json:"clusters"`
-	BoundarySymbols []string                 `json:"boundary_symbols"`
-	CutQuality      spectralCutQualityResult `json:"cut_quality"`
+	NodeCount           int                      `json:"node_count"`
+	EdgeCount           int                      `json:"edge_count"`
+	CutAnalysis         spectralCutAnalysis      `json:"cut_analysis"`
+	Clusters            []spectralClusterInfo    `json:"clusters"`
+	BoundarySymbols     []string                 `json:"boundary_symbols"`
+	BoundarySymbolCount int                      `json:"boundary_symbol_count"`
+	CutQuality          spectralCutQualityResult `json:"cut_quality"`
 }
 
 type spectralCutAnalysis struct {
@@ -1637,9 +1638,53 @@ type spectralKCandidate struct {
 }
 
 type spectralClusterInfo struct {
-	ID      int      `json:"id"`
-	Size    int      `json:"size"`
-	Members []string `json:"members"`
+	ID            int      `json:"id"`
+	Size          int      `json:"size"`
+	Members       []string `json:"members,omitempty"`        // full list when the cluster is small enough
+	MembersSample []string `json:"members_sample,omitempty"` // representative sample when truncated
+	Truncated     bool     `json:"truncated,omitempty"`      // true when only a sample is returned
+}
+
+// Caps that keep analysis-lens output a fixed-size summary instead of growing
+// O(N) in node-id strings. Cluster membership is the product of the tool, so it
+// is returned in full up to clusterMembersFullLimit (a whole-subgraph safeguard);
+// boundary symbols and component dumps are always capped.
+const (
+	clusterMembersFullLimit = 150 // above this a cluster returns a sample, not the full list
+	clusterMembersSample    = 20
+	boundarySymbolLimit     = 20
+	componentMembersFull    = 12 // components at/below this size return full members (the actionable islands)
+	componentMembersSample  = 8
+	componentListLimit      = 40 // cap the number of components echoed; the histogram still summarizes all
+)
+
+// buildClusterInfos maps archmotif cluster members to symbol IDs and applies the
+// full-vs-sample cap. Shared by spectral_cluster and semantic_cluster.
+func buildClusterInfos(clusters []spectralcluster.Cluster) []spectralClusterInfo {
+	out := make([]spectralClusterInfo, len(clusters))
+	for i, c := range clusters {
+		members := mapNodeIDsToSymbols(c.Members)
+		info := spectralClusterInfo{ID: c.ID, Size: len(members)}
+		if len(members) <= clusterMembersFullLimit {
+			info.Members = members
+		} else {
+			info.MembersSample = sampleStrings(members, clusterMembersSample)
+			info.Truncated = true
+		}
+		out[i] = info
+	}
+	return out
+}
+
+// capBoundary maps boundary node IDs to symbols and caps to boundarySymbolLimit,
+// returning the capped slice and the true total.
+func capBoundary(syms []string) (capped []string, total int) {
+	mapped := mapNodeIDsToSymbols(syms)
+	total = len(mapped)
+	if len(mapped) > boundarySymbolLimit {
+		mapped = mapped[:boundarySymbolLimit]
+	}
+	return mapped, total
 }
 
 type spectralCutQualityResult struct {
@@ -1724,18 +1769,9 @@ func handleSpectralCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 		return errorResult(fmt.Sprintf("spectral clustering failed: %v", err)), nil
 	}
 
-	// Map archmotif node IDs back to archai symbol IDs.
-	clusters := make([]spectralClusterInfo, len(result.Clusters))
-	for i, c := range result.Clusters {
-		members := mapNodeIDsToSymbols(c.Members)
-		clusters[i] = spectralClusterInfo{
-			ID:      c.ID,
-			Size:    len(members),
-			Members: members,
-		}
-	}
-
-	boundarySymbols := mapNodeIDsToSymbols(result.BoundarySymbols)
+	// Map archmotif node IDs back to archai symbol IDs (members capped, boundary capped).
+	clusters := buildClusterInfos(result.Clusters)
+	boundarySymbols, boundaryTotal := capBoundary(result.BoundarySymbols)
 
 	candidates := make([]spectralKCandidate, len(result.Candidates))
 	for i, c := range result.Candidates {
@@ -1754,8 +1790,9 @@ func handleSpectralCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 			KSource:    result.KSource,
 			Candidates: candidates,
 		},
-		Clusters:        clusters,
-		BoundarySymbols: boundarySymbols,
+		Clusters:            clusters,
+		BoundarySymbols:     boundarySymbols,
+		BoundarySymbolCount: boundaryTotal,
 		CutQuality: spectralCutQualityResult{
 			IntraEdges: result.CutQuality.IntraEdges,
 			InterEdges: result.CutQuality.InterEdges,
@@ -2110,18 +2147,9 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 		return errorResult(fmt.Sprintf("spectral clustering failed: %v", err)), nil
 	}
 
-	// Map archmotif node IDs back to symbols (same as spectral_cluster)
-	clusters := make([]spectralClusterInfo, len(result.Clusters))
-	for i, c := range result.Clusters {
-		members := mapNodeIDsToSymbols(c.Members)
-		clusters[i] = spectralClusterInfo{
-			ID:      c.ID,
-			Size:    len(members),
-			Members: members,
-		}
-	}
-
-	boundarySymbols := mapNodeIDsToSymbols(result.BoundarySymbols)
+	// Map archmotif node IDs back to symbols (same caps as spectral_cluster).
+	clusters := buildClusterInfos(result.Clusters)
+	boundarySymbols, boundaryTotal := capBoundary(result.BoundarySymbols)
 
 	candidates := make([]spectralKCandidate, len(result.Candidates))
 	for i, c := range result.Candidates {
@@ -2141,8 +2169,9 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 				KSource:    result.KSource,
 				Candidates: candidates,
 			},
-			Clusters:        clusters,
-			BoundarySymbols: boundarySymbols,
+			Clusters:            clusters,
+			BoundarySymbols:     boundarySymbols,
+			BoundarySymbolCount: boundaryTotal,
 			CutQuality: spectralCutQualityResult{
 				IntraEdges: result.CutQuality.IntraEdges,
 				InterEdges: result.CutQuality.InterEdges,
@@ -2430,18 +2459,20 @@ type componentsArgs struct {
 }
 
 type componentInfo struct {
-	Size       int      `json:"size"`
-	Center     string   `json:"center"`
-	Centrality float64  `json:"centrality"`
-	Members    []string `json:"members,omitempty"`
+	Size          int      `json:"size"`
+	Center        string   `json:"center"`
+	Centrality    float64  `json:"centrality"`
+	Members       []string `json:"members,omitempty"`        // full list only for small components (the actionable islands)
+	MembersSample []string `json:"members_sample,omitempty"` // representative sample for large components
 }
 
 type componentsResponse struct {
-	NodeCount      int             `json:"node_count"`
-	EdgeCount      int             `json:"edge_count"`
-	ComponentCount int             `json:"component_count"`
-	SizeHistogram  map[int]int     `json:"size_histogram"`
-	Components     []componentInfo `json:"components"`
+	NodeCount       int             `json:"node_count"`
+	EdgeCount       int             `json:"edge_count"`
+	ComponentCount  int             `json:"component_count"`
+	SizeHistogram   map[int]int     `json:"size_histogram"`
+	Components      []componentInfo `json:"components"`
+	ComponentsTrunc bool            `json:"components_truncated,omitempty"` // true when only the largest components are echoed
 }
 
 func handleComponents(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
@@ -2510,23 +2541,42 @@ func handleComponents(state *serve.State, rawArgs json.RawMessage) (ToolResult, 
 	// Call the components analysis.
 	result := archmotifComponents.Analyze(graph, nodeIDs)
 
-	// Build response.
-	components := make([]componentInfo, len(result.Components))
-	for i, c := range result.Components {
-		components[i] = componentInfo{
+	// Build response. Components are echoed largest-first and capped, so the
+	// payload stays a fixed-size summary instead of dumping every member of a
+	// giant component. Small components return full members (the orphan islands
+	// you actually act on); large ones return a sample plus their size.
+	sorted := make([]archmotifComponents.Component, len(result.Components))
+	copy(sorted, result.Components)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Size > sorted[j].Size })
+
+	truncated := false
+	if len(sorted) > componentListLimit {
+		sorted = sorted[:componentListLimit]
+		truncated = true
+	}
+
+	components := make([]componentInfo, len(sorted))
+	for i, c := range sorted {
+		info := componentInfo{
 			Size:       c.Size,
 			Center:     c.CenterNodeID,
 			Centrality: c.Centrality,
-			Members:    c.Members,
 		}
+		if c.Size <= componentMembersFull {
+			info.Members = c.Members
+		} else {
+			info.MembersSample = sampleStrings(c.Members, componentMembersSample)
+		}
+		components[i] = info
 	}
 
 	resp := componentsResponse{
-		NodeCount:      result.NodeCount,
-		EdgeCount:      result.EdgeCount,
-		ComponentCount: result.ComponentCount,
-		SizeHistogram:  result.SizeHistogram,
-		Components:     components,
+		NodeCount:       result.NodeCount,
+		EdgeCount:       result.EdgeCount,
+		ComponentCount:  result.ComponentCount,
+		SizeHistogram:   result.SizeHistogram,
+		Components:      components,
+		ComponentsTrunc: truncated,
 	}
 
 	return textResult(resp)

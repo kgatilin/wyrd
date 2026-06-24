@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/serve"
 	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
+	"github.com/kgatilin/archmotif/pkg/spectralcluster"
 )
 
 func TestMain(m *testing.M) {
@@ -655,5 +657,67 @@ func TestBuildSemanticKNNGraph_RegistersPackages(t *testing.T) {
 	// This implicitly validates that the graph structure is correct.
 	if graph.EdgeCount() == 0 {
 		t.Error("graph has no edges — semantic edges were not added")
+	}
+}
+
+// TestBuildClusterInfos_CapsLargeClusters verifies that cluster membership is
+// returned in full for normal (package-sized) clusters but degrades to a sized
+// sample once a cluster exceeds clusterMembersFullLimit — so the lens output
+// never grows unbounded in node-id strings.
+func TestBuildClusterInfos_CapsLargeClusters(t *testing.T) {
+	ids := func(prefix string, n int) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = fmt.Sprintf("fn:pkg.%s%d", prefix, i)
+		}
+		return out
+	}
+
+	small := spectralcluster.Cluster{ID: 0, Members: ids("small", 5)}
+	big := spectralcluster.Cluster{ID: 1, Members: ids("big", clusterMembersFullLimit+50)}
+
+	infos := buildClusterInfos([]spectralcluster.Cluster{small, big})
+
+	// Small cluster: full members, no sample, not truncated.
+	if got := infos[0]; len(got.Members) != 5 || got.Truncated || got.MembersSample != nil {
+		t.Errorf("small cluster not returned in full: %+v", got)
+	}
+	// Big cluster: sample only, truncated, but Size reflects the true count.
+	bigInfo := infos[1]
+	if !bigInfo.Truncated {
+		t.Errorf("big cluster should be truncated")
+	}
+	if bigInfo.Members != nil {
+		t.Errorf("big cluster should not carry full members, got %d", len(bigInfo.Members))
+	}
+	if len(bigInfo.MembersSample) != clusterMembersSample {
+		t.Errorf("sample len = %d, want %d", len(bigInfo.MembersSample), clusterMembersSample)
+	}
+	if bigInfo.Size != clusterMembersFullLimit+50 {
+		t.Errorf("size = %d, want %d (true count)", bigInfo.Size, clusterMembersFullLimit+50)
+	}
+}
+
+// TestCapBoundary_CapsAndCounts verifies boundary symbols are capped to a fixed
+// ceiling while the true total is still reported.
+func TestCapBoundary_CapsAndCounts(t *testing.T) {
+	syms := make([]string, boundarySymbolLimit+30)
+	for i := range syms {
+		syms[i] = fmt.Sprintf("fn:pkg.b%d", i)
+	}
+
+	capped, total := capBoundary(syms)
+	if total != boundarySymbolLimit+30 {
+		t.Errorf("total = %d, want %d", total, boundarySymbolLimit+30)
+	}
+	if len(capped) != boundarySymbolLimit {
+		t.Errorf("capped len = %d, want %d", len(capped), boundarySymbolLimit)
+	}
+
+	// Short lists pass through unchanged.
+	short := []string{"fn:pkg.a", "fn:pkg.b"}
+	capped, total = capBoundary(short)
+	if total != 2 || len(capped) != 2 {
+		t.Errorf("short list mangled: capped=%d total=%d", len(capped), total)
 	}
 }
