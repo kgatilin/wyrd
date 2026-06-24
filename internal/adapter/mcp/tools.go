@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	archmotifAdapter "github.com/kgatilin/archai/internal/adapter/archmotif"
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
 	"github.com/kgatilin/archai/internal/apply"
 	"github.com/kgatilin/archai/internal/diff"
@@ -20,6 +21,7 @@ import (
 	"github.com/kgatilin/archai/internal/retrieval"
 	"github.com/kgatilin/archai/internal/serve"
 	"github.com/kgatilin/archai/internal/target"
+	"github.com/kgatilin/archmotif/pkg/spectralcluster"
 	yamlv3 "gopkg.in/yaml.v3"
 )
 
@@ -380,6 +382,46 @@ func builtinToolDefinitions() []ToolDefinition {
 				"properties": map[string]any{},
 			},
 		},
+		{
+			Name:        "spectral_cluster",
+			Description: "Split a package or subgraph into natural module clusters using spectral clustering. Uses the eigengap heuristic for automatic K selection when k=\"auto\". Returns cluster assignments with boundary symbols (nodes pulled both ways) and cut quality metrics. Useful for identifying natural module boundaries, finding tightly-coupled subsystems, or suggesting package splits.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"selector": map[string]any{
+						"type":        "object",
+						"description": "Selects which nodes to cluster.",
+						"properties": map[string]any{
+							"package": map[string]any{
+								"type":        "string",
+								"description": "Package path prefix to filter nodes.",
+							},
+							"include_subpackages": map[string]any{
+								"type":        "boolean",
+								"description": "Include subpackages of the given package (default true).",
+							},
+							"node_kinds": map[string]any{
+								"type":        "array",
+								"items":       map[string]any{"type": "string"},
+								"description": "Node kinds to include (e.g. type, function, method). Empty means all symbol nodes.",
+							},
+							"edge_kinds": map[string]any{
+								"type":        "array",
+								"items":       map[string]any{"type": "string"},
+								"description": "Edge kinds to consider (e.g. calls, usesType, implements). Empty means all edges.",
+							},
+						},
+					},
+					"k": map[string]any{
+						"oneOf": []any{
+							map[string]any{"type": "string", "enum": []string{"auto"}},
+							map[string]any{"type": "integer", "minimum": 1},
+						},
+						"description": "Number of clusters: \"auto\" uses eigengap heuristic, or specify an integer >= 1.",
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -422,6 +464,8 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleGetNode(state, rawArgs)
 	case "refresh":
 		return handleRefresh(state)
+	case "spectral_cluster":
+		return handleSpectralCluster(state, rawArgs)
 	}
 	if strings.HasPrefix(name, "plugin.") {
 		return dispatchPluginTool(name, rawArgs)
@@ -1437,4 +1481,270 @@ func handleRefresh(state *serve.State) (ToolResult, *RPCError) {
 		Removed:   removed,
 		Dense:     svc.DenseAvailable(),
 	})
+}
+
+// --- Spectral cluster tool handler ---
+
+// spectralClusterArgs is the input schema for the spectral_cluster tool.
+type spectralClusterArgs struct {
+	Selector spectralSelector `json:"selector"`
+	K        any              `json:"k"` // "auto" or integer
+}
+
+type spectralSelector struct {
+	Package            string   `json:"package"`
+	IncludeSubpackages *bool    `json:"include_subpackages"`
+	NodeKinds          []string `json:"node_kinds"`
+	EdgeKinds          []string `json:"edge_kinds"`
+}
+
+// spectralClusterResponse is the output structure for spectral_cluster.
+type spectralClusterResponse struct {
+	NodeCount       int                      `json:"node_count"`
+	EdgeCount       int                      `json:"edge_count"`
+	CutAnalysis     spectralCutAnalysis      `json:"cut_analysis"`
+	Clusters        []spectralClusterInfo    `json:"clusters"`
+	BoundarySymbols []string                 `json:"boundary_symbols"`
+	CutQuality      spectralCutQualityResult `json:"cut_quality"`
+}
+
+type spectralCutAnalysis struct {
+	ChosenK    int                  `json:"chosen_k"`
+	KSource    string               `json:"k_source"`
+	Candidates []spectralKCandidate `json:"candidates"`
+}
+
+type spectralKCandidate struct {
+	K          int     `json:"k"`
+	GapRatio   float64 `json:"gap_ratio"`
+	Confidence string  `json:"confidence"`
+}
+
+type spectralClusterInfo struct {
+	ID      int      `json:"id"`
+	Size    int      `json:"size"`
+	Members []string `json:"members"`
+}
+
+type spectralCutQualityResult struct {
+	IntraEdges int `json:"intra_edges"`
+	InterEdges int `json:"inter_edges"`
+}
+
+// handleSpectralCluster performs spectral clustering on a package/subgraph.
+func handleSpectralCluster(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	var args spectralClusterArgs
+	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
+		return ToolResult{}, rpcErr
+	}
+
+	if state == nil {
+		return errorResult("no state available"), nil
+	}
+
+	snap := state.Snapshot()
+	if len(snap.Packages) == 0 {
+		return errorResult("no packages loaded"), nil
+	}
+
+	// Build archmotif graph from the model.
+	graph, err := archmotifAdapter.ToArchmotifGraph(snap.Packages, snap.Overlay)
+	if err != nil {
+		return errorResult(fmt.Sprintf("building graph: %v", err)), nil
+	}
+
+	// Compute node subset matching the selector.
+	nodeIDs := selectNodes(graph, snap.Packages, args.Selector)
+	if len(nodeIDs) == 0 {
+		return errorResult("no nodes match the selector"), nil
+	}
+
+	// Parse K.
+	k := 0 // auto
+	if args.K != nil {
+		switch v := args.K.(type) {
+		case string:
+			if v != "auto" {
+				return errorResult(fmt.Sprintf("invalid k value: %q (use \"auto\" or an integer)", v)), nil
+			}
+		case float64:
+			k = int(v)
+			if k < 1 {
+				return errorResult("k must be >= 1"), nil
+			}
+		case int:
+			k = v
+			if k < 1 {
+				return errorResult("k must be >= 1"), nil
+			}
+		default:
+			return errorResult(fmt.Sprintf("invalid k type: %T", args.K)), nil
+		}
+	}
+
+	// Call spectral clustering.
+	opts := spectralcluster.DefaultOptions()
+	opts.K = k
+	opts.NodeIDs = nodeIDs
+	opts.EdgeKinds = args.Selector.EdgeKinds
+
+	result, err := spectralcluster.SpectralCluster(graph, opts)
+	if err != nil {
+		return errorResult(fmt.Sprintf("spectral clustering failed: %v", err)), nil
+	}
+
+	// Map archmotif node IDs back to archai symbol IDs.
+	clusters := make([]spectralClusterInfo, len(result.Clusters))
+	for i, c := range result.Clusters {
+		members := mapNodeIDsToSymbols(c.Members)
+		clusters[i] = spectralClusterInfo{
+			ID:      c.ID,
+			Size:    len(members),
+			Members: members,
+		}
+	}
+
+	boundarySymbols := mapNodeIDsToSymbols(result.BoundarySymbols)
+
+	candidates := make([]spectralKCandidate, len(result.Candidates))
+	for i, c := range result.Candidates {
+		candidates[i] = spectralKCandidate{
+			K:          c.K,
+			GapRatio:   c.GapRatio,
+			Confidence: c.Confidence,
+		}
+	}
+
+	resp := spectralClusterResponse{
+		NodeCount: len(nodeIDs),
+		EdgeCount: graph.EdgeCount(),
+		CutAnalysis: spectralCutAnalysis{
+			ChosenK:    result.ChosenK,
+			KSource:    result.KSource,
+			Candidates: candidates,
+		},
+		Clusters:        clusters,
+		BoundarySymbols: boundarySymbols,
+		CutQuality: spectralCutQualityResult{
+			IntraEdges: result.CutQuality.IntraEdges,
+			InterEdges: result.CutQuality.InterEdges,
+		},
+	}
+
+	return textResult(resp)
+}
+
+// selectNodes returns archmotif node IDs matching the selector.
+func selectNodes(graph *spectralcluster.Graph, packages []domain.PackageModel, sel spectralSelector) []string {
+	// Build a set of package paths matching the selector.
+	includeSubpkgs := true
+	if sel.IncludeSubpackages != nil {
+		includeSubpkgs = *sel.IncludeSubpackages
+	}
+
+	matchingPkgs := map[string]bool{}
+	for _, pkg := range packages {
+		if sel.Package == "" {
+			matchingPkgs[pkg.Path] = true
+		} else if pkg.Path == sel.Package {
+			matchingPkgs[pkg.Path] = true
+		} else if includeSubpkgs && strings.HasPrefix(pkg.Path, sel.Package+"/") {
+			matchingPkgs[pkg.Path] = true
+		}
+	}
+
+	// Build node kind filter.
+	nodeKindFilter := map[string]bool{}
+	for _, k := range sel.NodeKinds {
+		nodeKindFilter[k] = true
+	}
+
+	// Collect matching node IDs.
+	// Archmotif node IDs have format: "pkg:<path>", "type:<path>.<Name>",
+	// "fn:<path>.<Name>", "method:<path>.<RecvName>.<MethodName>",
+	// "field:<path>.<StructName>.<FieldName>".
+	var nodeIDs []string
+	for _, n := range graph.Nodes() {
+		// Parse the node ID to extract package path.
+		pkgPath := extractPackagePath(n.ID)
+		if !matchingPkgs[pkgPath] {
+			continue
+		}
+
+		// Filter by node kind.
+		if len(nodeKindFilter) > 0 {
+			kindStr := string(n.Kind)
+			if !nodeKindFilter[kindStr] {
+				continue
+			}
+		}
+
+		// Exclude package nodes by default (we want symbol-level clustering).
+		if n.Kind == "package" && len(sel.NodeKinds) == 0 {
+			continue
+		}
+
+		nodeIDs = append(nodeIDs, n.ID)
+	}
+
+	sort.Strings(nodeIDs)
+	return nodeIDs
+}
+
+// extractPackagePath extracts the package path from an archmotif node ID.
+func extractPackagePath(id string) string {
+	// ID formats:
+	//   pkg:<path>             -> <path>
+	//   type:<path>.<Name>     -> <path>
+	//   fn:<path>.<Name>       -> <path>
+	//   method:<path>.<Recv>.<Method> -> <path>
+	//   field:<path>.<Struct>.<Field> -> <path>
+	switch {
+	case strings.HasPrefix(id, "pkg:"):
+		return strings.TrimPrefix(id, "pkg:")
+	case strings.HasPrefix(id, "type:"):
+		return extractPathBeforeLastDot(strings.TrimPrefix(id, "type:"))
+	case strings.HasPrefix(id, "fn:"):
+		return extractPathBeforeLastDot(strings.TrimPrefix(id, "fn:"))
+	case strings.HasPrefix(id, "method:"):
+		// method:<path>.<Recv>.<Method> - need to strip last two segments
+		rest := strings.TrimPrefix(id, "method:")
+		return extractPathBeforeLastNDots(rest, 2)
+	case strings.HasPrefix(id, "field:"):
+		// field:<path>.<Struct>.<Field> - need to strip last two segments
+		rest := strings.TrimPrefix(id, "field:")
+		return extractPathBeforeLastNDots(rest, 2)
+	}
+	return ""
+}
+
+func extractPathBeforeLastDot(s string) string {
+	idx := strings.LastIndex(s, ".")
+	if idx < 0 {
+		return s
+	}
+	return s[:idx]
+}
+
+func extractPathBeforeLastNDots(s string, n int) string {
+	for i := 0; i < n; i++ {
+		idx := strings.LastIndex(s, ".")
+		if idx < 0 {
+			return s
+		}
+		s = s[:idx]
+	}
+	return s
+}
+
+// mapNodeIDsToSymbols converts archmotif node IDs to archai symbol IDs.
+// For now, we just return the archmotif IDs as-is since they are human-readable.
+func mapNodeIDsToSymbols(nodeIDs []string) []string {
+	// The archmotif IDs are already descriptive:
+	//   type:internal/domain.PackageModel
+	//   fn:internal/service.Generate
+	// So we return them directly.
+	out := make([]string, len(nodeIDs))
+	copy(out, nodeIDs)
+	return out
 }

@@ -59,9 +59,9 @@ func mustWrite(t *testing.T, path, body string) {
 
 func TestToolDefinitions(t *testing.T) {
 	defs := ToolDefinitions()
-	// 11 original tools + 5 retrieval tools (search, search_graph, expand, get_node, refresh)
-	if len(defs) != 16 {
-		t.Fatalf("expected 16 tool definitions, got %d", len(defs))
+	// 11 original tools + 5 retrieval tools (search, search_graph, expand, get_node, refresh) + spectral_cluster
+	if len(defs) != 17 {
+		t.Fatalf("expected 17 tool definitions, got %d", len(defs))
 	}
 	names := map[string]bool{}
 	for _, d := range defs {
