@@ -2008,7 +2008,12 @@ func handleTrophicLayers(state *serve.State, rawArgs json.RawMessage) (ToolResul
 		if !matchingPkgs[extractPackagePath(n.ID)] {
 			continue
 		}
-		if n.Kind == "package" || n.Kind == "external" || n.Kind == "file" {
+		// trophic_layers is a behavioral (flow) analysis. Structural kinds
+		// carry no flow edges by construction — package/file are containers,
+		// and a field's type-coupling is recorded on its owning struct, not on
+		// the field node — so they would only pile up at height 0 as a spurious
+		// foundation layer. Restrict to behavioral nodes (type/fn/method).
+		if n.Kind == "package" || n.Kind == "external" || n.Kind == "file" || n.Kind == "field" {
 			continue
 		}
 		nodeIDs = append(nodeIDs, n.ID)
