@@ -281,7 +281,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		// Retrieval tools
 		{
 			Name:        "search",
-			Description: "Hybrid semantic + lexical code search: dense vector similarity (when an embedder is configured) and BM25 lexical matching, fused with reciprocal rank fusion. Use it as a semantic entry point to locate code when you don't know exact symbol names — it complements literal text search (which needs exact strings) and editor go-to-definition (which needs an already-known symbol). Each result carries node_id, kind, file, line, doc, and a source snippet, so file:line lets you jump straight to the code. Scores are fused RRF ranks (small values, often ~0.03), not absolute 0..1 relevance — use them only to order results, never as a cutoff threshold. The `dense` flag in the response reports whether vector similarity was active for this query. Results reflect the last indexed snapshot; symbols written since then stay invisible until you call `refresh`. Narrow noise with filters.kinds / filters.package_prefix when you already know the symbol kind or package.",
+			Description: "Hybrid semantic + lexical code search: dense vector similarity (when an embedder is configured) and BM25 lexical matching, fused with reciprocal rank fusion. Reach for it to find code by meaning — what something does or is about — when you don't have an exact name or a known symbol to navigate from; prefer literal text search for exact strings and direct go-to-definition / find-references when the symbol is already known. Returns a flat ranked list; use plain `search` to find WHERE something lives, and `search_graph` instead when you need HOW it connects to the rest of the code. Each result carries node_id, kind, file, line, doc, and a source snippet, so file:line lets you jump straight to the code. Scores are fused RRF ranks (small values, often ~0.03), not absolute 0..1 relevance — use them only to order results, never as a cutoff threshold. The `dense` flag in the response is true when the vector layer contributed to ranking for this query and false when results are BM25-only (no embedder / empty vector index) — a hint about recall, not result validity. Results reflect the last indexed snapshot; symbols written since then stay invisible until you call `refresh`. Narrow noise with filters.kinds / filters.package_prefix when you already know the symbol kind or package.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -314,7 +314,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "search_graph",
-			Description: "Like `search`, but returns a subgraph instead of a flat list: the matching seed symbols plus their neighbors up to `hops` away via uses/returns/implements/calls edges. Use it to see how matched code connects — callers, callees, implementations — in a single call. Output grows fast with `k` and `hops` (a broad query can return hundreds of nodes and edges), so keep `k` small (~5) and `hops` at 1–2 unless you deliberately want a wider blast radius. Same snapshot freshness (call `refresh` to pick up new code) and same RRF scoring semantics as `search`.",
+			Description: "Like `search`, but returns a subgraph instead of a flat list: the matching seed symbols plus their neighbors up to `hops` away via uses/returns/implements/calls edges. Default to this over plain `search` when the question is about connections rather than location — impact analysis, dependency tracing, or 'what calls / implements / returns X'. Output grows fast with `k` and `hops` (a broad query can return hundreds of nodes and edges), so keep `k` small (~5) and `hops` at 1–2 unless you deliberately want a wider blast radius. Same snapshot freshness (call `refresh` to pick up new code) and same RRF scoring semantics as `search`.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -336,7 +336,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "expand",
-			Description: "Expand from node IDs you already have (from a prior `search` or `search_graph` result) to their neighbors via graph edges, up to `hops` away. Use it to widen the graph around symbols you've already found without re-running a query. Restrict `edges` to specific kinds (uses, returns, implements, calls) to keep the result focused; node IDs use the package.SymbolName format returned by search.",
+			Description: "Expand from node IDs you already have (from a prior `search` or `search_graph` result) to their neighbors via graph edges, up to `hops` away. This is the breadth tool — it walks outward from many nodes at once and returns lightweight node summaries plus edges, without source bodies; use `get_node` when you instead need the full code of one symbol. Use expand to widen the graph around symbols you've already found without re-running a query. Restrict `edges` to specific kinds (uses, returns, implements, calls) to keep the result focused; node IDs use the package.SymbolName format returned by search.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -360,7 +360,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "get_node",
-			Description: "Return full detail for a single symbol — its complete source body and incident edges — given a node_id (package.SymbolName) from a `search` or `search_graph` result. Use it to read the actual code once search has located the symbol.",
+			Description: "Return full detail for a single symbol — its complete source body and incident edges — given a node_id (package.SymbolName) from a `search` or `search_graph` result. This is the depth tool: one node, with its actual code; use `expand` instead when you want to walk edges across many nodes without bodies. Use it to read the code once search has located the symbol.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
