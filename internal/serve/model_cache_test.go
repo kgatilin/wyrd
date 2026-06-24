@@ -47,10 +47,13 @@ func TestComputeSchemaFingerprint_RecursiveTypeTerminates(t *testing.T) {
 func TestLoadModelCache_RejectsStaleFingerprint(t *testing.T) {
 	root := t.TempDir()
 
+	buildVersion, binaryStamp := binaryIdentity()
 	valid := modelCacheFile{
 		Schema:            modelCacheSchema,
 		Version:           modelCacheVersion,
 		SchemaFingerprint: modelCacheSchemaFingerprint,
+		BuildVersion:      buildVersion,
+		BinaryStamp:       binaryStamp,
 		PackageFiles:      map[string][]fileStamp{},
 	}
 	if err := writeModelCache(root, valid); err != nil {
@@ -70,5 +73,51 @@ func TestLoadModelCache_RejectsStaleFingerprint(t *testing.T) {
 	}
 	if _, err := loadModelCache(root); err == nil {
 		t.Fatal("stale-fingerprint cache was accepted; want rejection")
+	}
+}
+
+// TestLoadModelCache_RejectsDifferentBinary guards the parser-logic-change
+// case: a cache written by a previous binary (different build version) must be
+// rejected even when the schema fingerprint and file stamps are unchanged.
+// Without this, a parser improvement that emits new edges from identical source
+// is silently masked by the stale cache.
+func TestLoadModelCache_RejectsDifferentBinary(t *testing.T) {
+	root := t.TempDir()
+
+	buildVersion, binaryStamp := binaryIdentity()
+	valid := modelCacheFile{
+		Schema:            modelCacheSchema,
+		Version:           modelCacheVersion,
+		SchemaFingerprint: modelCacheSchemaFingerprint,
+		BuildVersion:      buildVersion,
+		BinaryStamp:       binaryStamp,
+		PackageFiles:      map[string][]fileStamp{},
+	}
+	if err := writeModelCache(root, valid); err != nil {
+		t.Fatalf("writeModelCache(valid): %v", err)
+	}
+	if _, err := loadModelCache(root); err != nil {
+		t.Fatalf("valid cache rejected: %v", err)
+	}
+
+	// Same shape and stamps, but written by a different binary version.
+	otherBinary := valid
+	otherBinary.BuildVersion = buildVersion + "-prev"
+	if err := writeModelCache(root, otherBinary); err != nil {
+		t.Fatalf("writeModelCache(otherBinary): %v", err)
+	}
+	if _, err := loadModelCache(root); err == nil {
+		t.Fatal("cache from a different binary version was accepted; want rejection")
+	}
+
+	// An empty identity (cache predating this field) must also be rejected.
+	legacy := valid
+	legacy.BuildVersion = ""
+	legacy.BinaryStamp = ""
+	if err := writeModelCache(root, legacy); err != nil {
+		t.Fatalf("writeModelCache(legacy): %v", err)
+	}
+	if _, err := loadModelCache(root); err == nil {
+		t.Fatal("legacy cache without binary identity was accepted; want rejection")
 	}
 }

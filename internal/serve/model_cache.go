@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kgatilin/archai/internal/buildinfo"
 	"github.com/kgatilin/archai/internal/domain"
 )
 
@@ -36,10 +37,34 @@ type modelCacheFile struct {
 	Schema            string                 `json:"schema"`
 	Version           int                    `json:"version"`
 	SchemaFingerprint string                 `json:"schema_fingerprint"`
+	BuildVersion      string                 `json:"build_version"`
+	BinaryStamp       string                 `json:"binary_stamp"`
 	WrittenAt         time.Time              `json:"written_at"`
 	Packages          []domain.PackageModel  `json:"packages"`
 	PackageFiles      map[string][]fileStamp `json:"package_files"`
 	ProjectFiles      []fileStamp            `json:"project_files"`
+}
+
+// binaryIdentity reports the running binary's version and an on-disk stamp of
+// its executable. It exists because the schema fingerprint only captures the
+// SHAPE of domain.PackageModel — not the parser LOGIC that fills it. A parser
+// improvement that emits different edges from identical source with an
+// unchanged struct shape (e.g. new generic-type-argument edges) would
+// otherwise be masked by a cache written by the previous binary. Comparing the
+// build version plus the executable's mtime/size busts the cache on any
+// rebuild-and-restart. Empty values are treated as "unknown" and force a
+// re-parse, which is the safe direction (never serve stale).
+func binaryIdentity() (version, stamp string) {
+	version = buildinfo.Resolve().Version
+	exe, err := os.Executable()
+	if err != nil {
+		return version, ""
+	}
+	fi, err := os.Stat(exe)
+	if err != nil {
+		return version, ""
+	}
+	return version, fmt.Sprintf("%d:%d", fi.ModTime().UnixNano(), fi.Size())
 }
 
 // computeSchemaFingerprint walks the structural shape of t (field names and
@@ -169,10 +194,13 @@ func (s *State) readModelCache(ctx context.Context) ([]domain.PackageModel, *mod
 		len(cache.PackageFiles) != len(current) ||
 		len(cache.Packages) != len(models)
 	if needsWrite {
+		buildVersion, binaryStamp := binaryIdentity()
 		next := modelCacheFile{
 			Schema:            modelCacheSchema,
 			Version:           modelCacheVersion,
 			SchemaFingerprint: modelCacheSchemaFingerprint,
+			BuildVersion:      buildVersion,
+			BinaryStamp:       binaryStamp,
 			WrittenAt:         time.Now().UTC(),
 			Packages:          models,
 			PackageFiles:      current,
@@ -234,10 +262,13 @@ func (s *State) writeModelCache(models []domain.PackageModel) error {
 	if err != nil {
 		return err
 	}
+	buildVersion, binaryStamp := binaryIdentity()
 	return writeModelCache(s.root, modelCacheFile{
 		Schema:            modelCacheSchema,
 		Version:           modelCacheVersion,
 		SchemaFingerprint: modelCacheSchemaFingerprint,
+		BuildVersion:      buildVersion,
+		BinaryStamp:       binaryStamp,
 		WrittenAt:         time.Now().UTC(),
 		Packages:          sortedPackageModels(models),
 		PackageFiles:      packageFiles,
@@ -264,6 +295,10 @@ func loadModelCache(root string) (modelCacheFile, error) {
 	if cache.SchemaFingerprint != modelCacheSchemaFingerprint {
 		return modelCacheFile{}, fmt.Errorf("cache model-shape fingerprint mismatch: got %q, want %q (model struct changed; re-parsing)",
 			cache.SchemaFingerprint, modelCacheSchemaFingerprint)
+	}
+	if wantVersion, wantStamp := binaryIdentity(); cache.BuildVersion != wantVersion || cache.BinaryStamp != wantStamp {
+		return modelCacheFile{}, fmt.Errorf("cache built by a different binary: got version %q stamp %q, want version %q stamp %q (parser logic may differ; re-parsing)",
+			cache.BuildVersion, cache.BinaryStamp, wantVersion, wantStamp)
 	}
 	if cache.PackageFiles == nil {
 		return modelCacheFile{}, fmt.Errorf("cache missing package manifest")
