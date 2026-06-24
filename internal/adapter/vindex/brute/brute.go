@@ -143,6 +143,14 @@ func (idx *Index) IDs() []string {
 	return ids
 }
 
+// Vector returns the vector for the given ID, or (nil, false) if not found.
+func (idx *Index) Vector(id string) ([]float32, bool) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	vec, ok := idx.vectors[id]
+	return vec, ok
+}
+
 // cosineSimilarity computes the cosine similarity between two vectors.
 // Returns 0 if either vector is zero or lengths don't match.
 func cosineSimilarity(a, b []float32) float32 {

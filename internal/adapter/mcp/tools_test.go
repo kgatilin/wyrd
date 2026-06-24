@@ -59,9 +59,9 @@ func mustWrite(t *testing.T, path, body string) {
 
 func TestToolDefinitions(t *testing.T) {
 	defs := ToolDefinitions()
-	// 11 original tools + 5 retrieval tools (search, search_graph, expand, get_node, refresh) + spectral_cluster + components + trophic_layers
-	if len(defs) != 19 {
-		t.Fatalf("expected 19 tool definitions, got %d", len(defs))
+	// 11 original tools + 5 retrieval tools (search, search_graph, expand, get_node, refresh) + spectral_cluster + components + trophic_layers + semantic_cluster
+	if len(defs) != 20 {
+		t.Fatalf("expected 20 tool definitions, got %d", len(defs))
 	}
 	names := map[string]bool{}
 	for _, d := range defs {
@@ -377,5 +377,58 @@ func TestGetBoundedContext_MissingName(t *testing.T) {
 	}
 	if !res.IsError {
 		t.Fatal("expected IsError result for missing name")
+	}
+}
+
+// TestSemanticCluster_NoState verifies error handling when state is nil.
+func TestSemanticCluster_NoState(t *testing.T) {
+	res, rpcErr := Dispatch(nil, "semantic_cluster", json.RawMessage(`{"selector":{"package":"alpha"}}`))
+	if rpcErr != nil {
+		t.Fatalf("unexpected RPC error: %v", rpcErr)
+	}
+	if !res.IsError {
+		t.Fatal("expected IsError result for nil state")
+	}
+	if !strings.Contains(res.Content[0].Text, "no state") {
+		t.Errorf("expected 'no state' in error, got: %s", res.Content[0].Text)
+	}
+}
+
+// TestSemanticCluster_NoRetrieval verifies error handling when retrieval is not initialized.
+func TestSemanticCluster_NoRetrieval(t *testing.T) {
+	// loadFakeState disables retrieval via ARCHAI_RETRIEVAL_DISABLE env var
+	state := loadFakeState(t)
+
+	res, rpcErr := Dispatch(state, "semantic_cluster", json.RawMessage(`{"selector":{"package":"alpha"}}`))
+	if rpcErr != nil {
+		t.Fatalf("unexpected RPC error: %v", rpcErr)
+	}
+	if !res.IsError {
+		t.Fatal("expected IsError result when retrieval not initialized")
+	}
+	// Should mention retrieval not initialized
+	if !strings.Contains(res.Content[0].Text, "retrieval") {
+		t.Errorf("expected 'retrieval' in error message, got: %s", res.Content[0].Text)
+	}
+}
+
+// TestArchmotifIDToRetrievalID tests the ID mapping between archmotif and retrieval.
+func TestArchmotifIDToRetrievalID(t *testing.T) {
+	cases := []struct {
+		amid string
+		want string
+	}{
+		{"type:internal/domain.PackageModel", "internal/domain.PackageModel"},
+		{"fn:internal/service.Generate", "internal/service.Generate"},
+		{"method:internal/domain.State.Method", ""}, // methods not indexed
+		{"field:internal/domain.State.Name", ""},    // fields not indexed
+		{"pkg:internal/domain", ""},                 // packages not indexed
+		{"file:internal/domain/model.go", ""},       // files not indexed
+	}
+	for _, tc := range cases {
+		got := archmotifIDToRetrievalID(tc.amid)
+		if got != tc.want {
+			t.Errorf("archmotifIDToRetrievalID(%q) = %q, want %q", tc.amid, got, tc.want)
+		}
 	}
 }

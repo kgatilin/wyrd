@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +22,7 @@ import (
 	"github.com/kgatilin/archai/internal/retrieval"
 	"github.com/kgatilin/archai/internal/serve"
 	"github.com/kgatilin/archai/internal/target"
+	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
 	archmotifComponents "github.com/kgatilin/archmotif/pkg/components"
 	"github.com/kgatilin/archmotif/pkg/spectralcluster"
 	archmotifTrophic "github.com/kgatilin/archmotif/pkg/trophic"
@@ -443,6 +445,50 @@ func builtinToolDefinitions() []ToolDefinition {
 			},
 		},
 		{
+			Name:        "semantic_cluster",
+			Description: "Split a package or subgraph into natural module clusters based on semantic embedding similarity. Uses the same spectral clustering core as spectral_cluster, but edges come from embedding cosine similarity (kNN graph) instead of structural dependencies. Output format is identical to spectral_cluster so you can compare where semantic and structural structure agree/disagree. Requires an embedder and indexed vectors (call refresh first if needed).",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"selector": map[string]any{
+						"type":        "object",
+						"description": "Selects which nodes to cluster.",
+						"properties": map[string]any{
+							"package": map[string]any{
+								"type":        "string",
+								"description": "Package path prefix to filter nodes.",
+							},
+							"include_subpackages": map[string]any{
+								"type":        "boolean",
+								"description": "Include subpackages of the given package (default true).",
+							},
+							"node_kinds": map[string]any{
+								"type":        "array",
+								"items":       map[string]any{"type": "string"},
+								"description": "Node kinds to include (e.g. type, function, method). Empty means all symbol nodes.",
+							},
+						},
+					},
+					"k": map[string]any{
+						"oneOf": []any{
+							map[string]any{"type": "string", "enum": []string{"auto"}},
+							map[string]any{"type": "integer", "minimum": 1},
+						},
+						"description": "Number of clusters: \"auto\" uses eigengap heuristic, or specify an integer >= 1.",
+					},
+					"knn": map[string]any{
+						"type":        "integer",
+						"minimum":     1,
+						"description": "Number of nearest neighbors for the similarity graph (default 8).",
+					},
+					"min_sim": map[string]any{
+						"type":        "number",
+						"description": "Minimum cosine similarity to create an edge (default 0.0, disabled).",
+					},
+				},
+			},
+		},
+		{
 			Name:        "trophic_layers",
 			Description: "Derive emergent architectural layers from dependency direction — no policy required. Solves for a trophic height per node, then reports F0 (an incoherence score in [0,1]: ~0 = cleanly layered, >0.4 = tangled), the emergent layers (level 0 = foundation, top = entry points/CLI), backward edges that point UP the hierarchy (dependency inversions — the main actionable output, sorted by how far up they reach), and cycles where layering breaks down. Use this on unfamiliar code to ask \"are there layers, and where are the inversions?\" — unlike a policy check it needs no declared rules. The edge set analyzed is fixed (directional dependency edges); there is intentionally no knob for it, so the layering stays comparable across runs.",
 			InputSchema: map[string]any{
@@ -504,6 +550,8 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleRefresh(state)
 	case "spectral_cluster":
 		return handleSpectralCluster(state, rawArgs)
+	case "semantic_cluster":
+		return handleSemanticCluster(state, rawArgs)
 	case "components":
 		return handleComponents(state, rawArgs)
 	case "trophic_layers":
@@ -1674,6 +1722,302 @@ func handleSpectralCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 	}
 
 	return textResult(resp)
+}
+
+// --- Semantic cluster tool handler ---
+
+// semanticClusterArgs is the input schema for the semantic_cluster tool.
+type semanticClusterArgs struct {
+	Selector spectralSelector `json:"selector"`
+	K        any              `json:"k"`       // "auto" or integer
+	KNN      int              `json:"knn"`     // k nearest neighbors for similarity graph
+	MinSim   float64          `json:"min_sim"` // minimum similarity threshold
+}
+
+// semanticClusterResponse extends spectralClusterResponse with dropped node info.
+type semanticClusterResponse struct {
+	spectralClusterResponse
+	DroppedNodes int `json:"dropped_nodes"` // nodes without embeddings
+}
+
+// handleSemanticCluster performs spectral clustering on a semantic similarity graph.
+func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	var args semanticClusterArgs
+	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
+		return ToolResult{}, rpcErr
+	}
+
+	if state == nil {
+		return errorResult("no state available"), nil
+	}
+
+	// Get retrieval service for vector access
+	svc := state.Retrieval()
+	if svc == nil {
+		return errorResult("retrieval not initialized — call refresh first"), nil
+	}
+
+	vidx := svc.VectorIndexWithLookup()
+	if vidx == nil {
+		return errorResult("vector index not available — embedder may not be configured or refresh needed"), nil
+	}
+
+	snap := state.Snapshot()
+	if len(snap.Packages) == 0 {
+		return errorResult("no packages loaded"), nil
+	}
+
+	// Build archmotif graph to use selectNodes for consistent filtering
+	graph, err := archmotifAdapter.ToArchmotifGraph(snap.Packages, snap.Overlay)
+	if err != nil {
+		return errorResult(fmt.Sprintf("building graph: %v", err)), nil
+	}
+
+	// Get selected archmotif node IDs
+	archmotifNodeIDs := selectNodes(graph, snap.Packages, args.Selector)
+	if len(archmotifNodeIDs) == 0 {
+		return errorResult("no nodes match the selector"), nil
+	}
+
+	// Map archmotif node IDs to retrieval index keys and collect vectors.
+	// Archmotif IDs: type:pkg.Name, fn:pkg.Name, method:pkg.Recv.Method, field:pkg.Struct.Field
+	// Retrieval IDs: pkg.Name (no prefix)
+	var nodesWithVectors []semanticNode
+	droppedCount := 0
+
+	for _, amid := range archmotifNodeIDs {
+		rid := archmotifIDToRetrievalID(amid)
+		if rid == "" {
+			droppedCount++
+			continue
+		}
+		vec, ok := vidx.Vector(rid)
+		if !ok || len(vec) == 0 {
+			droppedCount++
+			continue
+		}
+		nodesWithVectors = append(nodesWithVectors, semanticNode{
+			archmotifID: amid,
+			retrievalID: rid,
+			vec:         vec,
+		})
+	}
+
+	if len(nodesWithVectors) < 2 {
+		return errorResult(fmt.Sprintf("only %d nodes have embeddings (need at least 2); %d dropped",
+			len(nodesWithVectors), droppedCount)), nil
+	}
+
+	// Apply defaults
+	knn := args.KNN
+	if knn < 1 {
+		knn = 8
+	}
+	minSim := args.MinSim // default 0.0 (no floor)
+
+	// Build semantic kNN graph using archmotifimport.Builder
+	semanticGraph, edgeCount, err := buildSemanticKNNGraph(nodesWithVectors, knn, minSim)
+	if err != nil {
+		return errorResult(fmt.Sprintf("building semantic graph: %v", err)), nil
+	}
+
+	// Collect surviving node IDs for spectral clustering
+	survivingNodeIDs := make([]string, len(nodesWithVectors))
+	for i, nv := range nodesWithVectors {
+		survivingNodeIDs[i] = nv.archmotifID
+	}
+
+	// Parse K
+	k := 0 // auto
+	if args.K != nil {
+		switch v := args.K.(type) {
+		case string:
+			if v != "auto" {
+				return errorResult(fmt.Sprintf("invalid k value: %q (use \"auto\" or an integer)", v)), nil
+			}
+		case float64:
+			k = int(v)
+			if k < 1 {
+				return errorResult("k must be >= 1"), nil
+			}
+		case int:
+			k = v
+			if k < 1 {
+				return errorResult("k must be >= 1"), nil
+			}
+		default:
+			return errorResult(fmt.Sprintf("invalid k type: %T", args.K)), nil
+		}
+	}
+
+	// Call spectral clustering on the semantic graph
+	opts := spectralcluster.DefaultOptions()
+	opts.K = k
+	opts.NodeIDs = survivingNodeIDs
+	opts.EdgeKinds = []string{"semantic"} // our semantic edge kind
+
+	result, err := spectralcluster.SpectralCluster(semanticGraph, opts)
+	if err != nil {
+		return errorResult(fmt.Sprintf("spectral clustering failed: %v", err)), nil
+	}
+
+	// Map archmotif node IDs back to symbols (same as spectral_cluster)
+	clusters := make([]spectralClusterInfo, len(result.Clusters))
+	for i, c := range result.Clusters {
+		members := mapNodeIDsToSymbols(c.Members)
+		clusters[i] = spectralClusterInfo{
+			ID:      c.ID,
+			Size:    len(members),
+			Members: members,
+		}
+	}
+
+	boundarySymbols := mapNodeIDsToSymbols(result.BoundarySymbols)
+
+	candidates := make([]spectralKCandidate, len(result.Candidates))
+	for i, c := range result.Candidates {
+		candidates[i] = spectralKCandidate{
+			K:          c.K,
+			GapRatio:   c.GapRatio,
+			Confidence: c.Confidence,
+		}
+	}
+
+	resp := semanticClusterResponse{
+		spectralClusterResponse: spectralClusterResponse{
+			NodeCount: len(survivingNodeIDs),
+			EdgeCount: edgeCount,
+			CutAnalysis: spectralCutAnalysis{
+				ChosenK:    result.ChosenK,
+				KSource:    result.KSource,
+				Candidates: candidates,
+			},
+			Clusters:        clusters,
+			BoundarySymbols: boundarySymbols,
+			CutQuality: spectralCutQualityResult{
+				IntraEdges: result.CutQuality.IntraEdges,
+				InterEdges: result.CutQuality.InterEdges,
+			},
+		},
+		DroppedNodes: droppedCount,
+	}
+
+	return textResult(resp)
+}
+
+// archmotifIDToRetrievalID converts an archmotif node ID to a retrieval index key.
+// Archmotif IDs have kind prefixes (type:, fn:, method:, field:, pkg:, file:).
+// Retrieval IDs are just "pkg.SymbolName" with no prefix.
+func archmotifIDToRetrievalID(amid string) string {
+	switch {
+	case strings.HasPrefix(amid, "type:"):
+		// type:internal/domain.PackageModel -> internal/domain.PackageModel
+		return strings.TrimPrefix(amid, "type:")
+	case strings.HasPrefix(amid, "fn:"):
+		// fn:internal/service.Generate -> internal/service.Generate
+		return strings.TrimPrefix(amid, "fn:")
+	case strings.HasPrefix(amid, "method:"):
+		// method:internal/domain.StructName.MethodName -> not indexed in retrieval
+		// Retrieval indexes structs/interfaces, not individual methods
+		return ""
+	case strings.HasPrefix(amid, "field:"):
+		// field:internal/domain.StructName.FieldName -> not indexed in retrieval
+		return ""
+	case strings.HasPrefix(amid, "pkg:"):
+		// pkg:internal/domain -> packages are not indexed in retrieval
+		return ""
+	case strings.HasPrefix(amid, "file:"):
+		// file:internal/domain/model.go -> files are not indexed in retrieval
+		return ""
+	}
+	return ""
+}
+
+// semanticNode holds an archmotif node ID with its retrieval ID and embedding vector.
+type semanticNode struct {
+	archmotifID string
+	retrievalID string
+	vec         []float32
+}
+
+// buildSemanticKNNGraph constructs an archmotif graph with semantic edges.
+// Each node gets edges to its top-k most similar neighbors (by cosine similarity).
+// Returns the graph and the edge count.
+func buildSemanticKNNGraph(nodes []semanticNode, knn int, minSim float64) (*archmotifimport.Graph, int, error) {
+	b := archmotifimport.NewBuilder()
+
+	// Add all nodes as type nodes (archmotif expects typed nodes)
+	for _, n := range nodes {
+		// Extract package path from archmotif ID
+		pkgPath := extractPackagePath(n.archmotifID)
+		// Add as a type node with empty role
+		if err := b.AddType(n.archmotifID, "pkg:"+pkgPath, false, ""); err != nil {
+			return nil, 0, fmt.Errorf("adding node %s: %w", n.archmotifID, err)
+		}
+	}
+
+	// Compute pairwise cosine similarities and build kNN edges
+	edgeCount := 0
+	for i, ni := range nodes {
+		// Compute similarity to all other nodes
+		type simPair struct {
+			idx int
+			sim float64
+		}
+		var similarities []simPair
+		for j, nj := range nodes {
+			if i == j {
+				continue
+			}
+			sim := cosineSimilarity64(ni.vec, nj.vec)
+			if sim >= minSim {
+				similarities = append(similarities, simPair{idx: j, sim: sim})
+			}
+		}
+
+		// Sort by similarity descending
+		sort.Slice(similarities, func(a, b int) bool {
+			return similarities[a].sim > similarities[b].sim
+		})
+
+		// Take top-k neighbors
+		limit := knn
+		if limit > len(similarities) {
+			limit = len(similarities)
+		}
+
+		for _, sp := range similarities[:limit] {
+			nj := nodes[sp.idx]
+			// Add edge with "semantic" kind
+			// Note: directed edge from ni to nj; the graph's undirected view will symmetrize
+			if err := b.AddDependency(ni.archmotifID, nj.archmotifID, "semantic"); err != nil {
+				// Edge may already exist from the reverse direction; skip duplicates
+				continue
+			}
+			edgeCount++
+		}
+	}
+
+	g, err := b.Build()
+	return g, edgeCount, err
+}
+
+// cosineSimilarity64 computes cosine similarity between two float32 vectors,
+// returning a float64 result.
+func cosineSimilarity64(a, b []float32) float64 {
+	if len(a) != len(b) || len(a) == 0 {
+		return 0
+	}
+	var dot, normA, normB float64
+	for i := range a {
+		dot += float64(a[i]) * float64(b[i])
+		normA += float64(a[i]) * float64(a[i])
+		normB += float64(b[i]) * float64(b[i])
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
 // selectNodes returns archmotif node IDs matching the selector.

@@ -66,6 +66,17 @@ type vectorIndexWithHash interface {
 	Load(path string) error
 }
 
+// VectorIndexWithLookup extends VectorIndex with direct vector lookup by ID.
+// Used for semantic clustering where we need to compute pairwise similarity
+// across a selected subset of nodes. Implementations should expose this via
+// a type assertion (e.g., brute.Index implements this).
+type VectorIndexWithLookup interface {
+	VectorIndex
+
+	// Vector returns the vector for the given ID, or (nil, false) if not found.
+	Vector(id string) ([]float32, bool)
+}
+
 // lexicalIndexWithPersist extends LexicalIndex with persistence methods.
 type lexicalIndexWithPersist interface {
 	LexicalIndex
@@ -330,6 +341,19 @@ func (s *Service) VectorIndex() VectorIndex {
 		return nil
 	}
 	return s.vindex
+}
+
+// VectorIndexWithLookup returns the vector index with lookup capability
+// for direct ID-to-vector access. Returns nil if dense search is not
+// available or if the index doesn't support lookup.
+func (s *Service) VectorIndexWithLookup() VectorIndexWithLookup {
+	if !s.DenseAvailable() {
+		return nil
+	}
+	if lookup, ok := s.vindex.(VectorIndexWithLookup); ok {
+		return lookup
+	}
+	return nil
 }
 
 // LexicalIndex returns the underlying lexical index for direct search.
