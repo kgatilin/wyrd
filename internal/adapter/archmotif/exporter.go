@@ -464,11 +464,24 @@ func resolveCallTarget(ref domain.SymbolRef, pkgByPath map[string]*domain.Packag
 	//   - "FunctionName" for package-level functions
 	//   - "TypeName.MethodName" for methods
 	if idx := indexDot(ref.Symbol); idx >= 0 {
-		// Method call: "Struct.Method"
+		// Method call: "Struct.Method". Only resolve to a method node we
+		// actually registered in Pass 2 (addPackageContents creates method
+		// nodes solely from each type's captured Methods slice). The Go
+		// reader's call-extraction can resolve a receiver type without the
+		// called method appearing in that type's method set — e.g. promoted
+		// methods from an embedded type, or partial reader coverage across
+		// files. Returning an id for such a phantom method would emit a
+		// dangling call edge whose to-node was never created, which makes
+		// AddDependency reject it with "unknown to-node" and abort the whole
+		// graph build. Verifying the method exists (as resolveSymbolID
+		// already does) downgrades that to a silently-skipped call edge.
 		typeName := ref.Symbol[:idx]
-		// Verify the type exists in the package.
-		if packageHasStruct(p, typeName) || packageHasInterface(p, typeName) {
-			return methodID(ref.Package, typeName, ref.Symbol[idx+1:]), true
+		methodName := ref.Symbol[idx+1:]
+		if packageHasStruct(p, typeName) && packageHasMethod(p, typeName, methodName) {
+			return methodID(ref.Package, typeName, methodName), true
+		}
+		if packageHasInterface(p, typeName) && packageHasInterfaceMethod(p, typeName, methodName) {
+			return methodID(ref.Package, typeName, methodName), true
 		}
 		return "", false
 	}

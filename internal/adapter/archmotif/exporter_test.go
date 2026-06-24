@@ -287,6 +287,113 @@ func TestToArchmotifGraph_ExtendsBecomesEmbeds(t *testing.T) {
 	}
 }
 
+// TestToArchmotifGraph_CallToUnregisteredMethod is a regression test for
+// the "unknown to-node" crash: a call edge whose target method does not
+// appear in the receiver type's captured method set must be skipped, not
+// emitted as a dangling edge that aborts the entire graph build.
+//
+// Mirrors the field report: fn registerPluginCommands "calls"
+// agentAPIPlugin.Tools, the agentAPIPlugin struct exists but the reader's
+// call-extraction surfaced a Tools method that was never registered as a
+// node (e.g. promoted/embedded or partial file coverage).
+func TestToArchmotifGraph_CallToUnregisteredMethod(t *testing.T) {
+	models := []domain.PackageModel{
+		{
+			Path: "internal/plugins/agent_api",
+			Name: "agent_api",
+			Structs: []domain.StructDef{
+				// Struct exists, but its captured method set does NOT
+				// include "Tools" — exactly the dangling-target condition.
+				{Name: "agentAPIPlugin"},
+			},
+		},
+		{
+			Path: "internal/adapters/cli",
+			Name: "cli",
+			Functions: []domain.FunctionDef{
+				{
+					Name: "registerPluginCommands",
+					Calls: []domain.CallEdge{
+						{To: domain.SymbolRef{
+							Package: "internal/plugins/agent_api",
+							Symbol:  "agentAPIPlugin.Tools",
+						}},
+					},
+				},
+			},
+		},
+	}
+
+	g, err := ToArchmotifGraph(models, nil)
+	if err != nil {
+		t.Fatalf("ToArchmotifGraph must not crash on a call to an "+
+			"unregistered method: %v", err)
+	}
+
+	// The phantom method node must not have been created, and no call
+	// edge to it should exist.
+	if _, ok := g.Node("method:internal/plugins/agent_api.agentAPIPlugin.Tools"); ok {
+		t.Error("phantom method node was created; expected it to be absent")
+	}
+	for _, e := range g.Edges() {
+		if string(e.Kind) == "calls" {
+			t.Errorf("unexpected dangling call edge emitted: %s -> %s", e.From, e.To)
+		}
+	}
+}
+
+// TestToArchmotifGraph_CallToRegisteredMethod is the positive companion:
+// when the called method IS in the receiver type's method set, the call
+// edge must be emitted to the registered method node.
+func TestToArchmotifGraph_CallToRegisteredMethod(t *testing.T) {
+	models := []domain.PackageModel{
+		{
+			Path: "internal/plugins/agent_api",
+			Name: "agent_api",
+			Structs: []domain.StructDef{
+				{
+					Name:    "agentAPIPlugin",
+					Methods: []domain.MethodDef{{Name: "Tools"}},
+				},
+			},
+		},
+		{
+			Path: "internal/adapters/cli",
+			Name: "cli",
+			Functions: []domain.FunctionDef{
+				{
+					Name: "registerPluginCommands",
+					Calls: []domain.CallEdge{
+						{To: domain.SymbolRef{
+							Package: "internal/plugins/agent_api",
+							Symbol:  "agentAPIPlugin.Tools",
+						}},
+					},
+				},
+			},
+		},
+	}
+
+	g, err := ToArchmotifGraph(models, nil)
+	if err != nil {
+		t.Fatalf("ToArchmotifGraph: %v", err)
+	}
+
+	var calls int
+	for _, e := range g.Edges() {
+		if string(e.Kind) == "calls" {
+			calls++
+			if e.From != "fn:internal/adapters/cli.registerPluginCommands" ||
+				e.To != "method:internal/plugins/agent_api.agentAPIPlugin.Tools" {
+				t.Errorf("unexpected call edge: %s -> %s", e.From, e.To)
+			}
+		}
+	}
+	if calls != 1 {
+		t.Errorf("calls edges: got %d, want 1", calls)
+	}
+}
+
 // nodeIDs returns sorted node ids from an archmotifimport.Graph.
 func nodeIDs(g *archmotifimport.Graph) []string {
 	out := make([]string, 0, g.NodeCount())
