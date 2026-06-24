@@ -529,6 +529,46 @@ func builtinToolDefinitions() []ToolDefinition {
 				"required": []string{"package"},
 			},
 		},
+		{
+			Name:        "latent_domains",
+			Description: "Detect latent domains fused by cross-cutting coupling. Clusters the same node set two ways — structurally (dependency edges) and semantically (embedding similarity) — and compares the partitions with normalized mutual information. When semantics splits into balanced domains but structure collapses into one blob, the package holds real domains glued by a shared concern; the lens names the glue (the top structural fan-in nodes, e.g. shared helpers or a god-dispatcher) so you know what to pull to a thin boundary. Verdict is aligned | diverging | latent_domains_glued. Requires an embedder and indexed vectors (call refresh first).",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"selector": map[string]any{
+						"type":        "object",
+						"description": "Selects which nodes to analyze.",
+						"properties": map[string]any{
+							"package": map[string]any{
+								"type":        "string",
+								"description": "Package path prefix to filter nodes.",
+							},
+							"include_subpackages": map[string]any{
+								"type":        "boolean",
+								"description": "Include subpackages of the given package (default true).",
+							},
+							"node_kinds": map[string]any{
+								"type":        "array",
+								"items":       map[string]any{"type": "string"},
+								"description": "Node kinds to include. Empty means all symbol nodes.",
+							},
+						},
+					},
+					"k": map[string]any{
+						"oneOf": []any{
+							map[string]any{"type": "string", "enum": []string{"auto"}},
+							map[string]any{"type": "integer", "minimum": 1},
+						},
+						"description": "Number of clusters: \"auto\" uses the eigengap heuristic on the semantic side and mirrors it on the structural side.",
+					},
+					"knn": map[string]any{
+						"type":        "integer",
+						"minimum":     1,
+						"description": "Nearest neighbors for the semantic similarity graph (default 8).",
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -581,6 +621,8 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleTrophicLayers(state, rawArgs)
 	case "file_hotspots":
 		return handleFileHotspots(state, rawArgs)
+	case "latent_domains":
+		return handleLatentDomains(state, rawArgs)
 	}
 	if strings.HasPrefix(name, "plugin.") {
 		return dispatchPluginTool(name, rawArgs)
