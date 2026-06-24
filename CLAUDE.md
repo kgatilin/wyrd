@@ -133,15 +133,28 @@ All take `{package, include_subpackages}` and run on the package subgraph.
   needed). Solves a graph-Laplacian for a trophic height per node; reports
   `F0` incoherence ∈ [0,1] (~0 layered, >0.4 tangled), integer layers
   (0 = foundation, top = entry points), backward edges (inversions), and cycles.
-- **`spectral_cluster`** — natural module clusters via the eigengap heuristic,
-  over *structural* dependency edges.
+- **`spectral_cluster`** — natural module clusters over *structural* dependency
+  edges. Auto-K is **modularity-validated**: candidates come from the absolute
+  eigengap `δ_k = λ_{k+1} − λ_k` (not the ratio, which is unstable near zero and
+  biased K toward ~3), and the chosen K is the candidate whose partition
+  maximizes Newman modularity `Q`. Response exposes `modularity`, the
+  `eigenvalues` spectrum, and per-candidate `gap`/`modularity`.
 - **`semantic_cluster`** — same spectral core and output as `spectral_cluster`,
   but the graph is a kNN graph over *embedding cosine similarity* instead of
   structural edges (clusters by what code is *about*, not how it's wired).
   Requires a configured embedder + indexed vectors (`refresh` first); reports
-  `dropped_nodes` for symbols with no embedding. Compare against
-  `spectral_cluster`: agreement ⇒ real module boundary; divergence ⇒ leaky
-  coupling or a latent (semantically cohesive, structurally scattered) module.
+  `dropped_nodes` for symbols with no embedding.
+- **`latent_domains`** — clusters the same node set *both* ways (structural +
+  semantic) and compares the partitions to find domains fused by cross-cutting
+  coupling. Verdict (`aligned` | `diverging` | `latent_domains_glued`) is driven
+  by **AMI** (Adjusted Mutual Information — corrected for chance/K, so it does
+  *not* drift as K grows, unlike raw NMI); `glued` also requires absolute
+  structural degeneracy (dominant cluster ≥ 45%). Names the **glue**: the top
+  structural fan-in nodes (shared helpers / a god-dispatcher) to pull to a thin
+  boundary. Reports per-side `modularity` (structural Q < semantic Q ⇒ a blob
+  hiding real domains). Requires embeddings (`refresh` first). This is the lens
+  that surfaces, on its own, what otherwise needs eyeballing spectral vs
+  semantic side by side.
 
 ### Key concepts (hard-won)
 
@@ -157,6 +170,21 @@ All take `{package, include_subpackages}` and run on the package subgraph.
   ordering (domain < serve < http < mcp) is still correct.
 - **Layers are integer-rounded trophic levels**, not gap-cuts — gap-cutting does
   not scale to dense graphs (everything collapses into one band).
+- **Structure vs semantics divergence = latent domains.** A package can be one
+  structural hairball (low modularity Q, one dominant blob) yet split cleanly
+  into balanced *semantic* domains. That divergence means real domains exist but
+  are fused by a cross-cutting concern — typically shared transport/serialization
+  helpers every handler calls (`errorResult`/`textResult`/`unmarshalArgs`). The
+  glue shows up as the highest structural **fan-in** nodes; pulling them to a
+  thin boundary (a generic `bind()` at the transport edge) dissolves the blob.
+  `latent_domains` detects and names this automatically.
+- **NMI inflates with K; use AMI for verdicts.** Raw normalized mutual
+  information rises mechanically as the cluster count grows, so a fixed threshold
+  flips a verdict between K values. Adjusted Mutual Information subtracts the
+  agreement expected by chance (hypergeometric null), so it is K-stable.
+- **Auto-K must validate by quality, not just the gap.** On a hairball there is
+  no clean eigengap, so picking the largest gap returns a degenerate K. Cluster
+  at each candidate and keep the K with the best modularity instead.
 - **Model cache** (`internal/serve/model_cache.go`) is keyed on the binary's
   build version + executable stamp. After `make install`, restart the daemon and
   `refresh`, or a parser-logic change is masked by a stale cache.
@@ -166,10 +194,13 @@ All take `{package, include_subpackages}` and run on the package subgraph.
 - Graph build: `internal/adapter/golang/reader.go` (parse) →
   `internal/adapter/archmotif/exporter.go` (→ archmotif graph).
 - Analysis: `github.com/kgatilin/archmotif/pkg/{components,filestats,trophic,spectralcluster}`.
-  `semantic_cluster` reuses `spectralcluster` over a kNN graph built in
-  `tools.go` (`buildSemanticKNNGraph`) from retrieval-service embedding vectors.
+  `spectralcluster` owns the modularity-validated auto-K, the modularity metric,
+  and the exposed spectrum. `semantic_cluster` reuses it over a kNN graph built
+  in `tools.go` (`buildSemanticKNNGraph`) from retrieval-service embedding vectors.
 - MCP handlers: `internal/adapter/mcp/tools.go` (`handle*`, registered in
-  `builtinToolDefinitions` + `Dispatch`).
+  `builtinToolDefinitions` + `Dispatch`). `latent_domains` lives in its own
+  `internal/adapter/mcp/latent_domains.go` (NMI/AMI math + glue detection) — kept
+  out of `tools.go`, which is itself the god-file these lenses flag.
 
 ## Development Rules
 
