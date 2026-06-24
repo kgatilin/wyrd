@@ -225,11 +225,12 @@ func (r *reader) convertPackage(pkg *packages.Package) (domain.PackageModel, err
 	// Collect dependencies from type signatures (params, returns, fields).
 	model.Dependencies = r.collectDependencies(pkg, &model)
 
-	// Collect construction dependencies from composite literals in function/method bodies.
-	// This captures T{...} / &T{...} patterns that structural signature analysis misses,
-	// particularly when the resulting value is passed through interface{}/any.
-	constructDeps := r.collectConstructionDependencies(pkg, &model, astFiles)
-	model.Dependencies = append(model.Dependencies, constructDeps...)
+	// Collect dependencies from type references in function/method bodies
+	// (constructions, local vars, assertions, conversions, generic args).
+	// These capture connectivity that structural signature analysis misses,
+	// particularly when the value is passed through interface{}/any.
+	bodyDeps := r.collectBodyTypeDependencies(pkg, &model, astFiles)
+	model.Dependencies = append(model.Dependencies, bodyDeps...)
 
 	// Apply stereotype detection
 	r.applyStereotypes(&model)
@@ -1291,13 +1292,15 @@ func (r *reader) collectDependencies(pkg *packages.Package, model *domain.Packag
 	return deps
 }
 
-// collectConstructionDependencies walks function and method bodies looking for
-// composite literal constructions (T{...}, &T{...}) of named types from the
-// loaded package set. For each, it emits a DependencyUses edge from the
-// enclosing function/method to the constructed type. This captures connectivity
-// that structural signature analysis misses — particularly when the constructed
-// value is passed through interface{}/any.
-func (r *reader) collectConstructionDependencies(pkg *packages.Package, model *domain.PackageModel, astFiles map[string]*ast.File) []domain.Dependency {
+// collectBodyTypeDependencies walks function and method bodies and emits a
+// DependencyUses edge from the enclosing function/method to every named type
+// (from the loaded package set) referenced in the body: constructed values
+// (T{...}, &T{...}), local declarations (var x T), type assertions (v.(T)),
+// conversions (T(v)), and generic type arguments (Foo[T]()). This captures
+// connectivity that structural signature analysis misses — particularly for
+// request/response DTOs that are built or decoded into a local and passed
+// through interface{}/any, which would otherwise be disconnected nodes.
+func (r *reader) collectBodyTypeDependencies(pkg *packages.Package, model *domain.PackageModel, astFiles map[string]*ast.File) []domain.Dependency {
 	var deps []domain.Dependency
 	seenDeps := make(map[string]bool)
 
@@ -1367,80 +1370,72 @@ func (r *reader) collectConstructionDependencies(pkg *packages.Package, model *d
 				}
 			}
 
-			// Walk the body looking for composite literals and generic
-			// instantiations.
+			// emitTypeUse records a uses edge from the enclosing function/method
+			// to every named type (from the loaded set) reachable from t,
+			// descending through pointers, slices, maps, and generic arguments.
+			emitTypeUse := func(t types.Type) {
+				var named []*types.Named
+				collectLoadedNamedTypes(t, loadedTypes, &named)
+				for _, nt := range named {
+					addDep(domain.Dependency{
+						From: fromRef,
+						To: domain.SymbolRef{
+							Package: r.relativePath(nt.Obj().Pkg().Path()),
+							Symbol:  nt.Obj().Name(),
+						},
+						Kind:            domain.DependencyUses,
+						ThroughExported: throughExported,
+					})
+				}
+			}
+
+			// typeOfExpr resolves the type a type-expression denotes (e.g. the
+			// T in `var x T` or `v.(T)`), or nil when unknown.
+			typeOfExpr := func(e ast.Expr) types.Type {
+				if pkg.TypesInfo == nil {
+					return nil
+				}
+				if tv, ok := pkg.TypesInfo.Types[e]; ok {
+					return tv.Type
+				}
+				return nil
+			}
+
+			// Walk the body for references to named types. Signature analysis
+			// only sees parameter, return, and field types; a type mentioned
+			// solely inside a body would otherwise leave that type a
+			// disconnected node. This is common for request/response DTOs that
+			// are decoded into a local and passed through any.
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
-				// Generic instantiation: Foo[Bar] or GenerateSchema[Bar]().
-				// The enclosing function uses each named type argument. These
-				// are invisible to signature- and composite-literal analysis
-				// when the instantiated value only ever flows through any —
-				// e.g. a schema generated from a type that never appears in a
-				// typed parameter or return.
-				if ident, ok := n.(*ast.Ident); ok {
-					inst, ok := pkg.TypesInfo.Instances[ident]
-					if !ok || inst.TypeArgs == nil {
-						return true
+				switch node := n.(type) {
+				case *ast.Ident:
+					// Generic instantiation: Foo[Bar] / GenerateSchema[Bar]().
+					if inst, ok := pkg.TypesInfo.Instances[node]; ok && inst.TypeArgs != nil {
+						for i := 0; i < inst.TypeArgs.Len(); i++ {
+							emitTypeUse(inst.TypeArgs.At(i))
+						}
 					}
-					var named []*types.Named
-					for i := 0; i < inst.TypeArgs.Len(); i++ {
-						collectLoadedNamedTypes(inst.TypeArgs.At(i), loadedTypes, &named)
+				case *ast.ValueSpec:
+					// Local var/const with an explicit type: var body T.
+					if node.Type != nil {
+						emitTypeUse(typeOfExpr(node.Type))
 					}
-					for _, nt := range named {
-						addDep(domain.Dependency{
-							From: fromRef,
-							To: domain.SymbolRef{
-								Package: r.relativePath(nt.Obj().Pkg().Path()),
-								Symbol:  nt.Obj().Name(),
-							},
-							Kind:            domain.DependencyUses,
-							ThroughExported: throughExported,
-						})
+				case *ast.TypeAssertExpr:
+					// v.(T); node.Type is nil for the x.(type) switch guard.
+					if node.Type != nil {
+						emitTypeUse(typeOfExpr(node.Type))
 					}
-					return true
+				case *ast.CompositeLit:
+					// T{...} / &T{...}.
+					if tv, ok := pkg.TypesInfo.Types[node]; ok {
+						emitTypeUse(tv.Type)
+					}
+				case *ast.CallExpr:
+					// Conversion T(v): the callee is itself a type expression.
+					if tv, ok := pkg.TypesInfo.Types[node.Fun]; ok && tv.IsType() {
+						emitTypeUse(tv.Type)
+					}
 				}
-
-				cl, ok := n.(*ast.CompositeLit)
-				if !ok {
-					return true
-				}
-
-				// Resolve the composite literal's type.
-				tv, ok := pkg.TypesInfo.Types[cl]
-				if !ok {
-					return true
-				}
-
-				// Unwrap pointer type (for &T{}).
-				t := tv.Type
-				if ptr, ok := t.(*types.Pointer); ok {
-					t = ptr.Elem()
-				}
-
-				named, ok := t.(*types.Named)
-				if !ok {
-					return true
-				}
-
-				// Check if the type's package is in the loaded set.
-				typePkg := named.Obj().Pkg()
-				if typePkg == nil || !loadedTypes[typePkg] {
-					return true
-				}
-
-				// Emit a uses dependency to the constructed type.
-				toRef := domain.SymbolRef{
-					Package:  r.relativePath(typePkg.Path()),
-					Symbol:   named.Obj().Name(),
-					External: false,
-				}
-
-				addDep(domain.Dependency{
-					From:            fromRef,
-					To:              toRef,
-					Kind:            domain.DependencyUses,
-					ThroughExported: throughExported,
-				})
-
 				return true
 			})
 		}

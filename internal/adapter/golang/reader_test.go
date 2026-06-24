@@ -581,6 +581,61 @@ func useBox(b Box[barOutput]) {}
 	}
 }
 
+// TestReader_BodyLevelTypeReferences verifies that a named type referenced only
+// inside a function body — a local var declaration, a type assertion, or a
+// conversion — produces a uses-dependency edge. The local-var case mirrors HTTP
+// request DTOs decoded into `var body T` and passed through any, which would
+// otherwise be disconnected graph nodes.
+func TestReader_BodyLevelTypeReferences(t *testing.T) {
+	model := loadSingleModelFromSources(t, map[string]string{
+		"h.go": `package p
+
+import "encoding/json"
+
+type createInviteHTTPRequest struct {
+	Email string
+}
+
+type wid struct{}
+
+type Celsius float64
+
+// decode references the DTO only as a local var whose value flows through any.
+func decode(data []byte) error {
+	var body createInviteHTTPRequest
+	return json.Unmarshal(data, &body)
+}
+
+func assertWid(v any) {
+	_ = v.(wid)
+}
+
+func toC(f float64) {
+	_ = Celsius(f)
+}
+`,
+	})
+
+	hasUses := func(to string) bool {
+		for _, d := range model.Dependencies {
+			if d.Kind == domain.DependencyUses && d.To.Symbol == to {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !hasUses("createInviteHTTPRequest") {
+		t.Errorf("missing uses edge for local var body type (var body createInviteHTTPRequest)")
+	}
+	if !hasUses("wid") {
+		t.Errorf("missing uses edge for type assertion v.(wid)")
+	}
+	if !hasUses("Celsius") {
+		t.Errorf("missing uses edge for conversion Celsius(f)")
+	}
+}
+
 // TestReader_ExtractsStandaloneConstants verifies that plain package-level
 // constants surface in PackageModel.Constants and that enum constants are
 // left on their owning TypeDef rather than duplicated.
