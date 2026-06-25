@@ -560,6 +560,10 @@ func builtinToolDefinitions() []ToolDefinition {
 								"items":       map[string]any{"type": "string"},
 								"description": "Node kinds to include. Empty means all symbol nodes.",
 							},
+							"diff": map[string]any{
+								"type":        "boolean",
+								"description": "Scope the analysis to the change region: diff this worktree against the review base, seed the changed nodes + changed-edge endpoints, and grow the local region via ACL partitioning. Replaces package scoping. Answers 'do my changes glue latent domains together?' Requires a configured review base; response carries diff_region (seed_count, region_size, conductance).",
+							},
 						},
 					},
 					"k": map[string]any{
@@ -1757,6 +1761,12 @@ type spectralSelector struct {
 	IncludeSubpackages *bool    `json:"include_subpackages"`
 	NodeKinds          []string `json:"node_kinds"`
 	EdgeKinds          []string `json:"edge_kinds"`
+	// Diff scopes the analysis to the region of the graph that the worktree's
+	// changes (vs the review base) pull on: seed = changed nodes ∪ endpoints
+	// of changed edges, expanded by ACL local partitioning. When true it
+	// replaces package-path scoping (Package/IncludeSubpackages are ignored).
+	// Requires a configured review base.
+	Diff bool `json:"diff"`
 }
 
 // spectralClusterResponse is the output structure for spectral_cluster.

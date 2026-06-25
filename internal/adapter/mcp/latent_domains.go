@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -59,7 +60,8 @@ type latentDomainsResponse struct {
 	Semantic     latentDomainsPartition `json:"semantic"`
 	Agreement    latentDomainsAgreement `json:"agreement"`
 	Glue         latentDomainsGlue      `json:"glue"`
-	DroppedNodes int                    `json:"dropped_nodes"` // selected nodes without embeddings
+	DroppedNodes int                    `json:"dropped_nodes"`          // selected nodes without embeddings
+	DiffRegion   *diffRegionMeta        `json:"diff_region,omitempty"` // present when selector.diff scoped the analysis
 }
 
 // flowEdgeKinds are the behavioral dependency edges used for the structural
@@ -97,7 +99,18 @@ func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResul
 		return errorResult(fmt.Sprintf("building graph: %v", err)), nil
 	}
 
-	archmotifNodeIDs := selectNodes(graph, snap.Packages, args.Selector)
+	var archmotifNodeIDs []string
+	var diffMeta *diffRegionMeta
+	if args.Selector.Diff {
+		region, meta, emsg := diffRegionNodes(context.Background(), state, graph, snap.Packages)
+		if emsg != "" {
+			return errorResult(emsg), nil
+		}
+		archmotifNodeIDs = region
+		diffMeta = meta
+	} else {
+		archmotifNodeIDs = selectNodes(graph, snap.Packages, args.Selector)
+	}
 	if len(archmotifNodeIDs) == 0 {
 		return errorResult("no nodes match the selector"), nil
 	}
@@ -260,6 +273,7 @@ func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResul
 			Note:        note,
 		},
 		DroppedNodes: droppedCount,
+		DiffRegion:   diffMeta,
 	}
 	return textResult(resp)
 }
