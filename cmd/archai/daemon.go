@@ -215,10 +215,25 @@ func resolveDaemonTarget(arg string) (*serve.DaemonRecord, error) {
 		if err != nil {
 			return nil, err
 		}
-		if rec == nil {
-			return nil, fmt.Errorf("no daemon running for repo %s (start one with `archai serve --repo .`)", repoRoot)
+		if rec != nil {
+			return rec, nil
 		}
-		return rec, nil
+		// Legacy fallback: a serve.json daemon for the current worktree —
+		// pre-global-registry or an old --root daemon. Surfacing it lets
+		// daemon stop/restart manage and replace it instead of leaving it
+		// invisible (which is how a stale daemon gets silently reused).
+		name := worktree.Name(cwd)
+		if sr, _ := worktree.ReadServe(cwd, name); sr != nil && daemonPIDAlive(sr.PID) {
+			return &serve.DaemonRecord{
+				RepoRoot:  cwd,
+				HTTPAddr:  sr.HTTPAddr,
+				PID:       sr.PID,
+				Caps:      []string{"legacy"},
+				StartedAt: sr.StartedAt,
+				Worktrees: []string{name},
+			}, nil
+		}
+		return nil, fmt.Errorf("no daemon running for repo %s (start one with `archai daemon start`)", repoRoot)
 	}
 
 	daemons, err := serve.ListGlobalDaemons()
@@ -290,7 +305,7 @@ func runDaemonStop(cmd *cobra.Command, args []string) error {
 func stopDaemonRecord(cmd *cobra.Command, rec *serve.DaemonRecord, timeout time.Duration, force bool) error {
 	name := filepath.Base(rec.RepoRoot)
 	if !pidRunning(rec.PID) {
-		_ = serve.RemoveGlobalRecord(rec.RepoRoot)
+		clearDaemonRecords(rec)
 		fmt.Fprintf(cmd.OutOrStdout(), "Removed stale record for %s (pid %d not running).\n", name, rec.PID)
 		return nil
 	}
@@ -298,7 +313,7 @@ func stopDaemonRecord(cmd *cobra.Command, rec *serve.DaemonRecord, timeout time.
 		return fmt.Errorf("stop daemon for %s (pid %d): %w", name, rec.PID, err)
 	}
 	if timeout > 0 && waitForPIDStop(rec.PID, timeout) {
-		_ = serve.RemoveGlobalRecord(rec.RepoRoot)
+		clearDaemonRecords(rec)
 		fmt.Fprintf(cmd.OutOrStdout(), "Stopped daemon for %s (pid %d).\n", name, rec.PID)
 		return nil
 	}
@@ -310,9 +325,22 @@ func stopDaemonRecord(cmd *cobra.Command, rec *serve.DaemonRecord, timeout time.
 		return fmt.Errorf("SIGKILL %s (pid %d): %w", name, rec.PID, err)
 	}
 	waitForPIDStop(rec.PID, 3*time.Second)
-	_ = serve.RemoveGlobalRecord(rec.RepoRoot)
+	clearDaemonRecords(rec)
 	fmt.Fprintf(cmd.OutOrStdout(), "Force-killed daemon for %s (pid %d).\n", name, rec.PID)
 	return nil
+}
+
+// clearDaemonRecords removes the daemon's registry footprint: the global
+// record always, plus the legacy per-worktree serve.json files for a legacy
+// daemon (whose deferred cleanup never ran if it was killed). Without this a
+// stale serve.json keeps getting reused by daemon start / autostart.
+func clearDaemonRecords(rec *serve.DaemonRecord) {
+	_ = serve.RemoveGlobalRecord(rec.RepoRoot)
+	if rec.HasCap("legacy") {
+		for _, w := range rec.Worktrees {
+			_ = worktree.RemoveServe(rec.RepoRoot, w)
+		}
+	}
 }
 
 // waitForPIDStop polls until the pid is no longer running (exited or zombie),
