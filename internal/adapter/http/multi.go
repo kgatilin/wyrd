@@ -2,11 +2,13 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	nethttp "net/http"
 	"sort"
 	"strings"
 
+	"github.com/kgatilin/archai/internal/adapter/mcp"
 	"github.com/kgatilin/archai/internal/serve"
 )
 
@@ -115,6 +117,22 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 			return
 		}
 
+		// The MCP tools/call transport must never block on the cold
+		// go/packages parse: if the worktree's State isn't loaded yet,
+		// kick off the background load and answer "loading" immediately
+		// so the client (CLI `daemon status`, MCP thin-client) sees
+		// progress instead of a transport timeout. Once parsed, the
+		// per-tool indexingGate covers the slower dense-embedding phase.
+		if rest == "/api/mcp/tools/call" {
+			state, ok := s.multi.Loaded(name)
+			if !ok {
+				writeLoadingToolResult(w)
+				return
+			}
+			next.ServeHTTP(w, s.rewriteWorktreeRequest(r, name, rest, state))
+			return
+		}
+
 		state, err := s.multi.Get(r.Context(), name)
 		if err != nil {
 			nethttp.Error(w, "load worktree: "+err.Error(), nethttp.StatusInternalServerError)
@@ -123,6 +141,24 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 
 		next.ServeHTTP(w, s.rewriteWorktreeRequest(r, name, rest, state))
 	})
+}
+
+// writeLoadingToolResult answers a tools/call with a non-error ToolResult whose
+// text payload signals that the worktree model is still being parsed. Its shape
+// mirrors the `status` tool / indexingGate so the CLI and MCP client render it
+// uniformly: a JSON object with ready=false and a status/phase. This is the
+// parse-phase counterpart to indexingGate's dense-embedding "indexing" gate.
+func writeLoadingToolResult(w nethttp.ResponseWriter) {
+	payload, _ := json.Marshal(map[string]any{
+		"ready":  false,
+		"status": "loading",
+		"phase":  "parsing",
+		"message": "Daemon is parsing the project model (cold start); analysis tools aren't ready yet. " +
+			"Call `status` to watch progress and retry shortly.",
+	})
+	res := mcp.ToolResult{Content: []mcp.ToolResultContent{{Type: "text", Text: string(payload)}}}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (s *Server) canServeWorktreeRouteWithoutState(rest string) bool {

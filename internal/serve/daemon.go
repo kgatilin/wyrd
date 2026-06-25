@@ -305,6 +305,16 @@ func Serve(ctx context.Context, opts Options) error {
 			}
 		}()
 	}
+	// Warm the default worktree's model in the background so `status` right
+	// after startup reports real indexing progress instead of only triggering
+	// the parse on the first tool call. Placed after SetReviewBaseRef so the
+	// warmed State is wired with the base resolver. Non-blocking: Loaded kicks
+	// off the load goroutine and returns immediately.
+	if opts.MultiState != nil {
+		if d := opts.MultiState.Default(); d != "" {
+			opts.MultiState.Loaded(d)
+		}
+	}
 	_ = pluginRes // forwarded via PluginHTTPFactory only.
 	// Always remove serve.json and global record on return so a killed
 	// process doesn't leave dangling records when the shutdown path is taken.

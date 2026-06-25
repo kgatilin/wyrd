@@ -312,48 +312,86 @@ func (m *MultiState) Default() string {
 	return m.defaultName
 }
 
-// Get returns (and lazy-loads) the State for the given worktree name.
-// Returns an error when name is unknown or when the underlying load
-// fails. Subsequent calls return the cached State.
+// Get returns (and lazy-loads) the State for the given worktree name,
+// blocking until the load completes. Returns an error when name is
+// unknown or when the underlying load fails. Subsequent calls return
+// the cached State. Callers that must not block on the cold parse
+// (e.g. the MCP tools/call transport) should use Loaded instead.
 func (m *MultiState) Get(ctx context.Context, name string) (*State, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	state, load, err := m.ensureLoad(name)
+	if err != nil {
+		return nil, err
+	}
+	if state != nil {
+		return state, nil
+	}
+	return load.wait(ctx)
+}
 
+// Loaded returns the State for name if it is already loaded, otherwise it
+// kicks off the (idempotent) background load and returns (nil, false)
+// immediately — the caller should report "loading" rather than block. This
+// keeps the cold go/packages parse off the request goroutine so a transport
+// like MCP tools/call can answer "still loading" instead of timing out.
+// Unknown names also return (nil, false); callers gate on Has() first.
+func (m *MultiState) Loaded(name string) (*State, bool) {
+	state, _, err := m.ensureLoad(name)
+	if err != nil || state == nil {
+		return nil, false
+	}
+	return state, true
+}
+
+// ensureLoad guarantees a load for name is cached, in flight, or freshly
+// started. It returns either the cached State (load complete) or the
+// in-flight stateLoad handle to wait on — never both. The expensive load
+// runs in a background goroutine under a process-lifetime context, decoupled
+// from any request context so indexing is not cancelled when the triggering
+// request returns.
+func (m *MultiState) ensureLoad(name string) (*State, *stateLoad, error) {
 	m.mu.Lock()
 	entry, ok := m.entries[name]
 	if !ok {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("serve: unknown worktree %q", name)
+		return nil, nil, fmt.Errorf("serve: unknown worktree %q", name)
 	}
 	if s, ok := m.states[name]; ok {
 		m.mu.Unlock()
-		return s, nil
+		return s, nil, nil
 	}
 	if load, ok := m.loading[name]; ok {
 		m.mu.Unlock()
-		return load.wait(ctx)
+		return nil, load, nil
 	}
 	load := &stateLoad{done: make(chan struct{})}
 	m.loading[name] = load
 	m.mu.Unlock()
 
-	// Load outside the lock so concurrent Get calls for different
-	// worktrees don't serialize. Same-name concurrent Gets wait on
-	// m.loading above so only one expensive load runs per worktree.
+	go m.runLoad(name, entry, load)
+	return nil, load, nil
+}
+
+// runLoad performs the expensive worktree load (parse + index kickoff + base
+// resolver + watcher) and resolves load. It runs in its own goroutine, so
+// loads for different worktrees never serialize and same-name concurrent
+// requests dedup via m.loading.
+func (m *MultiState) runLoad(name string, entry worktree.Entry, load *stateLoad) {
+	ctx := context.Background()
 	loaded, err := m.loader(ctx, name, entry.Path)
 	if err != nil {
 		m.finishLoad(name, load, nil, err)
-		return nil, err
+		return
 	}
 
 	m.mu.Lock()
 	current, stillKnown := m.entries[name]
 	if !stillKnown || current.Path != entry.Path {
 		m.mu.Unlock()
-		err := fmt.Errorf("serve: worktree %q changed while loading", name)
-		m.finishLoad(name, load, nil, err)
-		return nil, err
+		m.finishLoad(name, load, nil, fmt.Errorf("serve: worktree %q changed while loading", name))
+		return
 	}
 	m.states[name] = loaded
 	hook := m.watcherHook
@@ -363,17 +401,14 @@ func (m *MultiState) Get(ctx context.Context, name string) (*State, error) {
 	// reach the review base. No-op when no base ref is configured.
 	m.wireBaseResolver(name, loaded)
 
-	// Spin up the per-worktree watcher outside the lock so a slow
-	// fsnotify setup cannot block other Get calls. If the hook fails
-	// we keep the loaded state (the transport is still usable — just
-	// without auto-reload) and surface the error to the caller; the
-	// daemon logs it and carries on.
+	// Spin up the per-worktree watcher. If the hook fails we keep the loaded
+	// state (the transport is still usable — just without auto-reload) and
+	// record the error on the load; the daemon logs it and carries on.
 	if hook != nil {
-		closer, err := hook(ctx, name, loaded)
-		if err != nil {
-			err = fmt.Errorf("serve: watcher hook for %q: %w", name, err)
-			m.finishLoad(name, load, loaded, err)
-			return loaded, err
+		closer, herr := hook(ctx, name, loaded)
+		if herr != nil {
+			m.finishLoad(name, load, loaded, fmt.Errorf("serve: watcher hook for %q: %w", name, herr))
+			return
 		}
 		if closer != nil {
 			m.mu.Lock()
@@ -382,7 +417,6 @@ func (m *MultiState) Get(ctx context.Context, name string) (*State, error) {
 		}
 	}
 	m.finishLoad(name, load, loaded, nil)
-	return loaded, nil
 }
 
 func (m *MultiState) finishLoad(name string, load *stateLoad, state *State, err error) {

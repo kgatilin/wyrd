@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/serve"
@@ -339,19 +340,32 @@ func TestMultiServer_MCPToolsCall_UsesWorktreeState(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
+	// tools/call is non-blocking: while the worktree model is still being
+	// parsed it returns a "loading" ToolResult. A real client retries; poll
+	// until the load completes (or fail after a generous deadline).
 	call := func(wt string) string {
-		resp, err := nethttp.Post(ts.URL+"/w/"+wt+"/api/mcp/tools/call",
-			"application/json", strings.NewReader(`{"name":"list_packages","arguments":{}}`))
-		if err != nil {
-			t.Fatalf("POST /w/%s: %v", wt, err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != nethttp.StatusOK {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			resp, err := nethttp.Post(ts.URL+"/w/"+wt+"/api/mcp/tools/call",
+				"application/json", strings.NewReader(`{"name":"list_packages","arguments":{}}`))
+			if err != nil {
+				t.Fatalf("POST /w/%s: %v", wt, err)
+			}
 			body, _ := io.ReadAll(resp.Body)
-			t.Fatalf("POST /w/%s status=%d body=%s", wt, resp.StatusCode, body)
+			resp.Body.Close()
+			if resp.StatusCode != nethttp.StatusOK {
+				t.Fatalf("POST /w/%s status=%d body=%s", wt, resp.StatusCode, body)
+			}
+			// The status field is JSON-encoded inside the ToolResult text, so
+			// the quotes arrive escaped (\"status\":\"loading\").
+			if !strings.Contains(string(body), `\"status\":\"loading\"`) {
+				return string(body)
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("POST /w/%s still loading after deadline: %s", wt, body)
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
-		body, _ := io.ReadAll(resp.Body)
-		return string(body)
 	}
 
 	if got := call("alpha"); !strings.Contains(got, "pkg/alpha") || strings.Contains(got, "pkg/beta") {

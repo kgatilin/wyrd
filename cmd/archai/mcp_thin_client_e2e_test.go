@@ -106,15 +106,28 @@ func New() *Impl { return &Impl{} }
 		t.Fatalf("initialize error: %+v", resp.Error)
 	}
 
-	// list_packages — forwarded to the auto-started daemon.
-	resp = sendRequest("tools/call", 2, map[string]any{
-		"name":      "list_packages",
-		"arguments": map[string]any{},
-	})
-	if resp.Error != nil {
-		t.Fatalf("list_packages error: %+v — stderr=%s", resp.Error, stderr.String())
+	// list_packages — forwarded to the auto-started daemon. tools/call is
+	// non-blocking while the daemon parses the model on cold start, returning a
+	// "loading" ToolResult; a real client retries. Poll until the load lands.
+	var text string
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		resp = sendRequest("tools/call", 2, map[string]any{
+			"name":      "list_packages",
+			"arguments": map[string]any{},
+		})
+		if resp.Error != nil {
+			t.Fatalf("list_packages error: %+v — stderr=%s", resp.Error, stderr.String())
+		}
+		text = textContent(t, resp)
+		if !strings.Contains(text, `"status":"loading"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("daemon still parsing after deadline: %s", text)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	text := textContent(t, resp)
 	if !strings.Contains(text, `"path": "alpha"`) {
 		t.Errorf("list_packages missing alpha: %s", text)
 	}
