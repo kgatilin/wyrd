@@ -12,6 +12,12 @@
 # live here so parallel worktrees don't collide on ports or target ids.
 .arch/.worktree/
 
+# Runtime daemon locks (not part of the tracked model snapshot under .arch/).
+.arch/*.lock
+
+# Agent worktree checkouts created under .claude/ (embedded git repos).
+.claude/worktrees/
+
 # Local model cache used by archai serve.
 .archai/
 
