@@ -207,7 +207,12 @@ func Serve(ctx context.Context, opts Options) error {
 	httpErrCh := make(chan error, 1)
 	var httpStarted bool
 	var serveRecorded bool
+	var globalRecorded bool
 	wtName := worktree.Name(absRoot)
+	repoRoot, ok := worktree.RepoRoot(absRoot)
+	if !ok {
+		repoRoot = absRoot
+	}
 	if opts.HTTPAddr != "" {
 		var srv HTTPTransport
 		var err error
@@ -227,16 +232,44 @@ func Serve(ctx context.Context, opts Options) error {
 			fmt.Fprintf(logOut, "serve: HTTP transport binding %s (worktree=%q)\n", opts.HTTPAddr, wtName)
 			httpStarted = true
 			ready := func(boundAddr string) {
+				startedAt := time.Now().UTC().Format(time.RFC3339)
+
+				// Write per-worktree serve.json for backward compatibility.
 				rec := worktree.ServeRecord{
 					PID:       os.Getpid(),
 					HTTPAddr:  boundAddr,
-					StartedAt: time.Now().UTC().Format(time.RFC3339),
+					StartedAt: startedAt,
 				}
 				if err := worktree.WriteServe(absRoot, wtName, rec); err != nil {
 					fmt.Fprintf(logOut, "serve: write serve.json: %v\n", err)
 					return
 				}
 				serveRecorded = true
+
+				// Write global daemon record for repo-level discovery.
+				caps := []string{"mcp"}
+				if opts.MultiState != nil {
+					caps = append(caps, "multi", "ui")
+				}
+				var worktrees []string
+				if opts.MultiState != nil {
+					worktrees = opts.MultiState.Names()
+				}
+				globalRec := DaemonRecord{
+					RepoRoot:   repoRoot,
+					HTTPAddr:   boundAddr,
+					PID:        os.Getpid(),
+					Caps:       caps,
+					StartedAt:  startedAt,
+					Worktrees:  worktrees,
+					BaseBranch: opts.ReviewBaseRef,
+				}
+				if err := WriteGlobalRecord(globalRec); err != nil {
+					fmt.Fprintf(logOut, "serve: write global daemon record: %v\n", err)
+				} else {
+					globalRecorded = true
+				}
+
 				fmt.Fprintf(logOut, "serve: HTTP transport listening on %s\n", boundAddr)
 			}
 			go func() {
@@ -270,12 +303,17 @@ func Serve(ctx context.Context, opts Options) error {
 		}()
 	}
 	_ = pluginRes // forwarded via PluginHTTPFactory only.
-	// Always remove serve.json on return so a killed process doesn't
-	// leave a dangling record when the shutdown path is taken.
+	// Always remove serve.json and global record on return so a killed
+	// process doesn't leave dangling records when the shutdown path is taken.
 	defer func() {
 		if serveRecorded {
 			if err := worktree.RemoveServe(absRoot, wtName); err != nil {
 				fmt.Fprintf(logOut, "serve: remove serve.json: %v\n", err)
+			}
+		}
+		if globalRecorded {
+			if err := RemoveGlobalRecord(repoRoot); err != nil {
+				fmt.Fprintf(logOut, "serve: remove global daemon record: %v\n", err)
 			}
 		}
 	}()

@@ -81,8 +81,11 @@ type D2LegendStyle struct {
 // Field semantics:
 //   - HTTPAddr: TCP listen address ("host:port") for the HTTP transport.
 //     Empty falls through to the daemon's flag default.
+//   - BaseBranch: the branch name to use as the diff baseline (typically
+//     "main" or "master"). Empty means auto-detect from repo convention.
 type ServeConfig struct {
-	HTTPAddr string `yaml:"http_addr,omitempty"`
+	HTTPAddr   string `yaml:"http_addr,omitempty"`
+	BaseBranch string `yaml:"base_branch,omitempty"`
 }
 
 // ReviewView describes a named architecture review perspective. It is
