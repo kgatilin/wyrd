@@ -1,12 +1,10 @@
 package mcp
 
 import (
-	"context"
 	"fmt"
 
 	archmotifAdapter "github.com/kgatilin/archai/internal/adapter/archmotif"
 	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/serve"
 	"github.com/kgatilin/archmotif/pkg/localpartition"
 	"github.com/kgatilin/archmotif/pkg/spectralcluster"
 )
@@ -27,18 +25,12 @@ type diffRegionMeta struct {
 // partitioning over the flow-edge projection to grow the region the seed sits
 // in. Package/file container nodes are dropped, matching selectNodes.
 //
-// The third return is a non-empty human-readable message when the selection
-// cannot be made (no base configured, no changes, empty region). Callers wrap
-// it in errorResult — these are expected outcomes, not RPC faults.
-func diffRegionNodes(ctx context.Context, state *serve.State, graph *spectralcluster.Graph, worktree []domain.PackageModel) ([]string, *diffRegionMeta, string) {
-	base, err := state.BaseModels(ctx)
-	if err != nil {
-		return nil, nil, fmt.Sprintf("loading review base: %v", err)
-	}
-	if base == nil {
-		return nil, nil, "diff selector needs a review base, but none is configured for this daemon (set serve.base_branch, or run as a repo-level daemon that loads the base branch)"
-	}
-
+// base must be the review-base models (the caller resolves them from the
+// State); graph and worktree describe the active snapshot. The third return is
+// a non-empty human-readable message when the selection cannot be made (no
+// changes, empty region). Callers wrap it in errorResult — these are expected
+// outcomes, not RPC faults.
+func diffRegionNodes(graph *spectralcluster.Graph, base, worktree []domain.PackageModel) ([]string, *diffRegionMeta, string) {
 	seeds := archmotifAdapter.SeedIDsFromDiff(base, worktree)
 	if len(seeds) == 0 {
 		return nil, nil, "no structural changes between the review base and this worktree — nothing to scope the analysis to"

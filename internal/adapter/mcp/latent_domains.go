@@ -102,7 +102,14 @@ func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResul
 	var archmotifNodeIDs []string
 	var diffMeta *diffRegionMeta
 	if args.Selector.Diff {
-		region, meta, emsg := diffRegionNodes(context.Background(), state, graph, snap.Packages)
+		base, err := state.BaseModels(context.Background())
+		if err != nil {
+			return errorResult(fmt.Sprintf("loading review base: %v", err)), nil
+		}
+		if base == nil {
+			return errorResult("diff selector needs a review base, but none is configured for this daemon (set serve.base_branch, or run as a repo-level daemon that loads the base branch)"), nil
+		}
+		region, meta, emsg := diffRegionNodes(graph, base, snap.Packages)
 		if emsg != "" {
 			return errorResult(emsg), nil
 		}
