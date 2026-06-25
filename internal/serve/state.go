@@ -72,6 +72,35 @@ type State struct {
 	// retrievalReady is closed when the initial retrieval indexing completes.
 	// Nil if retrieval is disabled.
 	retrievalReady chan struct{}
+
+	// baseResolver, when non-nil, returns the base-branch (review base)
+	// package models for diff-scoped analysis. Injected by MultiState, which
+	// holds the configured base ref and can load the base worktree on
+	// demand. Nil for standalone States (no multi-worktree context) and for
+	// the base State itself, where it resolves to nil (no self-diff).
+	baseResolver func(ctx context.Context) ([]domain.PackageModel, error)
+}
+
+// setBaseResolver wires the base-branch model resolver. Called by MultiState
+// after a worktree State is loaded.
+func (s *State) setBaseResolver(f func(ctx context.Context) ([]domain.PackageModel, error)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.baseResolver = f
+}
+
+// BaseModels returns the review-base (e.g. "main") package models for diff
+// against this State's current snapshot. Returns (nil, nil) when no base is
+// configured (standalone daemon, or this State *is* the base) — callers treat
+// that as "no base available", not an error.
+func (s *State) BaseModels(ctx context.Context) ([]domain.PackageModel, error) {
+	s.mu.RLock()
+	f := s.baseResolver
+	s.mu.RUnlock()
+	if f == nil {
+		return nil, nil
+	}
+	return f(ctx)
 }
 
 // Bus returns the State's plugin event bus, creating it on first

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/worktree"
 )
 
@@ -80,6 +81,60 @@ type MultiState struct {
 
 	// watchers tracks per-worktree closers registered by watcherHook.
 	watchers map[string]io.Closer
+
+	// baseRef is the review-base git ref (e.g. "main") used for
+	// diff-scoped analysis. When non-empty, every loaded worktree State is
+	// wired with a resolver that loads this ref's models on demand. Empty
+	// disables base resolution (the diff tool reports "no base configured").
+	baseRef string
+}
+
+// SetReviewBaseRef configures the review-base ref injected into every
+// worktree State as its base-model resolver. Safe to call once at daemon
+// startup before States are materialized; States loaded afterwards pick it
+// up, and already-loaded States are re-wired.
+func (m *MultiState) SetReviewBaseRef(ref string) {
+	m.mu.Lock()
+	m.baseRef = ref
+	states := make([]struct {
+		name  string
+		state *State
+	}, 0, len(m.states))
+	for name, st := range m.states {
+		states = append(states, struct {
+			name  string
+			state *State
+		}{name, st})
+	}
+	m.mu.Unlock()
+	for _, s := range states {
+		m.wireBaseResolver(s.name, s.state)
+	}
+}
+
+// wireBaseResolver injects (or clears) the base-model resolver on a loaded
+// State. The resolver loads the base ref's worktree State lazily and returns
+// its package snapshot; when the State being wired *is* the base worktree, it
+// resolves to nil so a diff against self is empty rather than recursive.
+func (m *MultiState) wireBaseResolver(name string, state *State) {
+	m.mu.Lock()
+	baseRef := m.baseRef
+	m.mu.Unlock()
+	if baseRef == "" {
+		state.setBaseResolver(nil)
+		return
+	}
+	thisName := name
+	state.setBaseResolver(func(ctx context.Context) ([]domain.PackageModel, error) {
+		bs, baseName, err := m.GetByRef(ctx, baseRef)
+		if err != nil || bs == nil {
+			return nil, err
+		}
+		if baseName == thisName {
+			return nil, nil // this State is the base; no self-diff
+		}
+		return bs.Snapshot().Packages, nil
+	})
 }
 
 // NewMultiState constructs a MultiState rooted at projectRoot, using
@@ -303,6 +358,10 @@ func (m *MultiState) Get(ctx context.Context, name string) (*State, error) {
 	m.states[name] = loaded
 	hook := m.watcherHook
 	m.mu.Unlock()
+
+	// Wire the base-model resolver so diff-scoped tools on this worktree can
+	// reach the review base. No-op when no base ref is configured.
+	m.wireBaseResolver(name, loaded)
 
 	// Spin up the per-worktree watcher outside the lock so a slow
 	// fsnotify setup cannot block other Get calls. If the hook fails

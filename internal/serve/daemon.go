@@ -288,6 +288,9 @@ func Serve(ctx context.Context, opts Options) error {
 	}
 	if opts.MultiState != nil && opts.ReviewBaseRef != "" {
 		baseRef := opts.ReviewBaseRef
+		// Wire diff-scoped tools: every worktree State gets a resolver that
+		// loads this base ref on demand.
+		opts.MultiState.SetReviewBaseRef(baseRef)
 		go func() {
 			fmt.Fprintf(logOut, "serve: preloading review base %q in background\n", baseRef)
 			baseState, baseName, err := opts.MultiState.GetByRef(runCtx, baseRef)
