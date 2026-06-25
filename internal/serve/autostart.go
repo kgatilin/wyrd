@@ -16,6 +16,10 @@ import (
 // daemon is registered) and the worktree name used for disk lookups.
 // A stale record (process no longer alive) is treated the same as
 // "no record" — the caller can then auto-start a fresh daemon.
+//
+// Deprecated: Use DiscoverRepoDaemon for the new global registry model.
+// This function is retained for backward compatibility with existing
+// per-worktree serve.json records.
 func DiscoverDaemon(projectRoot string) (*worktree.ServeRecord, string, error) {
 	name := worktree.Name(projectRoot)
 	rec, err := worktree.ReadServe(projectRoot, name)
@@ -29,6 +33,52 @@ func DiscoverDaemon(projectRoot string) (*worktree.ServeRecord, string, error) {
 		return nil, name, nil
 	}
 	return rec, name, nil
+}
+
+// DiscoverRepoDaemon looks up the running multi-worktree daemon for the
+// repo containing cwd. It checks the global registry first, falling back
+// to the legacy per-worktree serve.json for compatibility.
+// Returns the daemon record (nil when no live daemon is registered),
+// the repo root, and the current worktree name.
+func DiscoverRepoDaemon(cwd string) (*DaemonRecord, string, string, error) {
+	// Find repo root and worktree name.
+	repoRoot, ok := worktree.RepoRoot(cwd)
+	if !ok {
+		// Not in a git repo — fall back to cwd as both repo and worktree.
+		abs, err := filepath.Abs(cwd)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("discover: resolve %s: %w", cwd, err)
+		}
+		repoRoot = abs
+	}
+	wtName := worktree.Name(cwd)
+
+	// Check global registry first.
+	globalRec, err := ReadGlobalRecord(repoRoot)
+	if err != nil {
+		return nil, repoRoot, wtName, err
+	}
+	if globalRec != nil {
+		return globalRec, repoRoot, wtName, nil
+	}
+
+	// Fallback: check legacy per-worktree serve.json.
+	legacyRec, err := worktree.ReadServe(cwd, wtName)
+	if err != nil {
+		return nil, repoRoot, wtName, nil // Ignore errors, just means no daemon.
+	}
+	if legacyRec != nil && worktree.PIDAlive(legacyRec.PID) {
+		// Convert legacy record to DaemonRecord for uniform handling.
+		return &DaemonRecord{
+			RepoRoot:  repoRoot,
+			HTTPAddr:  legacyRec.HTTPAddr,
+			PID:       legacyRec.PID,
+			Caps:      []string{"mcp"}, // Legacy daemons are single-worktree.
+			StartedAt: legacyRec.StartedAt,
+		}, repoRoot, wtName, nil
+	}
+
+	return nil, repoRoot, wtName, nil
 }
 
 // AutoStartOptions configures how a background daemon is launched by
@@ -63,6 +113,13 @@ type AutoStartOptions struct {
 	// spawned daemon so it exits after that long without HTTP traffic.
 	// Used by the MCP thin client to avoid leaking orphan daemons.
 	IdleTimeout time.Duration
+
+	// Multi, when true, starts a multi-worktree daemon (--multi flag).
+	// This is the new default for MCP clients.
+	Multi bool
+
+	// UI, when true, enables the UI on the auto-started daemon (--ui).
+	UI bool
 }
 
 // AutoStartDaemon spawns `archai serve --http <addr>` as a detached
@@ -134,6 +191,12 @@ func AutoStartDaemon(opts AutoStartOptions) (*worktree.ServeRecord, error) {
 	if opts.IdleTimeout > 0 {
 		args = append(args, "--idle-timeout", opts.IdleTimeout.String())
 	}
+	if opts.Multi {
+		args = append(args, "--multi")
+	}
+	if opts.UI {
+		args = append(args, "--ui")
+	}
 	cmd := exec.Command(exePath, args...)
 	cmd.Stdin = nil
 	cmd.Stdout = io.Discard
@@ -161,4 +224,112 @@ func AutoStartDaemon(opts AutoStartOptions) (*worktree.ServeRecord, error) {
 		time.Sleep(pollInterval)
 	}
 	return nil, fmt.Errorf("autostart: daemon (pid %d) did not register within %s", childPID, waitTimeout)
+}
+
+// AutoStartRepoDaemon spawns a multi-worktree daemon for the repo
+// containing cwd. It discovers the repo root, acquires a repo-level
+// lock, and starts the daemon with --multi --ui flags. The daemon
+// is discovered via the global registry.
+//
+// Returns the daemon record and the current worktree name.
+func AutoStartRepoDaemon(opts AutoStartOptions) (*DaemonRecord, string, error) {
+	if opts.Root == "" {
+		return nil, "", fmt.Errorf("autostart: empty root")
+	}
+
+	// Resolve repo root.
+	repoRoot, ok := worktree.RepoRoot(opts.Root)
+	if !ok {
+		abs, err := filepath.Abs(opts.Root)
+		if err != nil {
+			return nil, "", fmt.Errorf("autostart: resolve %s: %w", opts.Root, err)
+		}
+		repoRoot = abs
+	}
+	wtName := worktree.Name(opts.Root)
+
+	exePath := opts.ExePath
+	if exePath == "" {
+		exe, err := os.Executable()
+		if err != nil || exe == "" {
+			exePath = os.Args[0]
+		} else {
+			exePath = exe
+		}
+	}
+	httpAddr := opts.HTTPAddr
+	if httpAddr == "" {
+		httpAddr = "127.0.0.1:0"
+	}
+	waitTimeout := opts.WaitTimeout
+	if waitTimeout <= 0 {
+		waitTimeout = 5 * time.Second
+	}
+	pollInterval := opts.PollInterval
+	if pollInterval <= 0 {
+		pollInterval = 50 * time.Millisecond
+	}
+
+	// Acquire a repo-level lock so concurrent MCP clients from different
+	// worktrees don't both spawn daemons.
+	lockDir := filepath.Join(repoRoot, ".arch")
+	if err := os.MkdirAll(lockDir, 0o755); err != nil {
+		return nil, "", fmt.Errorf("autostart: create %s: %w", lockDir, err)
+	}
+	lockPath := filepath.Join(lockDir, "autostart-repo.lock")
+	unlock, err := acquireAutoStartLock(lockPath, waitTimeout)
+	if err != nil {
+		return nil, "", fmt.Errorf("autostart: acquire lock: %w", err)
+	}
+	defer unlock()
+
+	// Re-check: another caller may have started a daemon while we
+	// were waiting for the lock.
+	if rec, rerr := ReadGlobalRecord(repoRoot); rerr == nil && rec != nil {
+		return rec, wtName, nil
+	}
+
+	// Also check legacy per-worktree record at repo root.
+	repoWtName := worktree.Name(repoRoot)
+	if rec, rerr := worktree.ReadServe(repoRoot, repoWtName); rerr == nil && rec != nil && worktree.PIDAlive(rec.PID) {
+		return &DaemonRecord{
+			RepoRoot:  repoRoot,
+			HTTPAddr:  rec.HTTPAddr,
+			PID:       rec.PID,
+			Caps:      []string{"mcp", "multi", "ui"},
+			StartedAt: rec.StartedAt,
+		}, wtName, nil
+	}
+
+	// Start a multi-worktree daemon at the repo root.
+	args := []string{"serve", "--repo", repoRoot, "--http", httpAddr, "--multi", "--ui"}
+	if opts.IdleTimeout > 0 {
+		args = append(args, "--idle-timeout", opts.IdleTimeout.String())
+	}
+	cmd := exec.Command(exePath, args...)
+	cmd.Stdin = nil
+	cmd.Stdout = io.Discard
+	if opts.Stderr != nil {
+		cmd.Stderr = opts.Stderr
+	} else {
+		cmd.Stderr = io.Discard
+	}
+	detachProcess(cmd)
+
+	if err := cmd.Start(); err != nil {
+		return nil, "", fmt.Errorf("autostart: start daemon: %w", err)
+	}
+	childPID := cmd.Process.Pid
+	_ = cmd.Process.Release()
+
+	// Poll global registry for the daemon to register.
+	deadline := time.Now().Add(waitTimeout)
+	for time.Now().Before(deadline) {
+		rec, err := ReadGlobalRecord(repoRoot)
+		if err == nil && rec != nil {
+			return rec, wtName, nil
+		}
+		time.Sleep(pollInterval)
+	}
+	return nil, "", fmt.Errorf("autostart: daemon (pid %d) did not register within %s", childPID, waitTimeout)
 }

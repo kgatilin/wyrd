@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	nethttp "net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,9 +20,14 @@ import (
 //
 // HTTPClient is optional; when nil a package-default with a 30s
 // per-request timeout is used.
+//
+// EndpointResolver, when non-nil, is called to re-resolve the endpoint
+// when a connection failure occurs. This allows the client to survive
+// daemon restarts by discovering the new daemon address.
 type ClientOptions struct {
-	Endpoint   string
-	HTTPClient *nethttp.Client
+	Endpoint         string
+	HTTPClient       *nethttp.Client
+	EndpointResolver func() (string, error)
 
 	// WorktreePrefix, when non-empty, is inserted between Endpoint and
 	// the API path so tool calls are routed to a specific worktree of a
@@ -53,6 +60,38 @@ func serveClientIO(ctx context.Context, opts ClientOptions, in io.Reader, out io
 	client := opts.HTTPClient
 	if client == nil {
 		client = &nethttp.Client{Timeout: 30 * time.Second}
+	}
+
+	// Mutable endpoint state for re-resolution.
+	var endpointMu sync.RWMutex
+	currentEndpoint := opts.Endpoint
+
+	getEndpoint := func() string {
+		endpointMu.RLock()
+		defer endpointMu.RUnlock()
+		return currentEndpoint
+	}
+
+	// tryResolve attempts to re-resolve the endpoint on connection failure.
+	// Returns the new endpoint if successful, or empty string if resolution
+	// is not available or fails.
+	tryResolve := func() string {
+		if opts.EndpointResolver == nil {
+			return ""
+		}
+		newEndpoint, err := opts.EndpointResolver()
+		if err != nil {
+			fmt.Fprintf(errOut, "mcp-client: re-resolve endpoint: %v\n", err)
+			return ""
+		}
+		if newEndpoint == "" {
+			return ""
+		}
+		endpointMu.Lock()
+		currentEndpoint = newEndpoint
+		endpointMu.Unlock()
+		fmt.Fprintf(errOut, "mcp-client: re-resolved endpoint to %s\n", newEndpoint)
+		return newEndpoint
 	}
 
 	reader := bufio.NewReader(in)
@@ -92,7 +131,7 @@ func serveClientIO(ctx context.Context, opts ClientOptions, in io.Reader, out io
 			return nil
 		case r := <-readCh:
 			if len(r.line) > 0 {
-				if err := handleClientLine(ctx, client, opts.Endpoint, opts.WorktreePrefix, r.line, writeLine, errOut); err != nil {
+				if err := handleClientLine(ctx, client, getEndpoint, tryResolve, opts.WorktreePrefix, r.line, writeLine, errOut); err != nil {
 					fmt.Fprintf(errOut, "mcp-client: write response: %v\n", err)
 				}
 			}
@@ -112,7 +151,8 @@ func serveClientIO(ctx context.Context, opts ClientOptions, in io.Reader, out io
 func handleClientLine(
 	ctx context.Context,
 	httpClient *nethttp.Client,
-	endpoint string,
+	getEndpoint func() string,
+	tryResolve func() string,
 	worktreePrefix string,
 	line []byte,
 	writeLine func(Response) error,
@@ -143,7 +183,7 @@ func handleClientLine(
 		if isNotification {
 			return nil
 		}
-		return forwardToolsCall(ctx, httpClient, endpoint, worktreePrefix, req, writeLine, errOut)
+		return forwardToolsCall(ctx, httpClient, getEndpoint, tryResolve, worktreePrefix, req, writeLine, errOut)
 	case "ping":
 		if isNotification {
 			return nil
@@ -157,67 +197,139 @@ func handleClientLine(
 	}
 }
 
+// isConnectionError returns true if the error indicates a connection
+// failure (connection refused, timeout, etc.) that might be resolved
+// by re-discovering the daemon.
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check for network errors.
+	var netErr net.Error
+	if ok := isNetError(err, &netErr); ok {
+		return true
+	}
+	// Check error message for common patterns.
+	msg := err.Error()
+	return strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "no such host") ||
+		strings.Contains(msg, "EOF")
+}
+
+// isNetError checks if err is a net.Error (or wraps one).
+func isNetError(err error, target *net.Error) bool {
+	for err != nil {
+		if ne, ok := err.(net.Error); ok {
+			*target = ne
+			return true
+		}
+		// Try to unwrap.
+		if u, ok := err.(interface{ Unwrap() error }); ok {
+			err = u.Unwrap()
+		} else {
+			break
+		}
+	}
+	return false
+}
+
+// maxRetries is the number of times to retry a request after re-resolution.
+const maxRetries = 2
+
+// retryBackoff is the initial backoff between retries.
+const retryBackoff = 100 * time.Millisecond
+
 // forwardToolsCall POSTs the raw params to /api/mcp/tools/call and
 // writes the daemon's response (a ToolResult) back to the MCP client.
 // Daemon-side RPC errors are surfaced as JSON-RPC errors; transport
-// failures (connection refused, timeout) are reported as internal
-// errors so the MCP client can retry.
+// failures (connection refused, timeout) trigger re-resolution and
+// retry before being reported as internal errors.
 func forwardToolsCall(
 	ctx context.Context,
 	httpClient *nethttp.Client,
-	endpoint string,
+	getEndpoint func() string,
+	tryResolve func() string,
 	worktreePrefix string,
 	req Request,
 	writeLine func(Response) error,
 	errOut io.Writer,
 ) error {
-	// Forward params verbatim — they are already {name, arguments}.
-	url := endpoint + worktreePrefix + "/api/mcp/tools/call"
-	var body io.Reader
-	if len(req.Params) > 0 {
-		body = bytes.NewReader(req.Params)
-	}
-	httpReq, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodPost, url, body)
-	if err != nil {
-		return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("build request: %v", err)))
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
+	var lastErr error
+	backoff := retryBackoff
 
-	resp, err := httpClient.Do(httpReq)
-	if err != nil {
-		fmt.Fprintf(errOut, "mcp-client: HTTP POST %s: %v\n", url, err)
-		return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("daemon unreachable: %v", err)))
-	}
-	defer resp.Body.Close()
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		endpoint := getEndpoint()
 
-	data, readErr := io.ReadAll(resp.Body)
-	if readErr != nil {
-		return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("read response: %v", readErr)))
-	}
+		// Build URL with optional worktree prefix for multi-worktree routing.
+		url := endpoint + worktreePrefix + "/api/mcp/tools/call"
 
-	// On 4xx/5xx with a JSON error envelope, translate to a JSON-RPC
-	// error so the client sees a structured failure.
-	if resp.StatusCode >= 400 {
-		var errEnv struct {
-			Error string `json:"error"`
-			Code  int    `json:"code"`
+		var body io.Reader
+		if len(req.Params) > 0 {
+			body = bytes.NewReader(req.Params)
 		}
-		if jsonErr := json.Unmarshal(data, &errEnv); jsonErr == nil && errEnv.Error != "" {
-			code := errEnv.Code
-			if code == 0 {
-				code = ErrInternal
+		httpReq, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodPost, url, body)
+		if err != nil {
+			return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("build request: %v", err)))
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		resp, err := httpClient.Do(httpReq)
+		if err != nil {
+			lastErr = err
+			fmt.Fprintf(errOut, "mcp-client: HTTP POST %s: %v (attempt %d/%d)\n", url, err, attempt+1, maxRetries+1)
+
+			// On connection error, try to re-resolve and retry.
+			if isConnectionError(err) && attempt < maxRetries {
+				newEndpoint := tryResolve()
+				if newEndpoint != "" {
+					// Sleep briefly before retry.
+					select {
+					case <-ctx.Done():
+						return writeLine(newErrorResponse(req.ID, ErrInternal, "context cancelled"))
+					case <-time.After(backoff):
+					}
+					backoff *= 2 // Exponential backoff.
+					continue
+				}
 			}
-			return writeLine(newErrorResponse(req.ID, code, errEnv.Error))
+
+			return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("daemon unreachable: %v", err)))
 		}
-		return writeLine(newErrorResponse(req.ID, ErrInternal,
-			fmt.Sprintf("daemon returned %d: %s", resp.StatusCode, string(data))))
+		defer resp.Body.Close()
+
+		data, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("read response: %v", readErr)))
+		}
+
+		// On 4xx/5xx with a JSON error envelope, translate to a JSON-RPC
+		// error so the client sees a structured failure.
+		if resp.StatusCode >= 400 {
+			var errEnv struct {
+				Error string `json:"error"`
+				Code  int    `json:"code"`
+			}
+			if jsonErr := json.Unmarshal(data, &errEnv); jsonErr == nil && errEnv.Error != "" {
+				code := errEnv.Code
+				if code == 0 {
+					code = ErrInternal
+				}
+				return writeLine(newErrorResponse(req.ID, code, errEnv.Error))
+			}
+			return writeLine(newErrorResponse(req.ID, ErrInternal,
+				fmt.Sprintf("daemon returned %d: %s", resp.StatusCode, string(data))))
+		}
+
+		// Happy path: body is a ToolResult JSON document. Forward verbatim
+		// as the result field.
+		var tr ToolResult
+		if err := json.Unmarshal(data, &tr); err != nil {
+			return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("decode tool result: %v", err)))
+		}
+		return writeLine(newResponse(req.ID, tr))
 	}
 
-	// Happy path: body is a ToolResult JSON document. Forward verbatim
-	// as the result field.
-	var tr ToolResult
-	if err := json.Unmarshal(data, &tr); err != nil {
-		return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("decode tool result: %v", err)))
-	}
-	return writeLine(newResponse(req.ID, tr))
+	// All retries exhausted.
+	return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("daemon unreachable after %d attempts: %v", maxRetries+1, lastErr)))
 }
