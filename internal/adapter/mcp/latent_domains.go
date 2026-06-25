@@ -69,6 +69,29 @@ type latentDomainsResponse struct {
 // runs on. structural contains/file edges are excluded.
 var flowEdgeKinds = []string{"calls", "usesType", "returns", "implements"}
 
+// buildClusterSummaries is the latent_domains variant of buildClusterInfos. This
+// lens emits clusters on BOTH the structural and semantic sides, so the full
+// member dump (up to clusterMembersFullLimit per cluster, the spectral_cluster
+// default) compounds 2×K and blows the response past 70KB on a large region.
+// latent_domains is a verdict lens — its product is the AMI verdict + glue +
+// modularity, not membership — so it ALWAYS samples (never full-dumps). Callers
+// who need full membership use spectral_cluster / semantic_cluster directly.
+func buildClusterSummaries(clusters []spectralcluster.Cluster) []spectralClusterInfo {
+	out := make([]spectralClusterInfo, len(clusters))
+	for i, c := range clusters {
+		members := mapNodeIDsToSymbols(c.Members)
+		info := spectralClusterInfo{ID: c.ID, Size: len(members)}
+		if len(members) <= clusterMembersSample {
+			info.Members = members
+		} else {
+			info.MembersSample = sampleStrings(members, clusterMembersSample)
+			info.Truncated = true
+		}
+		out[i] = info
+	}
+	return out
+}
+
 // handleLatentDomains runs structural and semantic clustering over the same
 // node set, measures their agreement, and identifies the glue.
 func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
@@ -267,14 +290,14 @@ func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResul
 			ClusterCount:  len(structResult.Clusters),
 			DominantShare: roundTo(structShare, 3),
 			Modularity:    structResult.Modularity,
-			Clusters:      buildClusterInfos(structResult.Clusters),
+			Clusters:      buildClusterSummaries(structResult.Clusters),
 		},
 		Semantic: latentDomainsPartition{
 			K:             semResult.ChosenK,
 			ClusterCount:  len(semResult.Clusters),
 			DominantShare: roundTo(semShare, 3),
 			Modularity:    semResult.Modularity,
-			Clusters:      buildClusterInfos(semResult.Clusters),
+			Clusters:      buildClusterSummaries(semResult.Clusters),
 		},
 		Agreement: latentDomainsAgreement{AMI: roundTo(ami, 3), NMI: roundTo(nmi, 3), Verdict: verdict},
 		Glue: latentDomainsGlue{
