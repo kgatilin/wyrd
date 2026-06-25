@@ -174,7 +174,7 @@ func Serve(ctx context.Context, opts Options) error {
 	// silently ignored.
 	//
 	// When a transport comes up we record a serve.json for this
-	// worktree so `archai where` / `archai list-daemons` can find us.
+	// worktree so `archai where` / `archai daemon list` can find us.
 	// The record is removed on graceful shutdown below.
 	// Derive a child context that either the caller's ctx or the
 	// idle-timeout monitor can cancel. The monitor only runs when an

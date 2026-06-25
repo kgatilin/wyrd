@@ -325,7 +325,7 @@ manual verification and as a base for future features.`,
 	// without an explicit opt-in. Users who want LAN access can pass
 	// --http 0.0.0.0:PORT (or any specific interface). The bound
 	// address is recorded in .arch/.worktree/<name>/serve.json for
-	// `archai where` / `archai list-daemons` to discover.
+	// `archai where` / `archai daemon list` to discover.
 	serveCmd.Flags().String("http", "127.0.0.1:0", "HTTP transport address (\"\" disables HTTP; default 127.0.0.1:0 binds loopback on a free port, pass 0.0.0.0:PORT for LAN access)")
 	// M10: --multi discovers every git worktree of the project and
 	// exposes each under /w/{name}/ so a single daemon can drive them
@@ -362,18 +362,9 @@ daemon is running.`,
 	}
 	rootCmd.AddCommand(whereCmd)
 
-	// list-daemons — scan all worktrees under this repo for live daemons.
-	listDaemonsCmd := &cobra.Command{
-		Use:   "list-daemons",
-		Short: "List live archai serve daemons across all worktrees",
-		Long: `Scan .arch/.worktree/*/serve.json under the current project root
-and print one row per live daemon (worktree name, PID, URL, uptime).
-Stale records (processes that have exited) are skipped.`,
-		Args: cobra.NoArgs,
-		RunE: runListDaemons,
-	}
-	rootCmd.AddCommand(listDaemonsCmd)
-	rootCmd.AddCommand(newStopDaemonCmd())
+	// Daemon management lives under the `daemon` command group
+	// (list/stop/restart) over the global registry.
+	rootCmd.AddCommand(newDaemonCmd())
 
 	// Sequence command (M6b)
 	sequenceCmd := &cobra.Command{
@@ -2024,7 +2015,7 @@ func runWhere(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runListDaemons handles `archai list-daemons`. It prints a table of
+// runListDaemons handles `archai daemon list`. It prints a table of
 // live daemons from the global registry (works from any directory).
 // Also includes legacy per-worktree daemons for the current project.
 func runListDaemons(cmd *cobra.Command, args []string) error {
@@ -2118,104 +2109,12 @@ var (
 	daemonSignal   = signalDaemonPID
 )
 
-func newStopDaemonCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "stop-daemon [worktree]",
-		Short: "Stop a running archai serve daemon",
-		Long: `Stop the archai serve daemon recorded in .arch/.worktree/<name>/serve.json.
-
-With no worktree argument, stops the daemon for the current worktree.
-With a worktree argument, stops that named daemon as shown by
-` + "`archai list-daemons`" + `.`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: runStopDaemon,
-	}
-	cmd.Flags().Duration("timeout", 5*time.Second, "How long to wait for graceful shutdown after SIGTERM (0 sends only)")
-	return cmd
-}
-
-// runStopDaemon handles `archai stop-daemon [worktree]`. It sends
-// SIGTERM to the recorded daemon PID and waits briefly for the process
-// to exit or for the daemon to remove its serve.json during graceful
-// shutdown. Stale records are removed and treated as success because
-// the requested daemon is already stopped.
-func runStopDaemon(cmd *cobra.Command, args []string) error {
-	projectRoot, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("resolving cwd: %w", err)
-	}
-	name := worktree.Name(projectRoot)
-	if len(args) == 1 {
-		name = args[0]
-	}
-	if err := validateWorktreeName(name); err != nil {
-		return err
-	}
-	timeout, _ := cmd.Flags().GetDuration("timeout")
-
-	rec, err := worktree.ReadServe(projectRoot, name)
-	if err != nil {
-		return fmt.Errorf("reading serve.json: %w", err)
-	}
-	if rec == nil {
-		return fmt.Errorf("no daemon running in worktree %q", name)
-	}
-	if !daemonPIDAlive(rec.PID) {
-		if err := worktree.RemoveServe(projectRoot, name); err != nil {
-			return fmt.Errorf("remove stale serve.json: %w", err)
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Removed stale daemon record for worktree %q (pid %d not alive).\n", name, rec.PID)
-		return nil
-	}
-
-	if err := daemonSignal(rec.PID); err != nil {
-		return fmt.Errorf("stop daemon %q (pid %d): %w", name, rec.PID, err)
-	}
-	if timeout > 0 {
-		if err := waitForDaemonStop(projectRoot, name, rec.PID, timeout); err != nil {
-			return err
-		}
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Stopped daemon %q (pid %d).\n", name, rec.PID)
-	return nil
-}
-
-func validateWorktreeName(name string) error {
-	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.Contains(name, `\`) {
-		return fmt.Errorf("invalid worktree name %q", name)
-	}
-	return nil
-}
-
 func signalDaemonPID(pid int) error {
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return err
 	}
 	return proc.Signal(syscall.SIGTERM)
-}
-
-func waitForDaemonStop(projectRoot, name string, pid int, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for {
-		rec, err := worktree.ReadServe(projectRoot, name)
-		if err != nil {
-			return fmt.Errorf("reading serve.json while stopping daemon %q: %w", name, err)
-		}
-		if rec == nil {
-			return nil
-		}
-		if !daemonPIDAlive(pid) {
-			if err := worktree.RemoveServe(projectRoot, name); err != nil {
-				return fmt.Errorf("remove stopped daemon serve.json: %w", err)
-			}
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("sent SIGTERM to daemon %q (pid %d), but it is still alive after %s", name, pid, timeout)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
 }
 
 // formatUptime renders a duration as a short human-readable string

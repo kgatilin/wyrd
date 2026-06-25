@@ -153,7 +153,7 @@ func RemoveCurrent(projectRoot, name string) error {
 }
 
 // ServeRecord is the JSON payload written to serve.json by a running
-// daemon so peer tools (`archai where`, `archai list-daemons`) can
+// daemon so peer tools (`archai where`, `archai daemon list`) can
 // discover live daemons without probing ports.
 type ServeRecord struct {
 	PID       int    `json:"pid"`
