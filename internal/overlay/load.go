@@ -103,7 +103,7 @@ func findPackageOverlayFragments(root string) ([]string, error) {
 		}
 		name := d.Name()
 		switch name {
-		case ".git", ".worktrees", "bin", "vendor":
+		case ".git", ".worktrees", ".claude", "bin", "vendor", "node_modules":
 			return filepath.SkipDir
 		case ".arch":
 			rel, relErr := filepath.Rel(root, path)
