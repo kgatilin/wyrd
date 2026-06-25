@@ -132,10 +132,37 @@ graph tools return architecture (edges, callers, implementers) that grep cannot.
 If a tool returns "daemon unreachable", start/refresh the daemon first rather than
 silently falling back to grep.
 
+### Daemon lifecycle (CLI)
+
+The `.mcp.json` thin client auto-starts a repo-level daemon; manage it with the
+`archai daemon` group (target = current repo by default, or `[name|pid]` —
+numeric → PID, else repo basename):
+
+- `archai daemon start` — start a repo-level (`--multi`) daemon for the repo
+  containing cwd; idempotent. Resolves the repo root from any worktree.
+- `archai daemon status [name|pid]` — readiness + indexing progress (the `status`
+  tool over HTTP); the right thing to poll after a restart on a big repo.
+- `archai daemon list` — live daemons (repo, worktrees, pid, url, caps, uptime).
+- `archai daemon restart [name|pid]` / `stop [name|pid]` — zombie-aware (reads
+  `ps` state, not just `kill -0`); restart always relaunches. Both can target a
+  legacy per-worktree `serve.json` daemon, not just the global registry.
+
+Restarting bumps the model-cache version (binary stamp) ⇒ forces a full dense
+re-embed; on a large repo, watch it warm back up with `archai daemon status`.
+
 ### Analysis lenses (MCP tools)
 
 All take `{package, include_subpackages}` and run on the package subgraph.
+(Exception: `status` takes no args — it reports daemon readiness, not a subgraph.)
 
+- **`status`** — daemon readiness + indexing progress, cheap (no graph build).
+  Reports `ready` (dense index available **and** not indexing), `indexing`,
+  `embedded`/`embeddable`/`pending` counts, `embedder` id, and a human `message`.
+  Call this when an embedding-backed lens (`semantic_cluster`, `latent_domains`)
+  comes back `{status:"indexing"}` or `{status:"loading"}` — it tells you whether
+  to wait (dense pass still running) or that the embedder is misconfigured
+  (`dense_available:false` ⇒ lexical-only, those lenses won't run). Also exposed
+  as `archai daemon status [name|pid]` over the same endpoint.
 - **`components`** — connected components over *all* edges. Finds shattered
   graphs / isolated symbols (missing edges). Singletons = something unlinked.
 - **`file_hotspots`** — top-level declarations per file; flags structural
@@ -199,6 +226,24 @@ All take `{package, include_subpackages}` and run on the package subgraph.
 - **Model cache** (`internal/serve/model_cache.go`) is keyed on the binary's
   build version + executable stamp. After `make install`, restart the daemon and
   `refresh`, or a parser-logic change is masked by a stale cache.
+- **Readiness is gated, not blocked.** A cold daemon goes through two slow
+  phases: *parsing* the model (`go/packages`) then building *dense embeddings*
+  (Ollama). Neither blocks the MCP transport. `MultiState` backgrounds the parse
+  and `/api/mcp/tools/call` answers a `{status:"loading",phase:"parsing"}`
+  ToolResult immediately while it runs (`Loaded` vs the blocking `Get` in
+  `internal/serve/multistate.go`); once parsed, `indexingGate` (`tools.go`)
+  returns `{status:"indexing",embedded,embeddable}` from any embedding-backed
+  lens until the dense pass finishes. So tools **return a meaningful readiness
+  payload instead of timing out** — poll `status` and retry, don't treat the
+  loading payload as a failure. The daemon warms the default worktree at startup
+  so `status` shows progress right after a restart.
+- **Verdict lenses sample, membership lenses dump.** `latent_domains` emits
+  clusters on *both* the structural and semantic side, so it always returns a
+  capped member **sample** (`buildClusterSummaries`, not the full-150-per-cluster
+  `buildClusterInfos` that `spectral_cluster`/`semantic_cluster` use) — its
+  product is the AMI verdict + glue + modularity, not membership. Full membership
+  ⇒ call the single-sided lens. Without this the 2×K full dump blew past 70KB on
+  a large region.
 
 ### Where the code lives
 
@@ -212,6 +257,11 @@ All take `{package, include_subpackages}` and run on the package subgraph.
   `builtinToolDefinitions` + `Dispatch`). `latent_domains` lives in its own
   `internal/adapter/mcp/latent_domains.go` (NMI/AMI math + glue detection) — kept
   out of `tools.go`, which is itself the god-file these lenses flag.
+- Readiness: `handleStatus` + `indexingGate` (`tools.go`) report/gate on
+  `retrieval.Service.IndexStatus()` (`internal/retrieval/service.go`). The
+  non-blocking parse path is `MultiState.Loaded`/`ensureLoad` (`multistate.go`)
+  and the `/api/mcp/tools/call` loading short-circuit in
+  `internal/adapter/http/multi.go`. CLI: `cmd/archai/daemon.go`.
 
 ## Development Rules
 
