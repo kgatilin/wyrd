@@ -388,6 +388,14 @@ func builtinToolDefinitions() []ToolDefinition {
 			},
 		},
 		{
+			Name:        "embedding_coverage",
+			Description: "Report dense-embedding coverage over the indexed graph: how many nodes are embeddable (func/iface/struct/type) versus how many actually carry a vector, broken down by kind, plus a capped sample of embeddable nodes still missing an embedding. Answers \"are embeddings built for everything, or is something not built?\" Non-embeddable kinds (const/var/error/field/file/package) are reported but never counted as missing — they are excluded from dense search by design. A nonzero missing count with dense_available=true usually means the embedder failed on those nodes or a refresh is needed.",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
+		{
 			Name:        "spectral_cluster",
 			Description: "Split a package or subgraph into natural module clusters using spectral clustering. Uses the eigengap heuristic for automatic K selection when k=\"auto\". Returns cluster assignments with boundary symbols (nodes pulled both ways) and cut quality metrics. Useful for identifying natural module boundaries, finding tightly-coupled subsystems, or suggesting package splits.",
 			InputSchema: map[string]any{
@@ -611,6 +619,8 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleGetNode(state, rawArgs)
 	case "refresh":
 		return handleRefresh(state)
+	case "embedding_coverage":
+		return handleEmbeddingCoverage(state)
 	case "spectral_cluster":
 		return handleSpectralCluster(state, rawArgs)
 	case "semantic_cluster":
@@ -1638,6 +1648,99 @@ func handleRefresh(state *serve.State) (ToolResult, *RPCError) {
 		Removed:   removed,
 		Dense:     svc.DenseAvailable(),
 	})
+}
+
+// kindCoverage is the per-kind embedding breakdown in embeddingCoverageResult.
+type kindCoverage struct {
+	Total      int `json:"total"`
+	Embeddable int `json:"embeddable"`
+	Embedded   int `json:"embedded"`
+}
+
+// embeddingCoverageResult reports how many embeddable nodes carry a dense
+// vector. It surfaces, directly, the gap the clustering lenses otherwise only
+// hint at via dropped_nodes.
+type embeddingCoverageResult struct {
+	TotalNodes      int                     `json:"total_nodes"`
+	EmbeddableNodes int                     `json:"embeddable_nodes"`
+	EmbeddedNodes   int                     `json:"embedded_nodes"`
+	MissingNodes    int                     `json:"missing_nodes"` // embeddable but no vector
+	DenseAvailable  bool                    `json:"dense_available"`
+	ByKind          map[string]kindCoverage `json:"by_kind"`
+	MissingSample   []string                `json:"missing_sample"` // capped list of unembedded embeddable node IDs
+}
+
+// embeddingCoverageMissingLimit caps the missing_sample list so the response
+// stays a fixed-size summary regardless of how many nodes lack a vector.
+const embeddingCoverageMissingLimit = 50
+
+// handleEmbeddingCoverage reports dense-embedding coverage over the indexed
+// graph: embeddable vs embedded node counts (overall and per kind) plus a
+// capped sample of embeddable nodes still missing a vector.
+func handleEmbeddingCoverage(state *serve.State) (ToolResult, *RPCError) {
+	if state == nil {
+		return errorResult("no state available"), nil
+	}
+	svc := state.Retrieval()
+	if svc == nil {
+		return errorResult("retrieval not initialized — call refresh first"), nil
+	}
+	g := svc.Graph()
+	if g == nil || len(g.NodesByID) == 0 {
+		return errorResult("no nodes indexed — call refresh first"), nil
+	}
+	vidx := svc.VectorIndexWithLookup() // nil when no embedder/vector index is configured
+
+	byKind := map[string]*kindCoverage{}
+	kindOf := func(kind string) *kindCoverage {
+		c := byKind[kind]
+		if c == nil {
+			c = &kindCoverage{}
+			byKind[kind] = c
+		}
+		return c
+	}
+
+	total, embeddable, embedded := 0, 0, 0
+	var missing []string
+	for id, n := range g.NodesByID {
+		total++
+		c := kindOf(n.Kind)
+		c.Total++
+		if !n.Embeddable {
+			continue
+		}
+		embeddable++
+		c.Embeddable++
+		if vidx != nil {
+			if _, ok := vidx.Vector(id); ok {
+				embedded++
+				c.Embedded++
+				continue
+			}
+		}
+		missing = append(missing, id)
+	}
+	sort.Strings(missing)
+
+	sample := missing
+	if len(sample) > embeddingCoverageMissingLimit {
+		sample = sample[:embeddingCoverageMissingLimit]
+	}
+
+	out := embeddingCoverageResult{
+		TotalNodes:      total,
+		EmbeddableNodes: embeddable,
+		EmbeddedNodes:   embedded,
+		MissingNodes:    len(missing),
+		DenseAvailable:  svc.DenseAvailable(),
+		ByKind:          make(map[string]kindCoverage, len(byKind)),
+		MissingSample:   sample,
+	}
+	for k, v := range byKind {
+		out.ByKind[k] = *v
+	}
+	return textResult(out)
 }
 
 // --- Spectral cluster tool handler ---
