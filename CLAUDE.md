@@ -121,6 +121,17 @@ Node id scheme (see `internal/adapter/archmotif/exporter.go`):
 `pkg:<path>`, `file:<path>/<base>`, `type:<path>.<Name>`, `fn:<path>.<Name>`,
 `method:<path>.<Recv>.<Name>`, `field:<path>.<Struct>.<Name>`.
 
+**Dogfood the MCP tools — do NOT explore archai with raw `grep`/`Read` first.**
+archai serves a live graph of its own source. To understand where something lives
+or how it is wired, reach for the archai MCP tools *before* shell search:
+`search`/`search_graph` (semantic + graph search for symbols/code), `get_node` /
+`get_package` / `list_packages` (inspect a node or package surface), `expand`
+(walk neighbors / callers / callees / implementers from a seed node). Use
+`grep`/`Read` only to read an exact span once a graph tool has located it. The
+graph tools return architecture (edges, callers, implementers) that grep cannot.
+If a tool returns "daemon unreachable", start/refresh the daemon first rather than
+silently falling back to grep.
+
 ### Analysis lenses (MCP tools)
 
 All take `{package, include_subpackages}` and run on the package subgraph.
