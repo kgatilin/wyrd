@@ -84,6 +84,9 @@ func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResul
 	if svc == nil {
 		return errorResult("retrieval not initialized — call refresh first"), nil
 	}
+	if tr, gated := indexingGate(svc); gated {
+		return tr, nil
+	}
 	vidx := svc.VectorIndexWithLookup()
 	if vidx == nil {
 		return errorResult("vector index not available — embedder may not be configured or refresh needed"), nil

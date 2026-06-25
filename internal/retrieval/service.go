@@ -450,6 +450,18 @@ func (s *Service) Graph() *Graph {
 	return s.graph
 }
 
+// EmbedderID returns the identifier of the embedder backing the vector index
+// (e.g. an Ollama model name, or "noop" when embeddings are disabled/failed).
+// Empty when no vector index is configured.
+func (s *Service) EmbedderID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.vindex != nil {
+		return s.vindex.EmbedderID()
+	}
+	return ""
+}
+
 // IndexFromModels builds nodes and graph from domain models, then indexes.
 // This is a convenience method that combines BuildGraph + SetGraph + Index.
 func (s *Service) IndexFromModels(ctx context.Context, models []domain.PackageModel) error {

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	nethttp "net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/archai/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -25,8 +29,96 @@ func newDaemonCmd() *cobra.Command {
 registry (~/.arch/daemons) — the repo-level daemons that MCP and UI clients
 auto-start. Subcommands: list, stop, restart.`,
 	}
-	cmd.AddCommand(newDaemonStartCmd(), newDaemonListCmd(), newDaemonStopCmd(), newDaemonRestartCmd())
+	cmd.AddCommand(newDaemonStartCmd(), newDaemonListCmd(), newDaemonStatusCmd(), newDaemonStopCmd(), newDaemonRestartCmd())
 	return cmd
+}
+
+func newDaemonStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status [name|pid]",
+		Short: "Show index readiness/progress for a daemon (default: current repo's)",
+		Long: `Query a daemon for its model and retrieval-index readiness: whether it
+is still indexing, dense-embedding progress (embedded/embeddable), and whether
+embedding-backed lenses are ready. On a large repo the dense pass runs for a
+while after startup or a refresh — use this to tell "still indexing" from
+"ready". Default target is the current repo's daemon; pass [name|pid] for
+another.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: runDaemonStatus,
+	}
+}
+
+func runDaemonStatus(cmd *cobra.Command, args []string) error {
+	arg := ""
+	if len(args) == 1 {
+		arg = args[0]
+	}
+	rec, err := resolveDaemonTarget(arg)
+	if err != nil {
+		return err
+	}
+
+	// Ask the daemon's MCP `status` tool over the same HTTP tools/call endpoint
+	// the MCP thin client uses, so the CLI and MCP report identical readiness.
+	// A multi daemon serves only under /w/<worktree>/ — pick the worktree
+	// matching cwd, falling back to the first the daemon knows.
+	prefix := ""
+	if rec.HasCap("multi") {
+		prefix = "/w/" + daemonWorktreeName(rec)
+	}
+	url := "http://" + rec.HTTPAddr + prefix + "/api/mcp/tools/call"
+	httpReq, err := nethttp.NewRequest(nethttp.MethodPost, url, strings.NewReader(`{"name":"status","arguments":{}}`))
+	if err != nil {
+		return fmt.Errorf("build status request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	client := &nethttp.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("querying daemon for %s at %s: %w", filepath.Base(rec.RepoRoot), rec.HTTPAddr, err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("daemon returned %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+
+	var tr struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(data, &tr); err != nil || len(tr.Content) == 0 {
+		return fmt.Errorf("unexpected status response: %s", strings.TrimSpace(string(data)))
+	}
+	// The tool's text payload is the statusResult JSON; pretty-print it.
+	out := tr.Content[0].Text
+	var pretty map[string]any
+	if json.Unmarshal([]byte(out), &pretty) == nil {
+		if b, err := json.MarshalIndent(pretty, "", "  "); err == nil {
+			out = string(b)
+		}
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s  (pid %d)\n%s\n", filepath.Base(rec.RepoRoot), rec.PID, out)
+	return nil
+}
+
+// daemonWorktreeName picks the worktree to scope a multi daemon request to:
+// the one matching cwd if the daemon serves it, otherwise the first worktree
+// the daemon knows (a stable, valid route for cross-repo targeting).
+func daemonWorktreeName(rec *serve.DaemonRecord) string {
+	if cwd, err := os.Getwd(); err == nil {
+		name := worktree.Name(cwd)
+		for _, w := range rec.Worktrees {
+			if w == name {
+				return name
+			}
+		}
+	}
+	if len(rec.Worktrees) > 0 {
+		return rec.Worktrees[0]
+	}
+	return ""
 }
 
 func newDaemonStartCmd() *cobra.Command {

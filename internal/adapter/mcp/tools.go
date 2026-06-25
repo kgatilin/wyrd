@@ -388,6 +388,14 @@ func builtinToolDefinitions() []ToolDefinition {
 			},
 		},
 		{
+			Name:        "status",
+			Description: "Report daemon readiness and indexing progress — cheaply, without running any heavy analysis. Returns {ready, indexing, dense_available, packages, nodes, embedded/embeddable/pending, embedder, message}. On a large repo the dense-embedding pass runs for a while after startup or a refresh; call this first to see whether embedding-backed lenses (semantic_cluster, latent_domains) are ready or still building, instead of firing one that blocks until the transport times out. ready=true means dense search is operational and no indexing pass is in flight.",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
+		{
 			Name:        "embedding_coverage",
 			Description: "Report dense-embedding coverage over the indexed graph: how many nodes are embeddable (func/iface/struct/type) versus how many actually carry a vector, broken down by kind, plus a capped sample of embeddable nodes still missing an embedding. Answers \"are embeddings built for everything, or is something not built?\" Non-embeddable kinds (const/var/error/field/file/package) are reported but never counted as missing — they are excluded from dense search by design. A nonzero missing count with dense_available=true usually means the embedder failed on those nodes or a refresh is needed.",
 			InputSchema: map[string]any{
@@ -623,6 +631,8 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleGetNode(state, rawArgs)
 	case "refresh":
 		return handleRefresh(state)
+	case "status":
+		return handleStatus(state)
 	case "embedding_coverage":
 		return handleEmbeddingCoverage(state)
 	case "spectral_cluster":
@@ -1654,6 +1664,86 @@ func handleRefresh(state *serve.State) (ToolResult, *RPCError) {
 	})
 }
 
+// statusResult is a cheap readiness snapshot of the daemon's model + retrieval
+// index — enough for a caller to decide whether to run an embedding-backed
+// lens now or wait. It does no heavy work, so it answers instantly even while
+// the dense index is still building on a large repo.
+type statusResult struct {
+	Ready          bool   `json:"ready"`           // dense available AND not indexing
+	Indexing       bool   `json:"indexing"`        // an index/refresh pass is running
+	DenseAvailable bool   `json:"dense_available"` // dense (semantic) search operational
+	Packages       int    `json:"packages"`
+	Nodes          int    `json:"nodes"`
+	Embedded       int    `json:"embedded"`           // embeddable nodes with a vector now
+	Embeddable     int    `json:"embeddable"`         // nodes that should carry a vector
+	Pending        int    `json:"pending"`            // embeddable not yet embedded
+	Embedder       string `json:"embedder,omitempty"` // embedder id (e.g. ollama model, "noop")
+	Message        string `json:"message"`
+}
+
+// handleStatus reports daemon readiness and indexing progress without touching
+// the heavy analysis paths. On a large repo, the dense-embedding pass can run
+// for a while after startup or a refresh; this tool lets a client see "indexing
+// in progress (X/Y)" and retry, instead of firing an embedding-backed lens that
+// blocks until the transport times out.
+func handleStatus(state *serve.State) (ToolResult, *RPCError) {
+	if state == nil {
+		return errorResult("no state available"), nil
+	}
+	snap := state.Snapshot()
+	res := statusResult{Packages: len(snap.Packages)}
+
+	svc := state.Retrieval()
+	if svc == nil {
+		res.Message = "Retrieval is disabled: lexical/dense search and embedding-backed lenses are unavailable."
+		return textResult(res)
+	}
+
+	st := svc.IndexStatus()
+	res.Indexing = st.InProgress
+	res.DenseAvailable = st.DenseAvailable
+	res.Embedded = st.Embedded
+	res.Embeddable = st.Embeddable
+	res.Pending = st.Pending
+	res.Embedder = svc.EmbedderID()
+	if g := svc.Graph(); g != nil {
+		res.Nodes = len(g.NodesByID)
+	}
+	res.Ready = st.DenseAvailable && !st.InProgress
+
+	switch {
+	case st.InProgress:
+		res.Message = fmt.Sprintf("Indexing in progress: %d/%d nodes embedded. Embedding-backed lenses (semantic_cluster, latent_domains) will be ready when this completes — retry shortly.", st.Embedded, st.Embeddable)
+	case st.DenseAvailable:
+		res.Message = fmt.Sprintf("Ready. %d nodes indexed, %d embedded.", res.Nodes, st.Embedded)
+	default:
+		res.Message = "Ready (lexical only). Dense embeddings are unavailable — the embedder is not configured or failed, so semantic_cluster/latent_domains will not run. Check the embedder and call refresh."
+	}
+	return textResult(res)
+}
+
+// indexingGate returns a structured "indexing in progress" ToolResult (and
+// true) when the retrieval index is still building, so an embedding-backed lens
+// reports that immediately instead of running on a partial index or blocking
+// until the transport times out. When the index is ready it returns (_, false)
+// and the caller proceeds. Mirrors the user-visible advice to call `status`.
+func indexingGate(svc *retrieval.Service) (ToolResult, bool) {
+	st := svc.IndexStatus()
+	if !st.InProgress {
+		return ToolResult{}, false
+	}
+	tr, _ := textResult(map[string]any{
+		"status":     "indexing",
+		"ready":      false,
+		"embedded":   st.Embedded,
+		"embeddable": st.Embeddable,
+		"message": fmt.Sprintf(
+			"Index is still building (%d/%d nodes embedded); this embedding-backed lens isn't ready yet. Call `status` to watch progress and retry when ready=true.",
+			st.Embedded, st.Embeddable),
+	})
+	return tr, true
+}
+
 // kindCoverage is the per-kind embedding breakdown in embeddingCoverageResult.
 type kindCoverage struct {
 	Total      int `json:"total"`
@@ -2200,6 +2290,9 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 	svc := state.Retrieval()
 	if svc == nil {
 		return errorResult("retrieval not initialized — call refresh first"), nil
+	}
+	if tr, gated := indexingGate(svc); gated {
+		return tr, nil
 	}
 
 	vidx := svc.VectorIndexWithLookup()
