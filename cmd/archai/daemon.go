@@ -25,8 +25,42 @@ func newDaemonCmd() *cobra.Command {
 registry (~/.arch/daemons) — the repo-level daemons that MCP and UI clients
 auto-start. Subcommands: list, stop, restart.`,
 	}
-	cmd.AddCommand(newDaemonListCmd(), newDaemonStopCmd(), newDaemonRestartCmd())
+	cmd.AddCommand(newDaemonStartCmd(), newDaemonListCmd(), newDaemonStopCmd(), newDaemonRestartCmd())
 	return cmd
+}
+
+func newDaemonStartCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start a repo-level daemon for the current repository",
+		Long: `Start a multi-worktree daemon for the repository containing the
+current directory. The repo root is resolved from cwd, so this works from any
+worktree — the daemon is started at the repo root and serves every worktree.
+Idempotent: if a daemon is already serving this repo, it is printed instead of
+starting a second one.`,
+		Args: cobra.NoArgs,
+		RunE: runDaemonStart,
+	}
+	cmd.Flags().Duration("idle-timeout", 15*time.Minute, "Idle timeout for the daemon (0 = never exit)")
+	return cmd
+}
+
+func runDaemonStart(cmd *cobra.Command, args []string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving cwd: %w", err)
+	}
+	idle, _ := cmd.Flags().GetDuration("idle-timeout")
+	rec, _, err := serve.AutoStartRepoDaemon(serve.AutoStartOptions{
+		Root:        cwd,
+		IdleTimeout: idle,
+	})
+	if err != nil {
+		return fmt.Errorf("start daemon: %w", err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Daemon for %s: http://%s (pid %d).\n",
+		filepath.Base(rec.RepoRoot), rec.HTTPAddr, rec.PID)
+	return nil
 }
 
 func newDaemonListCmd() *cobra.Command {
