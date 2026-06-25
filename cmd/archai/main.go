@@ -740,8 +740,13 @@ func bootstrapDaemonPlugins(state *serve.State) (plugin.BootstrapResult, error) 
 const autoStartIdleTimeout = 15 * time.Minute
 
 // runMCPThinClient implements the `archai serve --mcp-stdio` thin
-// client. It resolves the worktree's running HTTP daemon (auto-starting
-// one if necessary) and runs the MCP stdio transport in client mode.
+// client. It discovers the repo's running multi-worktree daemon
+// (auto-starting one if necessary) and runs the MCP stdio transport
+// in client mode. Requests are routed via /w/<worktree-name>/ so each
+// worktree's model is addressed independently.
+//
+// On connection failure, the client re-resolves the daemon endpoint
+// (handling daemon restarts due to idle timeout) and retries.
 func runMCPThinClient(ctx context.Context, root string) error {
 	if root == "" {
 		root = "."
@@ -751,32 +756,66 @@ func runMCPThinClient(ctx context.Context, root string) error {
 		return fmt.Errorf("resolving root %s: %w", root, err)
 	}
 
-	rec, _, err := serve.DiscoverDaemon(absRoot)
+	// Discover or auto-start a multi-worktree daemon.
+	rec, repoRoot, wtName, err := serve.DiscoverRepoDaemon(absRoot)
 	if err != nil {
 		return fmt.Errorf("mcp-client: discover daemon: %w", err)
 	}
+
 	if rec == nil {
-		// Auto-start a detached HTTP daemon on loopback and wait for it
-		// to register serve.json. The daemon is bound to 127.0.0.1 so
-		// auto-start never opens the daemon to the LAN, and it's asked
-		// to exit after autoStartIdleTimeout of quiet to avoid leaking
-		// orphan daemons past the MCP client's lifetime.
-		rec, err = serve.AutoStartDaemon(serve.AutoStartOptions{
+		// Auto-start a multi-worktree daemon at the repo root.
+		rec, wtName, err = serve.AutoStartRepoDaemon(serve.AutoStartOptions{
 			Root:        absRoot,
 			HTTPAddr:    "127.0.0.1:0",
 			IdleTimeout: autoStartIdleTimeout,
+			Multi:       true,
+			UI:          true,
 		})
 		if err != nil {
 			return fmt.Errorf("mcp-client: auto-start daemon: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "mcp-client: auto-started daemon pid=%d addr=%s idle-timeout=%s\n",
-			rec.PID, rec.HTTPAddr, autoStartIdleTimeout)
+		fmt.Fprintf(os.Stderr, "mcp-client: auto-started multi daemon pid=%d addr=%s worktree=%s idle-timeout=%s\n",
+			rec.PID, rec.HTTPAddr, wtName, autoStartIdleTimeout)
 	} else {
-		fmt.Fprintf(os.Stderr, "mcp-client: attached to daemon pid=%d addr=%s\n", rec.PID, rec.HTTPAddr)
+		fmt.Fprintf(os.Stderr, "mcp-client: attached to daemon pid=%d addr=%s worktree=%s\n", rec.PID, rec.HTTPAddr, wtName)
 	}
 
+	// Build the worktree prefix for multi-worktree routing.
+	// For a multi-capable daemon, requests go to /w/<name>/api/...
+	worktreePrefix := ""
+	if rec.HasCap("multi") {
+		worktreePrefix = "/w/" + wtName
+	}
+
+	// EndpointResolver for re-resolution on connection failure.
+	// This allows the client to survive daemon restarts.
+	endpointResolver := func() (string, error) {
+		newRec, _, _, err := serve.DiscoverRepoDaemon(absRoot)
+		if err != nil {
+			return "", err
+		}
+		if newRec == nil {
+			// Try to auto-start again.
+			newRec, _, err = serve.AutoStartRepoDaemon(serve.AutoStartOptions{
+				Root:        absRoot,
+				HTTPAddr:    "127.0.0.1:0",
+				IdleTimeout: autoStartIdleTimeout,
+				Multi:       true,
+				UI:          true,
+			})
+			if err != nil {
+				return "", err
+			}
+			fmt.Fprintf(os.Stderr, "mcp-client: re-started daemon pid=%d addr=%s\n", newRec.PID, newRec.HTTPAddr)
+		}
+		return "http://" + newRec.HTTPAddr, nil
+	}
+	_ = repoRoot // Used for logging/debugging if needed.
+
 	return mcp.ServeClient(ctx, mcp.ClientOptions{
-		Endpoint: "http://" + rec.HTTPAddr,
+		Endpoint:         "http://" + rec.HTTPAddr,
+		EndpointResolver: endpointResolver,
+		WorktreePrefix:   worktreePrefix,
 	})
 }
 
@@ -1985,30 +2024,91 @@ func runWhere(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runListDaemons handles `archai list-daemons`. It prints a small
-// table of live daemons keyed by worktree name.
+// runListDaemons handles `archai list-daemons`. It prints a table of
+// live daemons from the global registry (works from any directory).
+// Also includes legacy per-worktree daemons for the current project.
 func runListDaemons(cmd *cobra.Command, args []string) error {
-	projectRoot, err := os.Getwd()
+	// First, list global daemons (works from any directory).
+	globalDaemons, err := serve.ListGlobalDaemons()
 	if err != nil {
-		return fmt.Errorf("resolving cwd: %w", err)
+		fmt.Fprintf(os.Stderr, "warning: reading global registry: %v\n", err)
 	}
-	daemons, err := worktree.ListDaemons(projectRoot)
-	if err != nil {
-		return err
+
+	// Also check legacy per-worktree daemons for backward compatibility.
+	projectRoot, _ := os.Getwd()
+	legacyDaemons, _ := worktree.ListDaemons(projectRoot)
+
+	// Build a combined list, deduplicating by PID.
+	seenPIDs := make(map[int]bool)
+	type daemonInfo struct {
+		RepoRoot   string
+		Worktrees  string
+		PID        int
+		HTTPAddr   string
+		Caps       string
+		StartedAt  time.Time
 	}
-	if len(daemons) == 0 {
+	var combined []daemonInfo
+
+	// Add global daemons first.
+	for _, d := range globalDaemons {
+		seenPIDs[d.Record.PID] = true
+		wts := "-"
+		if len(d.Record.Worktrees) > 0 {
+			if len(d.Record.Worktrees) <= 3 {
+				wts = strings.Join(d.Record.Worktrees, ",")
+			} else {
+				wts = fmt.Sprintf("%s (+%d)", strings.Join(d.Record.Worktrees[:2], ","), len(d.Record.Worktrees)-2)
+			}
+		}
+		caps := strings.Join(d.Record.Caps, ",")
+		if caps == "" {
+			caps = "-"
+		}
+		combined = append(combined, daemonInfo{
+			RepoRoot:  d.Record.RepoRoot,
+			Worktrees: wts,
+			PID:       d.Record.PID,
+			HTTPAddr:  d.Record.HTTPAddr,
+			Caps:      caps,
+			StartedAt: d.StartedAt,
+		})
+	}
+
+	// Add legacy daemons that weren't in global registry.
+	for _, d := range legacyDaemons {
+		if seenPIDs[d.Record.PID] {
+			continue
+		}
+		combined = append(combined, daemonInfo{
+			RepoRoot:  projectRoot,
+			Worktrees: d.Worktree,
+			PID:       d.Record.PID,
+			HTTPAddr:  d.Record.HTTPAddr,
+			Caps:      "legacy",
+			StartedAt: d.StartedAt,
+		})
+	}
+
+	if len(combined) == 0 {
 		fmt.Println("No live daemons.")
 		return nil
 	}
-	fmt.Printf("%-20s  %-7s  %-22s  %s\n", "WORKTREE", "PID", "URL", "UPTIME")
+
+	fmt.Printf("%-40s  %-15s  %-7s  %-22s  %-12s  %s\n", "REPO", "WORKTREES", "PID", "URL", "CAPS", "UPTIME")
 	now := time.Now().UTC()
-	for _, d := range daemons {
+	for _, d := range combined {
 		uptime := "?"
 		if !d.StartedAt.IsZero() {
 			uptime = formatUptime(now.Sub(d.StartedAt))
 		}
-		fmt.Printf("%-20s  %-7d  %-22s  %s\n",
-			d.Worktree, d.Record.PID, "http://"+d.Record.HTTPAddr, uptime)
+		// Truncate repo path for display.
+		repo := d.RepoRoot
+		if len(repo) > 40 {
+			repo = "..." + repo[len(repo)-37:]
+		}
+		fmt.Printf("%-40s  %-15s  %-7d  %-22s  %-12s  %s\n",
+			repo, d.Worktrees, d.PID, "http://"+d.HTTPAddr, d.Caps, uptime)
 	}
 	return nil
 }
