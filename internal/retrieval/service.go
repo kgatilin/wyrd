@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/kgatilin/archai/internal/domain"
 )
@@ -40,6 +41,68 @@ type Service struct {
 
 	// lexicalPath is where the lexical index is persisted.
 	lexicalPath string
+
+	// idxInProgress is true while Index/Refresh is running (notably the slow
+	// dense-embedding pass). Read by IndexStatus so callers — the `status`
+	// tool, the readiness gate on embedding-backed lenses — can report
+	// "indexing in progress" instead of blocking until a client timeout.
+	idxInProgress bool
+
+	// idxStartedAt is when the current (or last) indexing pass began.
+	idxStartedAt time.Time
+}
+
+// IndexStatus is a cheap, non-blocking snapshot of the retrieval index's
+// readiness: whether an indexing pass is running, how many embeddable nodes
+// have vectors so far, and whether dense search is operational. It does no
+// heavy work, so the `status` tool answers instantly even mid-indexing.
+type IndexStatus struct {
+	InProgress     bool      `json:"in_progress"`
+	DenseAvailable bool      `json:"dense_available"`
+	Embedded       int       `json:"embedded"`   // embeddable nodes with a vector now
+	Embeddable     int       `json:"embeddable"` // nodes that should carry a vector
+	Pending        int       `json:"pending"`    // embeddable not yet embedded
+	StartedAt      time.Time `json:"started_at,omitempty"`
+}
+
+// IndexStatus returns a snapshot of indexing progress. Counts are computed
+// on-demand from the live indexes, so Embedded climbs toward Embeddable as the
+// dense pass streams vectors in.
+func (s *Service) IndexStatus() IndexStatus {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st := IndexStatus{
+		InProgress:     s.idxInProgress,
+		DenseAvailable: s.denseAvailable,
+		StartedAt:      s.idxStartedAt,
+	}
+	if s.vindex != nil {
+		st.Embedded = len(s.vindex.IDs())
+	}
+	if s.graph != nil {
+		for _, n := range s.graph.NodesByID {
+			if n.Embeddable {
+				st.Embeddable++
+			}
+		}
+	}
+	if st.Pending = st.Embeddable - st.Embedded; st.Pending < 0 {
+		st.Pending = 0
+	}
+	return st
+}
+
+func (s *Service) beginIndexing() {
+	s.mu.Lock()
+	s.idxInProgress = true
+	s.idxStartedAt = time.Now()
+	s.mu.Unlock()
+}
+
+func (s *Service) endIndexing() {
+	s.mu.Lock()
+	s.idxInProgress = false
+	s.mu.Unlock()
 }
 
 // vectorIndexWithHash extends VectorIndex with hash and ID tracking methods
@@ -140,6 +203,9 @@ func (s *Service) Save() error {
 // If embedding fails, dense search is disabled and the error is logged,
 // but BM25 indexing continues.
 func (s *Service) Index(ctx context.Context, nodes []Node) error {
+	s.beginIndexing()
+	defer s.endIndexing()
+
 	// Index ALL nodes into BM25 (fast, always works)
 	for _, node := range nodes {
 		text, _ := EmbedText(node, s.root)
@@ -204,6 +270,9 @@ func (s *Service) Index(ctx context.Context, nodes []Node) error {
 // Refresh performs incremental index updates. Changed nodes are re-indexed;
 // removed node IDs are deleted from both indexes.
 func (s *Service) Refresh(ctx context.Context, nodes []Node, removedIDs []string) error {
+	s.beginIndexing()
+	defer s.endIndexing()
+
 	// Remove deleted nodes from both indexes
 	for _, id := range removedIDs {
 		s.lindex.Remove(id)
