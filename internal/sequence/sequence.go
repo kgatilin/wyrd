@@ -23,6 +23,11 @@ type Node struct {
 	// useful for renderers that want to annotate interface dispatch.
 	Via string
 
+	// Count is how many times the parent calls this target within its body
+	// (>= 1). Copied from CallEdge.Count so renderers can annotate
+	// multiplicity (e.g. "×3"). Zero on the root node.
+	Count int
+
 	// Children are the resolved callees.
 	Children []*Node
 

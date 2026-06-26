@@ -20,6 +20,7 @@ import (
 	"github.com/kgatilin/archai/internal/adapter/golang"
 	httpAdapter "github.com/kgatilin/archai/internal/adapter/http"
 	"github.com/kgatilin/archai/internal/adapter/mcp"
+	"github.com/kgatilin/archai/internal/adapter/mermaid"
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
 	"github.com/kgatilin/archai/internal/apply"
 	"github.com/kgatilin/archai/internal/buildinfo"
@@ -390,7 +391,7 @@ Examples:
 		RunE: runSequence,
 	}
 	sequenceCmd.Flags().Int("depth", 5, "Maximum call-chain depth")
-	sequenceCmd.Flags().StringP("format", "f", "text", "Output format: text, d2, or svg")
+	sequenceCmd.Flags().StringP("format", "f", "text", "Output format: text, d2, mermaid, or svg")
 	sequenceCmd.Flags().StringP("output", "o", "", "Write output to file instead of stdout")
 
 	sequencePackageCmd := &cobra.Command{
@@ -410,7 +411,7 @@ Examples:
 		RunE: runSequencePackage,
 	}
 	sequencePackageCmd.Flags().Int("depth", 4, "Maximum call-chain depth")
-	sequencePackageCmd.Flags().StringP("format", "f", "d2", "Output format: text, d2, or svg")
+	sequencePackageCmd.Flags().StringP("format", "f", "d2", "Output format: text, d2, mermaid, or svg")
 	sequencePackageCmd.Flags().StringP("output", "o", "", "Write a single selected diagram to file")
 	sequencePackageCmd.Flags().String("output-dir", "", "Write every generated diagram to this directory")
 	sequencePackageCmd.Flags().String("entry", "", "Render only the entry point with this label")
@@ -891,6 +892,8 @@ func runSequence(cmd *cobra.Command, args []string) error {
 		rendered = []byte(sequence.FormatText(tree))
 	case "d2":
 		rendered = []byte(d2.BuildSequenceSourceForModels(models, tree))
+	case "mermaid":
+		rendered = []byte(mermaid.BuildSequenceSource(tree))
 	case "svg":
 		source := d2.BuildSequenceSourceForModels(models, tree)
 		svg, err := d2.RenderSVG(ctx, source)
@@ -899,7 +902,7 @@ func runSequence(cmd *cobra.Command, args []string) error {
 		}
 		rendered = svg
 	default:
-		return fmt.Errorf("unsupported format %q (use text, d2, or svg)", format)
+		return fmt.Errorf("unsupported format %q (use text, d2, mermaid, or svg)", format)
 	}
 
 	if output == "" {
@@ -1018,12 +1021,14 @@ func renderSequenceDiagram(ctx context.Context, diagram d2.SequenceDiagram, form
 	switch format {
 	case "", "d2":
 		return []byte(diagram.Source), nil
+	case "mermaid":
+		return []byte(mermaid.BuildSequenceSource(diagram.Tree)), nil
 	case "text":
 		return []byte(sequence.FormatText(diagram.Tree)), nil
 	case "svg":
 		return d2.RenderSVG(ctx, diagram.Source)
 	default:
-		return nil, fmt.Errorf("unsupported format %q (use text, d2, or svg)", format)
+		return nil, fmt.Errorf("unsupported format %q (use text, d2, mermaid, or svg)", format)
 	}
 }
 
@@ -1031,12 +1036,14 @@ func sequenceFormatExt(format string) (string, error) {
 	switch format {
 	case "", "d2":
 		return ".d2", nil
+	case "mermaid":
+		return ".mmd", nil
 	case "text":
 		return ".txt", nil
 	case "svg":
 		return ".svg", nil
 	default:
-		return "", fmt.Errorf("unsupported format %q (use text, d2, or svg)", format)
+		return "", fmt.Errorf("unsupported format %q (use text, d2, mermaid, or svg)", format)
 	}
 }
 

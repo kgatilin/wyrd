@@ -99,6 +99,7 @@ func buildNode(
 
 	for _, edge := range calls {
 		child := buildNode(idx, edge.To, edge.Via, depth-1, childVisited)
+		child.Count = edge.Count
 		n.Children = append(n.Children, child)
 	}
 	return n
