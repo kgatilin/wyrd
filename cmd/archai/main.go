@@ -367,6 +367,10 @@ daemon is running.`,
 	// (list/stop/restart) over the global registry.
 	rootCmd.AddCommand(newDaemonCmd())
 
+	// Graph tool proxy: `archai graph <tool>` calls the daemon's MCP tools
+	// (search, analysis lenses, node/package inspection) from the CLI.
+	rootCmd.AddCommand(newGraphCmd())
+
 	// Sequence command (M6b)
 	sequenceCmd := &cobra.Command{
 		Use:   "sequence <target>",

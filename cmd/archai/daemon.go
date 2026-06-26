@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -57,50 +58,97 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	// `status` is just one MCP tool; go through the shared proxy so the CLI
+	// and MCP report identical readiness from the same tools/call endpoint.
+	text, _, err := callDaemonTool(arg, "status", nil)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s  (pid %d)\n%s\n", filepath.Base(rec.RepoRoot), rec.PID, prettyJSON(text))
+	return nil
+}
 
-	// Ask the daemon's MCP `status` tool over the same HTTP tools/call endpoint
-	// the MCP thin client uses, so the CLI and MCP report identical readiness.
-	// A multi daemon serves only under /w/<worktree>/ — pick the worktree
-	// matching cwd, falling back to the first the daemon knows.
+// callDaemonTool resolves a daemon by [name|pid] (empty = the current
+// repo's daemon) and POSTs an MCP tools/call request to its HTTP endpoint,
+// returning the tool's text payload. isErr is true when the tool itself
+// reported a failure (the daemon answered 200 with isError=true); err is
+// reserved for transport- and RPC-level failures (unreachable daemon,
+// unknown tool, malformed args). This is the single proxy path shared by
+// `daemon status` and every `graph <tool>` command, so a CLI invocation
+// and the MCP thin client hit the exact same dispatch.
+//
+// A multi daemon serves only under /w/<worktree>/, so the worktree
+// matching cwd is selected (falling back to the first the daemon knows).
+func callDaemonTool(daemonArg, tool string, arguments map[string]any) (text string, isErr bool, err error) {
+	rec, err := resolveDaemonTarget(daemonArg)
+	if err != nil {
+		return "", false, err
+	}
 	prefix := ""
 	if rec.HasCap("multi") {
 		prefix = "/w/" + daemonWorktreeName(rec)
 	}
 	url := "http://" + rec.HTTPAddr + prefix + "/api/mcp/tools/call"
-	httpReq, err := nethttp.NewRequest(nethttp.MethodPost, url, strings.NewReader(`{"name":"status","arguments":{}}`))
+
+	if arguments == nil {
+		arguments = map[string]any{}
+	}
+	payload, err := json.Marshal(map[string]any{"name": tool, "arguments": arguments})
 	if err != nil {
-		return fmt.Errorf("build status request: %w", err)
+		return "", false, fmt.Errorf("encode arguments: %w", err)
+	}
+	httpReq, err := nethttp.NewRequest(nethttp.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return "", false, fmt.Errorf("build %s request: %w", tool, err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	client := &nethttp.Client{Timeout: 10 * time.Second}
+	client := &nethttp.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("querying daemon for %s at %s: %w", filepath.Base(rec.RepoRoot), rec.HTTPAddr, err)
+		return "", false, fmt.Errorf("querying daemon for %s at %s: %w", filepath.Base(rec.RepoRoot), rec.HTTPAddr, err)
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("daemon returned %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		// RPC-level failure is reported as {"error":...,"code":...}.
+		var e struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(data, &e) == nil && e.Error != "" {
+			return "", false, fmt.Errorf("daemon: %s", e.Error)
+		}
+		return "", false, fmt.Errorf("daemon returned %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 
+	// Success and tool-level errors both arrive as a 200 ToolResult; the
+	// isError flag distinguishes them so the caller can set a non-zero exit
+	// while still surfacing the payload.
 	var tr struct {
 		Content []struct {
 			Text string `json:"text"`
 		} `json:"content"`
+		IsError bool `json:"isError"`
 	}
-	if err := json.Unmarshal(data, &tr); err != nil || len(tr.Content) == 0 {
-		return fmt.Errorf("unexpected status response: %s", strings.TrimSpace(string(data)))
+	if err := json.Unmarshal(data, &tr); err != nil {
+		return "", false, fmt.Errorf("unexpected tool response: %s", strings.TrimSpace(string(data)))
 	}
-	// The tool's text payload is the statusResult JSON; pretty-print it.
-	out := tr.Content[0].Text
-	var pretty map[string]any
-	if json.Unmarshal([]byte(out), &pretty) == nil {
-		if b, err := json.MarshalIndent(pretty, "", "  "); err == nil {
-			out = string(b)
+	if len(tr.Content) == 0 {
+		return "", tr.IsError, nil
+	}
+	return tr.Content[0].Text, tr.IsError, nil
+}
+
+// prettyJSON re-indents a JSON document for human-readable CLI output,
+// falling back to the raw string when it is not valid JSON.
+func prettyJSON(s string) string {
+	var v any
+	if json.Unmarshal([]byte(s), &v) == nil {
+		if b, err := json.MarshalIndent(v, "", "  "); err == nil {
+			return string(b)
 		}
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s  (pid %d)\n%s\n", filepath.Base(rec.RepoRoot), rec.PID, out)
-	return nil
+	return s
 }
 
 // daemonWorktreeName picks the worktree to scope a multi daemon request to:
