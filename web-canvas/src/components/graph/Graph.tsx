@@ -301,7 +301,7 @@ export function Graph({
   const bcById = new Map(laidGraph.boundedContexts.map(bc => [bc.id, bc]));
 
   return (
-    <div className="graph-container flex flex-col h-full w-full">
+    <div className="graph-container relative flex flex-col h-full w-full">
       {/* Canvas viewport */}
       <div className="hf-canvas-viewport flex flex-col flex-1 relative">
         {/* Scrollable canvas wrapper */}
@@ -385,18 +385,18 @@ export function Graph({
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Legend overlay */}
-        <Legend showDiff={showDiff} />
+      {/* Legend overlay — pinned to the card frame, not the scroll area */}
+      <Legend showDiff={showDiff} />
 
-        {/* Toolbar overlay */}
-        <div className="hf-canvas-toolbar">
-          <button onClick={() => handleZoom(-0.1)} title="Zoom out">-</button>
-          <button className="zoom" onClick={handleResetZoom} title="Reset zoom">
-            {Math.round(viewport.zoom * 100)}%
-          </button>
-          <button onClick={() => handleZoom(0.1)} title="Zoom in">+</button>
-        </div>
+      {/* Toolbar overlay — pinned to the card frame, not the scroll area */}
+      <div className="hf-canvas-toolbar">
+        <button onClick={() => handleZoom(-0.1)} title="Zoom out">-</button>
+        <button className="zoom" onClick={handleResetZoom} title="Reset zoom">
+          {Math.round(viewport.zoom * 100)}%
+        </button>
+        <button onClick={() => handleZoom(0.1)} title="Zoom in">+</button>
       </div>
     </div>
   );

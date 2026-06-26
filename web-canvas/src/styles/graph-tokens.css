@@ -548,7 +548,7 @@
 /* Legend */
 .hf-canvas-legend {
   position: absolute;
-  top: 16px; right: 16px;
+  bottom: 16px; right: 16px;
   background: var(--bg-1);
   border: 1px solid var(--line-2);
   border-radius: 8px;
