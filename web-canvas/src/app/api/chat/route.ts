@@ -4,6 +4,7 @@ import {
   convertToModelMessages,
   type UIMessage,
 } from "ai";
+import { renderAgentDeclaration } from "@/lib/artifact/capabilities";
 
 export async function POST(req: Request) {
   // Check for API key at runtime, not build time
@@ -22,16 +23,20 @@ export async function POST(req: Request) {
 
   const {
     messages,
-    system,
+    system: clientSystem,
   }: {
     messages: UIMessage[];
     system?: string;
   } = await req.json();
 
+  // The capability declaration is always prepended so the agent knows what an
+  // artifact may use; any system text from the client follows it.
+  const system = [renderAgentDeclaration(), clientSystem].filter(Boolean).join("\n\n");
+
   const result = streamText({
     model: anthropic("claude-sonnet-4-6"),
     messages: await convertToModelMessages(messages),
-    ...(system === undefined ? {} : { system }),
+    system,
   });
 
   return result.toUIMessageStreamResponse();

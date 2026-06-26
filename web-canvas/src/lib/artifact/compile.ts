@@ -1,7 +1,5 @@
 import * as React from 'react';
-import { GraphView } from './host-scope';
-import { useGraph } from '@/lib/data/graph';
-import { useEvents } from '@/lib/data/events';
+import { buildArtifactScope } from './scope';
 
 export type CompileResult =
   | { ok: true; Component: React.ComponentType }
@@ -34,12 +32,7 @@ export async function compileArtifact(code: string): Promise<CompileResult> {
     return { ok: false, error: `Syntax error: ${msg(err)}` };
   }
 
-  const scope: Record<string, unknown> = {
-    React,
-    Graph: GraphView,
-    useGraph,
-    useEvents,
-  };
+  const scope = buildArtifactScope();
   try {
     const factory = new Function(
       ...Object.keys(scope),
