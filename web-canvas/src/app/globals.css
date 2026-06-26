@@ -221,3 +221,14 @@
   color: var(--muted-foreground);
   font-size: 0.85rem;
 }
+
+.artifact-error {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--destructive);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--destructive) 8%, var(--card));
+  color: var(--foreground);
+  font-size: 0.85rem;
+}
+.artifact-error pre { margin: 0.5rem 0 0; white-space: pre-wrap; font-size: 0.78rem; }
