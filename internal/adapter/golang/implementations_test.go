@@ -131,24 +131,74 @@ func (w Worker) Do() error { return nil }
 		t.Fatalf("Read: %v", err)
 	}
 
-	// The implementation should be stored in the interface's owning package ("api").
-	var apiModel *domain.PackageModel
+	// The implementation is stored on the concrete side: the package that
+	// declares the concrete type ("impl") owns the edge. This makes a
+	// single-package reload of the concrete's package atomically refresh its
+	// own implements edges (see TestImplementations_IncrementalReload).
+	var implModel *domain.PackageModel
 	for i := range models {
-		if models[i].Name == "api" {
-			apiModel = &models[i]
+		if models[i].Name == "impl" {
+			implModel = &models[i]
 			break
 		}
 	}
-	if apiModel == nil {
-		t.Fatalf("api model not found; got %d models", len(models))
+	if implModel == nil {
+		t.Fatalf("impl model not found; got %d models", len(models))
 	}
 
-	got := findImpl(apiModel.Implementations, "Worker", "Service")
+	got := findImpl(implModel.Implementations, "Worker", "Service")
 	if got == nil {
-		t.Fatalf("expected Worker -> Service implementation in api model, got %+v", apiModel.Implementations)
+		t.Fatalf("expected Worker -> Service implementation in impl model, got %+v", implModel.Implementations)
 	}
 	if got.Concrete.Package != "impl" {
 		t.Errorf("expected concrete package 'impl', got %q", got.Concrete.Package)
+	}
+	if got.Interface.Package != "api" {
+		t.Errorf("expected interface package 'api', got %q", got.Interface.Package)
+	}
+}
+
+// TestImplementations_IncrementalReload reproduces the daemon's single-package
+// reload: only the concrete's package is re-read, while the interface lives in
+// another (unchanged) package. The cross-package implements edge must still be
+// produced — otherwise the live model diverges from a full ./... build.
+func TestImplementations_IncrementalReload(t *testing.T) {
+	files := map[string]string{
+		"api/api.go": `package api
+
+type Service interface {
+	Do() error
+}
+`,
+		"impl/impl.go": `package impl
+
+import "test.example/reload/api"
+
+type Worker struct{}
+
+func (w Worker) Do() error { return nil }
+
+// Reference the interface package so impl imports api.
+var _ api.Service = Worker{}
+`,
+	}
+	dir := writeTestModule(t, "test.example/reload", files)
+	oldDir, _ := os.Getwd()
+	defer os.Chdir(oldDir)
+	os.Chdir(dir)
+
+	// Re-read ONLY the concrete's package, exactly as ReloadPackage does.
+	models, err := NewReader().Read(context.Background(), []string{"./impl"})
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("expected 1 model (impl only), got %d", len(models))
+	}
+
+	got := findImpl(models[0].Implementations, "Worker", "Service")
+	if got == nil {
+		t.Fatalf("expected Worker -> Service edge after single-package reload, got %+v", models[0].Implementations)
 	}
 	if got.Interface.Package != "api" {
 		t.Errorf("expected interface package 'api', got %q", got.Interface.Package)

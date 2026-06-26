@@ -1667,43 +1667,46 @@ func (r *reader) applyStereotypes(model *domain.PackageModel) {
 }
 
 // computeImplementations computes interface implementations via go/types.Implements.
-// For each exported interface defined in the loaded packages, it iterates over all
-// named types across loaded packages and records which concrete types (T or *T)
-// implement it. Results are stored in the owning interface's PackageModel.
+//
+// Because `implements` is a global cross-package relation, an edge is stored on
+// the CONCRETE side: the PackageModel that declares the concrete type owns it.
+// This makes the daemon's single-package reload self-consistent — reloading a
+// concrete's package atomically drops its stale edges and recomputes fresh ones
+// via the splice in serve.State.ReloadPackage — and it converges to a full
+// `./...` build, which the incremental path must match.
+//
+// To detect a concrete that implements an interface from another (unchanged)
+// package on a single-package reload, interface candidates are drawn from the
+// in-module *universe* (the loaded packages plus their transitive in-module
+// imports), not just the loaded set. On a cold `./...` build the imports are
+// already top-level, so the universe equals pkgs and behavior is unchanged.
 func (r *reader) computeImplementations(pkgs []*packages.Package, models []domain.PackageModel) {
-	// Collect all interfaces (from loaded packages only) that are exported.
-	type ifaceEntry struct {
-		pkg        *packages.Package
-		name       string
-		iface      *types.Interface
-		modelIdx   int // index into models slice
-		sourceFile string
-	}
-
-	// Map model.Path -> model index for quick lookup.
+	// Map model.Path -> model index. Edges are attached to the model whose
+	// package declares the concrete type, so only loaded (model-backed)
+	// packages can own edges.
 	modelIdxByPath := make(map[string]int, len(models))
 	for i, m := range models {
 		modelIdxByPath[m.Path] = i
 	}
 
+	// Interface candidates: every exported, non-empty interface in the
+	// in-module universe.
+	type ifaceEntry struct {
+		pkg        *packages.Package
+		name       string
+		iface      *types.Interface
+		sourceFile string
+	}
 	var ifaceEntries []ifaceEntry
-	for _, pkg := range pkgs {
+	for _, pkg := range r.inModuleUniverse(pkgs) {
 		if pkg.Types == nil {
 			continue
 		}
 		scope := pkg.Types.Scope()
-		relPath := r.relativePath(pkg.PkgPath)
-		modelIdx, ok := modelIdxByPath[relPath]
-		if !ok {
-			continue
-		}
 		for _, name := range scope.Names() {
 			obj := scope.Lookup(name)
 			typeName, ok := obj.(*types.TypeName)
-			if !ok {
-				continue
-			}
-			if !typeName.Exported() {
+			if !ok || !typeName.Exported() {
 				continue
 			}
 			iface, ok := typeName.Type().Underlying().(*types.Interface)
@@ -1718,7 +1721,6 @@ func (r *reader) computeImplementations(pkgs []*packages.Package, models []domai
 				pkg:        pkg,
 				name:       name,
 				iface:      iface,
-				modelIdx:   modelIdx,
 				sourceFile: r.getSourceFile(pkg.Fset, typeName.Pos()),
 			})
 		}
@@ -1728,7 +1730,9 @@ func (r *reader) computeImplementations(pkgs []*packages.Package, models []domai
 		return
 	}
 
-	// Collect all named concrete types (non-interfaces) across loaded packages.
+	// Concrete candidates: named non-interface types from the loaded packages
+	// only — those are the packages whose models we return and can attach
+	// edges to.
 	type concreteEntry struct {
 		pkg        *packages.Package
 		name       string
@@ -1764,28 +1768,30 @@ func (r *reader) computeImplementations(pkgs []*packages.Package, models []domai
 		}
 	}
 
-	// Deduplicate implementations per owning package.
+	// Deduplicate implementations per owning (concrete) package.
 	seen := make(map[string]bool)
 
-	for _, ie := range ifaceEntries {
-		ifaceRelPath := r.relativePath(ie.pkg.PkgPath)
-		ifaceRef := domain.SymbolRef{
-			Package: ifaceRelPath,
-			File:    ie.sourceFile,
-			Symbol:  ie.name,
+	for _, c := range concretes {
+		concreteRelPath := r.relativePath(c.pkg.PkgPath)
+		modelIdx, ok := modelIdxByPath[concreteRelPath]
+		if !ok {
+			continue
+		}
+		concreteRef := domain.SymbolRef{
+			Package: concreteRelPath,
+			File:    c.sourceFile,
+			Symbol:  c.name,
 		}
 
-		for _, c := range concretes {
-			concreteRelPath := r.relativePath(c.pkg.PkgPath)
+		for _, ie := range ifaceEntries {
 			// Skip if concrete type is identical to the interface type itself.
 			if c.pkg == ie.pkg && c.name == ie.name {
 				continue
 			}
-
-			concreteRef := domain.SymbolRef{
-				Package: concreteRelPath,
-				File:    c.sourceFile,
-				Symbol:  c.name,
+			ifaceRef := domain.SymbolRef{
+				Package: r.relativePath(ie.pkg.PkgPath),
+				File:    ie.sourceFile,
+				Symbol:  ie.name,
 			}
 
 			// Check value type first.
@@ -1795,8 +1801,8 @@ func (r *reader) computeImplementations(pkgs []*packages.Package, models []domai
 					ifaceRef.Package, ifaceRef.Symbol)
 				if !seen[key] {
 					seen[key] = true
-					models[ie.modelIdx].Implementations = append(
-						models[ie.modelIdx].Implementations,
+					models[modelIdx].Implementations = append(
+						models[modelIdx].Implementations,
 						domain.Implementation{
 							Concrete:  concreteRef,
 							Interface: ifaceRef,
@@ -1815,8 +1821,8 @@ func (r *reader) computeImplementations(pkgs []*packages.Package, models []domai
 					ifaceRef.Package, ifaceRef.Symbol)
 				if !seen[key] {
 					seen[key] = true
-					models[ie.modelIdx].Implementations = append(
-						models[ie.modelIdx].Implementations,
+					models[modelIdx].Implementations = append(
+						models[modelIdx].Implementations,
 						domain.Implementation{
 							Concrete:  concreteRef,
 							Interface: ifaceRef,
@@ -1827,6 +1833,43 @@ func (r *reader) computeImplementations(pkgs []*packages.Package, models []domai
 			}
 		}
 	}
+}
+
+// inModuleUniverse returns the loaded packages plus their transitive in-module
+// imports, deduplicated by import path and sorted for deterministic output.
+// Standard-library and third-party imports are excluded: implements edges are
+// only modeled between in-module types. On a cold `./...` build every in-module
+// package is already top-level, so the result equals pkgs.
+func (r *reader) inModuleUniverse(pkgs []*packages.Package) []*packages.Package {
+	seen := make(map[string]*packages.Package)
+	var visit func(p *packages.Package)
+	visit = func(p *packages.Package) {
+		if p == nil || p.Types == nil {
+			return
+		}
+		if r.modulePath != "" && !strings.HasPrefix(p.PkgPath, r.modulePath) {
+			return
+		}
+		if _, ok := seen[p.PkgPath]; ok {
+			return
+		}
+		seen[p.PkgPath] = p
+		for _, imp := range p.Imports {
+			visit(imp)
+		}
+	}
+	for _, p := range pkgs {
+		visit(p)
+	}
+
+	result := make([]*packages.Package, 0, len(seen))
+	for _, p := range seen {
+		result = append(result, p)
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].PkgPath < result[j].PkgPath
+	})
+	return result
 }
 
 // isExported returns true if the name starts with an uppercase letter.

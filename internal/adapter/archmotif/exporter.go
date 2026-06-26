@@ -303,8 +303,9 @@ func addFileNodes(b *archmotifimport.Builder, p *domain.PackageModel) error {
 // skipped — archmotif's graph only models nodes for loaded code.
 func addImplementations(b *archmotifimport.Builder, p *domain.PackageModel, pkgByPath map[string]*domain.PackageModel) error {
 	for _, impl := range p.Implementations {
-		// Interface side: always in this package (archai's reader
-		// guarantees that), but defend against the alternative.
+		// Edges are stored on the concrete side (the model declaring the
+		// concrete type owns them); the interface may live in another loaded
+		// package. Resolve both ends by their qualified package paths.
 		ifacePkg, ok := pkgByPath[impl.Interface.Package]
 		if !ok {
 			continue
