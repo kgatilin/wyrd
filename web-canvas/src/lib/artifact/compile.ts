@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { GraphView } from './host-scope';
 import { useGraph } from '@/lib/data/graph';
-import { useEvents, seedMockEvents } from '@/lib/data/events';
+import { useEvents } from '@/lib/data/events';
 
 export type CompileResult =
   | { ok: true; Component: React.ComponentType }
@@ -21,7 +21,6 @@ export type CompileResult =
  *   - useEvents(type?)     (agent event-stream data-source hook)
  */
 export async function compileArtifact(code: string): Promise<CompileResult> {
-  seedMockEvents();
   let transpiled: string;
   try {
     const Babel = await import('@babel/standalone');

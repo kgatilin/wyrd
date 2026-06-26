@@ -21,8 +21,17 @@ export interface AgentEvent {
   data?: unknown;
 }
 
+// Mock seed: the initial state of the mock bus. The real bus starts empty and
+// the agent stream (websocket/SSE) publishes into it; this is just stand-in data
+// so artifacts that fold the event-stream have something to show in dev.
+const MOCK_SEED: AgentEvent[] = [
+  { id: 'seed-0', ts: 1_700_000_000_000, type: 'tool_call', summary: 'graph.query · seed=internal/service' },
+  { id: 'seed-1', ts: 1_700_000_001_000, type: 'tool_result', summary: 'graph.query → 5 nodes, 4 edges' },
+  { id: 'seed-2', ts: 1_700_000_002_000, type: 'artifact', summary: 'write_file · architecture-overview' },
+];
+
 class EventBus {
-  private events: AgentEvent[] = [];
+  private events: AgentEvent[] = MOCK_SEED;
   private listeners = new Set<() => void>();
 
   publish = (event: AgentEvent): void => {
@@ -49,19 +58,4 @@ export function useEvents(type?: string): AgentEvent[] {
     agentEvents.getSnapshot,
   );
   return type ? all.filter((e) => e.type === type) : all;
-}
-
-// --- mock seed (stand-in for the live agent stream) ---------------------------
-let seeded = false;
-export function seedMockEvents(): void {
-  if (seeded) return;
-  seeded = true;
-  const now = 1_700_000_000_000;
-  [
-    { type: 'tool_call', summary: 'graph.query · seed=internal/service' },
-    { type: 'tool_result', summary: 'graph.query → 5 nodes, 4 edges' },
-    { type: 'artifact', summary: 'write_file · architecture-overview' },
-  ].forEach((e, i) =>
-    agentEvents.publish({ id: `seed-${i}`, ts: now + i * 1000, ...e }),
-  );
 }
