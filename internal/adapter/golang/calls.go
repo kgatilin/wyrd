@@ -106,7 +106,7 @@ func (r *reader) extractCallsFromFuncBody(
 	implIndex map[string][]domain.SymbolRef,
 ) []domain.CallEdge {
 	var edges []domain.CallEdge
-	seen := make(map[string]bool)
+	idxByKey := make(map[string]int)
 
 	addEdge := func(e domain.CallEdge) {
 		// Skip self-referential empty symbols.
@@ -114,10 +114,15 @@ func (r *reader) extractCallsFromFuncBody(
 			return
 		}
 		key := e.To.Package + "." + e.To.Symbol + "|" + e.Via
-		if seen[key] {
+		// Repeated call to the same target: bump the multiplicity on the
+		// first occurrence's edge and keep its source rank.
+		if i, ok := idxByKey[key]; ok {
+			edges[i].Count++
 			return
 		}
-		seen[key] = true
+		e.Order = len(edges)
+		e.Count = 1
+		idxByKey[key] = len(edges)
 		edges = append(edges, e)
 	}
 
@@ -138,15 +143,13 @@ func (r *reader) extractCallsFromFuncBody(
 		return true
 	})
 
-	// Stable ordering for deterministic output.
+	// Preserve source order: edges are appended by first occurrence as the
+	// AST is walked in pre-order, so Order already reflects the body's call
+	// flow. Sort by Order to make that contract explicit (and robust to any
+	// future non-appending insertion). This is what lets the sequence
+	// renderers follow the actual flow rather than an alphabetical set.
 	sort.Slice(edges, func(i, j int) bool {
-		if edges[i].To.Package != edges[j].To.Package {
-			return edges[i].To.Package < edges[j].To.Package
-		}
-		if edges[i].To.Symbol != edges[j].To.Symbol {
-			return edges[i].To.Symbol < edges[j].To.Symbol
-		}
-		return edges[i].Via < edges[j].Via
+		return edges[i].Order < edges[j].Order
 	})
 	return edges
 }

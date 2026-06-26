@@ -74,6 +74,49 @@ func B() {}
 	}
 }
 
+func TestCalls_SourceOrderAndMultiplicity(t *testing.T) {
+	// C is called first, then B, then C again. The reader must emit edges
+	// in source order (C before B) and record C's multiplicity as 2,
+	// rather than the old alphabetical+deduped behaviour.
+	code := `package calls
+
+func A() {
+	C()
+	B()
+	C()
+}
+
+func B() {}
+func C() {}
+`
+	dir := writeTestModule(t, "test.example/calls/order", map[string]string{"calls.go": code})
+	oldDir, _ := os.Getwd()
+	defer os.Chdir(oldDir)
+	os.Chdir(dir)
+
+	models, err := NewReader().Read(context.Background(), []string{"."})
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	calls := findFuncCalls(models[0], "A")
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 distinct edges, got %d: %+v", len(calls), calls)
+	}
+	// Source order: C (Order 0) precedes B (Order 1), not alphabetical.
+	if calls[0].To.Symbol != "C" || calls[1].To.Symbol != "B" {
+		t.Errorf("expected source order [C, B], got [%s, %s]", calls[0].To.Symbol, calls[1].To.Symbol)
+	}
+	if calls[0].Order != 0 || calls[1].Order != 1 {
+		t.Errorf("expected Order [0, 1], got [%d, %d]", calls[0].Order, calls[1].Order)
+	}
+	if calls[0].Count != 2 {
+		t.Errorf("expected C called twice (Count 2), got %d", calls[0].Count)
+	}
+	if calls[1].Count != 1 {
+		t.Errorf("expected B Count 1, got %d", calls[1].Count)
+	}
+}
+
 func TestCalls_PackageQualifiedCall(t *testing.T) {
 	// Call across packages within the same module.
 	files := map[string]string{
