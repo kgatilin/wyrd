@@ -13,16 +13,15 @@ function Artifact() {
 
   return (
     <article className="artifact-doc">
-      <div className="prose-block">
-        <h2>Architecture overview</h2>
-        <p>
-          This package is organised as <strong>ports & adapters</strong>. The
-          domain types sit at the centre with no outward dependencies; adapters
-          translate between the domain and the outside world, and the
-          <code>service</code> layer orchestrates the operations.
-        </p>
-        <p>Pinch / ⌘+scroll to zoom inside a graph; click a component to focus it.</p>
-      </div>
+      <Markdown>{\`
+## Architecture overview
+
+This package is organised as **ports & adapters**. The domain types sit at the
+centre with no outward dependencies; adapters translate between the domain and
+the outside world, and the \\\`service\\\` layer orchestrates the operations.
+
+Pinch / ⌘+scroll to zoom inside a graph; click a component to focus it.
+\`}</Markdown>
 
       <Graph
         source="component"
@@ -31,15 +30,13 @@ function Artifact() {
         caption="from data-source · component"
       />
 
-      <div className="prose-block">
-        <h2>Retrieval pipeline</h2>
-        <p>
-          A separate region: the <strong>retrieval</strong> service embeds a
-          query via the <code>Embedder</code> port and ranks candidates against
-          the <code>VectorStore</code>. Added wholesale (green); one
-          <code>Embedder.Batch</code> method was dropped (red).
-        </p>
-      </div>
+      <Markdown>{\`
+## Retrieval pipeline
+
+A separate region: the **retrieval** service embeds a query via the
+\\\`Embedder\\\` port and ranks candidates against the \\\`VectorStore\\\`. Added
+wholesale (green); one \\\`Embedder.Batch\\\` method was dropped (red).
+\`}</Markdown>
 
       <Graph
         source="retrieval"

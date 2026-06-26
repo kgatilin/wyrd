@@ -1,7 +1,29 @@
 "use client";
 
 import dynamic from 'next/dynamic';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useGraph } from '@/lib/data/graph';
+
+/**
+ * `Markdown` is the host component for prose. The agent writes
+ * `<Markdown>{`## Heading\n…`}</Markdown>` instead of raw HTML. Backed by
+ * react-markdown (raw HTML escaped by default → no HTML injection) + GFM, and
+ * styled by the existing `.prose-block` typography.
+ */
+export function MarkdownView({ children }: { children?: React.ReactNode }) {
+  const content =
+    typeof children === 'string'
+      ? children
+      : Array.isArray(children)
+        ? children.join('')
+        : String(children ?? '');
+  return (
+    <div className="prose-block">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+    </div>
+  );
+}
 
 const GraphRenderer = dynamic(
   () => import('@/components/graph/Graph').then((m) => m.Graph),

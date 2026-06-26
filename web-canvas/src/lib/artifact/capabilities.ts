@@ -31,6 +31,12 @@ export const ARTIFACT_CONTRACT = [
 
 export const CAPABILITIES: CapabilityDef[] = [
   {
+    name: 'Markdown',
+    kind: 'component',
+    signature: '<Markdown>{string}</Markdown>',
+    doc: 'Renders a markdown string as prose (headings, lists, tables via GFM, inline code). Use this for all prose instead of raw HTML. Raw HTML is escaped.',
+  },
+  {
     name: 'Graph',
     kind: 'component',
     signature: '<Graph source={string} height?={number} title?={string} caption?={string} />',
