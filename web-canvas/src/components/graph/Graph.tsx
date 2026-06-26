@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import type { UIGraph, Component, GraphInteraction, CardDensity } from '@/lib/graph/types';
 import { layout } from '@/lib/graph/layout';
 import { ComponentCard } from './ComponentCard';
@@ -74,6 +74,14 @@ export function Graph({
     startY: number;
     scrollLeft: number;
     scrollTop: number;
+  } | null>(null);
+  // When a wheel/pinch zoom happens we record the content point under the
+  // cursor so the next layout pass can re-anchor scroll to keep it stationary.
+  const zoomAnchorRef = useRef<{
+    contentX: number;
+    contentY: number;
+    offX: number;
+    offY: number;
   } | null>(null);
 
   // Build interaction config for layout
@@ -185,6 +193,51 @@ export function Graph({
   const handleResetZoom = useCallback(() => {
     setViewport(prev => ({ ...prev, zoom: 1 }));
   }, []);
+
+  // Wheel / trackpad-pinch zoom, anchored to the cursor. Only intercepts
+  // ctrl/⌘+wheel (and macOS pinch, which fires ctrlKey wheel) so a plain
+  // scroll still pans the page over this embedded widget. Attached natively
+  // so preventDefault works (React's onWheel is passive).
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      const offX = e.clientX - rect.left;
+      const offY = e.clientY - rect.top;
+      const scrollLeft = wrap.scrollLeft;
+      const scrollTop = wrap.scrollTop;
+      setViewport(prev => {
+        const factor = Math.exp(-e.deltaY * 0.0015);
+        const next = Math.max(0.25, Math.min(2, prev.zoom * factor));
+        if (next === prev.zoom) return prev;
+        zoomAnchorRef.current = {
+          contentX: (scrollLeft + offX) / prev.zoom,
+          contentY: (scrollTop + offY) / prev.zoom,
+          offX,
+          offY,
+        };
+        return { ...prev, zoom: next };
+      });
+    };
+
+    wrap.addEventListener('wheel', onWheel, { passive: false });
+    return () => wrap.removeEventListener('wheel', onWheel);
+  }, [laidGraph]);
+
+  // After a cursor-anchored zoom, re-place scroll so the same content point
+  // stays under the cursor. Runs after the sizer resizes, before paint.
+  useLayoutEffect(() => {
+    const anchor = zoomAnchorRef.current;
+    const wrap = wrapRef.current;
+    if (!anchor || !wrap) return;
+    wrap.scrollLeft = anchor.contentX * viewport.zoom - anchor.offX;
+    wrap.scrollTop = anchor.contentY * viewport.zoom - anchor.offY;
+    zoomAnchorRef.current = null;
+  }, [viewport.zoom]);
 
   // Pan handling
   const handlePanStart = useCallback((e: React.PointerEvent) => {
