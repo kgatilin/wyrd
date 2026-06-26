@@ -152,8 +152,14 @@ func prettyJSON(s string) string {
 }
 
 // daemonWorktreeName picks the worktree to scope a multi daemon request to:
-// the one matching cwd if the daemon serves it, otherwise the first worktree
-// the daemon knows (a stable, valid route for cross-repo targeting).
+// the one matching cwd if the daemon serves it, otherwise the primary
+// worktree (whose name matches the repo-root basename — the one the daemon
+// warms at startup), falling back to the first worktree the daemon knows.
+//
+// The primary-worktree preference matters when targeting a daemon by name
+// from outside its repo (e.g. `--daemon archai` from $HOME): cwd matches no
+// served worktree, and routing to an arbitrary sibling worktree would hit a
+// cold/parsing state instead of the warm primary one.
 func daemonWorktreeName(rec *serve.DaemonRecord) string {
 	if cwd, err := os.Getwd(); err == nil {
 		name := worktree.Name(cwd)
@@ -161,6 +167,12 @@ func daemonWorktreeName(rec *serve.DaemonRecord) string {
 			if w == name {
 				return name
 			}
+		}
+	}
+	primary := filepath.Base(rec.RepoRoot)
+	for _, w := range rec.Worktrees {
+		if w == primary {
+			return primary
 		}
 	}
 	if len(rec.Worktrees) > 0 {
