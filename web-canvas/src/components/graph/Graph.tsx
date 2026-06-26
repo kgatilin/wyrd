@@ -303,7 +303,7 @@ export function Graph({
   return (
     <div className="graph-container flex flex-col h-full w-full">
       {/* Canvas viewport */}
-      <div className="hf-canvas-viewport flex-1 relative">
+      <div className="hf-canvas-viewport flex flex-col flex-1 relative">
         {/* Scrollable canvas wrapper */}
         <div
           ref={wrapRef}
