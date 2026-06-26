@@ -1,15 +1,26 @@
+"use client";
+
 import { ArtifactRenderer } from '@/lib/artifact/ArtifactRenderer';
-import { exampleArtifactFile } from '@/lib/artifact/example-file';
+import { useArtifactStore } from '@/lib/artifact/store';
 
 /**
- * The canvas is a scrollable document surface that renders the active artifact
- * — a single agent-authored file executed at runtime. (For now it's a seeded
- * example file; the real agent will read/write/edit it.)
+ * The canvas renders the active artifact from the store — a single
+ * agent-authored file executed at runtime.
  */
 export function CanvasPanel() {
+  const active = useArtifactStore(
+    (s) => s.artifacts.find((a) => a.id === s.activeId) ?? null,
+  );
+
   return (
     <div className="canvas-surface">
-      <ArtifactRenderer code={exampleArtifactFile} />
+      {active ? (
+        <ArtifactRenderer code={active.content} />
+      ) : (
+        <div className="canvas-empty">
+          No artifact selected — generate one from the chat.
+        </div>
+      )}
     </div>
   );
 }

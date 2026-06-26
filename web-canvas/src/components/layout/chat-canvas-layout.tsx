@@ -19,8 +19,10 @@ import { Thread } from "@/components/assistant-ui/thread";
 import { CanvasPanel } from "./canvas-panel";
 import { ArtifactsSidebar } from "./artifacts-sidebar";
 import { Button } from "@/components/ui/button";
+import { useSeedArtifacts } from "@/lib/artifact/seed";
 
 export function ChatCanvasLayout() {
+  useSeedArtifacts();
   const [isChatCollapsed, setIsChatCollapsed] = useState(false);
   const [isArtifactsSidebarOpen, setIsArtifactsSidebarOpen] = useState(true);
   const chatPanelRef = usePanelRef();

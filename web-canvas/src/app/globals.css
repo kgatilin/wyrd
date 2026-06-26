@@ -232,3 +232,12 @@
   font-size: 0.85rem;
 }
 .artifact-error pre { margin: 0.5rem 0 0; white-space: pre-wrap; font-size: 0.78rem; }
+
+.canvas-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+}
