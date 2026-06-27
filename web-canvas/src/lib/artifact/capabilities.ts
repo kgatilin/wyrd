@@ -46,7 +46,7 @@ export const CAPABILITIES: CapabilityDef[] = [
     name: 'Graph',
     kind: 'component',
     signature: '<Graph source={string} height?={number} title?={string} caption?={string} />',
-    doc: 'Bounded architecture-graph widget (pan/zoom, expand components, focus). Pulls a subgraph from the graph data-source by `source`. height defaults to 520.',
+    doc: "Architecture-graph widget (pan/zoom, expand, focus, fullscreen). `source` focuses the view on a package: pass a package path or name (e.g. \"internal/retrieval\" or \"retrieval\") to show that package plus its direct dependencies and dependents. Use \"project\" (or omit a specific target) for the whole graph. Find exact package paths with the archai_list_packages tool — `source` matches a package, not a symbol (for a type like BM25, use the package that contains it). height defaults to 520.",
   },
   {
     name: 'Mermaid',
@@ -57,9 +57,8 @@ export const CAPABILITIES: CapabilityDef[] = [
   {
     name: 'useGraph',
     kind: 'data-source',
-    signature: 'useGraph(query: string): UIGraph | null',
-    doc: 'Graph data-source (pull). Returns null while loading. Usually consumed via <Graph source=.../>.',
-    queries: ['component', 'retrieval'],
+    signature: 'useGraph(source: string): UIGraph | null',
+    doc: 'Graph data-source (pull) over the real archai daemon graph of this repo. `source` is a package path/name to focus on (or "project" for the whole graph). Returns null while loading. Usually consumed via <Graph source=.../>.',
   },
   {
     name: 'useEvents',
