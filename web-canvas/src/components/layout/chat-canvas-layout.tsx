@@ -17,6 +17,13 @@ import { CanvasPanel } from "./canvas-panel";
 import { ArtifactsSidebar } from "./artifacts-sidebar";
 import { Button } from "@/components/ui/button";
 import { useSeedArtifacts } from "@/lib/artifact/seed";
+import { useArtifactTools } from "@/lib/artifact/tools";
+
+/** Registers the canvas's frontend tools; must live inside the runtime provider. */
+function ArtifactTools() {
+  useArtifactTools();
+  return null;
+}
 
 export function ChatCanvasLayout() {
   useSeedArtifacts();
@@ -53,6 +60,7 @@ export function ChatCanvasLayout() {
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
+      <ArtifactTools />
       <div className="flex h-dvh flex-col">
         {/* Header bar with controls */}
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background px-4">
