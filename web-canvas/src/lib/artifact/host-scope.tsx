@@ -96,7 +96,7 @@ export function GraphView({
       </figcaption>
       <div className="graph-block-body" style={maximized ? undefined : { height }}>
         {graph ? (
-          <GraphRenderer graph={graph} showDiff cardDensity="detailed" showInlineSignatures />
+          <GraphRenderer graph={graph} showDiff cardDensity="compact" showInlineSignatures />
         ) : (
           <div className="graph-block-loading">
             Loading {query ? `“${query}”` : source ? `“${source}”` : 'graph'} from data-source…
