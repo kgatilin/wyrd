@@ -140,9 +140,9 @@
 }
 
 .artifact-doc {
-  max-width: 780px;
-  margin: 0 auto;
-  padding: 2.5rem 2rem 6rem;
+  max-width: none;
+  margin: 0;
+  padding: 2.5rem 2.5rem 6rem;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -423,6 +423,13 @@
   overflow-x: auto;
   overflow-y: visible;
   border-radius: 0;
+}
+/* Line numbers are not part of a text selection (Shiki renders them as CSS
+   generated content; this also covers any text-node fallback). */
+.file-shiki .rs-line-number,
+.file-shiki .rs-line-number::before {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* --- Inline unified diff --- */
