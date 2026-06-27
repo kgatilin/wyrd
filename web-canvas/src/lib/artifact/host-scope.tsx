@@ -256,3 +256,108 @@ export function MermaidView({
   if (!svg) return <div className="graph-block-loading">Rendering diagram…</div>;
   return <div className="mermaid-block" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
+
+const FileRenderer = dynamic(() => import('@/components/files/FileView').then((m) => m.FileView), {
+  ssr: false,
+  loading: () => <div className="graph-block-loading">Loading file…</div>,
+});
+
+const FileTreeRenderer = dynamic(
+  () => import('@/components/files/FileTree').then((m) => m.FileTree),
+  { ssr: false, loading: () => <div className="graph-block-loading">Loading file tree…</div> },
+);
+
+/**
+ * Maximizable frames its children in a card with a fullscreen toggle (Esc to
+ * exit), matching the Graph widget. It yields the effective body height to its
+ * children so height-driven widgets (the file tree) can fill the screen.
+ */
+function Maximizable({
+  title,
+  caption,
+  height,
+  children,
+}: {
+  title?: string;
+  caption?: string;
+  height: number;
+  children: (effectiveHeight: number) => React.ReactNode;
+}) {
+  const [maximized, setMaximized] = useState(false);
+  const [vh, setVh] = useState(0);
+
+  useEffect(() => {
+    const f = () => setVh(window.innerHeight);
+    f();
+    window.addEventListener('resize', f);
+    return () => window.removeEventListener('resize', f);
+  }, []);
+
+  useEffect(() => {
+    if (!maximized) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMaximized(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [maximized]);
+
+  const effHeight = maximized ? Math.max(320, vh - 130) : height;
+
+  return (
+    <figure className={`graph-block${maximized ? ' graph-block-maximized' : ''}`}>
+      <figcaption className="graph-block-header">
+        {title && <span className="graph-block-title">{title}</span>}
+        {caption && <span className="graph-block-caption">{caption}</span>}
+        <button
+          type="button"
+          className="graph-block-fullscreen"
+          style={{ marginLeft: 'auto' }}
+          onClick={() => setMaximized((m) => !m)}
+          title={maximized ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+          aria-label={maximized ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          {maximized ? '✕' : '⛶'}
+        </button>
+      </figcaption>
+      <div className="graph-block-body" style={maximized ? undefined : { height }}>
+        {children(effHeight)}
+      </div>
+    </figure>
+  );
+}
+
+/**
+ * `File` shows a single source file: collapsed to its name by default, expand to
+ * read it with syntax highlighting + line numbers, and an inline diff when it
+ * differs from the base ref. The agent writes `<File path="internal/x/y.go" />`.
+ */
+export function FileView({ path, height = 420 }: { path?: string; height?: number }) {
+  if (!path) return <div className="artifact-error">File needs a `path`.</div>;
+  return <FileRenderer path={path} height={height} />;
+}
+
+/**
+ * `FileTree` is a mini file browser over a chosen subtree: derive a package's
+ * files from the code graph with `root`, or list exact files with `paths`. Click
+ * a file to open it (with an inline diff when present). Expandable to fullscreen.
+ */
+export function FileTreeView({
+  root,
+  paths,
+  height = 460,
+  title,
+  caption,
+}: {
+  root?: string;
+  paths?: string[];
+  height?: number;
+  title?: string;
+  caption?: string;
+}) {
+  return (
+    <Maximizable title={title ?? (root ? `Files · ${root}` : 'Files')} caption={caption} height={height}>
+      {(h) => <FileTreeRenderer root={root} paths={paths} height={h} />}
+    </Maximizable>
+  );
+}

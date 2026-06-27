@@ -47,6 +47,36 @@ export async function resolveDaemonBase(): Promise<string | null> {
   return best ? `http://${best.http_addr}` : null;
 }
 
+/**
+ * Resolve the repo root for the current process from the daemon registry
+ * (longest repo_root that is a prefix of cwd). Falls back to cwd. Used by the
+ * source proxy to read files and run `git show` against the right repo.
+ */
+export async function resolveRepoRoot(): Promise<string> {
+  const dir = join(homedir(), ".arch", "daemons");
+  let files: string[];
+  try {
+    files = await readdir(dir);
+  } catch {
+    return process.cwd();
+  }
+  const cwd = process.cwd();
+  let best: string | null = null;
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      const rec = JSON.parse(await readFile(join(dir, f), "utf8")) as DaemonRecord;
+      if (!rec.repo_root) continue;
+      if (cwd === rec.repo_root || cwd.startsWith(rec.repo_root + "/")) {
+        if (!best || rec.repo_root.length > best.length) best = rec.repo_root;
+      }
+    } catch {
+      // skip
+    }
+  }
+  return best ?? cwd;
+}
+
 // In multi-worktree mode the daemon serves under /w/<name>/; bare /api/* paths
 // 302-redirect for GET and 404 for POST. Resolve the worktree prefix once (from
 // the final URL of a followed GET) and cache it per base.

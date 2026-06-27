@@ -64,6 +64,20 @@ export const CAPABILITIES: CapabilityDef[] = [
     doc: 'Renders a Mermaid diagram (flowchart, sequenceDiagram, classDiagram, etc.) from its text. Pass the diagram source as `chart` (a template literal). Use this for diagrams instead of a markdown code block. Syntax errors render inline.',
   },
   {
+    name: 'File',
+    kind: 'component',
+    signature: '<File path={string} height?={number} />',
+    doc:
+      'Shows a single source file by repo-relative path (e.g. path="internal/retrieval/service.go"). Collapsed to its name by default — the user clicks to expand and read it with syntax highlighting + line numbers. If the file differs from the base ref (main), an inline diff is shown first with a Diff/File toggle. Use this for "show me file X".',
+  },
+  {
+    name: 'FileTree',
+    kind: 'component',
+    signature: '<FileTree root?={string} paths?={string[]} height?={number} title?={string} />',
+    doc:
+      'A mini file browser over a chosen subtree (expandable to fullscreen). Give `root` (a package/path prefix, e.g. root="internal/retrieval") to show just that package\'s files derived from the code graph, or `paths` (explicit repo-relative file list) to show exactly those. Click a file to open it inline — with an inline diff when it differs from the base ref. Use this for "show me package X\'s files / let me browse this subtree".',
+  },
+  {
     name: 'useGraph',
     kind: 'data-source',
     signature: 'useGraph(spec: string | { query?, nodes?, source?, hops?, edges? }): UIGraph | null',

@@ -319,6 +319,132 @@
   overflow-x: auto;
 }
 
+/* --- File viewer --- */
+.file-block {
+  margin: 0.5rem 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--card);
+}
+.file-block-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--muted) 45%, var(--card));
+  user-select: none;
+}
+.file-block-chevron {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  width: 0.8rem;
+}
+.file-block-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  color: var(--foreground);
+}
+.file-block-path {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-block-badge {
+  flex: none;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #b45309;
+  background: #fef3c7;
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+}
+.file-block-modes {
+  margin-left: auto;
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.file-block-modes button {
+  border: 0;
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+}
+.file-block-modes button + button {
+  border-left: 1px solid var(--border);
+}
+.file-block-modes button.is-active {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.file-block-body {
+  overflow: auto;
+  border-top: 1px solid var(--border);
+}
+
+/* --- File tree mini-browser --- */
+.filetree {
+  display: flex;
+  gap: 0;
+  width: 100%;
+}
+.filetree-pane {
+  flex: none;
+  width: 280px;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  padding: 0.4rem 0;
+}
+.filetree-file {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 0.5rem 0.6rem;
+}
+.ft-node {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.5rem;
+  font-size: 0.78rem;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  color: var(--foreground);
+  cursor: pointer;
+  border-radius: 5px;
+}
+.ft-node:hover {
+  background: var(--muted);
+}
+.ft-node.is-selected {
+  background: color-mix(in srgb, var(--primary, #2563eb) 16%, transparent);
+}
+.ft-icon {
+  flex: none;
+  width: 1rem;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+}
+.ft-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Fullscreen toggle: pushed to the right of the graph header. */
 .graph-block-fullscreen {
   flex: none;
