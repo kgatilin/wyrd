@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -69,4 +70,73 @@ export function GraphView({
       </div>
     </figure>
   );
+}
+
+// mermaid is heavy and browser-only; load it lazily and initialize once.
+let mermaidInited = false;
+async function loadMermaid() {
+  const mermaid = (await import('mermaid')).default;
+  if (!mermaidInited) {
+    mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
+    mermaidInited = true;
+  }
+  return mermaid;
+}
+
+let mermaidSeq = 0;
+
+/**
+ * `Mermaid` renders a Mermaid diagram (flowchart, sequence, etc.) from its text.
+ * The agent writes ``<Mermaid chart={`flowchart TD\n A --> B`} />`` — use this
+ * for diagrams instead of a markdown code block (which only shows the source).
+ * Rendering happens client-side; a syntax error is shown inline.
+ */
+export function MermaidView({
+  chart,
+  children,
+}: {
+  chart?: string;
+  children?: React.ReactNode;
+}) {
+  const code = (
+    chart ??
+    (typeof children === 'string'
+      ? children
+      : Array.isArray(children)
+        ? children.join('')
+        : String(children ?? ''))
+  ).trim();
+
+  const [svg, setSvg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const mermaid = await loadMermaid();
+        const { svg } = await mermaid.render(`mmd-${mermaidSeq++}`, code);
+        if (!cancelled) {
+          setSvg(svg);
+          setError(null);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
+
+  if (error) {
+    return (
+      <div className="artifact-error">
+        Mermaid diagram error:
+        <pre>{error}</pre>
+      </div>
+    );
+  }
+  if (!svg) return <div className="graph-block-loading">Rendering diagram…</div>;
+  return <div className="mermaid-block" dangerouslySetInnerHTML={{ __html: svg }} />;
 }

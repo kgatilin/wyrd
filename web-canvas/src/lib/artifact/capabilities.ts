@@ -21,7 +21,7 @@ export interface CapabilityDef {
 }
 
 export const ARTIFACT_CONTRACT = [
-  'An artifact is a single file authored with write_file. It MUST define a bare',
+  'An artifact is a single file authored with write_artifact. It MUST define a bare',
   'top-level `function Artifact() { ... }` that returns JSX. The file runs as a',
   'plain script, so do NOT use `export`, `export default`, `import`, or any',
   'module syntax — the capabilities below are already in scope; reference them',
@@ -30,7 +30,9 @@ export const ARTIFACT_CONTRACT = [
   'headings, lists, tables); do NOT hand-build tab bars, nav bars, badges, or',
   'other custom chrome, and avoid inline styles. Place each `<Graph>` on its own',
   'line as a block (never side by side). NEVER bake graph data into the file —',
-  'always pull it from a data-source (e.g. `<Graph source="component" />`).',
+  'always pull it from a data-source (e.g. `<Graph source="component" />`). For',
+  'diagrams (flowcharts, sequence, etc.) use `<Mermaid>` — never a markdown code',
+  'block, which only shows the diagram source as text.',
 ].join(' ');
 
 export const CAPABILITIES: CapabilityDef[] = [
@@ -45,6 +47,12 @@ export const CAPABILITIES: CapabilityDef[] = [
     kind: 'component',
     signature: '<Graph source={string} height?={number} title?={string} caption?={string} />',
     doc: 'Bounded architecture-graph widget (pan/zoom, expand components, focus). Pulls a subgraph from the graph data-source by `source`. height defaults to 520.',
+  },
+  {
+    name: 'Mermaid',
+    kind: 'component',
+    signature: '<Mermaid chart={string} />',
+    doc: 'Renders a Mermaid diagram (flowchart, sequenceDiagram, classDiagram, etc.) from its text. Pass the diagram source as `chart` (a template literal). Use this for diagrams instead of a markdown code block. Syntax errors render inline.',
   },
   {
     name: 'useGraph',

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from 'react';
-import { GraphView, MarkdownView } from './host-scope';
+import { GraphView, MarkdownView, MermaidView } from './host-scope';
 import { useGraph } from '@/lib/data/graph';
 import { useEvents } from '@/lib/data/events';
 import { CAPABILITIES } from './capabilities';
@@ -15,6 +15,7 @@ import { CAPABILITIES } from './capabilities';
 const CAPABILITY_VALUES: Record<string, unknown> = {
   Graph: GraphView,
   Markdown: MarkdownView,
+  Mermaid: MermaidView,
   useGraph,
   useEvents,
 };
