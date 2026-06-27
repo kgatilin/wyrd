@@ -21,17 +21,11 @@ export interface AgentEvent {
   data?: unknown;
 }
 
-// Mock seed: the initial state of the mock bus. The real bus starts empty and
-// the agent stream (websocket/SSE) publishes into it; this is just stand-in data
-// so artifacts that fold the event-stream have something to show in dev.
-const MOCK_SEED: AgentEvent[] = [
-  { id: 'seed-0', ts: 1_700_000_000_000, type: 'tool_call', summary: 'graph.query · seed=internal/service' },
-  { id: 'seed-1', ts: 1_700_000_001_000, type: 'tool_result', summary: 'graph.query → 5 nodes, 4 edges' },
-  { id: 'seed-2', ts: 1_700_000_002_000, type: 'artifact', summary: 'write_file · architecture-overview' },
-];
-
 class EventBus {
-  private events: AgentEvent[] = MOCK_SEED;
+  // Starts empty: real agent activity is published from the live AG-UI stream
+  // (see lib/data/agui-events.ts, wired in chat-canvas-layout). Artifacts that
+  // fold the event stream show nothing until the agent actually does something.
+  private events: AgentEvent[] = [];
   private listeners = new Set<() => void>();
 
   publish = (event: AgentEvent): void => {

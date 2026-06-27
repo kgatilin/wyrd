@@ -1,28 +1,32 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { fixtureGraph } from '@/lib/graph/fixture';
-import { fixtureGraphAlt } from '@/lib/graph/fixture-alt';
 import type { UIGraph } from '@/lib/graph/types';
 
 /**
  * The graph data-source (pull / request-response).
  *
- * `resolveGraph(query)` returns a subgraph for a query id. Today it is a mock
- * backed by fixtures (the daemon stand-in); the live archai daemon plugs in here
- * (`fetch('/api/uigraph?...')`) and `query` becomes a real seed/grow spec. The
- * async shape is deliberate so swapping in the network call changes nothing
- * downstream.
+ * `resolveGraph(query)` returns the real architecture graph of the repo the
+ * archai daemon is serving. It hits the same-origin `/api/graph` route handler,
+ * which proxies to the daemon (discovered from the registry) — see
+ * `src/app/api/graph/route.ts`. The daemon's project graph is whole-repo, so
+ * `query` is currently a label/seed hint forwarded for future scoping rather
+ * than a distinct dataset.
  */
-const GRAPHS: Record<string, UIGraph> = {
-  component: fixtureGraph,
-  retrieval: fixtureGraphAlt,
-};
-
 export async function resolveGraph(query: string): Promise<UIGraph> {
-  // Simulate the latency/async of a real data-source fetch.
-  await new Promise((r) => setTimeout(r, 0));
-  return GRAPHS[query] ?? fixtureGraph;
+  const res = await fetch(`/api/graph?source=${encodeURIComponent(query)}`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    let detail = '';
+    try {
+      detail = ((await res.json()) as { error?: string }).error ?? '';
+    } catch {
+      // ignore non-JSON error bodies
+    }
+    throw new Error(`graph fetch failed (${res.status})${detail ? `: ${detail}` : ''}`);
+  }
+  return (await res.json()) as UIGraph;
 }
 
 /** Reactive graph fetch: null while loading, then the resolved subgraph. */
@@ -31,9 +35,13 @@ export function useGraph(query: string): UIGraph | null {
 
   useEffect(() => {
     let cancelled = false;
-    resolveGraph(query).then((g) => {
-      if (!cancelled) setGraph(g);
-    });
+    resolveGraph(query)
+      .then((g) => {
+        if (!cancelled) setGraph(g);
+      })
+      .catch((err) => {
+        if (!cancelled) console.error('useGraph:', err);
+      });
     return () => {
       cancelled = true;
     };
