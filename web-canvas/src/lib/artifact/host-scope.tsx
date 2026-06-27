@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { useGraph } from '@/lib/data/graph';
+import { useSequence } from '@/lib/data/sequence';
 
 /**
  * `Markdown` is the host component for prose. The agent writes
@@ -68,6 +69,22 @@ export function GraphView({
 }) {
   const graph = useGraph({ source, query, nodes, hops, edges });
   const [maximized, setMaximized] = useState(false);
+  const [view, setView] = useState<'graph' | 'sequence'>('graph');
+  const [seqPkg, setSeqPkg] = useState<string | null>(null);
+
+  // Packages present in the current view, for the sequence picker.
+  const pkgOptions = useMemo(
+    () =>
+      (graph?.components ?? [])
+        .map((c) => ({ id: c.id, name: c.name }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    [graph],
+  );
+
+  // Default the sequence target to the first package once the graph loads.
+  useEffect(() => {
+    if (seqPkg == null && pkgOptions.length) setSeqPkg(pkgOptions[0].id);
+  }, [pkgOptions, seqPkg]);
 
   // Esc exits fullscreen.
   useEffect(() => {
@@ -84,6 +101,36 @@ export function GraphView({
       <figcaption className="graph-block-header">
         {title && <span className="graph-block-title">{title}</span>}
         {caption && <span className="graph-block-caption">{caption}</span>}
+        <div className="graph-block-modes" role="group" aria-label="View">
+          <button
+            type="button"
+            className={view === 'graph' ? 'is-active' : ''}
+            onClick={() => setView('graph')}
+          >
+            Graph
+          </button>
+          <button
+            type="button"
+            className={view === 'sequence' ? 'is-active' : ''}
+            onClick={() => setView('sequence')}
+          >
+            Sequence
+          </button>
+        </div>
+        {view === 'sequence' && pkgOptions.length > 0 && (
+          <select
+            className="graph-block-pkg"
+            value={seqPkg ?? ''}
+            onChange={(e) => setSeqPkg(e.target.value)}
+            title="Package"
+          >
+            {pkgOptions.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           type="button"
           className="graph-block-fullscreen"
@@ -95,7 +142,9 @@ export function GraphView({
         </button>
       </figcaption>
       <div className="graph-block-body" style={maximized ? undefined : { height }}>
-        {graph ? (
+        {view === 'sequence' ? (
+          <SequenceView pkg={seqPkg} />
+        ) : graph ? (
           <GraphRenderer graph={graph} showDiff cardDensity="compact" showInlineSignatures />
         ) : (
           <div className="graph-block-loading">
@@ -104,6 +153,38 @@ export function GraphView({
         )}
       </div>
     </figure>
+  );
+}
+
+/**
+ * Type-interaction sequence view for a single package, rendered inside the
+ * Graph widget. Fetches Mermaid `sequenceDiagram` sources (one per public
+ * entry point) and draws each with the same Mermaid renderer as <Mermaid>.
+ */
+function SequenceView({ pkg }: { pkg: string | null }) {
+  const { data, error, loading } = useSequence(pkg);
+
+  if (!pkg) return <div className="graph-block-loading">Select a package…</div>;
+  if (loading) return <div className="graph-block-loading">Loading sequence for “{pkg}”…</div>;
+  if (error)
+    return (
+      <div className="artifact-error">
+        Sequence error:
+        <pre>{error}</pre>
+      </div>
+    );
+  if (!data || data.entries.length === 0)
+    return <div className="graph-block-loading">No cross-type interactions in “{pkg}”.</div>;
+
+  return (
+    <div className="sequence-view">
+      {data.entries.map((e, i) => (
+        <section className="sequence-entry" key={`${e.label}-${i}`}>
+          <h4 className="sequence-entry-label">{e.label}</h4>
+          <MermaidView chart={e.mermaid} />
+        </section>
+      ))}
+    </div>
   );
 }
 

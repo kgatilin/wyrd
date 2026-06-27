@@ -1,6 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { resolveDaemonBase, worktreePrefix } from "@/lib/server/daemon";
 
 // Server-side proxy to the archai daemon's graph API.
 //
@@ -14,58 +12,6 @@ import { join } from "node:path";
 //     /api/expand → { nodes, edges } (symbol-level).
 //   - otherwise: the whole-project UIGraph from /api/uigraph.
 export const dynamic = "force-dynamic";
-
-interface DaemonRecord {
-  repo_root: string;
-  http_addr: string;
-}
-
-async function resolveDaemonBase(): Promise<string | null> {
-  const override = process.env.ARCHAI_DAEMON_URL;
-  if (override) return override.replace(/\/$/, "");
-
-  const dir = join(homedir(), ".arch", "daemons");
-  let files: string[];
-  try {
-    files = await readdir(dir);
-  } catch {
-    return null;
-  }
-
-  const cwd = process.cwd();
-  let best: DaemonRecord | null = null;
-  for (const f of files) {
-    if (!f.endsWith(".json")) continue;
-    try {
-      const rec = JSON.parse(await readFile(join(dir, f), "utf8")) as DaemonRecord;
-      if (!rec.http_addr || !rec.repo_root) continue;
-      if (cwd === rec.repo_root || cwd.startsWith(rec.repo_root + "/")) {
-        if (!best || rec.repo_root.length > best.repo_root.length) best = rec;
-      }
-    } catch {
-      // skip
-    }
-  }
-  return best ? `http://${best.http_addr}` : null;
-}
-
-// In multi-worktree mode the daemon serves under /w/<name>/; bare /api/* paths
-// 302-redirect for GET and 404 for POST. Resolve the worktree prefix once (from
-// the final URL of a followed GET) and cache it per base.
-let cachedPrefix: { base: string; prefix: string } | null = null;
-async function worktreePrefix(base: string): Promise<string> {
-  if (cachedPrefix?.base === base) return cachedPrefix.prefix;
-  let prefix = "";
-  try {
-    const r = await fetch(`${base}/api/uigraph`, { headers: { Accept: "application/json" } });
-    const m = new URL(r.url).pathname.match(/^(\/w\/[^/]+)\//);
-    prefix = m ? m[1] : "";
-  } catch {
-    prefix = "";
-  }
-  cachedPrefix = { base, prefix };
-  return prefix;
-}
 
 function err(message: string, status: number) {
   return Response.json({ error: message }, { status });

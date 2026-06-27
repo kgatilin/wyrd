@@ -54,7 +54,8 @@ export const CAPABILITIES: CapabilityDef[] = [
       '  • source — focus the whole-project graph on a package (path or name, e.g. "internal/retrieval"); shows it plus direct deps/dependents.\n' +
       '  • hops — neighborhood radius for query/nodes (default 1; 2 = wider).\n' +
       '  • edges — restrict to these edge kinds: any of "uses","returns","implements","calls".\n' +
-      'With none of query/nodes/source it shows the whole project. Prefer `query` for "show me the X subgraph". height defaults to 520.',
+      'With none of query/nodes/source it shows the whole project. Prefer `query` for "show me the X subgraph". height defaults to 520. ' +
+      'The widget also has a built-in Graph/Sequence toggle in its header: switching to Sequence and picking a package draws that package\'s call-sequence as a type-interaction diagram (lifelines are types; only cross-type calls are shown, intra-type calls collapsed) — so for "how does package X work / its call flow" just place a <Graph source="X" /> and tell the user to flip to Sequence; no separate <Mermaid> needed.',
   },
   {
     name: 'Mermaid',

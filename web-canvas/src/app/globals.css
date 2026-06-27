@@ -259,9 +259,68 @@
   font-size: 0.85rem;
 }
 
+/* View toggle (Graph / Sequence) + package picker, pushed to the right. */
+.graph-block-modes {
+  margin-left: auto;
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.graph-block-modes button {
+  border: 0;
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+}
+.graph-block-modes button + button {
+  border-left: 1px solid var(--border);
+}
+.graph-block-modes button.is-active {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.graph-block-pkg {
+  flex: none;
+  max-width: 14rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 0.72rem;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+}
+
+/* Sequence view inside the graph block: scrollable stack of diagrams. */
+.sequence-view {
+  height: 100%;
+  overflow: auto;
+  padding: 0.75rem 1rem 1.25rem;
+}
+.sequence-entry + .sequence-entry {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--border);
+}
+.sequence-entry-label {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+.sequence-entry .mermaid-block {
+  overflow-x: auto;
+}
+
 /* Fullscreen toggle: pushed to the right of the graph header. */
 .graph-block-fullscreen {
-  margin-left: auto;
   flex: none;
   width: 26px;
   height: 26px;
