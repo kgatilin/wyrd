@@ -1,5 +1,6 @@
 'use client';
 
+import { memo, useMemo } from 'react';
 import type { Component, SymbolRelation } from '@/lib/graph/types';
 
 export interface RelationLayerProps {
@@ -29,14 +30,14 @@ function componentCenter(cmp: Component): Anchor {
 }
 
 function relationAnchor(
-  components: Component[],
+  componentsById: Map<string, Component>,
   expandedSet: ReadonlySet<string>,
   expandedInternals: ReadonlySet<string>,
   componentId: string,
   internalId?: string,
   memberId?: string
 ): Anchor | null {
-  const cmp = components.find((component) => component.id === componentId);
+  const cmp = componentsById.get(componentId);
   if (!cmp || cmp.x == null || cmp.y == null) return null;
   if (!internalId || !expandedSet.has(cmp.id)) return componentCenter(cmp);
 
@@ -80,7 +81,7 @@ function relationPath(from: Anchor, to: Anchor, sameComponent: boolean): { path:
   };
 }
 
-export function RelationLayer({
+function RelationLayerImpl({
   relations,
   components,
   expandedSet,
@@ -88,6 +89,12 @@ export function RelationLayer({
   showDiff,
   focusId,
 }: RelationLayerProps) {
+  const componentsById = useMemo(() => {
+    const m = new Map<string, Component>();
+    for (const c of components) m.set(c.id, c);
+    return m;
+  }, [components]);
+
   const isRelated = (relation: SymbolRelation) =>
     !focusId || relation.fromComponentId === focusId || relation.toComponentId === focusId;
 
@@ -123,7 +130,7 @@ export function RelationLayer({
 
       {relations.map((relation) => {
         const from = relationAnchor(
-          components,
+          componentsById,
           expandedSet,
           expandedInternals,
           relation.fromComponentId,
@@ -131,7 +138,7 @@ export function RelationLayer({
           relation.fromMemberId
         );
         const to = relationAnchor(
-          components,
+          componentsById,
           expandedSet,
           expandedInternals,
           relation.toComponentId,
@@ -166,3 +173,10 @@ export function RelationLayer({
     </svg>
   );
 }
+
+/**
+ * Memoized so viewport-only changes (pan/zoom re-render the parent) don't
+ * recompute every relation path. Re-renders only when its own props change
+ * (relations set, layout, expansion, focus).
+ */
+export const RelationLayer = memo(RelationLayerImpl);

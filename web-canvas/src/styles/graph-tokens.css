@@ -70,6 +70,10 @@
 .hf-canvas-wrap {
   flex: 1;
   min-width: 0;
+  /* min-height:0 lets this flex child shrink below its content height so the
+     scroll container actually clips vertically — without it the wrapper grows
+     to fit the canvas and only horizontal scrolling works. */
+  min-height: 0;
   position: relative;
   overflow: auto;
   background: var(--bg-0);

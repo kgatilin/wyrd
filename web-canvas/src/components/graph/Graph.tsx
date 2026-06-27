@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
-import type { UIGraph, Component, GraphInteraction, CardDensity } from '@/lib/graph/types';
+import type { UIGraph, Component, GraphInteraction, CardDensity, SymbolRelation } from '@/lib/graph/types';
 import { layout } from '@/lib/graph/layout';
 import { ComponentCard } from './ComponentCard';
 import { EdgeLayer } from './EdgeLayer';
@@ -139,6 +139,33 @@ export function Graph({
       width: Math.max(1200, maxX + 100),
       height: Math.max(700, maxY + 100),
     };
+  }, [laidGraph]);
+
+  // Symbol relations are only meaningful when at least one endpoint component is
+  // expanded (otherwise they collapse onto component centers, duplicating the
+  // component-level EdgeLayer). Rendering all of them — often thousands — on a
+  // collapsed graph is the dominant source of layout/scroll jank, so cut them to
+  // the visible set. Memoized so pan/zoom (viewport-only changes) don't recompute.
+  const visibleRelations = useMemo<SymbolRelation[]>(() => {
+    const all = laidGraph?.relations;
+    if (!all || expanded.size === 0) return [];
+    return all.filter(
+      (r) => expanded.has(r.fromComponentId) || expanded.has(r.toComponentId),
+    );
+  }, [laidGraph, expanded]);
+
+  // Pre-bucket intra-component (self) relations by component id once, instead of
+  // filtering all relations per-card on every render (34 cards × N relations).
+  const selfRelationsByComponent = useMemo<Map<string, SymbolRelation[]>>(() => {
+    const m = new Map<string, SymbolRelation[]>();
+    for (const r of laidGraph?.relations ?? []) {
+      if (r.fromComponentId === r.toComponentId) {
+        const arr = m.get(r.fromComponentId);
+        if (arr) arr.push(r);
+        else m.set(r.fromComponentId, [r]);
+      }
+    }
+    return m;
   }, [laidGraph]);
 
   // Handlers
@@ -303,7 +330,7 @@ export function Graph({
   return (
     <div className="graph-container relative flex flex-col h-full w-full">
       {/* Canvas viewport */}
-      <div className="hf-canvas-viewport flex flex-col flex-1 relative">
+      <div className="hf-canvas-viewport flex flex-col flex-1 min-h-0 relative">
         {/* Scrollable canvas wrapper */}
         <div
           ref={wrapRef}
@@ -350,7 +377,7 @@ export function Graph({
 
               {/* Symbol relations layer */}
               <RelationLayer
-                relations={laidGraph.relations ?? []}
+                relations={visibleRelations}
                 components={laidGraph.components}
                 expandedSet={expanded}
                 expandedInternals={internalExpanded}
@@ -377,9 +404,7 @@ export function Graph({
                   cardDensity={cardDensity}
                   showInlineSignatures={showInlineSignatures}
                   zoom={viewport.zoom}
-                  relations={laidGraph.relations?.filter(
-                    r => r.fromComponentId === cmp.id && r.toComponentId === cmp.id
-                  ) ?? []}
+                  relations={selfRelationsByComponent.get(cmp.id) ?? []}
                 />
               ))}
             </div>

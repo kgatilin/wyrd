@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import type { Edge, Component } from '@/lib/graph/types';
 
 export interface EdgeLayerProps {
@@ -131,7 +132,7 @@ function computeEdgePath(
   };
 }
 
-export function EdgeLayer({
+function EdgeLayerImpl({
   edges,
   components,
   expandedSet,
@@ -214,3 +215,6 @@ export function EdgeLayer({
     </svg>
   );
 }
+
+/** Memoized so pan/zoom re-renders of the parent don't recompute edge paths. */
+export const EdgeLayer = memo(EdgeLayerImpl);
