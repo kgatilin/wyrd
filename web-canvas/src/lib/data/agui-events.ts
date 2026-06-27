@@ -59,5 +59,17 @@ export function agentActivitySubscriber(): AgentSubscriber {
       const message = (event as { message?: string }).message ?? "run error";
       publish({ type: "log", summary: `error: ${message}`, data: event });
     },
+    // Out-of-band activity narration (AG-UI CUSTOM): iteration/loop lifecycle
+    // and other progress the backend chooses to surface. The event's `name` is
+    // the activity type and `value` is { summary, data }.
+    onCustomEvent({ event }) {
+      const name = event.name || "activity";
+      const value = event.value as { summary?: string; data?: unknown } | undefined;
+      publish({
+        type: name,
+        summary: value?.summary ?? name,
+        data: value?.data ?? value,
+      });
+    },
   };
 }
