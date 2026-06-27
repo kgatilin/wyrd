@@ -40,7 +40,7 @@ export const CAPABILITIES: CapabilityDef[] = [
     name: 'Markdown',
     kind: 'component',
     signature: '<Markdown>{string}</Markdown>',
-    doc: 'Renders a markdown string as prose (headings, lists, tables via GFM, inline code). Use this for all prose instead of raw HTML. Raw HTML is escaped.',
+    doc: 'Renders a markdown string as prose (headings, lists, tables via GFM, inline code) and math via KaTeX (inline `$…$`, block `$$…$$`). Use this for all prose instead of raw HTML. Raw HTML is escaped.',
   },
   {
     name: 'Graph',
