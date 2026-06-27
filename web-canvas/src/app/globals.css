@@ -401,6 +401,62 @@
   border-top: 1px solid var(--border);
 }
 
+/* --- Inline unified diff --- */
+.diff {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+.diff-row {
+  display: flex;
+  align-items: flex-start;
+  white-space: pre;
+}
+.diff-no {
+  flex: none;
+  width: 3.2rem;
+  padding: 0 0.5rem;
+  text-align: right;
+  color: var(--muted-foreground);
+  opacity: 0.7;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.diff-mark {
+  flex: none;
+  width: 1.1rem;
+  text-align: center;
+  color: var(--muted-foreground);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.diff-text {
+  flex: 1;
+  min-width: 0;
+  padding-right: 0.75rem;
+  white-space: pre;
+  color: var(--foreground);
+}
+.diff-add {
+  background: color-mix(in srgb, #16a34a 14%, transparent);
+}
+.diff-add .diff-mark {
+  color: #15803d;
+}
+.diff-del {
+  background: color-mix(in srgb, #dc2626 13%, transparent);
+}
+.diff-del .diff-mark {
+  color: #b91c1c;
+}
+.diff-gap {
+  padding: 0.15rem 0.75rem 0.15rem 4.2rem;
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--muted) 35%, var(--card));
+  border-block: 1px solid var(--border);
+}
+
 /* --- File tree mini-browser --- */
 .filetree {
   display: flex;

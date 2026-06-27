@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import ReactDiffViewer from 'react-diff-viewer-continued';
+import { diffLines } from 'diff';
 import { useSource } from '@/lib/data/source';
 
 const LANG: Record<string, string> = {
@@ -101,15 +101,7 @@ export function FileView({ path, defaultExpanded = false, height = 420 }: FileVi
           )}
           {data &&
             (mode === 'diff' && data.hasDiff ? (
-              <ReactDiffViewer
-                oldValue={data.baseContent ?? ''}
-                newValue={data.content}
-                splitView={false}
-                showDiffOnly
-                useDarkTheme={false}
-                leftTitle={`${data.baseRef}:${baseName(path)}`}
-                rightTitle="working tree"
-              />
+              <DiffView oldValue={data.baseContent ?? ''} newValue={data.content} />
             ) : (
               <SyntaxHighlighter
                 language={langFor(path)}
@@ -124,6 +116,82 @@ export function FileView({ path, defaultExpanded = false, height = 420 }: FileVi
         </div>
       )}
     </figure>
+  );
+}
+
+// --- inline unified diff (self-styled; GitHub-like, with context folding) ---
+
+type DiffRowType = 'add' | 'del' | 'ctx';
+interface DiffRow {
+  oldNo: number | null;
+  newNo: number | null;
+  type: DiffRowType;
+  text: string;
+}
+type DiffItem = { kind: 'row'; row: DiffRow } | { kind: 'gap'; count: number };
+
+function buildDiffRows(oldStr: string, newStr: string): DiffRow[] {
+  const parts = diffLines(oldStr, newStr);
+  const rows: DiffRow[] = [];
+  let oldNo = 1;
+  let newNo = 1;
+  for (const part of parts) {
+    const lines = part.value.split('\n');
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    for (const line of lines) {
+      if (part.added) rows.push({ oldNo: null, newNo: newNo++, type: 'add', text: line });
+      else if (part.removed) rows.push({ oldNo: oldNo++, newNo: null, type: 'del', text: line });
+      else rows.push({ oldNo: oldNo++, newNo: newNo++, type: 'ctx', text: line });
+    }
+  }
+  return rows;
+}
+
+/** Keep `ctx` lines around each change; fold long unchanged runs into a gap. */
+function foldContext(rows: DiffRow[], ctx = 3): DiffItem[] {
+  const keep = new Array(rows.length).fill(false);
+  rows.forEach((r, i) => {
+    if (r.type !== 'ctx') {
+      for (let j = Math.max(0, i - ctx); j <= Math.min(rows.length - 1, i + ctx); j++) keep[j] = true;
+    }
+  });
+  const out: DiffItem[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    if (keep[i]) {
+      out.push({ kind: 'row', row: rows[i] });
+      i++;
+    } else {
+      let j = i;
+      while (j < rows.length && !keep[j]) j++;
+      out.push({ kind: 'gap', count: j - i });
+      i = j;
+    }
+  }
+  return out;
+}
+
+function DiffView({ oldValue, newValue }: { oldValue: string; newValue: string }) {
+  const items = useMemo(() => foldContext(buildDiffRows(oldValue, newValue)), [oldValue, newValue]);
+  return (
+    <div className="diff">
+      {items.map((it, idx) =>
+        it.kind === 'gap' ? (
+          <div className="diff-gap" key={idx}>
+            ⋯ {it.count} unchanged line{it.count > 1 ? 's' : ''}
+          </div>
+        ) : (
+          <div className={`diff-row diff-${it.row.type}`} key={idx}>
+            <span className="diff-no">{it.row.oldNo ?? ''}</span>
+            <span className="diff-no">{it.row.newNo ?? ''}</span>
+            <span className="diff-mark">
+              {it.row.type === 'add' ? '+' : it.row.type === 'del' ? '−' : ''}
+            </span>
+            <code className="diff-text">{it.row.text === '' ? ' ' : it.row.text}</code>
+          </div>
+        ),
+      )}
+    </div>
   );
 }
 
