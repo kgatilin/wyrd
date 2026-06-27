@@ -391,6 +391,11 @@
   background: var(--muted);
   color: var(--foreground);
 }
+.file-block-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
 .file-block-body {
   overflow: auto;
   border-top: 1px solid var(--border);
@@ -401,43 +406,67 @@
   display: flex;
   gap: 0;
   width: 100%;
+  min-height: 0;
+  border-top: 1px solid var(--border);
 }
 .filetree-pane {
   flex: none;
-  width: 280px;
+  width: 300px;
+  height: 100%;
   overflow: auto;
   border-right: 1px solid var(--border);
   padding: 0.4rem 0;
+  background: color-mix(in srgb, var(--muted) 30%, var(--card));
 }
 .filetree-file {
   flex: 1;
   min-width: 0;
+  height: 100%;
   overflow: auto;
-  padding: 0.5rem 0.6rem;
+  padding: 0.5rem 0.7rem;
 }
-.ft-node {
+.filetree-empty {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0 0.5rem;
+  justify-content: center;
+  height: 100%;
+  padding: 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+.ft-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.18rem 0.5rem;
+  border: 0;
+  background: transparent;
+  text-align: left;
   font-size: 0.78rem;
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   color: var(--foreground);
   cursor: pointer;
-  border-radius: 5px;
 }
-.ft-node:hover {
+.ft-row:hover {
   background: var(--muted);
 }
-.ft-node.is-selected {
-  background: color-mix(in srgb, var(--primary, #2563eb) 16%, transparent);
+.ft-row.is-selected {
+  background: color-mix(in srgb, var(--primary, #2563eb) 18%, transparent);
+  font-weight: 600;
+}
+.ft-twisty {
+  flex: none;
+  width: 0.8rem;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: 0.62rem;
 }
 .ft-icon {
   flex: none;
   width: 1rem;
   text-align: center;
-  color: var(--muted-foreground);
-  font-size: 0.7rem;
+  font-size: 0.72rem;
 }
 .ft-label {
   overflow: hidden;

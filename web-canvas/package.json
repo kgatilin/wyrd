@@ -28,7 +28,6 @@
     "next": "16.2.9",
     "radix-ui": "^1.6.0",
     "react": "19.2.4",
-    "react-arborist": "^3.10.5",
     "react-diff-viewer-continued": "^4.2.2",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
