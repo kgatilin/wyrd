@@ -147,40 +147,76 @@
   gap: 1.5rem;
 }
 
-/* Prose blocks */
-.prose-block {
+/* Artifact typography — applied to the whole document, not just markdown
+   blocks, so raw JSX the agent emits (Tailwind preflight strips heading styles)
+   reads correctly too. `:where()` keeps specificity at 0 so the agent can still
+   override per-element. */
+.prose-block { color: var(--foreground); }
+.artifact-doc {
   color: var(--foreground);
   font-size: 0.95rem;
   line-height: 1.7;
 }
-.prose-block h2 {
+.artifact-doc :where(h1) {
+  font-size: 1.7rem;
+  font-weight: 680;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin: 0.25rem 0 0.5rem;
+}
+.artifact-doc :where(h2) {
   font-size: 1.35rem;
   font-weight: 650;
   line-height: 1.3;
-  margin: 0.25rem 0 0.75rem;
   letter-spacing: -0.01em;
+  margin: 0.5rem 0 0.6rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
-.prose-block h3 {
-  font-size: 1.05rem;
-  font-weight: 600;
-  margin: 0.5rem 0 0.5rem;
-}
-.prose-block p { margin: 0 0 0.85rem; }
-.prose-block p:last-child { margin-bottom: 0; }
-.prose-block ul {
+.artifact-doc :where(h3) { font-size: 1.08rem; font-weight: 620; margin: 0.4rem 0 0.4rem; }
+.artifact-doc :where(h4) { font-size: 0.98rem; font-weight: 600; margin: 0.4rem 0 0.3rem; }
+.artifact-doc :where(p) { margin: 0 0 0.85rem; }
+.artifact-doc :where(p):last-child { margin-bottom: 0; }
+.artifact-doc :where(ul) { margin: 0 0 0.85rem; padding-left: 1.25rem; list-style: disc; }
+.artifact-doc :where(ol) { margin: 0 0 0.85rem; padding-left: 1.4rem; list-style: decimal; }
+.artifact-doc :where(li) { margin: 0.2rem 0; }
+.artifact-doc :where(strong) { font-weight: 650; }
+.artifact-doc :where(em) { font-style: italic; }
+.artifact-doc :where(a) { color: var(--primary, #2563eb); text-decoration: underline; text-underline-offset: 2px; }
+.artifact-doc :where(hr) { border: 0; border-top: 1px solid var(--border); margin: 1.25rem 0; }
+.artifact-doc :where(blockquote) {
   margin: 0 0 0.85rem;
-  padding-left: 1.25rem;
-  list-style: disc;
+  padding: 0.2rem 0 0.2rem 0.9rem;
+  border-left: 3px solid var(--border);
+  color: var(--muted-foreground);
 }
-.prose-block li { margin: 0.2rem 0; }
-.prose-block strong { font-weight: 650; color: var(--foreground); }
-.prose-block code {
+.artifact-doc :where(code) {
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 0.85em;
   padding: 0.1em 0.35em;
   border-radius: 4px;
   background: color-mix(in srgb, var(--foreground) 8%, transparent);
 }
+.artifact-doc :where(pre) {
+  margin: 0 0 0.85rem;
+  padding: 0.9rem 1rem;
+  border-radius: 10px;
+  overflow-x: auto;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+.artifact-doc :where(pre code) { padding: 0; background: none; }
+.artifact-doc :where(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 0.85rem;
+  font-size: 0.9rem;
+}
+.artifact-doc :where(th, td) {
+  text-align: left;
+  padding: 0.45rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+.artifact-doc :where(th) { font-weight: 620; color: var(--muted-foreground); }
 
 /* Embedded graph widget card */
 .graph-block {

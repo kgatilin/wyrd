@@ -25,9 +25,12 @@ export const ARTIFACT_CONTRACT = [
   'top-level `function Artifact() { ... }` that returns JSX. The file runs as a',
   'plain script, so do NOT use `export`, `export default`, `import`, or any',
   'module syntax — the capabilities below are already in scope; reference them',
-  'directly. Wrap the document in `<article className="artifact-doc">`; use',
-  '`<div className="prose-block">` for prose. NEVER bake graph data into the',
-  'file — always pull it from a data-source (e.g. `<Graph source="component" />`).',
+  'directly. Wrap the document in `<article className="artifact-doc">`. Put ALL',
+  'text — headings and prose — inside `<Markdown>` blocks (markdown `#`/`##`',
+  'headings, lists, tables); do NOT hand-build tab bars, nav bars, badges, or',
+  'other custom chrome, and avoid inline styles. Place each `<Graph>` on its own',
+  'line as a block (never side by side). NEVER bake graph data into the file —',
+  'always pull it from a data-source (e.g. `<Graph source="component" />`).',
 ].join(' ');
 
 export const CAPABILITIES: CapabilityDef[] = [
