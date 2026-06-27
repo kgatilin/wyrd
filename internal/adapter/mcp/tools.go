@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	archmotifAdapter "github.com/kgatilin/archai/internal/adapter/archmotif"
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
@@ -589,6 +591,46 @@ func builtinToolDefinitions() []ToolDefinition {
 				},
 			},
 		},
+		{
+			Name:        "read_file",
+			Description: "Read a UTF-8 source file by its repo-relative path, confined to the daemon's project root. Use it to read the exact bytes of a file the graph tools located: search/search_graph give file:line, read_file gives the full text. Paths resolve against the project root and may not escape it. Large files are truncated with a trailing notice.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "File path relative to the project root (e.g. internal/serve/state.go). Absolute paths are accepted only if they resolve inside the root.",
+					},
+				},
+				"required": []string{"path"},
+			},
+		},
+		{
+			Name:        "search_files",
+			Description: "Plain-text (substring) search across files under the project root — the grep-style counterpart to the semantic `search`. Use it for exact strings, identifiers, config keys, or anything not yet indexed in the graph. Case-insensitive by default. Skips VCS/build dirs (.git, node_modules, vendor, .arch) and other dotdirs, and binary files. Returns matches as path:line with the matching line, capped.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Substring to search for.",
+					},
+					"path_glob": map[string]any{
+						"type":        "string",
+						"description": "Optional filename glob to restrict the search, matched against each file's base name (e.g. *.go, *.ts).",
+					},
+					"case_sensitive": map[string]any{
+						"type":        "boolean",
+						"description": "Match case-sensitively (default false).",
+					},
+					"max_results": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of matching lines to return (default 100).",
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
 	}
 }
 
@@ -647,6 +689,10 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleFileHotspots(state, rawArgs)
 	case "latent_domains":
 		return handleLatentDomains(state, rawArgs)
+	case "read_file":
+		return handleReadFile(state, rawArgs)
+	case "search_files":
+		return handleSearchFiles(state, rawArgs)
 	}
 	if strings.HasPrefix(name, "plugin.") {
 		return dispatchPluginTool(name, rawArgs)
@@ -1122,6 +1168,178 @@ func requireRoot(state *serve.State) (string, bool) {
 		return "", false
 	}
 	return r, true
+}
+
+// --- Filesystem tool handlers (scoped to the project root) ---
+
+// maxReadFileBytes caps read_file output so one huge file can't blow the MCP
+// response budget. Larger files are truncated with a trailing notice.
+const maxReadFileBytes = 256 * 1024
+
+// searchFilesSkipDirs are directory names search_files never descends into.
+// Other dotdirs are skipped generically in the walk.
+var searchFilesSkipDirs = map[string]bool{
+	".git": true, "node_modules": true, "vendor": true, ".arch": true,
+}
+
+// resolveWithinRoot interprets path relative to root (absolute paths kept as
+// given), cleans it, and verifies the result stays inside root. It rejects
+// path traversal and absolute paths pointing outside the project tree.
+func resolveWithinRoot(root, path string) (string, bool) {
+	if path == "" {
+		return "", false
+	}
+	abs := path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(root, path)
+	}
+	abs = filepath.Clean(abs)
+	rel, err := filepath.Rel(filepath.Clean(root), abs)
+	if err != nil {
+		return "", false
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return abs, true
+}
+
+type readFileArgs struct {
+	Path string `json:"path"`
+}
+
+// handleReadFile reads a single file confined to the project root.
+func handleReadFile(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	var args readFileArgs
+	if len(rawArgs) > 0 {
+		if err := json.Unmarshal(rawArgs, &args); err != nil {
+			return ToolResult{}, &RPCError{Code: ErrInvalidParams, Message: fmt.Sprintf("invalid arguments: %v", err)}
+		}
+	}
+	if args.Path == "" {
+		return errorResult("missing required argument: path"), nil
+	}
+	root, ok := requireRoot(state)
+	if !ok {
+		return errorResult("daemon state has no project root configured"), nil
+	}
+	abs, ok := resolveWithinRoot(root, args.Path)
+	if !ok {
+		return errorResult(fmt.Sprintf("path %q is outside the project root", args.Path)), nil
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return errorResult(fmt.Sprintf("cannot read %q: %v", args.Path, err)), nil
+	}
+	if info.IsDir() {
+		return errorResult(fmt.Sprintf("%q is a directory, not a file", args.Path)), nil
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return errorResult(fmt.Sprintf("cannot read %q: %v", args.Path, err)), nil
+	}
+	text := string(data)
+	if len(data) > maxReadFileBytes {
+		text = string(data[:maxReadFileBytes]) + fmt.Sprintf("\n\n... [truncated: file is %d bytes, showed first %d]", len(data), maxReadFileBytes)
+	}
+	return ToolResult{Content: []ToolResultContent{{Type: "text", Text: text}}}, nil
+}
+
+type searchFilesArgs struct {
+	Query         string `json:"query"`
+	PathGlob      string `json:"path_glob"`
+	CaseSensitive bool   `json:"case_sensitive"`
+	MaxResults    int    `json:"max_results"`
+}
+
+type fileMatch struct {
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Text string `json:"text"`
+}
+
+// handleSearchFiles runs a plain substring search over text files under the
+// project root — the grep-style counterpart to the semantic search tool.
+func handleSearchFiles(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	var args searchFilesArgs
+	if len(rawArgs) > 0 {
+		if err := json.Unmarshal(rawArgs, &args); err != nil {
+			return ToolResult{}, &RPCError{Code: ErrInvalidParams, Message: fmt.Sprintf("invalid arguments: %v", err)}
+		}
+	}
+	if args.Query == "" {
+		return errorResult("missing required argument: query"), nil
+	}
+	root, ok := requireRoot(state)
+	if !ok {
+		return errorResult("daemon state has no project root configured"), nil
+	}
+	maxResults := args.MaxResults
+	if maxResults <= 0 {
+		maxResults = 100
+	}
+	needle := args.Query
+	if !args.CaseSensitive {
+		needle = strings.ToLower(needle)
+	}
+
+	var matches []fileMatch
+	truncated := false
+
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable entries
+		}
+		if d.IsDir() {
+			if path != root && (searchFilesSkipDirs[d.Name()] || strings.HasPrefix(d.Name(), ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if len(matches) >= maxResults {
+			truncated = true
+			return filepath.SkipAll
+		}
+		if args.PathGlob != "" {
+			if ok, _ := filepath.Match(args.PathGlob, d.Name()); !ok {
+				return nil
+			}
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		if !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 {
+			return nil // binary
+		}
+		rel, _ := filepath.Rel(root, path)
+		for i, line := range strings.Split(string(data), "\n") {
+			hay := line
+			if !args.CaseSensitive {
+				hay = strings.ToLower(hay)
+			}
+			if !strings.Contains(hay, needle) {
+				continue
+			}
+			trimmed := strings.TrimRight(line, "\r")
+			if len(trimmed) > 300 {
+				trimmed = trimmed[:300] + "…"
+			}
+			matches = append(matches, fileMatch{Path: rel, Line: i + 1, Text: trimmed})
+			if len(matches) >= maxResults {
+				truncated = true
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+
+	return textResult(map[string]any{
+		"query":     args.Query,
+		"count":     len(matches),
+		"truncated": truncated,
+		"matches":   matches,
+	})
 }
 
 // resolveTargetID picks the explicit arg if non-empty, otherwise falls
