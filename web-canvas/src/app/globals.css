@@ -230,7 +230,7 @@
 }
 .graph-block-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.6rem;
   padding: 0.7rem 1rem;
   border-bottom: 1px solid var(--border);
@@ -257,6 +257,45 @@
   height: 100%;
   color: var(--muted-foreground);
   font-size: 0.85rem;
+}
+
+/* Fullscreen toggle: pushed to the right of the graph header. */
+.graph-block-fullscreen {
+  margin-left: auto;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.graph-block-fullscreen:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+/* Maximized graph: a full-viewport overlay above everything else. */
+.graph-block-maximized {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  margin: 0;
+  max-width: none;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: none;
+}
+.graph-block-maximized .graph-block-body {
+  flex: 1;
+  min-height: 0;
 }
 
 .mermaid-block {

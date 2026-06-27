@@ -59,16 +59,34 @@ export function GraphView({
   caption?: string;
 }) {
   const graph = useGraph(source);
+  const [maximized, setMaximized] = useState(false);
+
+  // Esc exits fullscreen.
+  useEffect(() => {
+    if (!maximized) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMaximized(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [maximized]);
 
   return (
-    <figure className="graph-block">
-      {(title || caption) && (
-        <figcaption className="graph-block-header">
-          {title && <span className="graph-block-title">{title}</span>}
-          {caption && <span className="graph-block-caption">{caption}</span>}
-        </figcaption>
-      )}
-      <div className="graph-block-body" style={{ height }}>
+    <figure className={`graph-block${maximized ? ' graph-block-maximized' : ''}`}>
+      <figcaption className="graph-block-header">
+        {title && <span className="graph-block-title">{title}</span>}
+        {caption && <span className="graph-block-caption">{caption}</span>}
+        <button
+          type="button"
+          className="graph-block-fullscreen"
+          onClick={() => setMaximized((m) => !m)}
+          title={maximized ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+          aria-label={maximized ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          {maximized ? '✕' : '⛶'}
+        </button>
+      </figcaption>
+      <div className="graph-block-body" style={maximized ? undefined : { height }}>
         {graph ? (
           <GraphRenderer graph={graph} showDiff cardDensity="detailed" showInlineSignatures />
         ) : (
