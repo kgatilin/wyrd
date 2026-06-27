@@ -199,7 +199,9 @@ function EdgeLayerImpl({
               className={`hf-edge ${diffCls}`}
               markerEnd={marker}
             />
-            {edge.label && (
+            {/* Labels (uses/returns) are noise across the whole package view;
+                show them only for the focused node's edges. */}
+            {edge.label && focused && (
               <text
                 x={r.mid.x}
                 y={r.mid.y}
