@@ -25,7 +25,7 @@ export async function compileArtifact(code: string): Promise<CompileResult> {
     // classic runtime → React.createElement (no react/jsx-runtime imports,
     // which `new Function` can't resolve).
     transpiled =
-      Babel.transform(code, {
+      Babel.transform(stripModuleSyntax(code), {
         presets: [['react', { runtime: 'classic' }]],
       }).code ?? '';
   } catch (err) {
@@ -49,6 +49,20 @@ export async function compileArtifact(code: string): Promise<CompileResult> {
   } catch (err) {
     return { ok: false, error: `Evaluation error: ${msg(err)}` };
   }
+}
+
+/**
+ * The artifact runs as a plain script inside `new Function`, where module
+ * syntax is a hard syntax error. The contract forbids it, but models slip — so
+ * defensively drop `import` lines and unwrap `export` / `export default` before
+ * transpiling. Anything left referencing a bare module identifier still fails
+ * loudly, as it should.
+ */
+function stripModuleSyntax(code: string): string {
+  return code
+    .replace(/^\s*import\s[^\n;]*;?\s*$/gm, '')
+    .replace(/\bexport\s+default\s+/g, '')
+    .replace(/\bexport\s+(?=(?:async\s+)?(?:function|const|let|var|class)\b)/g, '');
 }
 
 function msg(err: unknown): string {

@@ -21,12 +21,13 @@ export interface CapabilityDef {
 }
 
 export const ARTIFACT_CONTRACT = [
-  'An artifact is a single file authored with write_file. It MUST define a',
-  'function `Artifact()` that returns JSX. Do NOT use imports — the capabilities',
-  'below are already in scope; reference them directly. Wrap the document in',
-  '`<article className="artifact-doc">`; use `<div className="prose-block">` for',
-  'prose. NEVER bake graph data into the file — always pull it from a',
-  'data-source (e.g. `<Graph source="component" />`).',
+  'An artifact is a single file authored with write_file. It MUST define a bare',
+  'top-level `function Artifact() { ... }` that returns JSX. The file runs as a',
+  'plain script, so do NOT use `export`, `export default`, `import`, or any',
+  'module syntax — the capabilities below are already in scope; reference them',
+  'directly. Wrap the document in `<article className="artifact-doc">`; use',
+  '`<div className="prose-block">` for prose. NEVER bake graph data into the',
+  'file — always pull it from a data-source (e.g. `<Graph source="component" />`).',
 ].join(' ');
 
 export const CAPABILITIES: CapabilityDef[] = [
