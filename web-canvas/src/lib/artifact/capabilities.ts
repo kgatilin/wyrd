@@ -87,7 +87,8 @@ export const CAPABILITIES: CapabilityDef[] = [
     name: 'useEvents',
     kind: 'data-source',
     signature: 'useEvents(type?: string): AgentEvent[]',
-    doc: 'Agent event-stream data-source (live). AgentEvent = { id, ts, type, summary, data? }. Fold it to show agent activity.',
+    doc:
+      "The RAW backend event log, live (no transformation). AgentEvent = { seq, type, subject?, source?, sessionId?, ts, data? } where `type` is the backend's own event type (e.g. \"agent.tool.started\", \"llm.chunk\", \"agent.loop.completed\") and `data` is that event's verbatim payload. With a `type` argument it filters by prefix (useEvents(\"agent.tool\") matches started+completed). Fold it however you like to build a live activity dashboard.",
   },
 ];
 

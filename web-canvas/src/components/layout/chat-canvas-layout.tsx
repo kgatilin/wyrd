@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Panel,
   Group,
@@ -18,7 +18,6 @@ import { ArtifactsSidebar } from "./artifacts-sidebar";
 import { Button } from "@/components/ui/button";
 import { useSeedArtifacts } from "@/lib/artifact/seed";
 import { useArtifactTools } from "@/lib/artifact/tools";
-import { agentActivitySubscriber } from "@/lib/data/agui-events";
 
 /** Registers the canvas's frontend tools; must live inside the runtime provider. */
 function ArtifactTools() {
@@ -43,12 +42,8 @@ export function ChatCanvasLayout() {
   );
   const runtime = useAgUiRuntime({ agent, showThinking: true });
 
-  // Mirror the agent's live AG-UI activity (tool calls/results) into the event
-  // data-source so artifacts that fold useEvents() show what the agent did.
-  useEffect(() => {
-    const sub = agent.subscribe(agentActivitySubscriber());
-    return () => sub.unsubscribe();
-  }, [agent]);
+  // The event-log data-source (useEvents) connects itself to the backend's raw
+  // event stream (see lib/data/events.ts) — no AG-UI re-mapping here.
 
   const toggleChat = () => {
     const panel = chatPanelRef.current;

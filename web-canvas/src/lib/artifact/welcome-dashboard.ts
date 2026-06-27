@@ -50,13 +50,13 @@ internal/adapter/d2/sequence.go"*, or *"diagram the retrieval pipeline"*.
 
       <div className="prose-block">
         <h2>Agent activity</h2>
-        <p>Live from the agent's event stream as it works:</p>
+        <p>The raw backend event log, live (each event verbatim — fold it however you like):</p>
         {events.length === 0 ? (
           <p><em>No activity yet — start chatting.</em></p>
         ) : (
           <ul>
-            {events.slice(-12).map((e) => (
-              <li key={e.id}><code>{e.type}</code> — {e.summary}</li>
+            {events.slice(-15).map((e) => (
+              <li key={e.seq}><code>{e.type}</code>{e.source ? \` · \${e.source}\` : ''}</li>
             ))}
           </ul>
         )}
