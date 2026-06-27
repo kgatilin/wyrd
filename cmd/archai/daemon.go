@@ -193,7 +193,7 @@ starting a second one.`,
 		Args: cobra.NoArgs,
 		RunE: runDaemonStart,
 	}
-	cmd.Flags().Duration("idle-timeout", 15*time.Minute, "Idle timeout for the daemon (0 = never exit)")
+	cmd.Flags().Duration("idle-timeout", 0, "Idle timeout for the daemon (0 = never exit, the default — an explicitly started daemon stays up)")
 	return cmd
 }
 
@@ -256,7 +256,7 @@ basename.`,
 		RunE: runDaemonRestart,
 	}
 	cmd.Flags().Duration("timeout", 20*time.Second, "How long to wait for the old daemon to exit before escalating to SIGKILL")
-	cmd.Flags().Duration("idle-timeout", 15*time.Minute, "Idle timeout for the restarted daemon (0 = never exit)")
+	cmd.Flags().Duration("idle-timeout", 0, "Idle timeout for the restarted daemon (0 = never exit, the default)")
 	return cmd
 }
 
