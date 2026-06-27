@@ -8,7 +8,11 @@ import { join } from "node:path";
 // loopback port and sets no CORS headers, so the browser can't reach it. This
 // route runs in Node, discovers the daemon for the current repo from the global
 // registry (~/.arch/daemons/*.json), and forwards the request server-to-server.
-// The browser only ever talks to this same-origin route.
+//
+// Two response shapes, by params:
+//   - ?query=… (or ?nodes=…): a queried SUBGRAPH from /api/search_graph or
+//     /api/expand → { nodes, edges } (symbol-level).
+//   - otherwise: the whole-project UIGraph from /api/uigraph.
 export const dynamic = "force-dynamic";
 
 interface DaemonRecord {
@@ -16,9 +20,6 @@ interface DaemonRecord {
   http_addr: string;
 }
 
-// resolveDaemonBase finds the daemon serving the repo this app runs inside.
-// ARCHAI_DAEMON_URL overrides discovery; otherwise pick the registry record
-// whose repo_root is the deepest ancestor of the process working directory.
 async function resolveDaemonBase(): Promise<string | null> {
   const override = process.env.ARCHAI_DAEMON_URL;
   if (override) return override.replace(/\/$/, "");
@@ -42,35 +43,88 @@ async function resolveDaemonBase(): Promise<string | null> {
         if (!best || rec.repo_root.length > best.repo_root.length) best = rec;
       }
     } catch {
-      // skip unreadable/!json records
+      // skip
     }
   }
   return best ? `http://${best.http_addr}` : null;
 }
 
+// In multi-worktree mode the daemon serves under /w/<name>/; bare /api/* paths
+// 302-redirect for GET and 404 for POST. Resolve the worktree prefix once (from
+// the final URL of a followed GET) and cache it per base.
+let cachedPrefix: { base: string; prefix: string } | null = null;
+async function worktreePrefix(base: string): Promise<string> {
+  if (cachedPrefix?.base === base) return cachedPrefix.prefix;
+  let prefix = "";
+  try {
+    const r = await fetch(`${base}/api/uigraph`, { headers: { Accept: "application/json" } });
+    const m = new URL(r.url).pathname.match(/^(\/w\/[^/]+)\//);
+    prefix = m ? m[1] : "";
+  } catch {
+    prefix = "";
+  }
+  cachedPrefix = { base, prefix };
+  return prefix;
+}
+
+function err(message: string, status: number) {
+  return Response.json({ error: message }, { status });
+}
+
 export async function GET(request: Request) {
   const base = await resolveDaemonBase();
   if (!base) {
-    return Response.json(
-      { error: "no archai daemon found for this repo (start one with `archai daemon start`)" },
-      { status: 503 },
-    );
+    return err("no archai daemon found for this repo (start one with `archai daemon start`)", 503);
   }
 
-  const incoming = new URL(request.url);
-  const target = new URL("/api/uigraph", base);
-  // The daemon's project graph is whole-repo; forward only the review base ref.
-  const baseRef = incoming.searchParams.get("base");
-  if (baseRef) target.searchParams.set("base", baseRef);
+  const params = new URL(request.url).searchParams;
+  const query = params.get("query")?.trim();
+  const nodesParam = params.get("nodes")?.trim();
+  const hops = clampInt(params.get("hops"), 1, 0, 4);
+  const edges = (params.get("edges") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const prefix = await worktreePrefix(base);
 
   try {
-    const res = await fetch(target.toString(), { headers: { Accept: "application/json" } });
-    if (!res.ok) {
-      return Response.json({ error: `archai daemon returned ${res.status}` }, { status: 502 });
+    // Queried subgraph: semantic query → search_graph.
+    if (query) {
+      const res = await fetch(`${base}${prefix}/api/search_graph`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ query, k: 14, hops }),
+      });
+      if (!res.ok) return err(`archai search_graph returned ${res.status}`, 502);
+      return Response.json(await res.json());
     }
-    const data = await res.json();
-    return Response.json(data);
-  } catch (err) {
-    return Response.json({ error: `archai daemon unreachable: ${String(err)}` }, { status: 502 });
+
+    // Explicit seeds → expand (with optional edge-kind filter).
+    if (nodesParam) {
+      const node_ids = nodesParam.split(",").map((s) => s.trim()).filter(Boolean);
+      const res = await fetch(`${base}${prefix}/api/expand`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ node_ids, hops, edges }),
+      });
+      if (!res.ok) return err(`archai expand returned ${res.status}`, 502);
+      return Response.json(await res.json());
+    }
+
+    // Whole-project UIGraph.
+    const res = await fetch(`${base}${prefix}/api/uigraph`, {
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return err(`archai daemon returned ${res.status}`, 502);
+    return Response.json(await res.json());
+  } catch (e) {
+    return err(`archai daemon unreachable: ${String(e)}`, 502);
   }
+}
+
+function clampInt(raw: string | null, dflt: number, min: number, max: number): number {
+  const n = raw == null ? NaN : parseInt(raw, 10);
+  if (Number.isNaN(n)) return dflt;
+  return Math.max(min, Math.min(max, n));
 }

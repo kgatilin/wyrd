@@ -30,7 +30,7 @@ export const ARTIFACT_CONTRACT = [
   'headings, lists, tables); do NOT hand-build tab bars, nav bars, badges, or',
   'other custom chrome, and avoid inline styles. Place each `<Graph>` on its own',
   'line as a block (never side by side). NEVER bake graph data into the file —',
-  'always pull it from a data-source (e.g. `<Graph source="component" />`). For',
+  'always pull it from a data-source (e.g. `<Graph query="hybrid retrieval" />`). For',
   'diagrams (flowcharts, sequence, etc.) use `<Mermaid>` — never a markdown code',
   'block, which only shows the diagram source as text.',
 ].join(' ');
@@ -45,8 +45,16 @@ export const CAPABILITIES: CapabilityDef[] = [
   {
     name: 'Graph',
     kind: 'component',
-    signature: '<Graph source={string} height?={number} title?={string} caption?={string} />',
-    doc: "Architecture-graph widget (pan/zoom, expand, focus, fullscreen). `source` focuses the view on a package: pass a package path or name (e.g. \"internal/retrieval\" or \"retrieval\") to show that package plus its direct dependencies and dependents. Use \"project\" (or omit a specific target) for the whole graph. Find exact package paths with the archai_list_packages tool — `source` matches a package, not a symbol (for a type like BM25, use the package that contains it). height defaults to 520.",
+    signature:
+      '<Graph query?={string} source?={string} nodes?={string[]} hops?={number} edges?={string[]} height?={number} title?={string} caption?={string} />',
+    doc:
+      'Architecture-graph widget (pan/zoom, expand, click-to-focus dependencies, fullscreen) that renders any slice of the real code graph. Choose the slice:\n' +
+      '  • query — a natural-language query selecting a subgraph by meaning, e.g. query="hybrid retrieval scoring" or query="BM25 lexical index". This is the main way to show a focused piece.\n' +
+      '  • nodes — explicit seed node ids (pkg.Symbol, e.g. ["internal/retrieval.Service"]) to grow a neighborhood from.\n' +
+      '  • source — focus the whole-project graph on a package (path or name, e.g. "internal/retrieval"); shows it plus direct deps/dependents.\n' +
+      '  • hops — neighborhood radius for query/nodes (default 1; 2 = wider).\n' +
+      '  • edges — restrict to these edge kinds: any of "uses","returns","implements","calls".\n' +
+      'With none of query/nodes/source it shows the whole project. Prefer `query` for "show me the X subgraph". height defaults to 520.',
   },
   {
     name: 'Mermaid',
@@ -57,8 +65,8 @@ export const CAPABILITIES: CapabilityDef[] = [
   {
     name: 'useGraph',
     kind: 'data-source',
-    signature: 'useGraph(source: string): UIGraph | null',
-    doc: 'Graph data-source (pull) over the real archai daemon graph of this repo. `source` is a package path/name to focus on (or "project" for the whole graph). Returns null while loading. Usually consumed via <Graph source=.../>.',
+    signature: 'useGraph(spec: string | { query?, nodes?, source?, hops?, edges? }): UIGraph | null',
+    doc: 'Graph data-source (pull) over the real archai daemon graph. Pass a GraphQuery (query=semantic subgraph, nodes=seed ids, source=package focus, hops, edges=kinds) or a bare string (treated as source). Returns null while loading. Usually consumed via <Graph .../>.',
   },
   {
     name: 'useEvents',

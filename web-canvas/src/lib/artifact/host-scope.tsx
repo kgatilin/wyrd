@@ -49,16 +49,24 @@ const GraphRenderer = dynamic(
  */
 export function GraphView({
   source,
+  query,
+  nodes,
+  hops,
+  edges,
   height = 520,
   title,
   caption,
 }: {
-  source: string;
+  source?: string;
+  query?: string;
+  nodes?: string[];
+  hops?: number;
+  edges?: string[];
   height?: number;
   title?: string;
   caption?: string;
 }) {
-  const graph = useGraph(source);
+  const graph = useGraph({ source, query, nodes, hops, edges });
   const [maximized, setMaximized] = useState(false);
 
   // Esc exits fullscreen.
@@ -90,7 +98,9 @@ export function GraphView({
         {graph ? (
           <GraphRenderer graph={graph} showDiff cardDensity="detailed" showInlineSignatures />
         ) : (
-          <div className="graph-block-loading">Loading “{source}” from data-source…</div>
+          <div className="graph-block-loading">
+            Loading {query ? `“${query}”` : source ? `“${source}”` : 'graph'} from data-source…
+          </div>
         )}
       </div>
     </figure>
