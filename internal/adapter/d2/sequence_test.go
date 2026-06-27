@@ -208,6 +208,73 @@ func TestBuildPackageSequenceSourcesKeepsPublicStructMethodCalls(t *testing.T) {
 	}
 }
 
+func TestBuildPackageSequenceSourcesCrossTypeInternalInteractions(t *testing.T) {
+	// A.Do (public) calls B.helper (unexported, cross-type) and A.step
+	// (unexported, intra-type). A.step also calls B.helper. The desired
+	// projection is type-level: cross-type calls show even into unexported
+	// methods, intra-type chatter (A→A) collapses.
+	pkg := domain.PackageModel{
+		Path: "internal/svc",
+		Structs: []domain.StructDef{
+			{
+				Name: "A", IsExported: true,
+				Methods: []domain.MethodDef{
+					{
+						Name: "Do", IsExported: true,
+						Calls: []domain.CallEdge{
+							{To: domain.SymbolRef{Package: "internal/svc", Symbol: "B.helper"}},
+							{To: domain.SymbolRef{Package: "internal/svc", Symbol: "A.step"}},
+						},
+					},
+					{
+						Name: "step", IsExported: false,
+						Calls: []domain.CallEdge{
+							{To: domain.SymbolRef{Package: "internal/svc", Symbol: "B.helper"}},
+						},
+					},
+				},
+			},
+			{
+				Name: "B", IsExported: true,
+				Methods: []domain.MethodDef{
+					{Name: "helper", IsExported: false},
+				},
+			},
+		},
+	}
+
+	// With cross-type internal interactions: A.Do is the only public entry,
+	// and the cross-type call into the unexported B.helper is drawn.
+	with := BuildPackageSequenceSources([]domain.PackageModel{pkg}, pkg, SequenceOptions{
+		Mode:                        OverviewModePublic,
+		IncludeInternalInteractions: true,
+	})
+	if len(with) != 1 {
+		t.Fatalf("entries = %d, want 1: %+v", len(with), with)
+	}
+	src := with[0].Source
+	if !strings.Contains(src, `"svc.A" -> "svc.B"`) {
+		t.Fatalf("cross-type internal edge A -> B missing:\n%s", src)
+	}
+	if !strings.Contains(src, "helper") {
+		t.Fatalf("edge label helper missing:\n%s", src)
+	}
+	// Intra-type call (A -> A) must be collapsed.
+	if strings.Contains(src, `"svc.A" -> "svc.A"`) {
+		t.Fatalf("intra-type edge A -> A should be collapsed:\n%s", src)
+	}
+
+	// Plain public mode drops the unexported callee entirely → no interactions.
+	plain := BuildPackageSequenceSources([]domain.PackageModel{pkg}, pkg, SequenceOptions{
+		Mode: OverviewModePublic,
+	})
+	for _, d := range plain {
+		if strings.Contains(d.Source, `"svc.A" -> "svc.B"`) {
+			t.Fatalf("plain public mode should not draw cross-type call into unexported helper:\n%s", d.Source)
+		}
+	}
+}
+
 func TestBuildPackageSequenceSources(t *testing.T) {
 	pkg := domain.PackageModel{
 		Path: "internal/svc",

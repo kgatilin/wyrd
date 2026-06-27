@@ -14,6 +14,13 @@ type SequenceOptions struct {
 	Mode            OverviewMode
 	MaxDepth        int
 	IncludeRootOnly bool
+	// IncludeInternalInteractions keeps cross-type calls to unexported
+	// symbols in the interaction tree even when Mode is public. Entry
+	// points are still selected by Mode (so the diagram stays anchored at
+	// the public API), but a public-rooted flow that crosses into another
+	// type via an unexported method is shown. Intra-type calls remain
+	// collapsed regardless (the interaction projection is type-level).
+	IncludeInternalInteractions bool
 }
 
 // SequenceDiagram is one D2 sequence diagram rooted at a function or method.
@@ -111,7 +118,13 @@ func BuildTypeSequenceSources(models []domain.PackageModel, pkgPath, typeName st
 // entry point, matching the browser package Overview sequence list.
 func BuildPackageSequenceSources(models []domain.PackageModel, pkg domain.PackageModel, opts SequenceOptions) []SequenceDiagram {
 	opts = normalizeSequenceOptions(opts)
+	// Entry points are gated by Mode (public API surface); the interaction
+	// tree can additionally keep cross-type calls into unexported symbols so
+	// a public-rooted flow that hops through an internal method of *another*
+	// type is still drawn. Intra-type calls are collapsed by the actor-level
+	// projection in either case.
 	includeUnexported := opts.Mode.includesUnexported()
+	interactionUnexported := includeUnexported || opts.IncludeInternalInteractions
 	symbols := buildSequenceSymbolIndex(models)
 
 	type candidate struct {
@@ -129,7 +142,7 @@ func BuildPackageSequenceSources(models []domain.PackageModel, pkg domain.Packag
 		}
 		start := domain.SymbolRef{Package: pkg.Path, Symbol: fn.Name}
 		tree := sequence.Build(models, start, opts.MaxDepth)
-		tree = buildInteractionTree(tree, symbols, includeUnexported)
+		tree = buildInteractionTree(tree, symbols, interactionUnexported)
 		if tree == nil && !opts.IncludeRootOnly {
 			continue
 		}
@@ -162,7 +175,7 @@ func BuildPackageSequenceSources(models []domain.PackageModel, pkg domain.Packag
 			}
 			start := domain.SymbolRef{Package: pkg.Path, Symbol: st.Name + "." + m.Name}
 			tree := sequence.Build(models, start, opts.MaxDepth)
-			tree = buildInteractionTree(tree, symbols, includeUnexported)
+			tree = buildInteractionTree(tree, symbols, interactionUnexported)
 			if tree == nil && !opts.IncludeRootOnly {
 				continue
 			}

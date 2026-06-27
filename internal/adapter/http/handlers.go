@@ -177,6 +177,7 @@ func (s *Server) routesContent(mux *nethttp.ServeMux) {
 	// React review UI data. This route is backed by the live daemon
 	// snapshot, so the UI does not need a manually-exported archgraph.json.
 	mux.HandleFunc("/api/uigraph", s.handleUIGraphJSON)
+	mux.HandleFunc("/api/sequence", s.handleSequenceJSON)
 	mux.HandleFunc("/api/source", s.handleSourceFileJSON)
 	mux.HandleFunc("/api/events", s.handleModelEvents)
 	mux.HandleFunc("/api/public-surface", s.handlePublicSurfaceJSON)
