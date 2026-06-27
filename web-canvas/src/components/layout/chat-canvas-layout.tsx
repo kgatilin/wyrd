@@ -9,11 +9,8 @@ import {
 } from "react-resizable-panels";
 import { PanelLeftCloseIcon, PanelLeftOpenIcon, SidebarIcon } from "lucide-react";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
-import {
-  useChatRuntime,
-  AssistantChatTransport,
-} from "@assistant-ui/react-ai-sdk";
-import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
+import { useAgUiRuntime } from "@assistant-ui/react-ag-ui";
+import { HttpAgent } from "@ag-ui/client";
 
 import { Thread } from "@/components/assistant-ui/thread";
 import { CanvasPanel } from "./canvas-panel";
@@ -27,12 +24,16 @@ export function ChatCanvasLayout() {
   const [isArtifactsSidebarOpen, setIsArtifactsSidebarOpen] = useState(true);
   const chatPanelRef = usePanelRef();
 
-  const runtime = useChatRuntime({
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
-    transport: new AssistantChatTransport({
-      api: "/api/chat",
-    }),
-  });
+  // The chat talks to a generic AG-UI backend. archai is protocol-only and
+  // knows nothing about what serves this endpoint — the URL is the single
+  // point of coupling, configurable via env (defaults to the local backend).
+  const [agent] = useState(
+    () =>
+      new HttpAgent({
+        url: process.env.NEXT_PUBLIC_AGUI_URL ?? "http://localhost:8123/agui",
+      }),
+  );
+  const runtime = useAgUiRuntime({ agent, showThinking: true });
 
   const toggleChat = () => {
     const panel = chatPanelRef.current;
