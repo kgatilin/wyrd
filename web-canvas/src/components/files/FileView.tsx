@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import ShikiHighlighter from 'react-shiki';
+import 'react-shiki/css';
 import { diffLines } from 'diff';
 import { useSource } from '@/lib/data/source';
 
+// Map a file extension to a Shiki language id.
 const LANG: Record<string, string> = {
   go: 'go',
   ts: 'typescript',
@@ -20,10 +21,10 @@ const LANG: Record<string, string> = {
   yml: 'yaml',
   sh: 'bash',
   sql: 'sql',
-  html: 'markup',
+  html: 'html',
   rs: 'rust',
   java: 'java',
-  proto: 'protobuf',
+  proto: 'proto',
 };
 
 function langFor(path: string): string {
@@ -40,19 +41,31 @@ export interface FileViewProps {
   path: string;
   /** Start expanded instead of collapsed. */
   defaultExpanded?: boolean;
-  /** Body height (scrolls). */
+  /** Body height (scrolls). Ignored when `fill` is set. */
   height?: number;
+  /** Fill the parent's height (flex) instead of using a fixed body height. */
+  fill?: boolean;
 }
 
 /**
  * A single source file: collapsed to a header by default, expand to read it
- * with syntax highlighting + line numbers. When the file differs from the base
- * ref, an inline diff is available (and shown first).
+ * with syntax highlighting + line numbers (Shiki — line numbers are CSS
+ * generated content, so they are not part of a text selection). When the file
+ * differs from the base ref, an inline diff is available (and shown first).
+ *
+ * Content is fetched once on first expand and kept across collapse/expand, so
+ * toggling the header never reloads the file.
  */
-export function FileView({ path, defaultExpanded = false, height = 420 }: FileViewProps) {
+export function FileView({ path, defaultExpanded = false, height = 420, fill = false }: FileViewProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  // Only fetch once expanded — a collapsed file costs nothing.
-  const { data, error, loading } = useSource(expanded ? path : null, true);
+  // Once expanded, keep fetching the same path so collapsing doesn't drop the
+  // data and reopening never refetches.
+  const [seen, setSeen] = useState(defaultExpanded);
+  useEffect(() => {
+    if (expanded) setSeen(true);
+  }, [expanded]);
+
+  const { data, error, loading } = useSource(seen ? path : null, true);
   const [mode, setMode] = useState<'file' | 'diff'>('file');
 
   // When a diff is detected, default to showing it.
@@ -62,7 +75,7 @@ export function FileView({ path, defaultExpanded = false, height = 420 }: FileVi
   }, [data?.hasDiff]);
 
   return (
-    <figure className="file-block">
+    <figure className={`file-block${fill ? ' file-block-fill' : ''}`}>
       <figcaption className="file-block-header" onClick={() => setExpanded((e) => !e)}>
         <span className="file-block-chevron">{expanded ? '▾' : '▸'}</span>
         <span className="file-block-name" title={path}>
@@ -91,7 +104,7 @@ export function FileView({ path, defaultExpanded = false, height = 420 }: FileVi
       </figcaption>
 
       {expanded && (
-        <div className="file-block-body" style={{ maxHeight: height }}>
+        <div className="file-block-body" style={fill ? undefined : { maxHeight: height }}>
           {loading && <div className="graph-block-loading">Loading {baseName(path)}…</div>}
           {error && (
             <div className="artifact-error">
@@ -103,15 +116,15 @@ export function FileView({ path, defaultExpanded = false, height = 420 }: FileVi
             (mode === 'diff' && data.hasDiff ? (
               <DiffView oldValue={data.baseContent ?? ''} newValue={data.content} />
             ) : (
-              <SyntaxHighlighter
+              <ShikiHighlighter
                 language={langFor(path)}
-                style={oneLight}
+                theme="github-light"
                 showLineNumbers
-                wrapLongLines={false}
-                customStyle={{ margin: 0, background: 'transparent', fontSize: '0.78rem' }}
+                showLanguage={false}
+                className="file-shiki"
               >
                 {data.content}
-              </SyntaxHighlighter>
+              </ShikiHighlighter>
             ))}
         </div>
       )}

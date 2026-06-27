@@ -143,7 +143,7 @@ function FileTreeInner({ paths, height = 460 }: { paths: string[]; height?: numb
       </nav>
       <div className="filetree-file">
         {selected ? (
-          <FileView key={selected} path={selected} defaultExpanded height={height - 16} />
+          <FileView key={selected} path={selected} defaultExpanded fill />
         ) : (
           <div className="filetree-empty">Select a file…</div>
         )}

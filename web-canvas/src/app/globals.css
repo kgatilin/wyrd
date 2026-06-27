@@ -400,6 +400,30 @@
   overflow: auto;
   border-top: 1px solid var(--border);
 }
+/* Fill mode: the file block fills its parent and owns the single scroll. */
+.file-block-fill {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+.file-block-fill .file-block-body {
+  flex: 1;
+  min-height: 0;
+}
+/* Shiki block: let the file body own vertical scroll (no nested vscroll). */
+.file-shiki,
+.file-shiki pre {
+  margin: 0;
+  max-height: none;
+}
+.file-shiki pre {
+  overflow-x: auto;
+  overflow-y: visible;
+  border-radius: 0;
+}
 
 /* --- Inline unified diff --- */
 .diff {
@@ -477,9 +501,9 @@
 .filetree-file {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   height: 100%;
-  overflow: auto;
-  padding: 0.5rem 0.7rem;
+  overflow: hidden;
 }
 .filetree-empty {
   display: flex;
