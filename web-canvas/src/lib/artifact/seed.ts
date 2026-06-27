@@ -2,26 +2,34 @@
 
 import { useEffect } from 'react';
 import { useArtifactStore } from './store';
-import { exampleArtifactFile } from './example-file';
+import { welcomeDashboardFile } from './welcome-dashboard';
 
-const EXAMPLE_ID = 'example-architecture-overview';
+const WELCOME_ID = 'welcome-dashboard';
 
 /**
- * Seeds the store with the example artifact as a `generated` file on first
- * mount. Stands in for the agent's first write_file; idempotent by id.
+ * Ensures the canvas always opens on something useful. If the user has no saved
+ * dashboards (first run, or they deleted them all), seed the welcome dashboard
+ * as a SAVED artifact so it persists and shows under "Saved" — not as a
+ * freshly-generated file. Whatever is present, make sure one artifact is active.
+ *
+ * Saved artifacts persist to localStorage, so a returning user keeps their own
+ * dashboards and this never overwrites them.
  */
 export function useSeedArtifacts(): void {
   useEffect(() => {
     const store = useArtifactStore.getState();
-    const exists = store.artifacts.some((a) => a.id === EXAMPLE_ID);
-    if (!exists) {
-      store.writeArtifact({
-        id: EXAMPLE_ID,
-        name: 'Architecture overview',
-        content: exampleArtifactFile,
-      });
-    } else if (store.activeId === null) {
-      store.setActive(EXAMPLE_ID);
+    const hasSaved = store.artifacts.some((a) => a.kind === 'saved');
+
+    if (!hasSaved && !store.artifacts.some((a) => a.id === WELCOME_ID)) {
+      store.writeArtifact({ id: WELCOME_ID, name: 'Welcome', content: welcomeDashboardFile });
+      store.saveArtifact(WELCOME_ID);
+      store.setActive(WELCOME_ID);
+      return;
+    }
+
+    if (store.activeId === null) {
+      const first = store.artifacts.find((a) => a.kind === 'saved') ?? store.artifacts[0];
+      if (first) store.setActive(first.id);
     }
   }, []);
 }
