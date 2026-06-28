@@ -47,6 +47,10 @@ class EventBus {
   private listeners = new Set<() => void>();
   private started = false;
   private es: EventSource | null = null;
+  /** Monotonic fallback for events the backend sends without an SSE id. Never
+   *  resets, so keys stay unique even after the ring buffer trims (array length
+   *  plateaus at MAX_EVENTS, so it can't serve as a counter). */
+  private fallbackSeq = 0;
 
   /** Open the SSE connection lazily on first subscriber (browser only). */
   private ensureStarted(): void {
@@ -63,7 +67,7 @@ class EventBus {
           return; // skip malformed line
         }
         this.append({
-          seq: e.lastEventId ? Number(e.lastEventId) : this.events.length + 1,
+          seq: e.lastEventId ? Number(e.lastEventId) : --this.fallbackSeq,
           type: raw.type,
           subject: raw.subject,
           source: raw.source,
