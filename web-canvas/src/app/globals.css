@@ -219,6 +219,111 @@
 }
 .artifact-doc :where(th) { font-weight: 620; color: var(--muted-foreground); }
 
+/* Live agent-activity feed widget (welcome dashboard) */
+.activity {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -12px rgba(0, 0, 0, 0.18);
+}
+.activity-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.65rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--muted) 55%, var(--card));
+  font-size: 0.85rem;
+}
+.activity-title {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+}
+.activity-meta {
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+.activity-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: #9ca3af;
+}
+.activity-pulse.is-live {
+  background: #22c55e;
+  animation: activity-pulse 1.6s ease-out infinite;
+}
+@keyframes activity-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45); }
+  70% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+}
+.activity-row:last-child { border-bottom: 0; }
+.activity-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted-foreground);
+}
+.activity-dot[data-src="llm"] { background: #6366f1; }
+.activity-dot[data-src="agent"] { background: #22c55e; }
+.activity-dot[data-src="workflow"] { background: #f59e0b; }
+.activity-dot[data-src="session"] { background: #06b6d4; }
+.activity-dot[data-src="eventlog"] { background: #a855f7; }
+.activity-type {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.82rem;
+  color: var(--foreground);
+}
+.activity-src {
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.activity-count {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 9%, transparent);
+  color: var(--muted-foreground);
+}
+.activity-time {
+  margin-left: auto;
+  font-size: 0.74rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.activity-empty {
+  padding: 1.5rem 0.9rem;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
 /* Embedded graph widget card */
 .graph-block {
   margin: 0;
