@@ -3,23 +3,39 @@
 import { useEffect } from 'react';
 import { useArtifactStore } from './store';
 import { welcomeDashboardFile } from './welcome-dashboard';
-
-const WELCOME_ID = 'welcome-dashboard';
+import { pluginArchitectureFile } from './plugin-architecture';
 
 /**
- * Version of the seeded welcome dashboard. Bump whenever
- * {@link welcomeDashboardFile} changes so returning users — whose old copy is
- * persisted in localStorage — pick up the new version. Only the system-seeded
- * "Welcome" artifact is refreshed; the user's own saved dashboards are untouched.
+ * A system-seeded SAVED artifact: an ordinary artifact file (the same unit the
+ * agent authors via write_artifact) that ships with the canvas. Each has a
+ * version so returning users — whose copy is persisted in localStorage — pick up
+ * a new revision when {@link version} is bumped, while their own dashboards are
+ * left untouched.
  */
-const WELCOME_VERSION = 3;
-const WELCOME_VERSION_KEY = 'archai-canvas-welcome-version';
+interface SystemDoc {
+  id: string;
+  name: string;
+  file: string;
+  version: number;
+}
+
+const LANDING_ID = 'welcome-dashboard';
+
+const SYSTEM_DOCS: SystemDoc[] = [
+  { id: LANDING_ID, name: 'Welcome', file: welcomeDashboardFile, version: 3 },
+  { id: 'plugin-architecture', name: 'Plugin architecture', file: pluginArchitectureFile, version: 1 },
+];
+
+const versionKey = (id: string) => `archai-canvas-seed-version:${id}`;
+// The welcome doc used this standalone key before system docs were generalized.
+const LEGACY_WELCOME_KEY = 'archai-canvas-welcome-version';
 
 /**
- * Ensures the canvas always opens on something useful. If the user has no saved
- * dashboards (first run, or they deleted them all), seed the welcome dashboard
- * as a SAVED artifact so it persists and shows under "Saved" — not as a
- * freshly-generated file. Whatever is present, make sure one artifact is active.
+ * Ensures the canvas always opens on something useful, and keeps the bundled
+ * system docs current. Per doc, the version key gives a tri-state:
+ *   - key absent            → never seeded → introduce it (write + save)
+ *   - key present & stale    → refresh in place to the new revision
+ *   - key present, artifact gone → the user deleted it → leave it gone
  *
  * Saved artifacts persist to localStorage, so a returning user keeps their own
  * dashboards and this never overwrites them.
@@ -27,41 +43,51 @@ const WELCOME_VERSION_KEY = 'archai-canvas-welcome-version';
 export function useSeedArtifacts(): void {
   useEffect(() => {
     const store = useArtifactStore.getState();
-    const hasSaved = store.artifacts.some((a) => a.kind === 'saved');
+    const prevActive = store.activeId;
+    const introduced: string[] = [];
 
-    if (!hasSaved && !store.artifacts.some((a) => a.id === WELCOME_ID)) {
-      store.writeArtifact({ id: WELCOME_ID, name: 'Welcome', content: welcomeDashboardFile });
-      store.saveArtifact(WELCOME_ID);
-      store.setActive(WELCOME_ID);
-      writeWelcomeVersion();
-      return;
+    for (const doc of SYSTEM_DOCS) {
+      const seededVersion = readDocVersion(doc);
+      const exists = store.artifacts.some((a) => a.id === doc.id);
+      const introduce = seededVersion === null;
+      const refresh = seededVersion !== null && exists && seededVersion < doc.version;
+      if (introduce || refresh) {
+        store.writeArtifact({ id: doc.id, name: doc.name, content: doc.file });
+        store.saveArtifact(doc.id);
+        writeDocVersion(doc);
+      }
+      if (introduce) introduced.push(doc.id);
     }
 
-    // Refresh an existing seeded welcome dashboard when its version is stale, so
-    // a returning user gets the latest seed instead of a buggy cached copy.
-    // writeArtifact activates the target, so restore the user's prior focus.
-    const welcome = store.artifacts.find((a) => a.id === WELCOME_ID);
-    if (welcome && readWelcomeVersion() < WELCOME_VERSION) {
-      const prevActive = store.activeId;
-      store.writeArtifact({ id: WELCOME_ID, name: 'Welcome', content: welcomeDashboardFile });
-      store.saveArtifact(WELCOME_ID);
-      writeWelcomeVersion();
-      if (prevActive && prevActive !== WELCOME_ID) store.setActive(prevActive);
-    }
-
-    if (store.activeId === null) {
+    // writeArtifact activates whatever it last wrote. Land on the welcome doc
+    // when it was freshly introduced, on any newly-introduced doc otherwise
+    // (so a new system doc surfaces itself once), and never steal an existing
+    // user's focus on a plain refresh.
+    if (introduced.length) {
+      store.setActive(introduced.includes(LANDING_ID) ? LANDING_ID : introduced[introduced.length - 1]);
+    } else if (prevActive) {
+      if (store.activeId !== prevActive) store.setActive(prevActive);
+    } else if (store.activeId === null) {
       const first = store.artifacts.find((a) => a.kind === 'saved') ?? store.artifacts[0];
       if (first) store.setActive(first.id);
     }
   }, []);
 }
 
-function readWelcomeVersion(): number {
-  if (typeof window === 'undefined') return WELCOME_VERSION;
-  return Number(window.localStorage.getItem(WELCOME_VERSION_KEY)) || 0;
+function readDocVersion(doc: SystemDoc): number | null {
+  if (typeof window === 'undefined') return doc.version;
+  const raw = window.localStorage.getItem(versionKey(doc.id));
+  if (raw !== null) return Number(raw) || 0;
+  // Migrate the welcome doc's legacy key so we neither re-seed a current copy
+  // nor resurrect one the user deleted before the keys were generalized.
+  if (doc.id === LANDING_ID) {
+    const legacy = window.localStorage.getItem(LEGACY_WELCOME_KEY);
+    if (legacy !== null) return Number(legacy) || 0;
+  }
+  return null;
 }
 
-function writeWelcomeVersion(): void {
+function writeDocVersion(doc: SystemDoc): void {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(WELCOME_VERSION_KEY, String(WELCOME_VERSION));
+  window.localStorage.setItem(versionKey(doc.id), String(doc.version));
 }
