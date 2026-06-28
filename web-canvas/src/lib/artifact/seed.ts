@@ -12,7 +12,7 @@ const WELCOME_ID = 'welcome-dashboard';
  * persisted in localStorage — pick up the new version. Only the system-seeded
  * "Welcome" artifact is refreshed; the user's own saved dashboards are untouched.
  */
-const WELCOME_VERSION = 2;
+const WELCOME_VERSION = 3;
 const WELCOME_VERSION_KEY = 'archai-canvas-welcome-version';
 
 /**

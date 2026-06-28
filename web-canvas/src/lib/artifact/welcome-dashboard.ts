@@ -43,30 +43,94 @@ function foldEvents(events) {
   return rows;
 }
 
+// Source → dot color. Self-contained inline styling so the widget renders
+// correctly regardless of the host stylesheet (var(--token, fallback) keeps it
+// theme-aware while still working if a token is missing).
+function srcColor(s) {
+  return {
+    llm: '#6366f1',
+    agent: '#22c55e',
+    workflow: '#f59e0b',
+    session: '#06b6d4',
+    eventlog: '#a855f7',
+  }[s] || '#9ca3af';
+}
+
 function ActivityFeed() {
   const events = useEvents();
   const now = useNow(1000);
   const rows = foldEvents(events).slice(-14).reverse();
   const live = events.length > 0 && now - events[events.length - 1].ts < 3000;
+  const muted = 'var(--muted-foreground, #6b7280)';
 
   return (
-    <div className="activity">
-      <div className="activity-head">
-        <span className={'activity-pulse' + (live ? ' is-live' : '')} />
-        <span className="activity-title">{live ? 'live' : 'idle'}</span>
-        <span className="activity-meta">{events.length} event{events.length === 1 ? '' : 's'}</span>
+    <div style={{
+      border: '1px solid var(--border, #e5e7eb)',
+      borderRadius: 12,
+      overflow: 'hidden',
+      background: 'var(--card, #ffffff)',
+      boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 8px 24px -12px rgba(0,0,0,0.18)',
+    }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '10px 14px',
+        borderBottom: '1px solid var(--border, #e5e7eb)',
+        background: 'color-mix(in srgb, var(--foreground, #111827) 4%, transparent)',
+      }}>
+        <span style={{
+          width: 8, height: 8, borderRadius: '50%', flex: 'none',
+          background: live ? '#22c55e' : '#9ca3af',
+          boxShadow: live ? '0 0 0 3px rgba(34,197,94,0.18)' : 'none',
+        }} />
+        <span style={{
+          fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em',
+          fontSize: 11, color: muted,
+        }}>{live ? 'live' : 'idle'}</span>
+        <span style={{
+          marginLeft: 'auto', color: muted, fontSize: 12,
+          fontVariantNumeric: 'tabular-nums',
+        }}>{events.length} event{events.length === 1 ? '' : 's'}</span>
       </div>
+
       {rows.length === 0 ? (
-        <div className="activity-empty">No activity yet — start chatting.</div>
+        <div style={{ padding: '24px 14px', textAlign: 'center', color: muted, fontSize: 13 }}>
+          No activity yet — start chatting.
+        </div>
       ) : (
-        <div className="activity-feed">
-          {rows.map((r) => (
-            <div className="activity-row" key={r.seq}>
-              <span className="activity-dot" data-src={r.source || ''} />
-              <span className="activity-type">{r.type}</span>
-              {r.source ? <span className="activity-src">{r.source}</span> : null}
-              {r.count > 1 ? <span className="activity-count">×{r.count}</span> : null}
-              <span className="activity-time">{relTime(r.ts, now)}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 360, overflowY: 'auto' }}>
+          {rows.map((r, i) => (
+            <div key={r.seq} style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '8px 14px',
+              borderTop: i === 0 ? 'none' : '1px solid color-mix(in srgb, var(--border, #e5e7eb) 45%, transparent)',
+            }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', flex: 'none', background: srcColor(r.source) }} />
+              <span style={{
+                fontFamily: 'var(--font-geist-mono, ui-monospace, SFMono-Regular, monospace)',
+                fontSize: 12.5,
+                color: 'var(--foreground, #111827)',
+              }}>{r.type}</span>
+              {r.source ? (
+                <span style={{ fontSize: 10.5, letterSpacing: '0.03em', textTransform: 'uppercase', color: muted }}>
+                  {r.source}
+                </span>
+              ) : null}
+              {r.count > 1 ? (
+                <span style={{
+                  fontSize: 11, fontVariantNumeric: 'tabular-nums',
+                  padding: '1px 6px', borderRadius: 999,
+                  background: 'color-mix(in srgb, var(--foreground, #111827) 9%, transparent)',
+                  color: muted,
+                }}>×{r.count}</span>
+              ) : null}
+              <span style={{
+                marginLeft: 'auto', fontSize: 12, color: muted,
+                fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+              }}>{relTime(r.ts, now)}</span>
             </div>
           ))}
         </div>
