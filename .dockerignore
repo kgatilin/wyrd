@@ -1,0 +1,28 @@
+# Docker build context trimming. archai is pulled in as an "additional build
+# context" by other images (e.g. the cascade hub image) that only need the Go
+# source to `go build ./cmd/archai`. The working tree carries ~2GB of JS deps,
+# agent worktrees and build output the compile never touches — excluding it
+# turns a ~150s / 2GB context transfer into a couple of seconds.
+#
+# KEEP: all *.go, go.mod/go.sum, and web/dist (embedded into the binary via
+# //go:embed in web/dist_embed.go) — do NOT ignore web/dist.
+
+# JS / frontend deps and build caches (not part of the Go binary)
+web-canvas/
+web/node_modules/
+web/.vite/
+**/.next/
+
+# VCS, agent, and editor/tooling state
+.git/
+.worktrees/
+.claude/
+.tm/
+
+# archai runtime data / graph caches
+.archai/
+.arch/
+
+# build outputs (rebuilt inside the image)
+bin/
+output/
