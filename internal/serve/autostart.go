@@ -36,12 +36,20 @@ func DiscoverDaemon(projectRoot string) (*worktree.ServeRecord, string, error) {
 }
 
 // DiscoverRepoDaemon looks up the running multi-worktree daemon for the
-// repo containing cwd. It checks the global registry first, falling back
-// to the legacy per-worktree serve.json for compatibility.
+// repo containing cwd via the global registry under $HOME/.arch/daemons.
 // Returns the daemon record (nil when no live daemon is registered),
 // the repo root, and the current worktree name.
+//
+// Discovery is deliberately global-registry-only. The legacy per-worktree
+// serve.json lives inside the repo tree, so when the repo is bind-mounted
+// into a container at an identical path (as the hub cascade-app stack
+// does), the container's own archai overwrites it with a PID and address
+// that are only valid inside the container's namespace — poisoning host
+// discovery. The global registry lives under $HOME, which differs between
+// host ($HOME/.arch) and container (/root/.arch) and is never mounted
+// across, so it stays isolated. serve.json is still written for backward
+// compatibility but is no longer trusted for repo-level discovery.
 func DiscoverRepoDaemon(cwd string) (*DaemonRecord, string, string, error) {
-	// Find repo root and worktree name.
 	repoRoot, ok := worktree.RepoRoot(cwd)
 	if !ok {
 		// Not in a git repo — fall back to cwd as both repo and worktree.
@@ -53,32 +61,11 @@ func DiscoverRepoDaemon(cwd string) (*DaemonRecord, string, string, error) {
 	}
 	wtName := worktree.Name(cwd)
 
-	// Check global registry first.
 	globalRec, err := ReadGlobalRecord(repoRoot)
 	if err != nil {
 		return nil, repoRoot, wtName, err
 	}
-	if globalRec != nil {
-		return globalRec, repoRoot, wtName, nil
-	}
-
-	// Fallback: check legacy per-worktree serve.json.
-	legacyRec, err := worktree.ReadServe(cwd, wtName)
-	if err != nil {
-		return nil, repoRoot, wtName, nil // Ignore errors, just means no daemon.
-	}
-	if legacyRec != nil && worktree.PIDAlive(legacyRec.PID) {
-		// Convert legacy record to DaemonRecord for uniform handling.
-		return &DaemonRecord{
-			RepoRoot:  repoRoot,
-			HTTPAddr:  legacyRec.HTTPAddr,
-			PID:       legacyRec.PID,
-			Caps:      []string{"mcp"}, // Legacy daemons are single-worktree.
-			StartedAt: legacyRec.StartedAt,
-		}, repoRoot, wtName, nil
-	}
-
-	return nil, repoRoot, wtName, nil
+	return globalRec, repoRoot, wtName, nil
 }
 
 // AutoStartOptions configures how a background daemon is launched by
@@ -283,22 +270,14 @@ func AutoStartRepoDaemon(opts AutoStartOptions) (*DaemonRecord, string, error) {
 	}
 	defer unlock()
 
-	// Re-check: another caller may have started a daemon while we
-	// were waiting for the lock.
+	// Re-check the global registry: another caller may have started a
+	// daemon while we were waiting for the lock. Discovery is
+	// global-registry-only — the legacy per-worktree serve.json is not
+	// consulted here because it leaks across an identical-path container
+	// mount and would resurrect a container-local PID/address (see
+	// DiscoverRepoDaemon).
 	if rec, rerr := ReadGlobalRecord(repoRoot); rerr == nil && rec != nil {
 		return rec, wtName, nil
-	}
-
-	// Also check legacy per-worktree record at repo root.
-	repoWtName := worktree.Name(repoRoot)
-	if rec, rerr := worktree.ReadServe(repoRoot, repoWtName); rerr == nil && rec != nil && worktree.PIDAlive(rec.PID) {
-		return &DaemonRecord{
-			RepoRoot:  repoRoot,
-			HTTPAddr:  rec.HTTPAddr,
-			PID:       rec.PID,
-			Caps:      []string{"mcp", "multi", "ui"},
-			StartedAt: rec.StartedAt,
-		}, wtName, nil
 	}
 
 	// Start a multi-worktree daemon at the repo root.

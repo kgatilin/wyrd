@@ -343,7 +343,7 @@ manual verification and as a base for future features.`,
 	// per-worktree daemon. The worktree name is derived from cwd and
 	// every tool call is scoped to that daemon's /w/{name}/ routes, so a
 	// single warm daemon serves every worktree's MCP without re-parsing.
-	serveCmd.Flags().Bool("shared", false, "With --mcp-stdio: attach to the repo-root --multi daemon and scope tool calls to this worktree's /w/{name}/ routes")
+	serveCmd.Flags().Bool("shared", false, "With --mcp-stdio: discover (via the global registry) or auto-start the repo-root --multi daemon and scope tool calls to this worktree's /w/{name}/ routes")
 	// M11 idle-timeout: when non-zero, the HTTP daemon exits after
 	// this duration without any requests. Auto-started daemons pass
 	// 15m to keep untracked idle daemons from outliving their MCP
@@ -817,12 +817,16 @@ func runMCPThinClient(ctx context.Context, root string) error {
 
 // runMCPSharedClient implements `archai serve --mcp-stdio --shared`. It
 // resolves the repo root for the (possibly linked) worktree at root,
-// attaches to the repo-root multi-worktree daemon recorded there, and
-// runs the MCP stdio transport scoped to this worktree's /w/{name}/
-// routes. Unlike the per-worktree thin client it never auto-starts a
-// daemon: the shared --multi daemon is operated independently (e.g.
-// alongside the browser UI), so a missing one is a hard error with
-// guidance rather than a silent local spawn.
+// attaches to the repo-root multi-worktree daemon, and runs the MCP stdio
+// transport scoped to this worktree's /w/{name}/ routes.
+//
+// Discovery goes through the global registry ($HOME/.arch/daemons), never
+// the repo-local serve.json — the latter leaks across an identical-path
+// container mount and would point the host client at a container-local
+// address (see serve.DiscoverRepoDaemon). When no daemon is registered it
+// auto-starts a repo-root --multi daemon, so `--shared` always brings up a
+// daemon rather than hard-erroring; a separately operated persistent daemon
+// (e.g. the cmux/launchd review-UI one) is simply discovered and reused.
 func runMCPSharedClient(ctx context.Context, root string) error {
 	if root == "" {
 		root = "."
@@ -831,28 +835,64 @@ func runMCPSharedClient(ctx context.Context, root string) error {
 	if err != nil {
 		return fmt.Errorf("resolving root %s: %w", root, err)
 	}
-
-	repoRoot, ok := worktree.RepoRoot(absRoot)
-	if !ok {
+	if _, ok := worktree.RepoRoot(absRoot); !ok {
 		return fmt.Errorf("mcp-client: --shared requires a git worktree; could not resolve repo root from %s", absRoot)
 	}
-	wtName := worktree.Name(absRoot)
-	daemonName := worktree.Name(repoRoot)
 
-	rec, err := worktree.ReadServe(repoRoot, daemonName)
+	// Discover or auto-start the repo's multi-worktree daemon.
+	rec, _, wtName, err := serve.DiscoverRepoDaemon(absRoot)
 	if err != nil {
-		return fmt.Errorf("mcp-client: read shared daemon record: %w", err)
+		return fmt.Errorf("mcp-client: discover shared daemon: %w", err)
 	}
-	if rec == nil || !worktree.PIDAlive(rec.PID) {
-		return fmt.Errorf("mcp-client: no live multi-worktree daemon for %s; start one with "+
-			"`archai serve --multi --root %s --http 127.0.0.1:PORT`", repoRoot, repoRoot)
+	if rec == nil {
+		rec, wtName, err = serve.AutoStartRepoDaemon(serve.AutoStartOptions{
+			Root:        absRoot,
+			HTTPAddr:    "127.0.0.1:0",
+			IdleTimeout: autoStartIdleTimeout,
+			Multi:       true,
+			UI:          true,
+		})
+		if err != nil {
+			return fmt.Errorf("mcp-client: auto-start shared daemon: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "mcp-client: auto-started shared multi daemon pid=%d addr=%s worktree=%s idle-timeout=%s\n",
+			rec.PID, rec.HTTPAddr, wtName, autoStartIdleTimeout)
+	} else {
+		fmt.Fprintf(os.Stderr, "mcp-client: attached to shared daemon pid=%d addr=%s worktree=%s\n",
+			rec.PID, rec.HTTPAddr, wtName)
 	}
-	fmt.Fprintf(os.Stderr, "mcp-client: attached to shared daemon pid=%d addr=%s worktree=%s\n",
-		rec.PID, rec.HTTPAddr, wtName)
+
+	worktreePrefix := ""
+	if rec.HasCap("multi") {
+		worktreePrefix = "/w/" + wtName
+	}
+
+	// Re-resolve on connection failure so the client survives a daemon
+	// restart (idle-timeout exit, version bump), re-starting one if needed.
+	endpointResolver := func() (string, error) {
+		newRec, _, _, derr := serve.DiscoverRepoDaemon(absRoot)
+		if derr != nil {
+			return "", derr
+		}
+		if newRec == nil {
+			newRec, _, derr = serve.AutoStartRepoDaemon(serve.AutoStartOptions{
+				Root:        absRoot,
+				HTTPAddr:    "127.0.0.1:0",
+				IdleTimeout: autoStartIdleTimeout,
+				Multi:       true,
+				UI:          true,
+			})
+			if derr != nil {
+				return "", derr
+			}
+		}
+		return "http://" + newRec.HTTPAddr, nil
+	}
 
 	return mcp.ServeClient(ctx, mcp.ClientOptions{
-		Endpoint:       "http://" + rec.HTTPAddr,
-		WorktreePrefix: "/w/" + wtName,
+		Endpoint:         "http://" + rec.HTTPAddr,
+		EndpointResolver: endpointResolver,
+		WorktreePrefix:   worktreePrefix,
 	})
 }
 
