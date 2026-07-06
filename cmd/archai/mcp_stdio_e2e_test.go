@@ -143,7 +143,7 @@ func Hello() string { return "hi" }
 		t.Fatalf("list_packages error: %+v", resp.Error)
 	}
 	listText := textContent(t, resp)
-	if !strings.Contains(listText, `"path": "alpha"`) || !strings.Contains(listText, `"path": "beta"`) {
+	if !strings.Contains(listText, `"path":"alpha"`) || !strings.Contains(listText, `"path":"beta"`) {
 		t.Errorf("list_packages did not include both packages: %s", listText)
 	}
 
@@ -158,10 +158,10 @@ func Hello() string { return "hi" }
 		t.Fatalf("extract error: %+v", resp.Error)
 	}
 	extractText := textContent(t, resp)
-	if !strings.Contains(extractText, `"Path": "alpha"`) {
-		t.Errorf("extract did not include alpha (mixed-case Path): %s", extractText)
+	if !strings.Contains(extractText, `"path":"alpha"`) {
+		t.Errorf("extract did not include alpha digest: %s", extractText)
 	}
-	if strings.Contains(extractText, `"Path": "beta"`) {
+	if strings.Contains(extractText, `"path":"beta"`) {
 		t.Errorf("extract should not include beta when filtered: %s", extractText)
 	}
 
@@ -176,7 +176,7 @@ func Hello() string { return "hi" }
 		t.Fatalf("get_package error: %+v", resp.Error)
 	}
 	pkgText := textContent(t, resp)
-	if !strings.Contains(pkgText, `"Name": "beta"`) {
+	if !strings.Contains(pkgText, `"name":"beta"`) {
 		t.Errorf("get_package did not return beta payload: %s", pkgText)
 	}
 

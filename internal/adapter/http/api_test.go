@@ -143,12 +143,25 @@ func TestAPI_Extract_FilteredByPath(t *testing.T) {
 		t.Fatalf("status: %d body=%s", resp.StatusCode, body)
 	}
 
-	var pkgs []domain.PackageModel
-	if err := json.Unmarshal(body, &pkgs); err != nil {
+	// extract now returns bounded digests wrapped in {"packages":[...]},
+	// not raw PackageModels. The digest types live (unexported) in the mcp
+	// package, so unmarshal into a local shape carrying just what we assert.
+	var out struct {
+		Packages []struct {
+			Path    string `json:"path"`
+			Symbols []struct {
+				Name string `json:"name"`
+			} `json:"symbols"`
+		} `json:"packages"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(pkgs) != 1 || pkgs[0].Path != "alpha" {
-		t.Errorf("expected only alpha, got %v", pkgs)
+	if len(out.Packages) != 1 || out.Packages[0].Path != "alpha" {
+		t.Errorf("expected only alpha, got %v", out.Packages)
+	}
+	if len(out.Packages[0].Symbols) == 0 {
+		t.Errorf("expected alpha symbol digest, got none: %s", body)
 	}
 }
 

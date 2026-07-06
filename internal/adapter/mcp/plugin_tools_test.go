@@ -70,7 +70,7 @@ func TestDispatch_PluginTool(t *testing.T) {
 	if got := gotArgs["package"]; got != "internal/foo" {
 		t.Errorf("plugin handler saw args[package] = %v, want internal/foo", got)
 	}
-	if len(res.Content) != 1 || !strings.Contains(res.Content[0].Text, `"score": 42`) {
+	if len(res.Content) != 1 || !strings.Contains(res.Content[0].Text, `"score":42`) {
 		t.Errorf("result content = %+v", res.Content)
 	}
 }

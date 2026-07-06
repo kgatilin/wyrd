@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/serve"
 	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
 	"github.com/kgatilin/archmotif/pkg/spectralcluster"
@@ -149,7 +148,7 @@ func TestDispatchUnknownTool(t *testing.T) {
 	}
 }
 
-func TestExtract_EmptyStateReturnsEmptyArray(t *testing.T) {
+func TestExtract_EmptyStateReturnsEmptyIndex(t *testing.T) {
 	res, rpcErr := Dispatch(nil, "extract", nil)
 	if rpcErr != nil {
 		t.Fatalf("unexpected RPC error: %v", rpcErr)
@@ -157,43 +156,56 @@ func TestExtract_EmptyStateReturnsEmptyArray(t *testing.T) {
 	if len(res.Content) != 1 || res.Content[0].Type != "text" {
 		t.Fatalf("unexpected content: %+v", res.Content)
 	}
-	var pkgs []domain.PackageModel
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &pkgs); err != nil {
+	var out extractResult
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(pkgs) != 0 {
-		t.Errorf("expected 0 packages, got %d", len(pkgs))
+	if len(out.Packages) != 0 {
+		t.Errorf("expected 0 packages, got %d", len(out.Packages))
 	}
 }
 
-func TestExtract_ReturnsAllPackages(t *testing.T) {
+func TestExtract_NoPathsReturnsIndex(t *testing.T) {
 	state := loadFakeState(t)
 	res, rpcErr := Dispatch(state, "extract", nil)
 	if rpcErr != nil {
 		t.Fatalf("unexpected RPC error: %v", rpcErr)
 	}
-	var pkgs []domain.PackageModel
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &pkgs); err != nil {
+	var out extractResult
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 packages, got %d: %+v", len(pkgs), pkgs)
+	if len(out.Packages) != 2 {
+		t.Fatalf("expected 2 packages, got %d: %+v", len(out.Packages), out.Packages)
+	}
+	// Index mode: metadata + census but no symbol bodies.
+	for _, p := range out.Packages {
+		if len(p.Symbols) != 0 {
+			t.Errorf("index mode must carry no symbols; %s has %d", p.Path, len(p.Symbols))
+		}
+		if p.Counts.Total == 0 {
+			t.Errorf("index mode must carry counts; %s total=0", p.Path)
+		}
 	}
 }
 
-func TestExtract_FilterByPath(t *testing.T) {
+func TestExtract_FilterByPathReturnsDigest(t *testing.T) {
 	state := loadFakeState(t)
 	args := json.RawMessage(`{"paths":["alpha"]}`)
 	res, rpcErr := Dispatch(state, "extract", args)
 	if rpcErr != nil {
 		t.Fatalf("unexpected RPC error: %v", rpcErr)
 	}
-	var pkgs []domain.PackageModel
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &pkgs); err != nil {
+	var out extractResult
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(pkgs) != 1 || pkgs[0].Path != "alpha" {
-		t.Fatalf("expected single 'alpha' package, got %+v", pkgs)
+	if len(out.Packages) != 1 || out.Packages[0].Path != "alpha" {
+		t.Fatalf("expected single 'alpha' package, got %+v", out.Packages)
+	}
+	// With explicit paths the digest carries the symbol surface.
+	if len(out.Packages[0].Symbols) == 0 {
+		t.Errorf("expected symbol digest for alpha, got none")
 	}
 }
 
@@ -255,12 +267,23 @@ func TestGetPackage_Found(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("expected non-error result, got %+v", res)
 	}
-	var pkg domain.PackageModel
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &pkg); err != nil {
+	var dg packageDigest
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &dg); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if pkg.Path != "beta" || pkg.Name != "beta" {
-		t.Errorf("unexpected package: %+v", pkg)
+	if dg.Path != "beta" || dg.Name != "beta" {
+		t.Errorf("unexpected package: %+v", dg)
+	}
+	// beta declares Thing (struct) and Hello (func).
+	if dg.Counts.Structs != 1 || dg.Counts.Functions != 1 {
+		t.Errorf("unexpected counts: %+v", dg.Counts)
+	}
+	names := map[string]bool{}
+	for _, s := range dg.Symbols {
+		names[s.Name] = true
+	}
+	if !names["Thing"] || !names["Hello"] {
+		t.Errorf("missing expected symbols in digest: %+v", dg.Symbols)
 	}
 }
 

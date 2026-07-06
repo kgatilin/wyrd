@@ -147,14 +147,27 @@ func builtinToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
 		{
 			Name:        "extract",
-			Description: "Return the full extracted Go model (all packages) from the archai daemon's in-memory state. Optionally filter to specific package paths.",
+			Description: "Survey the extracted Go model. With no `paths`, returns an INDEX: every package's metadata and per-kind symbol census (no symbol bodies) — an overview to drill into. With `paths`, returns a bounded symbol digest per requested package (signatures + synopses, paged via offset/limit, narrowed via kinds), the same shape as get_package. It never dumps full package models; read a symbol's body with get_node.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"paths": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
-						"description": "Module-relative package paths to include. When omitted or empty, all packages are returned.",
+						"description": "Module-relative package paths to digest. Omit/empty for the index of all packages.",
+					},
+					"kinds": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Restrict symbols to these kinds: interface, struct, func, type, const, var, error. Only applies when paths is set.",
+					},
+					"offset": map[string]any{
+						"type":        "integer",
+						"description": "Symbol offset for paging within each requested package (default 0).",
+					},
+					"limit": map[string]any{
+						"type":        "integer",
+						"description": "Max symbols per package page (default 400).",
 					},
 				},
 			},
@@ -169,13 +182,26 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "get_package",
-			Description: "Return the full PackageModel for a single package identified by its module-relative path.",
+			Description: "Return a bounded digest of a single package's symbol surface — signatures, one-line synopses, and locations for its interfaces, structs, functions, types, consts, vars, and errors — identified by its module-relative path. Omits source bodies, call edges, and dependency lists (get them via get_node and expand/search_graph) so the response stays within the size budget. Large packages paginate via offset/limit; kinds narrows to specific symbol kinds.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"path": map[string]any{
 						"type":        "string",
 						"description": "Module-relative package path, e.g. internal/service.",
+					},
+					"kinds": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Restrict to these symbol kinds: interface, struct, func, type, const, var, error. Empty = all.",
+					},
+					"offset": map[string]any{
+						"type":        "integer",
+						"description": "Symbol offset to start the page at (default 0). Use pagination.next_offset to advance.",
+					},
+					"limit": map[string]any{
+						"type":        "integer",
+						"description": "Max symbols to return in this page (default 400).",
 					},
 				},
 				"required": []string{"path"},
@@ -634,12 +660,25 @@ func builtinToolDefinitions() []ToolDefinition {
 	}
 }
 
-// Dispatch routes a tools/call invocation to the matching handler.
-// Built-in tool names dispatch to their handlers directly; plugin tool
-// names (the ones starting with "plugin.") are routed via the registry
-// installed by SetPluginTools (M13). Unknown names surface as
-// JSON-RPC method-not-found errors.
+// Dispatch routes a tools/call invocation to the matching handler and
+// enforces the response-size ceiling on the result. Built-in tool names
+// dispatch to their handlers directly; plugin tool names (the ones starting
+// with "plugin.") are routed via the registry installed by SetPluginTools
+// (M13). Unknown names surface as JSON-RPC method-not-found errors.
+//
+// Every successful result is passed through clampToolResult so no single
+// tool response can exceed maxResultBytes — the transport (and any
+// downstream NATS bridge) is protected regardless of which handler ran.
 func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	res, rpcErr := dispatch(state, name, rawArgs)
+	if rpcErr != nil {
+		return ToolResult{}, rpcErr
+	}
+	return clampToolResult(name, res), nil
+}
+
+// dispatch is the raw tool router; Dispatch wraps it with the size clamp.
+func dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolResult, *RPCError) {
 	switch name {
 	case "extract":
 		return handleExtract(state, rawArgs)
@@ -737,12 +776,26 @@ func dispatchPluginTool(name string, rawArgs json.RawMessage) (ToolResult, *RPCE
 
 // extractArgs is the input schema for the extract tool.
 type extractArgs struct {
-	Paths []string `json:"paths"`
+	Paths  []string `json:"paths"`
+	Kinds  []string `json:"kinds"`
+	Offset int      `json:"offset"`
+	Limit  int      `json:"limit"`
 }
 
-// handleExtract returns the (optionally filtered) package list. An
-// empty Paths slice means "return everything"; an unknown path is not
-// an error — it just contributes nothing.
+// extractResult wraps the package digests extract returns, plus a hint that
+// tells the model how to get more detail.
+type extractResult struct {
+	Packages []packageDigest `json:"packages"`
+	Hint     string          `json:"hint,omitempty"`
+}
+
+// handleExtract returns a bounded view of the extracted model. With no
+// `paths` it returns an INDEX (per-package metadata + symbol census, no
+// symbol bodies) — dumping every package's full surface is what blew the
+// response past NATS's limit, so the unfiltered call is deliberately an
+// index to drill into. With `paths` it returns a per-package symbol digest
+// (paged via offset/limit, narrowed via kinds), the same shape as
+// get_package. Unknown paths simply contribute nothing.
 func handleExtract(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
 	var args extractArgs
 	if len(rawArgs) > 0 {
@@ -755,24 +808,29 @@ func handleExtract(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RP
 	}
 
 	snap := snapshotOrEmpty(state)
-	out := snap.Packages
-	if len(args.Paths) > 0 {
-		want := make(map[string]struct{}, len(args.Paths))
-		for _, p := range args.Paths {
-			want[p] = struct{}{}
+
+	if len(args.Paths) == 0 {
+		res := extractResult{
+			Packages: []packageDigest{},
+			Hint:     "Index only (no symbols). Pass `paths` for per-package symbol digests, or call get_package for a single package.",
 		}
-		filtered := make([]domain.PackageModel, 0, len(args.Paths))
 		for _, m := range snap.Packages {
-			if _, ok := want[m.Path]; ok {
-				filtered = append(filtered, m)
-			}
+			res.Packages = append(res.Packages, buildPackageIndex(m))
 		}
-		out = filtered
+		return textResult(res)
 	}
-	if out == nil {
-		out = []domain.PackageModel{}
+
+	want := make(map[string]struct{}, len(args.Paths))
+	for _, p := range args.Paths {
+		want[p] = struct{}{}
 	}
-	return textResult(out)
+	res := extractResult{Packages: []packageDigest{}}
+	for _, m := range snap.Packages {
+		if _, ok := want[m.Path]; ok {
+			res.Packages = append(res.Packages, buildPackageDigest(m, args.Kinds, args.Offset, args.Limit))
+		}
+	}
+	return textResult(res)
 }
 
 // handleListPackages returns the minimal per-package summary.
@@ -794,12 +852,20 @@ func handleListPackages(state *serve.State) (ToolResult, *RPCError) {
 
 // getPackageArgs is the input schema for the get_package tool.
 type getPackageArgs struct {
-	Path string `json:"path"`
+	Path   string   `json:"path"`
+	Kinds  []string `json:"kinds"`
+	Offset int      `json:"offset"`
+	Limit  int      `json:"limit"`
 }
 
-// handleGetPackage returns a single PackageModel. Missing/empty paths
-// and unknown packages come back as IsError=true tool results (not
-// JSON-RPC errors) so the model can see the message and recover.
+// handleGetPackage returns a bounded digest of a single package's symbol
+// surface (signatures, synopses, locations) rather than the full
+// PackageModel — the model's call edges, dependency list, and source spans
+// are the bulk that pushed a raw dump past 1 MB. Read a symbol's body with
+// get_node; trace its edges with expand/search_graph. Large packages
+// paginate via offset/limit; kinds narrows to specific symbol kinds.
+// Missing/empty paths and unknown packages come back as IsError=true tool
+// results (not JSON-RPC errors) so the model can see the message and recover.
 func handleGetPackage(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
 	var args getPackageArgs
 	if len(rawArgs) > 0 {
@@ -817,7 +883,7 @@ func handleGetPackage(state *serve.State, rawArgs json.RawMessage) (ToolResult, 
 	snap := snapshotOrEmpty(state)
 	for _, m := range snap.Packages {
 		if m.Path == args.Path {
-			return textResult(m)
+			return textResult(buildPackageDigest(m, args.Kinds, args.Offset, args.Limit))
 		}
 	}
 	return errorResult(fmt.Sprintf("package %q not found", args.Path)), nil
@@ -1172,10 +1238,6 @@ func requireRoot(state *serve.State) (string, bool) {
 
 // --- Filesystem tool handlers (scoped to the project root) ---
 
-// maxReadFileBytes caps read_file output so one huge file can't blow the MCP
-// response budget. Larger files are truncated with a trailing notice.
-const maxReadFileBytes = 256 * 1024
-
 // searchFilesSkipDirs are directory names search_files never descends into.
 // Other dotdirs are skipped generically in the walk.
 var searchFilesSkipDirs = map[string]bool{
@@ -1503,10 +1565,12 @@ func validatePatch(d *diff.Diff) error {
 	return nil
 }
 
-// textResult marshals payload as indented JSON and wraps it in a
-// single text content block.
+// textResult marshals payload as compact JSON and wraps it in a single
+// text content block. Compact (not indented) output is deliberate: the MCP
+// consumer is an LLM that parses the JSON, so indentation is pure byte and
+// token overhead. The hard size ceiling is enforced separately by Dispatch.
 func textResult(payload any) (ToolResult, *RPCError) {
-	data, err := json.MarshalIndent(payload, "", "  ")
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return ToolResult{}, &RPCError{
 			Code:    ErrInternal,
@@ -1528,6 +1592,26 @@ func errorResult(msg string) ToolResult {
 }
 
 // --- Retrieval tool handlers ---
+
+// Retrieval-tool output caps. These keep search/graph responses shaped for
+// an LLM: bounded result counts, clipped snippets/docs, and a capped symbol
+// body — well under the maxResultBytes ceiling Dispatch enforces.
+const (
+	// maxSearchK caps how many hits search returns regardless of requested k.
+	maxSearchK = 50
+	// maxSnippetBytes clips each search hit's source snippet.
+	maxSnippetBytes = 600
+	// maxSubgraphNodes / maxSubgraphEdges cap search_graph and expand output.
+	maxSubgraphNodes = 150
+	maxSubgraphEdges = 400
+	// maxSubgraphSig / maxSubgraphDoc clip per-node signature and doc text.
+	maxSubgraphSig = 300
+	maxSubgraphDoc = 200
+	// maxNodeBodyBytes clips get_node's source body; maxNodeEdges caps its
+	// incident-edge list (a hub symbol can have hundreds).
+	maxNodeBodyBytes = 24 * 1024
+	maxNodeEdges     = 200
+)
 
 // searchArgs is the input schema for the search tool.
 type searchArgs struct {
@@ -1580,6 +1664,9 @@ func handleSearch(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 	if k <= 0 {
 		k = 10
 	}
+	if k > maxSearchK {
+		k = maxSearchK
+	}
 
 	ctx := context.Background()
 	filters := retrieval.Filters{
@@ -1599,8 +1686,8 @@ func handleSearch(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 			Kind:    r.Kind,
 			File:    r.File,
 			Line:    r.Line,
-			Doc:     r.Doc,
-			Snippet: r.Snippet,
+			Doc:     firstLine(r.Doc, maxSubgraphDoc),
+			Snippet: clip(r.Snippet, maxSnippetBytes),
 			Score:   r.Score,
 		}
 	}
@@ -1620,6 +1707,50 @@ type subgraphResult struct {
 	Nodes []nodeInfo `json:"nodes"`
 	Edges []edgeInfo `json:"edges"`
 	Dense bool       `json:"dense,omitempty"`
+	// NodeCount / EdgeCount are the pre-cap totals; Truncated is set when
+	// the subgraph was capped to maxSubgraphNodes/maxSubgraphEdges.
+	NodeCount int  `json:"node_count,omitempty"`
+	EdgeCount int  `json:"edge_count,omitempty"`
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// cappedSubgraph bounds a subgraph for LLM consumption: it keeps at most
+// maxSubgraphNodes nodes, then retains only edges whose endpoints both
+// survive (no dangling references), up to maxSubgraphEdges. Pre-cap totals
+// and a truncated flag are reported so the caller knows the view is partial.
+func cappedSubgraph(nodes []nodeInfo, edges []edgeInfo, dense bool) subgraphResult {
+	totalNodes, totalEdges := len(nodes), len(edges)
+	truncated := false
+	if len(nodes) > maxSubgraphNodes {
+		nodes = nodes[:maxSubgraphNodes]
+		truncated = true
+	}
+	kept := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		kept[n.ID] = true
+	}
+	filtered := make([]edgeInfo, 0, len(edges))
+	for _, e := range edges {
+		if !kept[e.From] || !kept[e.To] {
+			continue
+		}
+		if len(filtered) >= maxSubgraphEdges {
+			break
+		}
+		filtered = append(filtered, e)
+	}
+	if len(filtered) < totalEdges {
+		// Edges were dropped — either edge-capped or endpoint capped away.
+		truncated = true
+	}
+	return subgraphResult{
+		Nodes:     nodes,
+		Edges:     filtered,
+		Dense:     dense,
+		NodeCount: totalNodes,
+		EdgeCount: totalEdges,
+		Truncated: truncated,
+	}
 }
 
 type nodeInfo struct {
@@ -1683,8 +1814,8 @@ func handleSearchGraph(state *serve.State, rawArgs json.RawMessage) (ToolResult,
 			Name:      n.Name,
 			File:      n.File,
 			Line:      n.Line,
-			Signature: n.Signature,
-			Doc:       n.Doc,
+			Signature: clip(n.Signature, maxSubgraphSig),
+			Doc:       firstLine(n.Doc, maxSubgraphDoc),
 			Score:     n.Score,
 		}
 	}
@@ -1694,7 +1825,7 @@ func handleSearchGraph(state *serve.State, rawArgs json.RawMessage) (ToolResult,
 		edges[i] = edgeInfo{From: e.From, To: e.To, Kind: e.Kind}
 	}
 
-	return textResult(subgraphResult{Nodes: nodes, Edges: edges, Dense: denseUsed})
+	return textResult(cappedSubgraph(nodes, edges, denseUsed))
 }
 
 // expandArgs is the input schema for the expand tool.
@@ -1743,8 +1874,8 @@ func handleExpand(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 			Name:      n.Name,
 			File:      n.File,
 			Line:      n.Line,
-			Signature: n.Signature,
-			Doc:       n.Doc,
+			Signature: clip(n.Signature, maxSubgraphSig),
+			Doc:       firstLine(n.Doc, maxSubgraphDoc),
 			Score:     n.Score,
 		}
 	}
@@ -1754,7 +1885,7 @@ func handleExpand(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 		edges[i] = edgeInfo{From: e.From, To: e.To, Kind: e.Kind}
 	}
 
-	return textResult(subgraphResult{Nodes: nodes, Edges: edges})
+	return textResult(cappedSubgraph(nodes, edges, false))
 }
 
 // getNodeArgs is the input schema for the get_node tool.
@@ -1774,6 +1905,10 @@ type nodeDetailResult struct {
 	Doc       string     `json:"doc,omitempty"`
 	Body      string     `json:"body,omitempty"`
 	Edges     []edgeInfo `json:"edges"`
+	// EdgeCount is the pre-cap incident-edge total; EdgesTruncated is set
+	// when the edge list was capped to maxNodeEdges.
+	EdgeCount      int  `json:"edge_count,omitempty"`
+	EdgesTruncated bool `json:"edges_truncated,omitempty"`
 }
 
 // handleGetNode returns full detail for a single node.
@@ -1805,22 +1940,31 @@ func handleGetNode(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RP
 		return errorResult(fmt.Sprintf("node %q not found", args.ID)), nil
 	}
 
-	edges := make([]edgeInfo, len(detail.Edges))
-	for i, e := range detail.Edges {
+	edgeCount := len(detail.Edges)
+	edgesTruncated := false
+	kept := detail.Edges
+	if len(kept) > maxNodeEdges {
+		kept = kept[:maxNodeEdges]
+		edgesTruncated = true
+	}
+	edges := make([]edgeInfo, len(kept))
+	for i, e := range kept {
 		edges[i] = edgeInfo{From: e.From, To: e.To, Kind: e.Kind}
 	}
 
 	return textResult(nodeDetailResult{
-		NodeID:    detail.NodeID,
-		Kind:      detail.Kind,
-		Package:   detail.Package,
-		Name:      detail.Name,
-		File:      detail.File,
-		Line:      detail.Line,
-		Signature: detail.Signature,
-		Doc:       detail.Doc,
-		Body:      detail.Body,
-		Edges:     edges,
+		NodeID:         detail.NodeID,
+		Kind:           detail.Kind,
+		Package:        detail.Package,
+		Name:           detail.Name,
+		File:           detail.File,
+		Line:           detail.Line,
+		Signature:      detail.Signature,
+		Doc:            detail.Doc,
+		Body:           clip(detail.Body, maxNodeBodyBytes),
+		Edges:          edges,
+		EdgeCount:      edgeCount,
+		EdgesTruncated: edgesTruncated,
 	})
 }
 

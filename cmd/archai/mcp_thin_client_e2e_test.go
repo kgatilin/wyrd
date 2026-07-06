@@ -128,7 +128,7 @@ func New() *Impl { return &Impl{} }
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if !strings.Contains(text, `"path": "alpha"`) {
+	if !strings.Contains(text, `"path":"alpha"`) {
 		t.Errorf("list_packages missing alpha: %s", text)
 	}
 
@@ -144,7 +144,7 @@ func New() *Impl { return &Impl{} }
 	}
 	lockText := textContent(t, resp)
 	// target.TargetMeta has no json tags so the field name surfaces as "ID".
-	if !strings.Contains(lockText, `"ID": "v1"`) {
+	if !strings.Contains(lockText, `"ID":"v1"`) {
 		t.Errorf("lock_target did not return v1 meta: %s", lockText)
 	}
 
@@ -159,7 +159,7 @@ func New() *Impl { return &Impl{} }
 		t.Fatalf("validate error: %+v", resp.Error)
 	}
 	validateText := textContent(t, resp)
-	if !strings.Contains(validateText, `"ok": true`) {
+	if !strings.Contains(validateText, `"ok":true`) {
 		t.Errorf("validate.ok != true: %s", validateText)
 	}
 
