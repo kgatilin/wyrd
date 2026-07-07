@@ -50,10 +50,16 @@ type Config struct {
 //     observed edge is a violation unless some Allow rule permits it —
 //     including edges within a single layer. When explicitly false, only
 //     Forbid/Reachability rules apply (blacklist mode).
+//   - Components: package-tree roots (globs) that define cohesion boundaries.
+//     A package belongs to the deepest declared component root that is its
+//     ancestor; an import between two packages in the same component is never
+//     a violation (a component may freely use its own sub-tree). Imports that
+//     cross a component boundary follow the Allow/Forbid rules. Empty means no
+//     component allowance (every package is its own singleton).
 //   - Allow: "A -> B" rules — the permitted edges (allow-list plus the
 //     carve-in exceptions to a broader Forbid).
 //   - Forbid: "A !-> B" rules — explicitly forbidden edges. A Forbid always
-//     wins over an Allow for the same pair.
+//     wins over an Allow (and over the same-component allowance) for the pair.
 //   - Reachability: transitive rules — "A !~> B" (no path A→…→B) and
 //     "A ~> B via C" (every path A→…→B must pass through C).
 //
@@ -62,14 +68,16 @@ type Config struct {
 // side of an operator may be comma-separated lists.
 type PolicyConfig struct {
 	DenyByDefault *bool    `yaml:"deny_by_default,omitempty"`
+	Components    []string `yaml:"components,omitempty"`
 	Allow         []string `yaml:"allow,omitempty"`
 	Forbid        []string `yaml:"forbid,omitempty"`
 	Reachability  []string `yaml:"reachability,omitempty"`
 }
 
-// Defined reports whether the policy carries any rule.
+// Defined reports whether the policy carries any rule or component boundary.
 func (p PolicyConfig) Defined() bool {
-	return len(p.Allow) > 0 || len(p.Forbid) > 0 || len(p.Reachability) > 0
+	return len(p.Allow) > 0 || len(p.Forbid) > 0 || len(p.Reachability) > 0 ||
+		len(p.Components) > 0
 }
 
 // DiagramConfig captures project-level presentation settings for generated

@@ -41,10 +41,21 @@ func Check(spec *Spec, models []domain.PackageModel, cfg *overlay.Config) ([]Vio
 		}
 	}
 
+	// Precompute each package's component once so the same-component allowance
+	// is a cheap lookup in the edge loop.
+	compOf := make(map[string]string, len(g.pkgs))
+	for _, p := range g.pkgs {
+		compOf[p] = componentOf(p, spec.Components)
+	}
+	sameComponent := func(a, b string) bool {
+		return len(spec.Components) > 0 && compOf[a] == compOf[b]
+	}
+
 	var violations []Violation
 
-	// Direct-edge rules over the observed edges. Forbid wins over allow, and
-	// under deny-by-default an edge that no allow rule covers is a violation.
+	// Direct-edge rules over the observed edges. Forbid wins over everything;
+	// otherwise a same-component edge (cohesion) or an allow-listed edge passes,
+	// and under deny-by-default anything else is a violation.
 	for _, e := range g.edges() {
 		if fr, ok := firstMatch(forbidRules, e); ok {
 			violations = append(violations, Violation{
@@ -53,6 +64,9 @@ func Check(spec *Spec, models []domain.PackageModel, cfg *overlay.Config) ([]Vio
 				Message: fmt.Sprintf("%s must not depend on %s (forbidden by %q)",
 					e.from, e.to, fr.rule.Raw),
 			})
+			continue
+		}
+		if sameComponent(e.from, e.to) {
 			continue
 		}
 		if spec.DenyByDefault {

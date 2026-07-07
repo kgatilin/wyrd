@@ -356,6 +356,71 @@ func TestCheckOutOfModuleDepIgnored(t *testing.T) {
 	}
 }
 
+func TestComponentOf(t *testing.T) {
+	globs := []string{"internal/*", "internal/plugins/*", "internal/tools/*"}
+	cases := []struct{ pkg, want string }{
+		{"internal/auth", "internal/auth"},
+		{"internal/auth/keycloak", "internal/auth"},              // descendant -> parent component
+		{"internal/eventstorage/types", "internal/eventstorage"}, // sibling shares component
+		{"internal/plugins/billing", "internal/plugins/billing"}, // deeper root wins
+		{"internal/plugins/billing/client", "internal/plugins/billing"},
+		{"internal/tools/grafana/plugins", "internal/tools/grafana"},
+		{"cmd/app", "cmd/app"}, // no component glob -> singleton (itself)
+	}
+	for _, c := range cases {
+		if got := componentOf(c.pkg, globs); got != c.want {
+			t.Errorf("componentOf(%q) = %q, want %q", c.pkg, got, c.want)
+		}
+	}
+}
+
+func TestCheckSameComponentAllowed(t *testing.T) {
+	// A component may freely import its own sub-tree, incl. siblings, while
+	// cross-component imports are still denied under deny-by-default.
+	models := []domain.PackageModel{
+		pkg("internal/auth", "", "internal/auth/keycloak", "internal/auth/oauth2password"),
+		pkg("internal/auth/keycloak", ""),
+		pkg("internal/auth/oauth2password", ""),
+		pkg("internal/eventstorage/encoders", "", "internal/eventstorage/types"),
+		pkg("internal/eventstorage/types", ""),
+		pkg("internal/plugins/billing", "", "internal/plugins/reporting"), // cross-plugin: denied
+		pkg("internal/plugins/reporting", ""),
+	}
+	spec := mustParse(t, overlay.PolicyConfig{
+		Components: []string{"internal/*", "internal/plugins/*"},
+	})
+	vs, err := Check(spec, models, cfg())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the cross-plugin edge should remain.
+	if len(vs) != 1 {
+		t.Fatalf("want 1 violation (cross-plugin), got %d: %+v", len(vs), vs)
+	}
+	if vs[0].From != "internal/plugins/billing" || vs[0].To != "internal/plugins/reporting" {
+		t.Errorf("violation: %+v", vs[0])
+	}
+}
+
+func TestCheckForbidBeatsSameComponent(t *testing.T) {
+	// An explicit forbid wins even for a same-component edge.
+	models := []domain.PackageModel{
+		pkg("internal/auth", "", "internal/auth/keycloak"),
+		pkg("internal/auth/keycloak", ""),
+	}
+	spec := mustParse(t, overlay.PolicyConfig{
+		Components: []string{"internal/*"},
+		Forbid:     []string{"internal/auth !-> internal/auth/keycloak"},
+	})
+	vs, err := Check(spec, models, cfg())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vs) != 1 || vs[0].Kind != kindForbiddenEdge {
+		t.Fatalf("want 1 forbidden-edge violation, got %d: %+v", len(vs), vs)
+	}
+}
+
 func TestCheckEmptySpec(t *testing.T) {
 	vs, err := Check(&Spec{}, []domain.PackageModel{pkg("a", "x", "b")}, cfg())
 	if err != nil {

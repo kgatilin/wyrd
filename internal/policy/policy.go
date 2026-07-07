@@ -82,12 +82,20 @@ type Spec struct {
 	// DenyByDefault, when true, makes an observed edge a violation unless an
 	// allow rule permits it. When false, only forbid/reachability rules apply.
 	DenyByDefault bool
+	// Components are package-tree root globs defining cohesion boundaries. An
+	// edge between two packages in the same component is never a violation.
+	// Empty disables the same-component allowance.
+	Components []string
 	// Rules are all parsed rules across the allow/forbid/reachability sections.
 	Rules []Rule
 }
 
-// Defined reports whether the spec carries any rule.
-func (s *Spec) Defined() bool { return s != nil && len(s.Rules) > 0 }
+// Defined reports whether the spec carries any rule or component boundary. A
+// components-only spec is meaningful under deny-by-default (only same-component
+// imports are allowed), so it counts as defined.
+func (s *Spec) Defined() bool {
+	return s != nil && (len(s.Rules) > 0 || len(s.Components) > 0)
+}
 
 // Violation is a single policy breach over the package dependency graph.
 // All package fields are module-relative paths.

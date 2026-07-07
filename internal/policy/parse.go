@@ -21,6 +21,13 @@ func Parse(cfg overlay.PolicyConfig) (*Spec, error) {
 	if cfg.DenyByDefault != nil {
 		spec.DenyByDefault = *cfg.DenyByDefault
 	}
+	for _, c := range cfg.Components {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			return nil, fmt.Errorf("policy.components: empty component glob")
+		}
+		spec.Components = append(spec.Components, c)
+	}
 
 	sections := []struct {
 		name    string

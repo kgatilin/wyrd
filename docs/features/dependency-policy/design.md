@@ -104,6 +104,36 @@ Reserve `forbid` for the opposite shape: an edge that a broad `allow` permits bu
 you want to hard-deny anyway (e.g. `@adapters -> @adapters` allowed, but one pair
 banned).
 
+### Components — the same-component (cohesion) allowance
+
+A rule like "no implementation may import another implementation" over-reports if
+taken package-literally: a cohesive component spans several packages (an `auth`
+component is `internal/auth` + `internal/auth/keycloak` + `internal/auth/oauth2password`),
+and those legitimately import each other. The rule means "no *cross-component*
+coupling", not "no cross-package".
+
+`components:` declares the cohesion boundaries as package-tree root globs:
+
+```yaml
+policy:
+  components:
+    - "internal/*"            # each internal/<name> is a component…
+    - "internal/plugins/*"    # …except plugins and tools, which are collections
+    - "internal/tools/*"      # of separate components, so go one level deeper
+    - "internal/services/*"
+```
+
+A package belongs to the **deepest** declared root that is its ancestor:
+`internal/auth/keycloak` → `internal/auth`; `internal/plugins/billing/client` →
+`internal/plugins/billing` (not `internal/plugins`). An edge between two packages
+in the **same** component is never a violation; edges that cross a component
+boundary fall through to the allow/forbid rules. This distinguishes legitimate
+cohesion (`internal/auth → internal/auth/keycloak`, sibling
+`internal/eventstorage/encoders → internal/eventstorage/types`) from real coupling
+(`internal/plugins/billing → internal/plugins/reporting` — different components), and
+keeps a collection like `internal/plugins/*` internally isolated. A `forbid` still
+wins over the same-component allowance.
+
 ## Example
 
 Take a typical hexagonal Go service with four layers defined in `archai.yaml`:
@@ -196,11 +226,12 @@ absent, behavior is unchanged.
   restrict a rule to those `domain.DependencyKind` edges, the feature that beats
   go-arch-lint (forbid behavioral coupling while permitting type reference). MCP
   `policy` tool. Wire the engine into the review UI.
-- **Iteration 3:** `tags:` for cross-cutting selectors; `no cycles in S`; a
-  "same-component" allowance so a package may import its own path sub-tree (so
-  strict inversion reports cross-component coupling only, not intra-component
-  cohesion); converge the three legacy `layer_rules` paths onto the engine;
-  desugar `layer_rules` → `allow`.
+- **Same-component allowance (implemented):** `components:` roots define cohesion
+  boundaries so strict inversion reports cross-component coupling only, not
+  intra-component cohesion (see *Components* above).
+- **Iteration 3:** `tags:` for cross-cutting selectors; `no cycles in S`;
+  converge the three legacy `layer_rules` paths onto the engine; desugar
+  `layer_rules` → `allow`.
 
 The CLI also carries a `-C, --chdir` flag (like `go -C`) so the checker can be
 pointed at another module's root from a script or CI without a shell `cd`.

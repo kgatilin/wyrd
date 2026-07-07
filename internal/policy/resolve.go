@@ -178,6 +178,28 @@ func relPath(module, p string) string {
 	return p
 }
 
+// componentOf returns the component a package belongs to: the deepest package
+// (the package itself or one of its ancestors) that some component-root glob
+// matches. When no glob matches any ancestor the package is its own singleton
+// component (returns pkg unchanged). Deepest-match wins so that, given roots
+// "internal/*" and "internal/plugins/*", package internal/plugins/billing/client
+// resolves to component internal/plugins/billing, not internal/plugins.
+func componentOf(pkg string, globs []string) string {
+	if len(globs) == 0 {
+		return pkg
+	}
+	parts := strings.Split(pkg, "/")
+	for i := len(parts); i >= 1; i-- {
+		anc := strings.Join(parts[:i], "/")
+		for _, g := range globs {
+			if matchGlob(g, anc) {
+				return anc
+			}
+		}
+	}
+	return pkg
+}
+
 // matchGlob mirrors overlay.matchGlob for module-relative package paths:
 //   - "pkg/..." matches pkg and any sub-package.
 //   - "pkg/*"   matches exactly one extra segment (path.Match semantics).
