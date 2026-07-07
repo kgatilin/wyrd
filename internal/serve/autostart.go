@@ -42,8 +42,9 @@ func DiscoverDaemon(projectRoot string) (*worktree.ServeRecord, string, error) {
 //
 // Discovery is deliberately global-registry-only. The legacy per-worktree
 // serve.json lives inside the repo tree, so when the repo is bind-mounted
-// into a container at an identical path (as the hub cascade-app stack
-// does), the container's own archai overwrites it with a PID and address
+// into a container at an identical path (as a containerized dev setup that
+// mounts the repo does), the container's own archai overwrites it with a PID
+// and address
 // that are only valid inside the container's namespace — poisoning host
 // discovery. The global registry lives under $HOME, which differs between
 // host ($HOME/.arch) and container (/root/.arch) and is never mounted
