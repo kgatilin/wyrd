@@ -108,7 +108,7 @@ banned).
 
 A rule like "no implementation may import another implementation" over-reports if
 taken package-literally: a cohesive component spans several packages (an `auth`
-component is `internal/auth` + `internal/auth/keycloak` + `internal/auth/oauth2password`),
+component is `internal/auth` + `internal/auth/oidc` + `internal/auth/oauth2password`),
 and those legitimately import each other. The rule means "no *cross-component*
 coupling", not "no cross-package".
 
@@ -124,13 +124,13 @@ policy:
 ```
 
 A package belongs to the **deepest** declared root that is its ancestor:
-`internal/auth/keycloak` → `internal/auth`; `internal/plugins/billing/client` →
-`internal/plugins/billing` (not `internal/plugins`). An edge between two packages
+`internal/auth/oidc` → `internal/auth`; `internal/plugins/orders/client` →
+`internal/plugins/orders` (not `internal/plugins`). An edge between two packages
 in the **same** component is never a violation; edges that cross a component
 boundary fall through to the allow/forbid rules. This distinguishes legitimate
-cohesion (`internal/auth → internal/auth/keycloak`, sibling
+cohesion (`internal/auth → internal/auth/oidc`, sibling
 `internal/eventstorage/encoders → internal/eventstorage/types`) from real coupling
-(`internal/plugins/billing → internal/plugins/reporting` — different components), and
+(`internal/plugins/orders → internal/plugins/billing` — different components), and
 keeps a collection like `internal/plugins/*` internally isolated. A `forbid` still
 wins over the same-component allowance.
 

@@ -182,8 +182,8 @@ func relPath(module, p string) string {
 // (the package itself or one of its ancestors) that some component-root glob
 // matches. When no glob matches any ancestor the package is its own singleton
 // component (returns pkg unchanged). Deepest-match wins so that, given roots
-// "internal/*" and "internal/plugins/*", package internal/plugins/billing/client
-// resolves to component internal/plugins/billing, not internal/plugins.
+// "internal/*" and "internal/plugins/*", package internal/plugins/orders/client
+// resolves to component internal/plugins/orders, not internal/plugins.
 func componentOf(pkg string, globs []string) string {
 	if len(globs) == 0 {
 		return pkg

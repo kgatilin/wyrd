@@ -360,11 +360,11 @@ func TestComponentOf(t *testing.T) {
 	globs := []string{"internal/*", "internal/plugins/*", "internal/tools/*"}
 	cases := []struct{ pkg, want string }{
 		{"internal/auth", "internal/auth"},
-		{"internal/auth/keycloak", "internal/auth"},              // descendant -> parent component
+		{"internal/auth/oidc", "internal/auth"},                  // descendant -> parent component
 		{"internal/eventstorage/types", "internal/eventstorage"}, // sibling shares component
-		{"internal/plugins/billing", "internal/plugins/billing"}, // deeper root wins
-		{"internal/plugins/billing/client", "internal/plugins/billing"},
-		{"internal/tools/grafana/plugins", "internal/tools/grafana"},
+		{"internal/plugins/orders", "internal/plugins/orders"},   // deeper root wins
+		{"internal/plugins/orders/client", "internal/plugins/orders"},
+		{"internal/tools/metrics/plugins", "internal/tools/metrics"},
 		{"cmd/app", "cmd/app"}, // no component glob -> singleton (itself)
 	}
 	for _, c := range cases {
@@ -378,13 +378,13 @@ func TestCheckSameComponentAllowed(t *testing.T) {
 	// A component may freely import its own sub-tree, incl. siblings, while
 	// cross-component imports are still denied under deny-by-default.
 	models := []domain.PackageModel{
-		pkg("internal/auth", "", "internal/auth/keycloak", "internal/auth/oauth2password"),
-		pkg("internal/auth/keycloak", ""),
+		pkg("internal/auth", "", "internal/auth/oidc", "internal/auth/oauth2password"),
+		pkg("internal/auth/oidc", ""),
 		pkg("internal/auth/oauth2password", ""),
 		pkg("internal/eventstorage/encoders", "", "internal/eventstorage/types"),
 		pkg("internal/eventstorage/types", ""),
-		pkg("internal/plugins/billing", "", "internal/plugins/reporting"), // cross-plugin: denied
-		pkg("internal/plugins/reporting", ""),
+		pkg("internal/plugins/orders", "", "internal/plugins/billing"), // cross-plugin: denied
+		pkg("internal/plugins/billing", ""),
 	}
 	spec := mustParse(t, overlay.PolicyConfig{
 		Components: []string{"internal/*", "internal/plugins/*"},
@@ -397,7 +397,7 @@ func TestCheckSameComponentAllowed(t *testing.T) {
 	if len(vs) != 1 {
 		t.Fatalf("want 1 violation (cross-plugin), got %d: %+v", len(vs), vs)
 	}
-	if vs[0].From != "internal/plugins/billing" || vs[0].To != "internal/plugins/reporting" {
+	if vs[0].From != "internal/plugins/orders" || vs[0].To != "internal/plugins/billing" {
 		t.Errorf("violation: %+v", vs[0])
 	}
 }
@@ -405,12 +405,12 @@ func TestCheckSameComponentAllowed(t *testing.T) {
 func TestCheckForbidBeatsSameComponent(t *testing.T) {
 	// An explicit forbid wins even for a same-component edge.
 	models := []domain.PackageModel{
-		pkg("internal/auth", "", "internal/auth/keycloak"),
-		pkg("internal/auth/keycloak", ""),
+		pkg("internal/auth", "", "internal/auth/oidc"),
+		pkg("internal/auth/oidc", ""),
 	}
 	spec := mustParse(t, overlay.PolicyConfig{
 		Components: []string{"internal/*"},
-		Forbid:     []string{"internal/auth !-> internal/auth/keycloak"},
+		Forbid:     []string{"internal/auth !-> internal/auth/oidc"},
 	})
 	vs, err := Check(spec, models, cfg())
 	if err != nil {
