@@ -371,6 +371,9 @@ daemon is running.`,
 	// (search, analysis lenses, node/package inspection) from the CLI.
 	rootCmd.AddCommand(newGraphCmd())
 
+	// Dependency policy command group
+	rootCmd.AddCommand(newPolicyCmd())
+
 	// Sequence command (M6b)
 	sequenceCmd := &cobra.Command{
 		Use:   "sequence <target>",

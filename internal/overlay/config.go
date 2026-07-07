@@ -35,6 +35,41 @@ type Config struct {
 	PackageOwners   map[string]PackageOwner   `yaml:"package_owners,omitempty"`
 	Serve           ServeConfig               `yaml:"serve,omitempty"`
 	Diagrams        DiagramConfig             `yaml:"diagrams,omitempty"`
+	Policy          PolicyConfig              `yaml:"policy,omitempty"`
+}
+
+// PolicyConfig declares the dependency policy: which package-to-package
+// edges are permitted, forbidden, or constrained by graph reachability.
+// Rules are written in the archai policy DSL (see internal/policy). This
+// struct only carries the raw rule strings; internal/policy parses and
+// evaluates them, so overlay stays a pure schema package with no
+// dependency on the evaluator.
+//
+// Field semantics:
+//   - DenyByDefault: when true (the default; nil is treated as true), an
+//     observed edge is a violation unless some Allow rule permits it —
+//     including edges within a single layer. When explicitly false, only
+//     Forbid/Reachability rules apply (blacklist mode).
+//   - Allow: "A -> B" rules — the permitted edges (allow-list plus the
+//     carve-in exceptions to a broader Forbid).
+//   - Forbid: "A !-> B" rules — explicitly forbidden edges. A Forbid always
+//     wins over an Allow for the same pair.
+//   - Reachability: transitive rules — "A !~> B" (no path A→…→B) and
+//     "A ~> B via C" (every path A→…→B must pass through C).
+//
+// A selector is either "@name" (an overlay layer) or a package glob using
+// the same syntax as layer globs (pkg, pkg/*, pkg/...). Selectors on either
+// side of an operator may be comma-separated lists.
+type PolicyConfig struct {
+	DenyByDefault *bool    `yaml:"deny_by_default,omitempty"`
+	Allow         []string `yaml:"allow,omitempty"`
+	Forbid        []string `yaml:"forbid,omitempty"`
+	Reachability  []string `yaml:"reachability,omitempty"`
+}
+
+// Defined reports whether the policy carries any rule.
+func (p PolicyConfig) Defined() bool {
+	return len(p.Allow) > 0 || len(p.Forbid) > 0 || len(p.Reachability) > 0
 }
 
 // DiagramConfig captures project-level presentation settings for generated

@@ -24,6 +24,7 @@ layers:
   application:
     - internal/service/...
     - internal/overlay/...
+    - internal/policy/...
     - internal/diff/...
     - internal/apply/...
     - internal/sequence/...
@@ -101,6 +102,26 @@ adapters:
       - internal/serve/...
 
 configs: []
+
+# Dependency policy (see docs/features/dependency-policy/design.md).
+#
+# This dogfoods the policy engine on archai itself. It encodes archai's own
+# hexagonal invariants from CLAUDE.md:
+#   - rule 4: "Domain models are data containers — no behavior, no external
+#     dependencies", so the domain must not depend on any other layer.
+#   - rule 5: "Adapters depend on domain — never the reverse", so the domain
+#     must never reach an adapter, even transitively.
+#
+# It runs in blacklist mode (deny_by_default: false) so it states invariants
+# without demanding a full allow-list; flip deny_by_default to true (and add
+# the allow edges) to enforce total dependency inversion.
+policy:
+  deny_by_default: false
+  forbid:
+    - "@domain !-> @application, @infrastructure, @adapters"
+  reachability:
+    - "@domain !~> @adapters"
+    - "@domain !~> @infrastructure"
 
 serve:
   http_addr: "0.0.0.0:47823"
