@@ -96,18 +96,15 @@ func TestDispatch_TrophicLayers(t *testing.T) {
 		t.Fatal("empty content")
 	}
 
-	var resp trophicLayersResponse
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &resp); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
+	out := res.Content[0].Text
+	if !strings.Contains(out, "trophic_layers  alpha") {
+		t.Errorf("missing lens header: %q", out)
 	}
-	if len(resp.EdgeKindsUsed) == 0 {
-		t.Errorf("edge_kinds_used not echoed")
+	if !strings.Contains(out, "coherence  F0=") {
+		t.Errorf("coherence line missing: %q", out)
 	}
-	if resp.NodeCount == 0 {
-		t.Errorf("node_count = 0, want > 0")
-	}
-	if resp.Coherence.Verdict == "" {
-		t.Errorf("coherence verdict missing")
+	if !strings.Contains(out, "edges ") {
+		t.Errorf("edge kinds not echoed: %q", out)
 	}
 }
 
@@ -122,19 +119,19 @@ func TestDispatch_FileHotspots(t *testing.T) {
 		t.Fatalf("tool returned error: %s", res.Content[0].Text)
 	}
 
-	var resp fileHotspotsResponse
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &resp); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
 	// alpha.go holds Service, Impl, New -> one file with 3 top-level decls.
-	if resp.FileCount != 1 {
-		t.Fatalf("file_count = %d, want 1", resp.FileCount)
+	out := res.Content[0].Text
+	if !strings.Contains(out, "file_hotspots  alpha") {
+		t.Errorf("missing lens header: %q", out)
 	}
-	if resp.MaxSymbols != 3 {
-		t.Errorf("max_symbols = %d, want 3", resp.MaxSymbols)
+	if !strings.Contains(out, "1 files / 3 symbols") {
+		t.Errorf("file/symbol counts wrong: %q", out)
 	}
-	if len(resp.Files) == 0 || resp.Files[0].SymbolCount != 3 {
-		t.Errorf("top file = %+v, want symbol_count 3", resp.Files)
+	if !strings.Contains(out, "max 3") {
+		t.Errorf("max_symbols wrong: %q", out)
+	}
+	if !strings.Contains(out, "alpha.go") || !strings.Contains(out, "×3") {
+		t.Errorf("top file line missing: %q", out)
 	}
 }
 
@@ -227,33 +224,23 @@ func TestListPackages(t *testing.T) {
 	if rpcErr != nil {
 		t.Fatalf("unexpected RPC error: %v", rpcErr)
 	}
-	var summaries []PackageSummary
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &summaries); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	out := res.Content[0].Text
+	if !strings.Contains(out, "packages  ·  2") {
+		t.Fatalf("expected 2 packages in header, got %q", out)
 	}
-	if len(summaries) != 2 {
-		t.Fatalf("expected 2 summaries, got %d", len(summaries))
-	}
-	byPath := map[string]PackageSummary{}
-	for _, s := range summaries {
-		byPath[s.Path] = s
-	}
-	alpha, ok := byPath["alpha"]
-	if !ok {
-		t.Fatalf("no alpha in summaries: %+v", summaries)
-	}
-	if alpha.InterfaceCount != 1 || alpha.StructCount != 1 || alpha.FunctionCount != 1 {
-		t.Errorf("alpha counts wrong: %+v", alpha)
+	// alpha declares one interface, one struct, one func.
+	if !strings.Contains(out, "alpha   iface 1  struct 1  func 1") {
+		t.Errorf("alpha counts line missing/wrong: %q", out)
 	}
 }
 
-func TestListPackages_EmptyStateReturnsEmptyArray(t *testing.T) {
+func TestListPackages_EmptyState(t *testing.T) {
 	res, rpcErr := Dispatch(nil, "list_packages", nil)
 	if rpcErr != nil {
 		t.Fatalf("unexpected RPC error: %v", rpcErr)
 	}
-	if !strings.HasPrefix(strings.TrimSpace(res.Content[0].Text), "[") {
-		t.Errorf("expected JSON array, got %q", res.Content[0].Text)
+	if got := strings.TrimSpace(res.Content[0].Text); got != "packages  ·  0" {
+		t.Errorf("expected empty-package header, got %q", got)
 	}
 }
 
@@ -267,23 +254,16 @@ func TestGetPackage_Found(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("expected non-error result, got %+v", res)
 	}
-	var dg packageDigest
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &dg); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if dg.Path != "beta" || dg.Name != "beta" {
-		t.Errorf("unexpected package: %+v", dg)
+	out := res.Content[0].Text
+	if !strings.Contains(out, "package beta") {
+		t.Errorf("expected package header for beta, got %q", out)
 	}
 	// beta declares Thing (struct) and Hello (func).
-	if dg.Counts.Structs != 1 || dg.Counts.Functions != 1 {
-		t.Errorf("unexpected counts: %+v", dg.Counts)
+	if !strings.Contains(out, "struct 1") || !strings.Contains(out, "func 1") {
+		t.Errorf("unexpected counts line: %q", out)
 	}
-	names := map[string]bool{}
-	for _, s := range dg.Symbols {
-		names[s.Name] = true
-	}
-	if !names["Thing"] || !names["Hello"] {
-		t.Errorf("missing expected symbols in digest: %+v", dg.Symbols)
+	if !strings.Contains(out, "Thing") || !strings.Contains(out, "Hello") {
+		t.Errorf("missing expected symbols in digest: %q", out)
 	}
 }
 

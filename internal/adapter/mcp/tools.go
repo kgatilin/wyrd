@@ -847,7 +847,7 @@ func handleListPackages(state *serve.State) (ToolResult, *RPCError) {
 			FunctionCount:  len(m.Functions),
 		})
 	}
-	return textResult(summaries)
+	return text(renderPackageList(summaries))
 }
 
 // getPackageArgs is the input schema for the get_package tool.
@@ -883,7 +883,7 @@ func handleGetPackage(state *serve.State, rawArgs json.RawMessage) (ToolResult, 
 	snap := snapshotOrEmpty(state)
 	for _, m := range snap.Packages {
 		if m.Path == args.Path {
-			return textResult(buildPackageDigest(m, args.Kinds, args.Offset, args.Limit))
+			return text(renderPackageDigest(buildPackageDigest(m, args.Kinds, args.Offset, args.Limit)))
 		}
 	}
 	return errorResult(fmt.Sprintf("package %q not found", args.Path)), nil
@@ -1692,7 +1692,7 @@ func handleSearch(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 		}
 	}
 
-	return textResult(searchResult{Results: items, Dense: denseUsed})
+	return text(renderSearch(args.Query, searchResult{Results: items, Dense: denseUsed}))
 }
 
 // searchGraphArgs is the input schema for the search_graph tool.
@@ -1825,7 +1825,7 @@ func handleSearchGraph(state *serve.State, rawArgs json.RawMessage) (ToolResult,
 		edges[i] = edgeInfo{From: e.From, To: e.To, Kind: e.Kind}
 	}
 
-	return textResult(cappedSubgraph(nodes, edges, denseUsed))
+	return text(renderSubgraph(args.Query, cappedSubgraph(nodes, edges, denseUsed)))
 }
 
 // expandArgs is the input schema for the expand tool.
@@ -1885,7 +1885,7 @@ func handleExpand(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 		edges[i] = edgeInfo{From: e.From, To: e.To, Kind: e.Kind}
 	}
 
-	return textResult(cappedSubgraph(nodes, edges, false))
+	return text(renderSubgraph("", cappedSubgraph(nodes, edges, false)))
 }
 
 // getNodeArgs is the input schema for the get_node tool.
@@ -1952,7 +1952,7 @@ func handleGetNode(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RP
 		edges[i] = edgeInfo{From: e.From, To: e.To, Kind: e.Kind}
 	}
 
-	return textResult(nodeDetailResult{
+	return text(renderNodeDetail(nodeDetailResult{
 		NodeID:         detail.NodeID,
 		Kind:           detail.Kind,
 		Package:        detail.Package,
@@ -1965,7 +1965,7 @@ func handleGetNode(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RP
 		Edges:          edges,
 		EdgeCount:      edgeCount,
 		EdgesTruncated: edgesTruncated,
-	})
+	}))
 }
 
 // refreshResult is the response structure for the refresh tool.
@@ -2414,7 +2414,7 @@ func handleSpectralCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 		Eigenvalues: result.Eigenvalues,
 	}
 
-	return textResult(resp)
+	return text(renderSpectralCore("spectral_cluster", resp))
 }
 
 // buildCollapsedGraph contracts method and field nodes into their owning type nodes.
@@ -2802,7 +2802,7 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 		DroppedNodes: droppedCount,
 	}
 
-	return textResult(resp)
+	return text(renderSemanticCluster(resp))
 }
 
 // archmotifIDToRetrievalID converts an archmotif node ID to a retrieval index key.
@@ -3201,7 +3201,7 @@ func handleComponents(state *serve.State, rawArgs json.RawMessage) (ToolResult, 
 		ComponentsTrunc: truncated,
 	}
 
-	return textResult(resp)
+	return text(renderComponents(args.Package, resp))
 }
 
 type trophicLayersArgs struct {
@@ -3368,7 +3368,7 @@ func handleTrophicLayers(state *serve.State, rawArgs json.RawMessage) (ToolResul
 		BackwardEdgeCount: result.BackwardEdgeCount,
 	}
 
-	return textResult(resp)
+	return text(renderTrophic(args.Package, resp))
 }
 
 // sampleStrings returns at most limit elements of s (a representative sample).
@@ -3472,5 +3472,5 @@ func handleFileHotspots(state *serve.State, rawArgs json.RawMessage) (ToolResult
 		OutlierCount:  result.OutlierCount,
 		Files:         files,
 	}
-	return textResult(resp)
+	return text(renderFileHotspots(args.Package, resp))
 }

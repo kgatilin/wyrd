@@ -308,7 +308,7 @@ func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResul
 		DroppedNodes: droppedCount,
 		DiffRegion:   diffMeta,
 	}
-	return textResult(resp)
+	return text(renderLatentDomains(resp))
 }
 
 // latentVerdict classifies the structural/semantic divergence. It is driven by

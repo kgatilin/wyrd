@@ -143,7 +143,7 @@ func Hello() string { return "hi" }
 		t.Fatalf("list_packages error: %+v", resp.Error)
 	}
 	listText := textContent(t, resp)
-	if !strings.Contains(listText, `"path":"alpha"`) || !strings.Contains(listText, `"path":"beta"`) {
+	if !strings.Contains(listText, "alpha") || !strings.Contains(listText, "beta") {
 		t.Errorf("list_packages did not include both packages: %s", listText)
 	}
 
@@ -176,7 +176,7 @@ func Hello() string { return "hi" }
 		t.Fatalf("get_package error: %+v", resp.Error)
 	}
 	pkgText := textContent(t, resp)
-	if !strings.Contains(pkgText, `"name":"beta"`) {
+	if !strings.Contains(pkgText, "package beta") {
 		t.Errorf("get_package did not return beta payload: %s", pkgText)
 	}
 

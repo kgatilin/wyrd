@@ -115,8 +115,8 @@ func TestStdio_ToolsCall_ListPackages_EmptyState(t *testing.T) {
 		t.Fatalf("unexpected content: %+v", tr.Content)
 	}
 	text := strings.TrimSpace(tr.Content[0].Text)
-	if text != "[]" {
-		t.Errorf("expected empty array, got %q", text)
+	if text != "packages  ·  0" {
+		t.Errorf("expected empty-package header, got %q", text)
 	}
 }
 

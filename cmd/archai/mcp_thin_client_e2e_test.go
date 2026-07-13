@@ -128,7 +128,7 @@ func New() *Impl { return &Impl{} }
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if !strings.Contains(text, `"path":"alpha"`) {
+	if !strings.Contains(text, "alpha") {
 		t.Errorf("list_packages missing alpha: %s", text)
 	}
 

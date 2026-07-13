@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/kgatilin/archai/internal/adapter/mcp"
-	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/serve"
 )
 
@@ -78,20 +77,15 @@ func TestAPI_ListPackages_ReturnsSummaries(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 
-	var summaries []mcp.PackageSummary
-	if err := json.Unmarshal(body, &summaries); err != nil {
-		t.Fatalf("unmarshal: %v — body=%s", err, body)
-	}
-	names := map[string]bool{}
-	for _, s := range summaries {
-		names[s.Path] = true
-	}
-	if !names["alpha"] || !names["beta"] {
-		t.Errorf("expected alpha+beta, got %v", names)
+	// The /api/mcp/* routes mirror the MCP tool payload verbatim, which is now
+	// the agent-facing compact text rather than JSON.
+	text := string(body)
+	if !strings.Contains(text, "alpha") || !strings.Contains(text, "beta") {
+		t.Errorf("expected alpha+beta in package listing, got %q", text)
 	}
 }
 
-func TestAPI_GetPackage_ReturnsPackageModel(t *testing.T) {
+func TestAPI_GetPackage_ReturnsDigest(t *testing.T) {
 	ts, _, _ := newAPITestServer(t)
 
 	resp, err := nethttp.Get(ts.URL + "/api/mcp/packages/beta")
@@ -104,12 +98,9 @@ func TestAPI_GetPackage_ReturnsPackageModel(t *testing.T) {
 		t.Fatalf("status: %d — body=%s", resp.StatusCode, body)
 	}
 
-	var pkg domain.PackageModel
-	if err := json.Unmarshal(body, &pkg); err != nil {
-		t.Fatalf("unmarshal: %v — body=%s", err, body)
-	}
-	if pkg.Name != "beta" {
-		t.Errorf("Name=%q, want beta", pkg.Name)
+	// Verbatim mirror of the get_package tool payload — compact text.
+	if !strings.Contains(string(body), "package beta") {
+		t.Errorf("expected package header for beta, got %q", body)
 	}
 }
 
