@@ -209,6 +209,50 @@ func TestClient_ToolsCall_DaemonError_Surfaces(t *testing.T) {
 	}
 }
 
+// TestClient_ToolsCall_Timeout_ReturnsBusyNotError verifies that a daemon that
+// is alive but too slow to answer in the client's window yields a retryable
+// "busy" ToolResult (not a hard error) and does NOT trigger re-resolution —
+// re-resolving on a timeout would abandon a warming daemon for a colder one.
+func TestClient_ToolsCall_Timeout_ReturnsBusyNotError(t *testing.T) {
+	slow := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		time.Sleep(300 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"ok"}]}`))
+	}))
+	defer slow.Close()
+
+	var resolved int
+	opts := ClientOptions{
+		Endpoint:         slow.URL,
+		HTTPClient:       &nethttp.Client{Timeout: 40 * time.Millisecond},
+		EndpointResolver: func() (string, error) { resolved++; return slow.URL, nil },
+	}
+
+	var in, out, errOut bytes.Buffer
+	in.WriteString(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"spectral_cluster","arguments":{}}}` + "\n")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := serveClientIO(ctx, opts, &in, &out, &errOut); err != nil {
+		t.Fatalf("serveClientIO: %v (stderr=%s)", err, errOut.String())
+	}
+
+	var resp Response
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &resp); err != nil {
+		t.Fatalf("decode: %v — out=%q", err, out.String())
+	}
+	if resp.Error != nil {
+		t.Fatalf("timeout surfaced as JSON-RPC error, want busy result: %+v", resp.Error)
+	}
+	payload, _ := json.Marshal(resp.Result)
+	if !strings.Contains(string(payload), "busy") || !strings.Contains(string(payload), "warming up") {
+		t.Errorf("want busy status result, got %s", payload)
+	}
+	if resolved != 0 {
+		t.Errorf("timeout must not trigger re-resolution, but resolver was called %d times", resolved)
+	}
+}
+
 func TestClient_EmptyEndpoint(t *testing.T) {
 	err := serveClientIO(context.Background(), ClientOptions{Endpoint: ""}, &bytes.Buffer{}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {

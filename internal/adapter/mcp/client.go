@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -217,6 +218,39 @@ func isConnectionError(err error) bool {
 		strings.Contains(msg, "EOF")
 }
 
+// isTimeout reports whether err is a deadline/timeout — the daemon is alive
+// but too slow to answer in the client's window (cold-start warmup or heavy
+// load), as opposed to a connection failure where the daemon is gone. A
+// timeout must NOT trigger re-resolution: re-resolving abandons a warming
+// daemon (and can spawn a fresh cold one), turning one slow call into a
+// cascade of ever-colder daemons.
+func isTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if isNetError(err, &netErr) {
+		return netErr.Timeout()
+	}
+	return false
+}
+
+// busyToolResult is the non-error ToolResult returned when the daemon is
+// reachable but does not answer in time. It mirrors the HTTP-side loading
+// gate: the agent sees a retryable status payload — poll `status`, retry — and
+// never a hard transport error for a daemon that is merely warming up.
+func busyToolResult() ToolResult {
+	payload, _ := json.Marshal(map[string]any{
+		"status": "busy",
+		"message": "Daemon is warming up or under load and did not answer in time; it is still running, " +
+			"not down. Call `status` to watch readiness, then retry — do not treat this as a failure.",
+	})
+	return ToolResult{Content: []ToolResultContent{{Type: "text", Text: string(payload)}}}
+}
+
 // isNetError checks if err is a net.Error (or wraps one).
 func isNetError(err error, target *net.Error) bool {
 	for err != nil {
@@ -279,7 +313,16 @@ func forwardToolsCall(
 			lastErr = err
 			fmt.Fprintf(errOut, "mcp-client: HTTP POST %s: %v (attempt %d/%d)\n", url, err, attempt+1, maxRetries+1)
 
-			// On connection error, try to re-resolve and retry.
+			// Timeout: the daemon is alive but slow (warming up / heavy load).
+			// Return a retryable "busy" result rather than re-resolving to a
+			// possibly-colder daemon or hard-failing the tool call. The agent
+			// polls `status` and retries, just as with the cold-parse gate.
+			if isTimeout(err) {
+				return writeLine(newResponse(req.ID, busyToolResult()))
+			}
+
+			// Connection error (refused/reset/EOF): the daemon moved or died —
+			// re-resolve and retry against the rediscovered endpoint.
 			if isConnectionError(err) && attempt < maxRetries {
 				newEndpoint := tryResolve()
 				if newEndpoint != "" {
@@ -294,7 +337,7 @@ func forwardToolsCall(
 				}
 			}
 
-			return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("daemon unreachable: %v", err)))
+			return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("daemon unreachable: %v", lastErr)))
 		}
 		defer resp.Body.Close()
 
