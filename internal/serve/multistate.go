@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/worktree"
@@ -87,7 +88,24 @@ type MultiState struct {
 	// wired with a resolver that loads this ref's models on demand. Empty
 	// disables base resolution (the diff tool reports "no base configured").
 	baseRef string
+
+	// refreshMu serializes miss-driven re-discovery (see EnsureKnown) so
+	// concurrent requests for an as-yet-unknown worktree collapse into a
+	// single `git worktree list` scan. It is distinct from mu, which guards
+	// the entry/state maps; Refresh takes mu internally.
+	refreshMu sync.Mutex
+
+	// lastRefresh is the wall-clock time of the most recent miss-driven
+	// Refresh, used to debounce git invocations when an unknown name is
+	// requested repeatedly. Guarded by refreshMu.
+	lastRefresh time.Time
 }
+
+// refreshDebounce bounds how often a miss-driven re-discovery shells out to
+// git. Within this window a second miss reuses the last scan instead of
+// running `git worktree list` again, so repeatedly requesting a name that
+// truly does not exist cannot stampede git.
+const refreshDebounce = 2 * time.Second
 
 // SetReviewBaseRef configures the review-base ref injected into every
 // worktree State as its base-model resolver. Safe to call once at daemon
@@ -283,6 +301,40 @@ func (m *MultiState) Has(name string) bool {
 	defer m.mu.Unlock()
 	_, ok := m.entries[name]
 	return ok
+}
+
+// EnsureKnown reports whether name is a discovered worktree, re-scanning
+// worktrees once (debounced) when it is not yet known. This lets the daemon
+// pick up worktrees created after startup without a restart: the entry set is
+// treated as a cache of the git worktree list, and the first request naming a
+// new worktree invalidates it via a re-discovery, after which the name
+// resolves normally. A genuinely-nonexistent name still returns false, but at
+// most one git scan runs per refreshDebounce window regardless of how often it
+// is requested.
+func (m *MultiState) EnsureKnown(name string) bool {
+	if name == "" {
+		return false
+	}
+	if m.Has(name) {
+		return true
+	}
+	m.refreshOnMiss()
+	return m.Has(name)
+}
+
+// refreshOnMiss runs a debounced, serialized Refresh. refreshMu serializes
+// miss-driven refreshes so concurrent misses collapse into a single git scan
+// (the second caller sees the just-updated lastRefresh and skips). Refresh
+// errors are swallowed: a failed re-scan leaves the entry set unchanged and
+// the caller falls through to "unknown worktree" as before.
+func (m *MultiState) refreshOnMiss() {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+	if !m.lastRefresh.IsZero() && time.Since(m.lastRefresh) < refreshDebounce {
+		return
+	}
+	_ = m.Refresh()
+	m.lastRefresh = time.Now()
 }
 
 // FindRef resolves a worktree by its UI/server ref. The ref may be a

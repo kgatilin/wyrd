@@ -271,6 +271,54 @@ func samePath(a, b string) bool {
 	return a == b
 }
 
+// TestMultiState_EnsureKnownDiscoversPostStartupWorktree proves the
+// refresh-on-miss path: a worktree created after the initial Refresh is
+// invisible to Has but is picked up by EnsureKnown (which re-scans on a
+// miss), while a name that never existed still resolves to false.
+func TestMultiState_EnsureKnownDiscoversPostStartupWorktree(t *testing.T) {
+	root := newGitRepo(t)
+
+	m := NewMultiState(root, stubLoader(new(int64)))
+	if err := m.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if len(m.Names()) != 1 {
+		t.Fatalf("want 1 worktree after initial Refresh, got %v", m.Names())
+	}
+
+	// Create a sibling worktree AFTER the initial Refresh — the daemon's
+	// entry set does not know about it yet.
+	parent := filepath.Dir(root)
+	extraPath := filepath.Join(parent, "late-"+filepath.Base(root))
+	runGit(t, root, "worktree", "add", "-b", "late-branch", extraPath)
+	t.Cleanup(func() {
+		_ = exec.Command("git", "-C", root, "worktree", "remove", "--force", extraPath).Run()
+	})
+	extraName := filepath.Base(extraPath)
+
+	// Has does not see it (no re-discovery), reproducing the "unknown
+	// worktree" symptom.
+	if m.Has(extraName) {
+		t.Fatalf("Has(%q) = true before re-discovery, want false", extraName)
+	}
+
+	// EnsureKnown re-scans on the miss and now resolves the new worktree.
+	if !m.EnsureKnown(extraName) {
+		t.Fatalf("EnsureKnown(%q) = false, want true after refresh-on-miss", extraName)
+	}
+	if !m.Has(extraName) {
+		t.Fatalf("Has(%q) = false after EnsureKnown, want true", extraName)
+	}
+
+	// A name that never existed still returns false (and does not panic).
+	if m.EnsureKnown("does-not-exist") {
+		t.Fatalf("EnsureKnown(does-not-exist) = true, want false")
+	}
+	if m.EnsureKnown("") {
+		t.Fatalf("EnsureKnown(\"\") = true, want false")
+	}
+}
+
 // TestMultiState_RefreshDropsRemoved exercises the full Refresh → Get
 // → Refresh-drop → Get cycle against a real git repo with an added and
 // then removed worktree. It goes through the exported MultiState API

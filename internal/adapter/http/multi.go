@@ -106,7 +106,11 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 			nethttp.NotFound(w, r)
 			return
 		}
-		if !s.multi.Has(name) {
+		// EnsureKnown (not Has) so a worktree created after the daemon
+		// started is picked up on its first request instead of 404ing
+		// until a restart. The re-discovery is debounced, so a genuinely
+		// unknown name still 404s cheaply.
+		if !s.multi.EnsureKnown(name) {
 			nethttp.Error(w, "unknown worktree: "+name, nethttp.StatusNotFound)
 			return
 		}
