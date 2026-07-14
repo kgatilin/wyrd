@@ -178,6 +178,16 @@ func mergeFragment(dst, fragment *Config, pkgPath, source string) error {
 		dst.Configs = append(dst.Configs, qualified)
 		seenConfigs[qualified] = struct{}{}
 	}
+
+	// Merge policy: deny_by_default is owned by root only; all slices append+dedup.
+	if fragment.Policy.DenyByDefault != nil {
+		errs = append(errs, fmt.Errorf("overlay: fragment %s declares deny_by_default, which may only be set in the root overlay", source))
+	}
+	dst.Policy.Components = mergeStringSliceDedup(dst.Policy.Components, fragment.Policy.Components)
+	dst.Policy.Allow = mergeStringSliceDedup(dst.Policy.Allow, fragment.Policy.Allow)
+	dst.Policy.Forbid = mergeStringSliceDedup(dst.Policy.Forbid, fragment.Policy.Forbid)
+	dst.Policy.Reachability = mergeStringSliceDedup(dst.Policy.Reachability, fragment.Policy.Reachability)
+
 	return errors.Join(errs...)
 }
 
@@ -198,6 +208,26 @@ func mergeStringSlices(dst, src map[string][]string) {
 			seen[value] = struct{}{}
 		}
 	}
+}
+
+// mergeStringSliceDedup appends src entries to dst, skipping duplicates.
+// Preserves order: dst entries first, then src entries in their original order.
+func mergeStringSliceDedup(dst, src []string) []string {
+	if len(src) == 0 {
+		return dst
+	}
+	seen := make(map[string]struct{}, len(dst)+len(src))
+	for _, v := range dst {
+		seen[v] = struct{}{}
+	}
+	for _, v := range src {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		dst = append(dst, v)
+		seen[v] = struct{}{}
+	}
+	return dst
 }
 
 func qualifyFragmentTypeRef(module, pkgPath, ref string) string {

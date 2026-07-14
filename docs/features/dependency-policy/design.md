@@ -244,3 +244,20 @@ pointed at another module's root from a script or CI without a shell `cd`.
 - `overlay` does not depend on `policy` (policy depends on overlay) — no cycle.
 - Selector glob matching mirrors `overlay`'s `matchGlob` semantics; it is
   re-implemented locally (small, stable) rather than exporting overlay internals.
+
+## Fragment composition
+
+Policy composes from `.arch/overlay.yaml` fragments discovered below the project
+root. `overlay.LoadComposed` merges each fragment's `policy:` block into the root
+config's `Policy`:
+
+- **`deny_by_default`**: owned exclusively by the root overlay. A fragment that
+  sets this field causes `LoadComposed` to return an error naming the fragment
+  path. This ensures a single global deny/allow-list semantic for the module.
+- **`components`, `allow`, `forbid`, `reachability`**: append-and-deduplicate.
+  Root entries appear first, then fragment entries in sorted-path order.
+  Duplicate strings (exact match) are skipped.
+- **Glob qualification**: globs in fragment policy rules are **not** rewritten or
+  qualified. Authors write module-relative globs (e.g. `internal/serve/...`)
+  exactly as they would in the root `policy:` block. This is consistent with how
+  layer globs are merged verbatim by `mergeStringSlices`.
