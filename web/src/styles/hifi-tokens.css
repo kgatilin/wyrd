@@ -1945,3 +1945,10 @@ body {
   margin-right: 2px;
   flex-shrink: 0;
 }
+
+/* ── Embed mode (?embed=1) ──────────────────────────────────────────────
+   Just the review canvas + reviewbar, for framing into other shells
+   (e.g. Atrium's worktree detail): chrome and side panels are hidden. */
+.hifi.embed .hf-appbar,
+.hifi.embed .hf-prheader,
+.hifi.embed .hf-side { display: none !important; }

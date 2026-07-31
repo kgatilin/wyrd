@@ -34,6 +34,15 @@ import { PinnedMarker } from './components/PinnedMarker';
 import type { SymbolFocusTarget } from './domain/symbolFocus';
 
 /**
+ * Embed mode (?embed=1): render just the review canvas + reviewbar — no
+ * AppBar, PR header, or side panels — for framing the graph into другие
+ * shells (e.g. Atrium's worktree detail iframes /w/<name>/review/?embed=1).
+ * Read once at module load: the param can't change without a navigation.
+ */
+const EMBED =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('embed');
+
+/**
  * Main application component - V4 layout shell.
  * Owns the store (composition root) and bootstraps the graph load; the store
  * now drives data/layout/semantic state. AppContent renders once a graph exists.
@@ -539,7 +548,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
 
   return (
     <div
-      className={`hifi v4 theme-${theme}`}
+      className={`hifi v4 theme-${theme}${EMBED ? ' embed' : ''}`}
       style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column' }}
     >
       {/* AppBar uses repo-level PR data; PrHeader stats reflect the active review projection. */}
