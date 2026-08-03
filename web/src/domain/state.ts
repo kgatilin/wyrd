@@ -30,6 +30,12 @@ export interface Interaction {
   expanded: ReadonlySet<string>;
   internalExpanded: ReadonlySet<string>;
   internalWide: ReadonlySet<string>;
+  /**
+   * Expanded components showing their call-sequence instead of internals.
+   * A seq-mode card gets a fixed frame from layout (its diagram scrolls
+   * inside), so the surrounding graph stays stable.
+   */
+  seqMode: ReadonlySet<string>;
   cardDensity: CardDensity;
   showInlineSignatures: boolean;
 }
@@ -41,6 +47,8 @@ export interface AppUI {
   expanded: ReadonlySet<string>;
   internalExpanded: ReadonlySet<string>;
   internalWide: ReadonlySet<string>;
+  /** Expanded components currently flipped to their call-sequence view. */
+  seqMode: ReadonlySet<string>;
   leftTab: 'changes' | 'tree';
   leftCollapsed: boolean;
   rightCollapsed: boolean;
@@ -81,6 +89,7 @@ export const initialState: AppState = {
     expanded: new Set(),
     internalExpanded: new Set(),
     internalWide: new Set(),
+    seqMode: new Set(),
     leftTab: 'tree',
     leftCollapsed: false,
     rightCollapsed: true,

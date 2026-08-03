@@ -46,6 +46,7 @@ export type Event =
   | { type: 'LayoutRepoPinsReset' }
   // expansion
   | { type: 'ComponentToggled'; id: string }
+  | { type: 'ComponentSeqToggled'; id: string }
   | { type: 'ComponentsExpandedAll' }
   | { type: 'ComponentsCollapsedAll' }
   | { type: 'InternalWideToggled'; id: string }

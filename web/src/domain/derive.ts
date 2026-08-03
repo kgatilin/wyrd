@@ -30,6 +30,7 @@ export function toInteraction(ui: AppUI): Interaction {
     expanded: ui.expanded,
     internalExpanded: ui.internalExpanded,
     internalWide: ui.internalWide,
+    seqMode: ui.seqMode,
     cardDensity: ui.cardDensity,
     showInlineSignatures: ui.showInlineSignatures,
   };

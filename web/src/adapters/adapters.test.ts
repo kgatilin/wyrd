@@ -18,6 +18,7 @@ describe('createElkLayout', () => {
       expanded: new Set(),
       internalExpanded: new Set(),
       internalWide: new Set(),
+      seqMode: new Set(),
       cardDensity: 'detailed',
       showInlineSignatures: true,
     });

@@ -71,6 +71,12 @@ function expansionSlice(state: AppState, event: Event): AppState {
       const internalExpanded = addInternalsOfExpanded(state.graph, expanded, state.ui.internalExpanded);
       return { ...state, ui: { ...state.ui, expanded, internalExpanded } };
     }
+    case 'ComponentSeqToggled': {
+      const seqMode = new Set(state.ui.seqMode);
+      if (seqMode.has(event.id)) seqMode.delete(event.id);
+      else seqMode.add(event.id);
+      return { ...state, ui: { ...state.ui, seqMode } };
+    }
     case 'ComponentsExpandedAll': {
       const visible = selectReviewGraph(
         state.graph,

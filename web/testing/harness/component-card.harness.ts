@@ -10,8 +10,14 @@ import { InternalHarness } from './internal.harness';
 
 /** A component card on the canvas (`.hf-cmp`). */
 export class ComponentCardHarness extends ComponentHarness {
+  /** The package basename — excludes the muted directory-path prefix. */
   async name(): Promise<string> {
-    return (await this.root.locator('.hf-cmp-name').first()).text();
+    return (await this.root.locator('.hf-cmp-name .hf-cmp-base').first()).text();
+  }
+  /** The muted directory prefix before the basename ('' when top-level). */
+  async pathPrefix(): Promise<string> {
+    const els = await this.root.locator('.hf-cmp-name .hf-cmp-path').all();
+    return els.length > 0 ? els[0].text() : '';
   }
   async tech(): Promise<string> {
     return (await this.root.locator('.hf-cmp-tech').first()).text();

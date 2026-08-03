@@ -113,6 +113,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   const expanded = useStore((s) => s.ui.expanded);
   const internalExpanded = useStore((s) => s.ui.internalExpanded);
   const internalWide = useStore((s) => s.ui.internalWide);
+  const seqMode = useStore((s) => s.ui.seqMode);
   const focusId = useStore((s) => s.ui.focusId);
   const leftCollapsed = useStore((s) => s.ui.leftCollapsed);
   const rightCollapsed = useStore((s) => s.ui.rightCollapsed);
@@ -790,7 +791,9 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                 (relation) => relation.fromComponentId !== relation.toComponentId
               )}
               components={displayLaid.components}
-              expandedSet={expanded}
+              // Seq-mode cards don't render internals, so their symbol
+              // relations have no anchors — treat them as collapsed here.
+              expandedSet={new Set([...expanded].filter((id) => !seqMode.has(id)))}
               expandedInternals={internalExpanded}
               showDiff={showDiff}
               focusId={focusId}
@@ -802,6 +805,8 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                 key={c.id}
                 cmp={c}
                 expanded={expanded.has(c.id)}
+                seqActive={seqMode.has(c.id)}
+                onToggleSeq={(id) => dispatch({ type: 'ComponentSeqToggled', id })}
                 onToggleExpand={(id) => dispatch({ type: 'ComponentToggled', id })}
                 expandedInternals={internalExpanded}
                 wideInternals={internalWide}

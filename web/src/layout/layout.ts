@@ -2,6 +2,7 @@ import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkNode, ElkPort, ElkExtendedEdge } from 'elkjs';
 import type { UIGraph, BoundedContext, Component, Port, Edge, Internal, SymbolRelation } from '../types';
 import { displaySymbolName } from '../domain/symbolNames';
+import { componentPathPrefix } from '../domain/componentPath';
 
 // Spacing between sibling components. These MUST be set on the node that owns the
 // components — i.e. each bounded-context compound node — not just on the root.
@@ -78,6 +79,7 @@ function computeCollapsedHeight(component: Component, density: 'detailed' | 'com
 // action button) on a single line so even short tech labels like "Go - gRPC"
 // don't wrap. Glyph advances are estimated generously to avoid clipping.
 const NAME_CHAR_W = 7.6; // .hf-cmp-name (Inter ~12.5px, semibold)
+const PATH_CHAR_W = 6.4; // .hf-cmp-path (JetBrains Mono 10.5px) directory prefix
 const TECH_CHAR_W = 6.4; // .hf-cmp-tech (JetBrains Mono 10px)
 const TECH_CHROME_W = 16; // tech tag padding + border
 const LAYER_BADGE_W = 62; // public/internal package layer badge
@@ -87,7 +89,9 @@ const HEAD_PAD_L = 12;
 const HEAD_ACTIONS_W = 40; // reserved right side for the collapsed +/- button
 
 function computeCollapsedWidth(component: Component, density: 'detailed' | 'compact' = 'detailed'): number {
-  const nameW = component.name.length * NAME_CHAR_W;
+  const nameW =
+    component.name.length * NAME_CHAR_W +
+    componentPathPrefix(component.id, component.name).length * PATH_CHAR_W;
   const techW = density === 'compact' ? 0 : component.tech ? component.tech.length * TECH_CHAR_W + TECH_CHROME_W : 0;
   const needed =
     HEAD_PAD_L + HEAD_ICON_W + HEAD_GAP + nameW + (techW ? HEAD_GAP + techW : 0) + HEAD_GAP + LAYER_BADGE_W + HEAD_ACTIONS_W;
@@ -98,9 +102,15 @@ export interface LayoutOptions {
   expanded: Set<string>;         // component ids currently expanded
   internalExpanded: Set<string>; // internal ids currently expanded (affects expanded height)
   internalWide?: Set<string>;    // internal ids in fit-width mode (stretch to fit member text)
+  seqMode?: Set<string>;         // expanded components showing their call-sequence (fixed frame)
   cardDensity?: 'detailed' | 'compact';
   showInlineSignatures?: boolean;
 }
+
+// Fixed frame for a card in sequence mode; the diagram scrolls inside it, so
+// layout stays independent of the (async-fetched) sequence content.
+const SEQ_CARD_W = 620;
+const SEQ_CARD_H = 420;
 
 /**
  * Compute the height of an internal card based on whether it's expanded.
@@ -385,16 +395,18 @@ export async function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGr
   const expanded = opts?.expanded ?? new Set<string>();
   const internalExpanded = opts?.internalExpanded ?? new Set<string>();
   const internalWide = opts?.internalWide ?? new Set<string>();
+  const seqMode = opts?.seqMode ?? new Set<string>();
   const cardDensity = opts?.cardDensity ?? 'detailed';
   const showInlineSignatures = opts?.showInlineSignatures ?? true;
 
   // --- 0. Pre-compute expanded component dimensions and internal layouts ---
   // We need to know component sizes BEFORE building ELK input, and we need
-  // internal layouts for expanded components.
+  // internal layouts for expanded components. Seq-mode cards get a fixed
+  // frame instead — no internals layout needed for them.
 
   const expandedLayouts = new Map<string, { w: number; h: number; internals: Internal[] }>();
   for (const c of graph.components) {
-    if (expanded.has(c.id)) {
+    if (expanded.has(c.id) && !seqMode.has(c.id)) {
       expandedLayouts.set(c.id, await computeExpandedDimensions(
         c,
         graph.relations ?? [],
@@ -492,10 +504,11 @@ export async function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGr
     const comps = compsByBc.get(bc.id) ?? [];
     const children: ElkNode[] = comps.map((c) => {
       const isExpanded = expanded.has(c.id);
+      const isSeq = isExpanded && seqMode.has(c.id);
       const expandedLayout = expandedLayouts.get(c.id);
 
-      const w = isExpanded && expandedLayout ? expandedLayout.w : computeCollapsedWidth(c, cardDensity);
-      const h = isExpanded && expandedLayout ? expandedLayout.h : computeCollapsedHeight(c, cardDensity);
+      const w = isSeq ? SEQ_CARD_W : isExpanded && expandedLayout ? expandedLayout.w : computeCollapsedWidth(c, cardDensity);
+      const h = isSeq ? SEQ_CARD_H : isExpanded && expandedLayout ? expandedLayout.h : computeCollapsedHeight(c, cardDensity);
 
       // Build ELK ports
       const ports: ElkPort[] = c.ports.map((p) => ({

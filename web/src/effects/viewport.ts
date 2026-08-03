@@ -31,6 +31,17 @@ export function createViewportEffect(port: ViewportPort): Effect<AppState, Event
       case 'TreeFocusRequested':
         pendingScrollId = event.target.componentId;
         return;
+      // Expanding a card (or flipping it to its sequence view) resizes and
+      // shifts the whole graph — center on it once the relayout lands. The
+      // reducer has already run, so state reflects the post-toggle expansion.
+      case 'ComponentToggled':
+        if (state.ui.expanded.has(event.id)) pendingScrollId = event.id;
+        return;
+      case 'ComponentSeqToggled':
+        if (state.ui.seqMode.has(event.id) && state.ui.expanded.has(event.id)) {
+          pendingScrollId = event.id;
+        }
+        return;
       case 'ScrollToComponentRequested':
         if (laid) port.scrollToComponent(event.id, laid);
         return;

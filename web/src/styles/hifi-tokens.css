@@ -680,6 +680,15 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Directory prefix before the package basename — full path context for
+   same-named packages (controller/, contract/ under different roots). */
+.hf-cmp-path {
+  font-weight: 400;
+  font-size: 10.5px;
+  color: var(--fg-3);
+  font-family: 'JetBrains Mono', monospace;
+}
 .hf-cmp-tech {
   font-size: 10px;
   color: var(--fg-2);
@@ -751,6 +760,114 @@ body {
   border: 1px solid var(--line-2);
 }
 .hf-cmp-expand-all:hover { background: var(--bg-active); color: var(--fg-0); }
+
+/* Deps|sequence toggle on an expanded card */
+.hf-cmp-seq-toggle {
+  width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+  padding: 0;
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--fg-2);
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  border: 1px solid var(--line-2);
+}
+.hf-cmp-seq-toggle:hover { background: var(--bg-active); color: var(--fg-0); }
+.hf-cmp-seq-toggle.on {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+
+/* Sequence body of an expanded card: the SequenceCanvas scrolls inside the
+   card's fixed frame set by layout. */
+.hf-cmp-seqbody {
+  position: relative;
+  height: calc(100% - 36px);
+  min-height: 0;
+  overflow: hidden;
+  cursor: default;
+}
+
+/* Native call-sequence canvas (type-interaction view) */
+.hf-seq {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.hf-seq-entrybar {
+  flex: none;
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line-1);
+  background: var(--bg-1);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-2);
+  min-width: 0;
+}
+.hf-seq-entrybar select {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  background: var(--bg-2);
+  color: var(--fg-0);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  font: inherit;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.hf-seq-entry-label {
+  color: var(--fg-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hf-seq-count { flex: none; color: var(--fg-3); }
+.hf-seq-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.hf-seq-stage { position: relative; }
+.hf-seq-svg { position: absolute; inset: 0; overflow: visible; }
+.hf-seq-actor {
+  position: absolute;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 8px;
+  box-sizing: border-box;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-0);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: inset 3px 0 0 var(--layer-public-line);
+}
+.hf-seq-life { stroke: var(--line-2); stroke-dasharray: 3 4; }
+.hf-seq-msg { stroke: var(--fg-3); stroke-width: 1.25px; fill: none; }
+.hf-seq-arrow { fill: var(--fg-3); }
+.hf-seq-label {
+  font: 9.5px 'JetBrains Mono', monospace;
+  fill: var(--fg-1);
+  paint-order: stroke;
+  stroke: var(--bg-0);
+  stroke-width: 4px;
+}
+.hf-seq-status {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%;
+  min-height: 80px;
+  padding: 12px;
+  text-align: center;
+  color: var(--fg-2);
+  font-size: 12px;
+}
 .hf-cmp-reset-layout {
   width: 18px;
   height: 18px;

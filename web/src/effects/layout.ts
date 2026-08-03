@@ -7,6 +7,7 @@ import { selectReviewGraph, toInteraction } from '../domain/derive';
 const LAYOUT_TRIGGERS: ReadonlySet<Event['type']> = new Set([
   'GraphLoaded',
   'ComponentToggled',
+  'ComponentSeqToggled',
   'ComponentsExpandedAll',
   'ComponentsCollapsedAll',
   'ComponentSelected',

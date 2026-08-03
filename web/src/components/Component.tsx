@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
 import type { Component as ComponentType, Diff, Internal, Member, Port, SymbolRelation } from '../types';
 import { displaySymbolName } from '../domain/symbolNames';
+import { componentPathPrefix } from '../domain/componentPath';
+import { CardSequence } from './SequenceCanvas';
 import type { CardDensity } from '../domain/state';
 import type { SymbolFocusTarget } from '../domain/symbolFocus';
 
@@ -85,6 +87,10 @@ export interface ComponentProps {
   expanded: boolean;
   /** Callback to toggle expansion */
   onToggleExpand?: (id: string) => void;
+  /** Expanded card shows its call-sequence instead of internals */
+  seqActive?: boolean;
+  /** Callback to flip the expanded card between internals and call-sequence */
+  onToggleSeq?: (id: string) => void;
   /** Set of expanded internal IDs (members visible) */
   expandedInternals: ReadonlySet<string>;
   /** Set of internal IDs in fit-width mode (stretched to show all member text) */
@@ -135,6 +141,8 @@ export function Component({
   cmp,
   expanded,
   onToggleExpand,
+  seqActive = false,
+  onToggleSeq,
   expandedInternals,
   wideInternals,
   onToggleWide,
@@ -182,6 +190,7 @@ export function Component({
   // Header icon shows the parent's (bounded context) initial, falling back to the
   // component's own first letter when no parent name is supplied.
   const parentInitial = (parentName || cmp.name).charAt(0).toUpperCase();
+  const pathPrefix = componentPathPrefix(cmp.id, cmp.name);
 
   const hasComment = (id: string) => commentTargets?.has(id) ?? false;
 
@@ -262,6 +271,11 @@ export function Component({
     onToggleExpand?.(cmp.id);
   };
 
+  const handleSeqClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onToggleSeq?.(cmp.id);
+  };
+
   const handleExpandAllClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onSetAllWide?.(cmp.id, !allWide);
@@ -294,13 +308,16 @@ export function Component({
         {/* Header */}
         <div
           className="hf-cmp-head"
-          style={{ paddingRight: expanded ? 92 : 34 }}
+          style={{ paddingRight: expanded ? 116 : 34 }}
           onClick={handleHeadClick}
           onDoubleClick={handleHeadDoubleClick}
           onPointerDown={handleDragPointerDown}
         >
           <div className="hf-cmp-icon">{parentInitial}</div>
-          <div className="hf-cmp-name">{cmp.name}</div>
+          <div className="hf-cmp-name" title={cmp.id}>
+            {pathPrefix && <span className="hf-cmp-path">{pathPrefix}</span>}
+            <span className="hf-cmp-base">{cmp.name}</span>
+          </div>
           <span className="hf-cmp-tech">{cmp.tech}</span>
           <span className={`hf-cmp-layer ${layer}`} title={`${layer} package`}>{layer}</span>
         </div>
@@ -308,8 +325,15 @@ export function Component({
         {/* Description (collapsed only) */}
         {!expanded && <div className="hf-cmp-desc">{cmp.desc}</div>}
 
+        {/* Call-sequence body (expanded, seq mode) */}
+        {expanded && seqActive && (
+          <div className="hf-cmp-seqbody" onClick={(e) => e.stopPropagation()}>
+            <CardSequence pkg={cmp.id} />
+          </div>
+        )}
+
         {/* Internals mini-canvas (expanded only) */}
-        {expanded && (
+        {expanded && !seqActive && (
           <div className="hf-cmp-canvas">
             {cmp.internals.map((internal) => (
               <InternalCard
@@ -347,6 +371,17 @@ export function Component({
             <span className="hf-cmp-info-icon">i</span>
             <div className="hf-cmp-info-pop">{cmp.desc}</div>
           </div>
+        )}
+        {/* Deps|sequence toggle: flips the expanded card body between its
+            internals and the package's call-sequence, in place. */}
+        {expanded && onToggleSeq && (
+          <button
+            className={`hf-cmp-seq-toggle${seqActive ? ' on' : ''}`}
+            onClick={handleSeqClick}
+            title={seqActive ? 'Show dependencies' : 'Show call sequence'}
+          >
+            ⇄
+          </button>
         )}
         {/* Expand-all: widens every internal so all member text shows (or resets
             them). Only meaningful while the component is open and has internals. */}
