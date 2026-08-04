@@ -1,0 +1,38 @@
+version: 1
+component: ledger
+owns: ledger
+description: Double-entry accounting ledger
+
+receives:
+  - kind: ledger.entry.post
+    role: action
+    description: Post a ledger entry (debit/credit pair)
+    schema:
+      type: object
+      required: [Debit, Credit, Amount]
+      properties:
+        Debit: {type: string}
+        Credit: {type: string}
+        Amount: {type: number}
+        Reference: {type: string}
+
+emits:
+  - kind: ledger.entry.posted
+    role: fact
+    schema:
+      type: object
+      properties:
+        EntryID: {type: string}
+        Debit: {type: string}
+        Credit: {type: string}
+        Amount: {type: number}
+
+vocab:
+  Entry:
+    type: object
+    properties:
+      ID: {type: string}
+      Debit: {type: string}
+      Credit: {type: string}
+      Amount: {type: number}
+      PostedAt: {type: string, format: date-time}

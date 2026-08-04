@@ -1,0 +1,23 @@
+version: 1
+component: contracts
+owns: contracts
+description: Shared contract definitions - vocabulary only, no runtime
+
+# A vocabulary-only component with no folds, receives, or emits.
+# This represents a shared contract package that defines event shapes
+# used by other components.
+
+vocab:
+  Address:
+    type: object
+    properties:
+      Street: {type: string}
+      City: {type: string}
+      PostalCode: {type: string}
+      Country: {type: string}
+  Money:
+    type: object
+    required: [Amount, Currency]
+    properties:
+      Amount: {type: number}
+      Currency: {type: string, enum: [USD, EUR, GBP]}

@@ -1,0 +1,25 @@
+version: 1
+component: shipping
+owns: shipping
+description: Package shipment tracking
+
+receives:
+  - kind: billing.invoice.issued
+    role: fact
+    description: Observe invoice issuance to prepare shipment
+
+emits:
+  - kind: shipping.package.shipped
+    role: fact
+    schema:
+      type: object
+      properties:
+        TrackingNumber: {type: string}
+        Carrier: {type: string}
+  - kind: shipping.package.delivered
+    role: fact
+    schema:
+      type: object
+      properties:
+        TrackingNumber: {type: string}
+        DeliveredAt: {type: string, format: date-time}

@@ -1,0 +1,38 @@
+version: 1
+component: violations
+owns: violations
+description: Component with deliberate rule violations for testing
+
+receives:
+  # ERROR: receiving action outside owned namespace
+  - kind: billing.invoice.issue
+    role: action
+    description: Illegally accepting commands in billing namespace
+
+emits:
+  # ERROR: emitting fact outside owned namespace
+  - kind: ledger.entry.posted
+    role: fact
+    description: Illegally forging ledger facts
+  # ERROR: emitting action with no receiver
+  - kind: violations.orphan.action
+    role: action
+    description: Action with no handler
+  # WARNING: orphan fact (no consumer)
+  - kind: violations.orphan.fact
+    role: fact
+    description: Fact that nobody listens to
+
+folds:
+  # WARNING: starved fold (pattern matches nothing)
+  - name: violations.starved-fold
+    pattern: nonexistent.events.**
+    state:
+      type: object
+
+vocab:
+  # Unresolved $ref for testing
+  BadRef:
+    type: object
+    properties:
+      Field: {$ref: '#/vocab/DoesNotExist'}

@@ -16,6 +16,7 @@ import (
 // need to load a real project from disk.
 type realHostStub struct{ model *plugin.Model }
 
+func (h *realHostStub) RepoRoot() string                                  { return "" }
 func (h *realHostStub) CurrentModel() *plugin.Model                       { return h.model }
 func (h *realHostStub) Targets() []plugin.TargetMeta                      { return nil }
 func (h *realHostStub) Target(string) (*plugin.TargetSnapshot, error)     { return nil, nil }

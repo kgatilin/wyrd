@@ -15,6 +15,7 @@ import (
 // don't actually call back into it; we just need a non-nil value.
 type stubHost struct{}
 
+func (stubHost) RepoRoot() string                                { return "" }
 func (stubHost) CurrentModel() *Model                            { return nil }
 func (stubHost) Targets() []TargetMeta                           { return nil }
 func (stubHost) Target(string) (*TargetSnapshot, error)          { return nil, nil }

@@ -17,6 +17,7 @@ import (
 	// each one with the plugin package's global registry. Adding a
 	// new built-in plugin is a one-line change here.
 	_ "github.com/kgatilin/archai/internal/plugins/complexity"
+	_ "github.com/kgatilin/archai/internal/plugins/events"
 )
 
 // cliHost is a Host implementation used outside the long-running
@@ -133,6 +134,12 @@ func (h *cliHost) Subscribe(handler func(plugin.ModelEvent)) plugin.Unsubscribe 
 
 // Logger implements plugin.Host.
 func (h *cliHost) Logger() *slog.Logger { return h.logger }
+
+// RepoRoot implements plugin.Host.
+func (h *cliHost) RepoRoot() string {
+	_ = h.ensureLoaded()
+	return h.rootPath
+}
 
 // wirePlugins runs the in-process plugin bootstrap and mounts every
 // plugin-contributed CLI command under `archai plugin <name> ...`.

@@ -1,0 +1,50 @@
+version: 1
+component: billing
+owns: billing
+description: Invoice lifecycle management
+
+receives:
+  - kind: billing.invoice.issue
+    role: action
+    description: Create an invoice for one account
+    exposure: [public_api]
+    schema:
+      type: object
+      required: [Account]
+      properties:
+        Account: {type: string}
+        Currency: {type: string}
+        Lines: {type: array, items: {$ref: '#/vocab/Line'}}
+
+emits:
+  - kind: billing.invoice.issued
+    role: fact
+    schema: {$ref: '#/vocab/Invoice'}
+  - kind: ledger.entry.post
+    role: action
+
+folds:
+  - name: billing.open-invoices
+    pattern: billing.invoice.**
+    state:
+      type: object
+      properties:
+        Open: {type: array, items: {$ref: '#/vocab/Invoice'}}
+
+vocab:
+  Invoice:
+    type: object
+    properties:
+      Account: {type: string}
+      Status: {type: string, enum: [open, paid, void]}
+      Lines:
+        oneOf:
+          - {type: array, items: {$ref: '#/vocab/Line'}}
+          - type: string
+            deprecated: true
+            description: legacy single-line form, read-only
+  Line:
+    type: object
+    properties:
+      Description: {type: string}
+      Amount: {type: number}

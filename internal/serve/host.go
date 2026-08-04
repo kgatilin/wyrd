@@ -211,6 +211,14 @@ func (h *Host) Logger() *slog.Logger {
 	return h.logger
 }
 
+// RepoRoot implements plugin.Host.
+func (h *Host) RepoRoot() string {
+	if h == nil || h.state == nil {
+		return ""
+	}
+	return h.state.Root()
+}
+
 // snapshotOverlay returns a copy of the active overlay config.
 func (h *Host) snapshotOverlay() *overlay.Config {
 	snap := h.state.Snapshot()

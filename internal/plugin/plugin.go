@@ -85,6 +85,12 @@ type Manifest struct {
 // the one-shot CLI provide different Hosts that satisfy this same
 // interface.
 type Host interface {
+	// RepoRoot returns the absolute path to the repository root
+	// directory. Plugins that need to read files from the repository
+	// (e.g. .arch/events.yaml declarations) use this to locate them.
+	// Returns "" if the root is unknown or unavailable.
+	RepoRoot() string
+
 	// CurrentModel returns the unified Model (code + overlay merged).
 	// The returned pointer is a snapshot; plugins should treat it as
 	// read-only and re-call CurrentModel after a ModelEvent rather

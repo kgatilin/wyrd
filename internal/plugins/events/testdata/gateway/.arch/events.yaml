@@ -1,0 +1,19 @@
+version: 1
+component: gateway
+description: API gateway - orchestrates without owning events
+
+# No 'owns' field - this component does not define a vocabulary.
+# It only emits actions (call-outs) and receives facts (observations).
+
+receives:
+  - kind: billing.invoice.issued
+    role: fact
+    description: Observe invoice events for audit logging
+  - kind: ledger.entry.posted
+    role: fact
+    description: Observe ledger events for metrics
+
+emits:
+  - kind: billing.invoice.issue
+    role: action
+    description: Trigger invoice creation on behalf of API clients
