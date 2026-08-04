@@ -140,7 +140,7 @@ func TestDottedFoldName(t *testing.T) {
 		Owns: "billing",
 	}
 	// Fold name contains a dot - this would break string-splitting.
-	billing.Folds = []eventmodel.Fold{{Name: "invoice.tracker", Pattern: "billing.invoice.>"}}
+	billing.Folds = []eventmodel.Fold{{Name: "invoice.tracker", Subject: "svc.*.billing.{account}.>", Consumes: []string{"billing.invoice.>"}}}
 	billing.Emits = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
 
 	consumer := &eventmodel.Component{

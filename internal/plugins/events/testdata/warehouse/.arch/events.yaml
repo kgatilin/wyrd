@@ -1,0 +1,50 @@
+version: 1
+component: warehouse
+owns: warehouse
+description: Inventory management with multi-slot partition keys
+
+receives:
+  - kind: warehouse.stock.adjust
+    role: action
+    description: Adjust stock level at a location
+    schema:
+      type: object
+      required: [Region, Location, SKU, Delta]
+      properties:
+        Region: {type: string}
+        Location: {type: string}
+        SKU: {type: string}
+        Delta: {type: integer}
+
+emits:
+  - kind: warehouse.stock.adjusted
+    role: fact
+    schema:
+      type: object
+      properties:
+        Region: {type: string}
+        Location: {type: string}
+        SKU: {type: string}
+        NewLevel: {type: integer}
+  - kind: warehouse.stock.depleted
+    role: fact
+    description: Stock fell to zero
+    schema:
+      type: object
+      properties:
+        Region: {type: string}
+        Location: {type: string}
+        SKU: {type: string}
+
+folds:
+  # Multi-slot subject: one state per region, location, and SKU.
+  - name: warehouse.stock-levels
+    subject: svc.*.warehouse.{region}.{location}.stock.{sku}.>
+    consumes:
+      - warehouse.stock.adjusted
+      - warehouse.stock.depleted
+    state:
+      type: object
+      properties:
+        Level: {type: integer}
+        LastUpdated: {type: string, format: date-time}

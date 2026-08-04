@@ -43,7 +43,8 @@ emits:
 
 folds:
   - name: billing.open-invoices
-    pattern: billing.invoice.>
+    subject: svc.*.billing.{account}.invoice.>
+    consumes: [billing.invoice.*]
     state:
       type: object
       properties:
@@ -107,8 +108,14 @@ vocab:
 		if f.Name != "billing.open-invoices" {
 			t.Errorf("Folds[0].Name = %q", f.Name)
 		}
-		if f.Pattern != "billing.invoice.>" {
-			t.Errorf("Folds[0].Pattern = %q", f.Pattern)
+		if f.Subject != "svc.*.billing.{account}.invoice.>" {
+			t.Errorf("Folds[0].Subject = %q", f.Subject)
+		}
+		if f.PartitionArity != 1 {
+			t.Errorf("Folds[0].PartitionArity = %d, want 1", f.PartitionArity)
+		}
+		if len(f.Consumes) != 1 || f.Consumes[0] != "billing.invoice.*" {
+			t.Errorf("Folds[0].Consumes = %v", f.Consumes)
 		}
 	}
 	if len(comp.Vocab) != 1 {
@@ -187,16 +194,17 @@ receives:
 			yaml: `version: 1
 component: billing
 folds:
-  - pattern: billing.>`,
+  - consumes: [billing.*]`,
 			want: "missing required field 'name'",
 		},
 		{
-			name: "missing fold pattern",
+			name: "missing fold consumes",
 			yaml: `version: 1
 component: billing
 folds:
-  - name: foo`,
-			want: "missing required field 'pattern'",
+  - name: foo
+    subject: svc.*.billing.{account}.>`,
+			want: "missing required field 'consumes'",
 		},
 	}
 
@@ -254,6 +262,64 @@ func TestReadEmptyDirectory(t *testing.T) {
 	}
 	if len(model.Components) != 0 {
 		t.Errorf("want 0 components, got %d", len(model.Components))
+	}
+}
+
+func TestCountSlotTokens(t *testing.T) {
+	cases := []struct {
+		subject string
+		want    int
+	}{
+		{"", 0},
+		{"svc.*.billing.invoice.>", 0},
+		{"svc.*.billing.{account}.invoice.>", 1},
+		{"svc.*.billing.{region}.{location}.stock.{sku}.>", 3},
+		{"svc.{a}.{b}.{c}.{d}.>", 4},
+		{"{unclosed", 0}, // Malformed but we still count what looks complete.
+		{"{}", 1},        // Empty slot still counts.
+	}
+	for _, tc := range cases {
+		got := countSlotTokens(tc.subject)
+		if got != tc.want {
+			t.Errorf("countSlotTokens(%q) = %d, want %d", tc.subject, got, tc.want)
+		}
+	}
+}
+
+func TestValidateSlotSyntax(t *testing.T) {
+	valid := []string{
+		"",
+		"svc.*.billing.invoice.>",
+		"svc.*.billing.{account}.invoice.>",
+		"svc.*.warehouse.{region}.{location}.stock.{sku}.>",
+		"{slot}",
+		"a.{b}.c.{d}",
+	}
+	for _, s := range valid {
+		if err := ValidateSlotSyntax(s); err != nil {
+			t.Errorf("ValidateSlotSyntax(%q) = %v, want nil", s, err)
+		}
+	}
+
+	invalid := []struct {
+		subject string
+		wantErr string
+	}{
+		{"{", "unclosed"},
+		{"svc.{account.>", "unclosed"},
+		{"{}", "empty slot"},
+		{"svc.{}.foo", "empty slot"},
+		{"svc.{a{b}}.>", "nested"},
+		{"svc.}.foo", "unmatched"},
+		{"svc.{{nested}}.>", "nested"},
+	}
+	for _, tc := range invalid {
+		err := ValidateSlotSyntax(tc.subject)
+		if err == nil {
+			t.Errorf("ValidateSlotSyntax(%q) = nil, want error containing %q", tc.subject, tc.wantErr)
+		} else if !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("ValidateSlotSyntax(%q) = %v, want error containing %q", tc.subject, err, tc.wantErr)
+		}
 	}
 }
 

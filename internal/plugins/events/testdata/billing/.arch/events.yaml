@@ -25,7 +25,8 @@ emits:
 
 folds:
   - name: billing.open-invoices
-    pattern: billing.invoice.**
+    subject: svc.*.billing.{account}.invoice.>
+    consumes: [billing.invoice.*]
     state:
       type: object
       properties:

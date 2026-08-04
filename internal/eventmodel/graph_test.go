@@ -10,7 +10,7 @@ func TestBuildGraphNodes(t *testing.T) {
 	billing.Vocab["Invoice"] = SchemaNode{Raw: map[string]any{"type": "object"}}
 	billing.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
 	billing.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
-	billing.Folds = []Fold{{Name: "open-invoices", Pattern: "billing.invoice.>"}}
+	billing.Folds = []Fold{{Name: "open-invoices", Subject: "svc.*.billing.{account}.>", Consumes: []string{"billing.invoice.>"}}}
 
 	shipping := comp("shipping", "shipping")
 	shipping.Receives = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
@@ -58,8 +58,8 @@ func TestBuildGraphEdges(t *testing.T) {
 	billing := comp("billing", "billing")
 	billing.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
 	billing.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
-	// Use a specific pattern to match only facts.
-	billing.Folds = []Fold{{Name: "self-fold", Pattern: "billing.invoice.issued"}}
+	// Use a specific consumes entry to match only facts.
+	billing.Folds = []Fold{{Name: "self-fold", Subject: "svc.*.billing.{account}.>", Consumes: []string{"billing.invoice.issued"}}}
 
 	ledger := comp("ledger", "ledger")
 	ledger.Receives = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
@@ -183,7 +183,7 @@ func TestBuildGraphHealth(t *testing.T) {
 				}(),
 				func() *Component {
 					c := comp("analytics", "analytics")
-					c.Folds = []Fold{{Name: "invoices", Pattern: "billing.>"}}
+					c.Folds = []Fold{{Name: "invoices", Subject: "svc.*.analytics.>", Consumes: []string{"billing.>"}}}
 					return c
 				}(),
 			),

@@ -224,8 +224,8 @@ func TestStarvedReceive(t *testing.T) {
 
 func TestStarvedFold(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Folds = []Fold{{Name: "billing.test", Pattern: "billing.invoice.>"}}
-	// No emitted kinds matching the pattern.
+	c.Folds = []Fold{{Name: "billing.test", Subject: "svc.*.billing.{account}.>", Consumes: []string{"billing.invoice.>"}}}
+	// No emitted kinds matching the consumes.
 
 	fs := Validate(model(c))
 	if !hasKind(fs, KindStarvedFold) {
@@ -235,7 +235,7 @@ func TestStarvedFold(t *testing.T) {
 
 func TestStarvedFoldSatisfied(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Folds = []Fold{{Name: "billing.test", Pattern: "billing.invoice.>"}}
+	c.Folds = []Fold{{Name: "billing.test", Subject: "svc.*.billing.{account}.>", Consumes: []string{"billing.invoice.>"}}}
 	c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
 
 	fs := Validate(model(c))
@@ -273,7 +273,7 @@ func TestOrphanFactConsumedByFold(t *testing.T) {
 	billing.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
 
 	analytics := comp("analytics", "analytics")
-	analytics.Folds = []Fold{{Name: "analytics.invoices", Pattern: "billing.>"}}
+	analytics.Folds = []Fold{{Name: "analytics.invoices", Subject: "svc.*.analytics.>", Consumes: []string{"billing.>"}}}
 
 	fs := Validate(model(billing, analytics))
 	if hasKind(fs, KindOrphanFact) {
@@ -484,6 +484,74 @@ func TestUnresolvedOneOfRef(t *testing.T) {
 	}
 	if len(unresolvedRefs) > 0 && !strings.Contains(unresolvedRefs[0].Message, "V2") {
 		t.Errorf("should mention V2: %s", unresolvedRefs[0].Message)
+	}
+}
+
+func TestMalformedSlotSyntax(t *testing.T) {
+	c := comp("billing", "billing")
+	c.Folds = []Fold{{
+		Name:     "billing.bad-subject",
+		Subject:  "svc.*.billing.{unclosed.>",
+		Consumes: []string{"billing.*"},
+	}}
+	c.Emits = []Slot{{Kind: "billing.foo", Role: RoleFact}}
+
+	fs := Validate(model(c))
+	if !hasKind(fs, KindMalformedSlot) {
+		t.Error("want malformed-slot finding for unclosed brace")
+	}
+}
+
+func TestMalformedSlotEmptySlot(t *testing.T) {
+	c := comp("billing", "billing")
+	c.Folds = []Fold{{
+		Name:     "billing.empty-slot",
+		Subject:  "svc.*.billing.{}.invoice.>",
+		Consumes: []string{"billing.*"},
+	}}
+	c.Emits = []Slot{{Kind: "billing.foo", Role: RoleFact}}
+
+	fs := Validate(model(c))
+	if !hasKind(fs, KindMalformedSlot) {
+		t.Error("want malformed-slot finding for empty slot")
+	}
+}
+
+func TestStarvedFoldPerEntry(t *testing.T) {
+	// A fold with multiple consumes entries, where only one is starved.
+	c := comp("billing", "billing")
+	c.Folds = []Fold{{
+		Name:     "billing.multi",
+		Subject:  "svc.*.billing.{account}.>",
+		Consumes: []string{"billing.invoice.*", "nonexistent.events.*"},
+	}}
+	c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+
+	fs := Validate(model(c))
+	starved := findingsByKind(fs, KindStarvedFold)
+	if len(starved) != 1 {
+		t.Fatalf("want 1 starved-fold finding for the unmatched consumes entry, got %d", len(starved))
+	}
+	if !strings.Contains(starved[0].Message, "nonexistent.events.*") {
+		t.Errorf("starved-fold message should mention the unmatched consumes entry: %s", starved[0].Message)
+	}
+}
+
+func TestSubjectNotMatchedAgainstKinds(t *testing.T) {
+	// Regression test: the subject pattern should not be matched against kinds.
+	// This fold's subject is a transport pattern that would match nothing in
+	// the kind alphabet, but its consumes entry does match.
+	c := comp("billing", "billing")
+	c.Folds = []Fold{{
+		Name:     "billing.transport-subject",
+		Subject:  "svc.*.billing.{account}.invoice.>",
+		Consumes: []string{"billing.invoice.*"},
+	}}
+	c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+
+	fs := Validate(model(c))
+	if hasKind(fs, KindStarvedFold) {
+		t.Error("fold should NOT be starved: consumes matches the emitted kind")
 	}
 }
 

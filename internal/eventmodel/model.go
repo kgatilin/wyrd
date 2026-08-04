@@ -92,12 +92,40 @@ func (r Role) Valid() bool {
 }
 
 // Fold represents a projection maintained over an event pattern.
+//
+// The subject and consumes fields serve distinct purposes and operate in
+// different alphabets:
+//
+//   - Subject is the transport read-set: a NATS-style subject pattern with
+//     {slot} tokens that declares the partition key layout ("one state per X").
+//     archai does not match it against kinds; it carries the pattern through
+//     for codegen and parses only enough to extract {slot} tokens.
+//
+//   - Consumes lists the event kinds the reducer actually folds. These are
+//     kind globs in the kind alphabet (MatchPattern applies). Starvation is
+//     checked here, not on the subject.
+//
+// The distinction matters: a subject pattern matches events the reducer may
+// ignore (wrong kind in the namespace), and a consumes entry may be emitted
+// on subjects the fold does not subscribe to. Conflating them (as the old
+// "pattern" field did) produces false starved-fold warnings.
 type Fold struct {
 	// Name is the fold identifier (e.g. "billing.open-invoices").
 	Name string
 
-	// Pattern is a subject pattern matched against emitted kinds.
-	Pattern string
+	// Subject is a NATS-style transport pattern with {slot} tokens.
+	// Example: "svc.*.billing.{account}.invoice.>"
+	// archai validates {slot} syntax but does not match this against kinds.
+	Subject string
+
+	// PartitionArity is the number of {slot} tokens in Subject.
+	// Derived at parse time; zero if Subject is empty or has no slots.
+	PartitionArity int
+
+	// Consumes lists the event kinds the reducer folds, as kind globs.
+	// Example: ["billing.invoice.*", "billing.credit.issued"]
+	// MatchPattern applies; starvation is checked per entry.
+	Consumes []string
 
 	// State is the projection state schema (opaque structured data).
 	State SchemaNode

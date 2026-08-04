@@ -101,10 +101,11 @@ type rawSlot struct {
 }
 
 type rawFold struct {
-	Name    string         `yaml:"name"`
-	Pattern string         `yaml:"pattern"`
-	State   any            `yaml:"state"`
-	Extra   map[string]any `yaml:"extra"`
+	Name     string         `yaml:"name"`
+	Subject  string         `yaml:"subject"`
+	Consumes []string       `yaml:"consumes"`
+	State    any            `yaml:"state"`
+	Extra    map[string]any `yaml:"extra"`
 }
 
 func parseEventsFile(path string) (*Component, error) {
@@ -166,14 +167,17 @@ func parseEventsFile(path string) (*Component, error) {
 		if rf.Name == "" {
 			return nil, fmt.Errorf("folds[%d]: missing required field 'name'", i)
 		}
-		if rf.Pattern == "" {
-			return nil, fmt.Errorf("folds[%d] (%s): missing required field 'pattern'", i, rf.Name)
+		if len(rf.Consumes) == 0 {
+			return nil, fmt.Errorf("folds[%d] (%s): missing required field 'consumes'", i, rf.Name)
 		}
+		arity := countSlotTokens(rf.Subject)
 		comp.Folds = append(comp.Folds, Fold{
-			Name:    rf.Name,
-			Pattern: rf.Pattern,
-			State:   SchemaNode{Raw: rf.State},
-			Extra:   rf.Extra,
+			Name:           rf.Name,
+			Subject:        rf.Subject,
+			PartitionArity: arity,
+			Consumes:       rf.Consumes,
+			State:          SchemaNode{Raw: rf.State},
+			Extra:          rf.Extra,
 		})
 	}
 
@@ -214,4 +218,63 @@ func kindHasPrefix(kind, owns string) bool {
 		return true
 	}
 	return false
+}
+
+// countSlotTokens counts {slot} tokens in a subject pattern.
+// It does not validate syntax; use ValidateSlotSyntax for that.
+func countSlotTokens(subject string) int {
+	count := 0
+	for i := 0; i < len(subject); {
+		if subject[i] == '{' {
+			// Find closing brace.
+			end := i + 1
+			for end < len(subject) && subject[end] != '}' {
+				end++
+			}
+			if end < len(subject) {
+				count++
+				i = end + 1
+				continue
+			}
+		}
+		i++
+	}
+	return count
+}
+
+// ValidateSlotSyntax checks that {slot} tokens in a subject are well-formed:
+// balanced braces and non-empty slot names. Returns nil if valid, otherwise
+// a descriptive error.
+func ValidateSlotSyntax(subject string) error {
+	if subject == "" {
+		return nil
+	}
+	for i := 0; i < len(subject); {
+		if subject[i] == '{' {
+			// Find closing brace.
+			end := i + 1
+			for end < len(subject) && subject[end] != '}' {
+				// Nested brace is malformed.
+				if subject[end] == '{' {
+					return fmt.Errorf("nested '{' at position %d", end)
+				}
+				end++
+			}
+			if end >= len(subject) {
+				return fmt.Errorf("unclosed '{' at position %d", i)
+			}
+			// Check for empty slot name.
+			if end == i+1 {
+				return fmt.Errorf("empty slot '{}' at position %d", i)
+			}
+			i = end + 1
+			continue
+		}
+		// Unmatched closing brace.
+		if subject[i] == '}' {
+			return fmt.Errorf("unmatched '}' at position %d", i)
+		}
+		i++
+	}
+	return nil
 }

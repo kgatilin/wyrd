@@ -65,6 +65,7 @@ func Validate(m *Model) []Finding {
 	for id, comp := range m.Components {
 		findings = append(findings, validateOwnership(id, comp)...)
 		findings = append(findings, validateRefs(id, comp, m)...)
+		findings = append(findings, validateFoldSlotSyntax(id, comp)...)
 	}
 
 	// Cross-component validation.
@@ -237,26 +238,29 @@ func validateClosure(m *Model, receiversOf, emittersOf map[string][]string, allE
 		}
 	}
 
-	// Starved folds: pattern matches no emitted kind.
+	// Starved folds: consumes entry matches no emitted kind.
+	// Report per consumes entry, not per fold.
 	for id, comp := range m.Components {
 		for _, fold := range comp.Folds {
-			matched := false
-			for kind := range allEmittedKinds {
-				if MatchPattern(fold.Pattern, kind) {
-					matched = true
-					break
+			for _, consumesEntry := range fold.Consumes {
+				matched := false
+				for kind := range allEmittedKinds {
+					if MatchPattern(consumesEntry, kind) {
+						matched = true
+						break
+					}
 				}
-			}
-			if !matched {
-				findings = append(findings, Finding{
-					Severity:  SeverityWarning,
-					Kind:      KindStarvedFold,
-					Component: id,
-					File:      comp.SourceFile,
-					Location:  fold.Name,
-					Message: fmt.Sprintf("fold %q pattern %q matches no emitted kind",
-						fold.Name, fold.Pattern),
-				})
+				if !matched {
+					findings = append(findings, Finding{
+						Severity:  SeverityWarning,
+						Kind:      KindStarvedFold,
+						Component: id,
+						File:      comp.SourceFile,
+						Location:  fold.Name,
+						Message: fmt.Sprintf("fold %q consumes %q but no emitted kind matches",
+							fold.Name, consumesEntry),
+					})
+				}
 			}
 		}
 	}
@@ -268,12 +272,17 @@ func validateClosure(m *Model, receiversOf, emittersOf map[string][]string, allE
 				continue
 			}
 			if len(receiversOf[slot.Kind]) == 0 {
-				// Also check folds.
+				// Also check if any fold consumes this kind.
 				consumed := false
 				for _, otherComp := range m.Components {
 					for _, fold := range otherComp.Folds {
-						if MatchPattern(fold.Pattern, slot.Kind) {
-							consumed = true
+						for _, consumesEntry := range fold.Consumes {
+							if MatchPattern(consumesEntry, slot.Kind) {
+								consumed = true
+								break
+							}
+						}
+						if consumed {
 							break
 						}
 					}
@@ -548,6 +557,27 @@ func collectCrossRefs(comp *Component, fn func(targetID string)) {
 	for _, schema := range comp.Vocab {
 		walkAll(schema)
 	}
+}
+
+// validateFoldSlotSyntax checks {slot} syntax in fold subjects.
+func validateFoldSlotSyntax(id string, comp *Component) []Finding {
+	var findings []Finding
+	for _, fold := range comp.Folds {
+		if fold.Subject == "" {
+			continue
+		}
+		if err := ValidateSlotSyntax(fold.Subject); err != nil {
+			findings = append(findings, Finding{
+				Severity:  SeverityError,
+				Kind:      KindMalformedSlot,
+				Component: id,
+				File:      comp.SourceFile,
+				Location:  fold.Name,
+				Message:   fmt.Sprintf("fold %q subject %q: %v", fold.Name, fold.Subject, err),
+			})
+		}
+	}
+	return findings
 }
 
 func sortFindings(fs []Finding) {

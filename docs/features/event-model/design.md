@@ -88,7 +88,8 @@ emits:
 
 folds:
   - name: billing.open-invoices
-    pattern: billing.invoice.>       # matched against emitted kinds, not transport subjects
+    subject: svc.*.billing.{account}.invoice.>  # transport read-set with partition slots
+    consumes: [billing.invoice.*]               # kinds the reducer folds (globs)
     state:
       type: object
       properties:
@@ -114,8 +115,27 @@ role == action}`, and the target is the component whose `receives` declares that
 kind. Merging it into `emits` is what makes the role/ownership rule table below
 total.
 
-**`folds` are separate from `receives`.** `receives` is "what wakes me";
-a fold is "a projection I maintain over a pattern". They starve independently.
+**`folds` are separate from `receives`.** `receives` is the *invocable* surface —
+"how you call me" — predominantly `role: action`. It is what a future codegen step
+projects into tool definitions. A fold is a projection maintained over event
+*facts*; the reducer switches on the event kind and ignores everything else.
+
+**`subject` vs `consumes` — two alphabets.** A fold declares two distinct things:
+
+- **`subject`** is the transport read-set: a NATS-style pattern with `{slot}`
+  tokens that declares the partition key layout ("one state per account") and
+  wires subscriptions at runtime. archai validates `{slot}` syntax but does not
+  match this against kinds — it is opaque to validation and carried through for
+  codegen.
+
+- **`consumes`** lists the event kinds the reducer actually folds, as kind globs.
+  The existing `MatchPattern` applies; starvation is checked per entry.
+
+The distinction matters: a subject pattern may deliver events the reducer ignores
+(wrong kind in the namespace), and a consumed kind may be emitted onto subjects
+the fold does not subscribe to. Conflating them (as a single `pattern` field did)
+produces false starved-fold warnings whenever a project uses realistic NATS
+subject patterns.
 
 **Schemas are inline, in JSON Schema vocabulary, written as YAML.** JSON Schema
 is a data model, not a syntax — schemas expressed in YAML are valid JSON Schema
@@ -163,8 +183,9 @@ event of its own — not a degenerate case.
 ### What archai must implement
 
 - `internal/eventmodel/` — the domain: `Component`, `Slot{Kind, Role,
-  Description, Exposure, Schema}`, `Fold{Name, Pattern, State}`, `Vocab`,
-  `Extra`. Pure data, no behavior, no dependencies (archai rule 4).
+  Description, Exposure, Schema}`, `Fold{Name, Subject, PartitionArity, Consumes,
+  State}`, `Vocab`, `Extra`. Pure data, no behavior, no dependencies (archai
+  rule 4).
 - A reader that discovers every `.arch/events.yaml` under the repo, parses it
   (reuse `internal/adapter/yaml`), validates it against the built-in meta-schema,
   and resolves `$ref`s into a composed `eventmodel.Model`.
@@ -189,11 +210,15 @@ model rather than being invented:
 Plus:
 
 - **single owner** — no two components declare overlapping `owns`.
-- **closure** — every `receives` kind has ≥1 producer; every `folds` pattern is
-  matched by ≥1 emitted kind; every emitted fact has ≥1 consumer.
+- **closure** — every `receives` kind has ≥1 producer; every `consumes` entry in
+  a fold matches ≥1 emitted kind (reported per entry, not per fold); every
+  emitted fact has ≥1 consumer (receive or fold consumes match).
 - **call resolution** — an emitted action resolves to exactly one receiving
   component (zero = starved, more than one = ambiguous).
 - **vocab integrity** — every `$ref` resolves; cross-component refs do not cycle.
+- **slot syntax** — `{slot}` tokens in fold subjects are balanced and non-empty
+  (`malformed-slot` error otherwise). archai does not interpret the subject
+  beyond this syntax check.
 - **schema compatibility** — *deferred, not implemented.* A call-out's payload
   should be a structural subset of the target's inbound schema for that kind.
   Doing this properly means implementing JSON Schema subtyping (required
@@ -244,12 +269,20 @@ The composed model projects to a **bipartite graph**:
 - edges:
   - `component --emits--> kind` (attr: role)
   - `kind --receives--> component` (attr: role, exposure)
-  - `kind --feeds--> fold` (pattern match), `fold --held-by--> component`
+  - `kind --feeds--> fold` (consumes match), `fold --held-by--> component`
   - `component --vocab--> type` (a component's declared shapes; without it,
     vocabulary types float disconnected from their owner)
   - `kind --payload--> type`, `type --refs--> type`
-- node attributes: `owns`, `deprecated`, `producer_count`, `consumer_count`,
-  health (`ok` | `orphan` | `starved` | `ambiguous`)
+- node attributes:
+  - component: `owns`, `deprecated`
+  - kind: `producer_count`, `consumer_count`, `health` (`ok` | `orphan` |
+    `starved` | `ambiguous`), `role`
+  - fold: `subject`, `partition_arity`, `consumes`, `component`
+  - type: `component`, `deprecated`
+
+Fold nodes carry `subject` and `partition_arity` as attributes because the
+partition layout ("one state per account") is an architectural fact worth
+exposing in the graph and renderers.
 
 Node ids are built from the **owning component reached structurally**, never by
 parsing a name — a fold named `billing.open-invoices` must not be split on a dot
@@ -445,13 +478,15 @@ visualized event model is useful with handwritten declarations.
   parameterized declaration with named holes that the runtime fills and validates
   on the composed set, or declaring the expanded family as a pattern. Needs a
   real example before choosing.
-- **Pattern semantics.** `folds[].pattern` is matched against emitted kinds to
-  detect starvation, which requires archai to know a wildcard syntax. v1 is
-  dot-segmented globs with NATS semantics: `*` matches exactly one segment, `>`
-  matches **one or more** trailing segments (not zero), and `**` is an alias for
-  `>`. If a project's transport differs, this needs a declared dialect rather
-  than a hardcoded matcher — the matcher is deliberately isolated so it can be
-  swapped.
+- **Consumes pattern semantics.** `folds[].consumes` entries are matched against
+  emitted kinds using dot-segmented globs with NATS semantics: `*` matches
+  exactly one segment, `>` matches **one or more** trailing segments (not zero),
+  and `**` is an alias for `>`. If a project needs a different dialect, the
+  matcher is deliberately isolated so it can be swapped.
+- **Subject/kind coherence.** archai does not verify that a consumed kind is
+  emitted onto a subject the fold's pattern matches. This coherence check is
+  deliberately deferred because it requires archai to understand the project's
+  subject grammar, which varies between transports.
 - **Kind identity across repos.** Within one repo `kind` is unique. Federating
   later needs a qualifier (owner + version). Deferred, but the format should not
   make it a breaking change.

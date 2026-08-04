@@ -320,7 +320,7 @@ func (p *Plugin) handleEventModel(_ context.Context, _ map[string]any) (any, err
 		if len(comp.Folds) > 0 {
 			sb.WriteString("  folds:\n")
 			for _, fold := range comp.Folds {
-				sb.WriteString(fmt.Sprintf("    - %s (pattern: %s)\n", fold.Name, fold.Pattern))
+				sb.WriteString(fmt.Sprintf("    - %s (subject: %s, consumes: %v)\n", fold.Name, fold.Subject, fold.Consumes))
 			}
 		}
 		if len(comp.Vocab) > 0 {
@@ -389,8 +389,11 @@ func (p *Plugin) handleEventKind(_ context.Context, args map[string]any) (any, e
 			}
 		}
 		for _, fold := range comp.Folds {
-			if eventmodel.MatchPattern(fold.Pattern, kindName) {
-				foldConsumers = append(foldConsumers, id+":"+fold.Name)
+			for _, consumesEntry := range fold.Consumes {
+				if eventmodel.MatchPattern(consumesEntry, kindName) {
+					foldConsumers = append(foldConsumers, id+":"+fold.Name)
+					break
+				}
 			}
 		}
 	}

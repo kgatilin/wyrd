@@ -42,6 +42,9 @@ const (
 
 	// KindRefCycle — a cross-component $ref cycle was detected.
 	KindRefCycle FindingKind = "ref-cycle"
+
+	// KindMalformedSlot — a fold subject has invalid {slot} syntax.
+	KindMalformedSlot FindingKind = "malformed-slot"
 )
 
 // Finding is a single validation result. Findings carry enough location

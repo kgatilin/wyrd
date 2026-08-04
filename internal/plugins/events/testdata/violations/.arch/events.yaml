@@ -24,9 +24,10 @@ emits:
     description: Fact that nobody listens to
 
 folds:
-  # WARNING: starved fold (pattern matches nothing)
+  # WARNING: starved fold (consumes entry matches nothing)
   - name: violations.starved-fold
-    pattern: nonexistent.events.**
+    subject: svc.*.violations.{tenant}.events.>
+    consumes: [nonexistent.events.*]
     state:
       type: object
 

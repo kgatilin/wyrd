@@ -174,8 +174,10 @@ func BuildGraph(m *Model) *Graph {
 				}
 			}
 			attrs := map[string]any{
-				"pattern":   fold.Pattern,
-				"component": compID, // Stored explicitly so exporters don't parse the ID.
+				"subject":          fold.Subject,
+				"partition_arity":  fold.PartitionArity,
+				"consumes":         fold.Consumes,
+				"component":        compID, // Stored explicitly so exporters don't parse the ID.
 			}
 			g.Nodes = append(g.Nodes, Node{
 				ID:    foldID(compID, fold.Name),
@@ -253,17 +255,21 @@ func BuildGraph(m *Model) *Graph {
 		}
 	}
 
-	// Edges: kind --feeds--> fold (pattern match).
+	// Edges: kind --feeds--> fold (consumes matching).
 	for _, compID := range compIDs {
 		comp := m.Components[compID]
 		for _, fold := range comp.Folds {
 			for _, kind := range kindNames {
-				if MatchPattern(fold.Pattern, kind) {
-					g.Edges = append(g.Edges, Edge{
-						From: kindID(kind),
-						To:   foldID(compID, fold.Name),
-						Kind: EdgeFeeds,
-					})
+				// Check if any consumes entry matches this kind.
+				for _, consumesEntry := range fold.Consumes {
+					if MatchPattern(consumesEntry, kind) {
+						g.Edges = append(g.Edges, Edge{
+							From: kindID(kind),
+							To:   foldID(compID, fold.Name),
+							Kind: EdgeFeeds,
+						})
+						break // Only add edge once per kind-fold pair.
+					}
 				}
 			}
 		}
@@ -361,12 +367,15 @@ func computeKindHealth(kind string, role Role, receiversOf, emittersOf map[strin
 	producers := len(emittersOf[kind])
 	consumers := len(receiversOf[kind])
 
-	// Check fold consumers too.
+	// Check fold consumers via consumes matching.
 	foldConsumers := 0
 	for _, comp := range m.Components {
 		for _, fold := range comp.Folds {
-			if MatchPattern(fold.Pattern, kind) {
-				foldConsumers++
+			for _, consumesEntry := range fold.Consumes {
+				if MatchPattern(consumesEntry, kind) {
+					foldConsumers++
+					break // Count each fold once.
+				}
 			}
 		}
 	}

@@ -50,9 +50,10 @@ emits:
     schema: {$ref: '#/vocab/Invoice'}
 
 folds:
-  - name: billing.open-invoices  # required
-    pattern: billing.invoice.>   # required; pattern matched against emitted kinds
-    state:                       # optional; JSON Schema for projection state
+  - name: billing.open-invoices     # required
+    subject: svc.*.billing.{account}.invoice.>  # optional; transport read-set
+    consumes: [billing.invoice.*]   # required; kinds the reducer folds (globs)
+    state:                          # optional; JSON Schema for projection state
       type: object
 
 vocab:                           # optional; component-local shared schema shapes
@@ -95,9 +96,28 @@ extra:                           # optional; opaque passthrough for templates
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | yes | Fold identifier (e.g., `billing.open-invoices`). |
-| `pattern` | string | yes | Subject pattern matched against emitted kinds. |
+| `subject` | string | no | Transport subject pattern (e.g., `svc.*.billing.{account}.>`). Opaque to validation; carried for codegen. |
+| `consumes` | list of string | yes | Kind globs the reducer folds. Starvation checked per entry. |
 | `state` | Schema | no | Schema for the projection state. |
 | `extra` | map[string]any | no | Opaque passthrough. |
+
+### Subject vs Consumes
+
+A fold declares two distinct things in different alphabets:
+
+- **`subject`** is the *transport read-set*: a NATS-style pattern with `{slot}`
+  tokens that declares the partition key layout ("one state per account") and
+  wires subscriptions. archai validates `{slot}` syntax but does NOT match this
+  against kinds.
+
+- **`consumes`** lists the *kinds the reducer actually folds*. These are kind
+  globs; the existing pattern matching applies. Starvation is checked here, not
+  on the subject.
+
+The distinction matters: a subject pattern may deliver events the reducer
+ignores (wrong kind in the namespace), and a consumed kind may be emitted onto
+subjects the fold does not subscribe to. Conflating them produces false
+starved-fold warnings.
 
 **Strict decoding:** Unknown YAML keys cause a parse error. Typos like
 `componet:` or `recives:` are caught immediately.
@@ -136,9 +156,9 @@ properties:
 The `deprecated: true` flag is preserved in the model. Schema alternatives can
 use `oneOf` with one branch marked deprecated to represent legacy shapes.
 
-## Pattern Matching
+## Pattern Matching (consumes)
 
-Fold patterns use a minimal dot-segmented glob syntax:
+The `consumes` entries use a minimal dot-segmented glob syntax:
 
 | Token | Meaning |
 |-------|---------|
@@ -151,6 +171,21 @@ Examples:
 - `billing.*` matches `billing.invoice`, `billing.credit`, but not `billing` or `billing.invoice.issued`
 - `billing.>` matches `billing.invoice`, `billing.invoice.issued`, but not `billing`
 - `*.invoice.*` matches `billing.invoice.issued`, `sales.invoice.voided`
+
+## Subject Slot Syntax
+
+The `subject` field uses NATS-style patterns with `{slot}` tokens to declare
+partition keys. archai validates only the `{slot}` syntax:
+
+- `{slot}` tokens must be balanced (matching `{` and `}`)
+- `{slot}` tokens must be non-empty (no `{}`)
+- Nested braces are not allowed
+
+Examples:
+- `svc.*.billing.{account}.invoice.>` — one slot, partition per account
+- `svc.*.warehouse.{region}.{location}.stock.{sku}.>` — three slots
+
+Malformed `{slot}` syntax produces a `malformed-slot` error.
 
 ## Validation Rules
 
@@ -181,7 +216,8 @@ A component without `owns` may only emit actions and receive facts.
 | `unresolved-ref` | error | `$ref` points to nonexistent vocab entry | Fix the path or add the missing vocab entry |
 | `ref-cycle` | error | Cross-component `$ref` forms a cycle | Break the cycle by inlining or restructuring |
 | `starved-receive` | warning | Receives a kind no component emits | Add a producer or remove the unused receive |
-| `starved-fold` | warning | Fold pattern matches no emitted kind | Fix the pattern or add emitters |
+| `starved-fold` | warning | A `consumes` entry matches no emitted kind | Fix the consumes entry or add emitters |
+| `malformed-slot` | error | Fold subject has invalid `{slot}` syntax | Fix the `{slot}` tokens (balance braces, non-empty) |
 | `orphan-fact` | warning | Emitted fact has no consumer (no receive or fold match) | Add a consumer or remove the unused emit |
 
 ### What is NOT checked
