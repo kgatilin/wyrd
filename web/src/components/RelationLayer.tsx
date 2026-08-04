@@ -1,4 +1,5 @@
-import type { Component, SymbolRelation } from '../types';
+import type { Component, Diff, SymbolRelation } from '../types';
+import { computeExpandedHeight } from '../state/hooks';
 
 export interface RelationLayerProps {
   relations: SymbolRelation[];
@@ -14,16 +15,50 @@ interface Anchor {
   y: number;
 }
 
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 const COMPONENT_HEADER_H = 36;
 const INTERNAL_HEADER_H = 26;
 const MEMBER_ROW_H = 18;
 const MEMBER_LIST_PAD_TOP = 2;
 
-function componentCenter(cmp: Component): Anchor {
+function componentRect(
+  cmp: Component,
+  expandedSet: ReadonlySet<string>,
+  expandedInternals: ReadonlySet<string>
+): Rect {
+  const expanded = expandedSet.has(cmp.id);
   return {
-    x: (cmp.x ?? 0) + (cmp.w ?? 220) / 2,
-    y: (cmp.y ?? 0) + (cmp.h ?? 86) / 2,
+    x: cmp.x ?? 0,
+    y: cmp.y ?? 0,
+    w: expanded ? (cmp.wx ?? cmp.w ?? 220) : (cmp.w ?? 220),
+    h: expanded ? computeExpandedHeight(cmp, expandedInternals) : (cmp.h ?? 86),
   };
+}
+
+function rectCenter(rect: Rect): Anchor {
+  return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
+}
+
+/**
+ * The point where the segment center→toward crosses the rect border. Keeps a
+ * collapsed card's arrows OUTSIDE the card, so the arrowhead lands visibly on
+ * its edge instead of vanishing underneath.
+ */
+function borderPoint(rect: Rect, toward: Anchor): Anchor {
+  const c = rectCenter(rect);
+  const dx = toward.x - c.x;
+  const dy = toward.y - c.y;
+  if (dx === 0 && dy === 0) return c;
+  const sx = dx !== 0 ? rect.w / 2 / Math.abs(dx) : Infinity;
+  const sy = dy !== 0 ? rect.h / 2 / Math.abs(dy) : Infinity;
+  const t = Math.min(sx, sy);
+  return { x: c.x + dx * t, y: c.y + dy * t };
 }
 
 function relationAnchor(
@@ -36,10 +71,14 @@ function relationAnchor(
 ): Anchor | null {
   const cmp = components.find((component) => component.id === componentId);
   if (!cmp || cmp.x == null || cmp.y == null) return null;
-  if (!internalId || !expandedSet.has(cmp.id)) return componentCenter(cmp);
+  if (!internalId || !expandedSet.has(cmp.id)) {
+    return rectCenter(componentRect(cmp, expandedSet, expandedInternals));
+  }
 
   const internal = cmp.internals.find((item) => item.id === internalId);
-  if (!internal || internal.x == null || internal.y == null) return componentCenter(cmp);
+  if (!internal || internal.x == null || internal.y == null) {
+    return rectCenter(componentRect(cmp, expandedSet, expandedInternals));
+  }
 
   const baseX = cmp.x + internal.x;
   const baseY = cmp.y + COMPONENT_HEADER_H + internal.y;
@@ -78,6 +117,59 @@ function relationPath(from: Anchor, to: Anchor, sameComponent: boolean): { path:
   };
 }
 
+/**
+ * Slightly-bowed line between two border points. `bow` shifts the curve
+ * perpendicular to the segment — opposite directions of a cyclic pair get
+ * opposite bows, so A→B and B→A read as two distinct arrows.
+ */
+function bowedPath(from: Anchor, to: Anchor, bow: number): { path: string; mid: Anchor } {
+  const mx = (from.x + to.x) / 2;
+  const my = (from.y + to.y) / 2;
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+  const cx = mx + nx * bow;
+  const cy = my + ny * bow;
+  return {
+    path: `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`,
+    mid: { x: mx + nx * (bow + 10), y: my + ny * (bow + 10) },
+  };
+}
+
+/** One aggregated arrow for all relations between a collapsed pair, per direction. */
+interface AggregatedRelation {
+  key: string;
+  fromComponentId: string;
+  toComponentId: string;
+  kinds: Map<string, number>;
+  diff: Diff | undefined;
+  dimmedCandidate: boolean;
+}
+
+function aggregateLabel(kinds: Map<string, number>): string {
+  return [...kinds.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([kind, count]) => (count > 1 ? `${kind} ×${count}` : kind))
+    .join(' · ');
+}
+
+/** added > removed > changed — the most attention-worthy diff wins the color. */
+function mergeDiff(current: Diff | undefined, next: Diff | undefined): Diff | undefined {
+  const order: Record<string, number> = { added: 3, removed: 2, changed: 1 };
+  if (!next) return current;
+  if (!current || (order[next] ?? 0) > (order[current] ?? 0)) return next;
+  return current;
+}
+
+function markerFor(showDiff: boolean, diff: Diff | undefined): string {
+  if (!showDiff || !diff) return 'url(#hf-rel-arr)';
+  if (diff === 'added') return 'url(#hf-rel-arr-add)';
+  if (diff === 'removed') return 'url(#hf-rel-arr-rem)';
+  return 'url(#hf-rel-arr-chg)';
+}
+
 export function RelationLayer({
   relations,
   components,
@@ -86,8 +178,40 @@ export function RelationLayer({
   showDiff,
   focusId,
 }: RelationLayerProps) {
-  const isRelated = (relation: SymbolRelation) =>
-    !focusId || relation.fromComponentId === focusId || relation.toComponentId === focusId;
+  const isRelated = (fromId: string, toId: string) => !focusId || fromId === focusId || toId === focusId;
+  const byId = new Map(components.map((c) => [c.id, c]));
+  const isCollapsed = (id: string) => !expandedSet.has(id);
+
+  // Split: relations whose BOTH endpoints are collapsed aggregate into one
+  // directed arrow per component pair (border-to-border, labeled with the
+  // dependency kinds). Everything else renders individually, with collapsed
+  // endpoints clamped to the card border so arrowheads stay visible.
+  const aggregated = new Map<string, AggregatedRelation>();
+  const detailed: SymbolRelation[] = [];
+  for (const relation of relations) {
+    const cross = relation.fromComponentId !== relation.toComponentId;
+    if (cross && isCollapsed(relation.fromComponentId) && isCollapsed(relation.toComponentId)) {
+      const key = `${relation.fromComponentId}->${relation.toComponentId}`;
+      let agg = aggregated.get(key);
+      if (!agg) {
+        agg = {
+          key,
+          fromComponentId: relation.fromComponentId,
+          toComponentId: relation.toComponentId,
+          kinds: new Map(),
+          diff: undefined,
+          dimmedCandidate: false,
+        };
+        aggregated.set(key, agg);
+      }
+      agg.kinds.set(relation.kind, (agg.kinds.get(relation.kind) ?? 0) + 1);
+      agg.diff = mergeDiff(agg.diff, showDiff ? relation.diff : undefined);
+      continue;
+    }
+    // A self-relation inside a collapsed card has nowhere visible to go.
+    if (!cross && isCollapsed(relation.fromComponentId)) continue;
+    detailed.push(relation);
+  }
 
   return (
     <svg className="relations-svg" width="100%" height="100%">
@@ -119,8 +243,35 @@ export function RelationLayer({
         ))}
       </defs>
 
-      {relations.map((relation) => {
-        const from = relationAnchor(
+      {[...aggregated.values()].map((agg) => {
+        const fromCmp = byId.get(agg.fromComponentId);
+        const toCmp = byId.get(agg.toComponentId);
+        if (!fromCmp || !toCmp || fromCmp.x == null || toCmp.x == null) return null;
+        const fromRect = componentRect(fromCmp, expandedSet, expandedInternals);
+        const toRect = componentRect(toCmp, expandedSet, expandedInternals);
+        const from = borderPoint(fromRect, rectCenter(toRect));
+        const to = borderPoint(toRect, rectCenter(fromRect));
+        // A cyclic pair renders as two opposite-bowed arcs instead of one
+        // overlapping line — the cycle is visible at a glance.
+        const hasReverse = aggregated.has(`${agg.toComponentId}->${agg.fromComponentId}`);
+        const { path, mid } = bowedPath(from, to, hasReverse ? 14 : 6);
+        const dimmed = focusId && !isRelated(agg.fromComponentId, agg.toComponentId);
+        return (
+          <g key={agg.key} className={dimmed ? 'hf-relation-dimmed' : ''}>
+            <path
+              d={path}
+              className={`hf-relation hf-relation-agg ${agg.diff ?? ''}`}
+              markerEnd={markerFor(showDiff, agg.diff)}
+            />
+            <text x={mid.x} y={mid.y} className="hf-relation-label" textAnchor="middle">
+              {aggregateLabel(agg.kinds)}
+            </text>
+          </g>
+        );
+      })}
+
+      {detailed.map((relation) => {
+        let from = relationAnchor(
           components,
           expandedSet,
           expandedInternals,
@@ -128,7 +279,7 @@ export function RelationLayer({
           relation.fromInternalId,
           relation.fromMemberId
         );
-        const to = relationAnchor(
+        let to = relationAnchor(
           components,
           expandedSet,
           expandedInternals,
@@ -138,22 +289,30 @@ export function RelationLayer({
         );
         if (!from || !to) return null;
 
+        // Clamp collapsed endpoints from the card center to its border, so the
+        // line and its arrowhead stop AT the card instead of under it.
+        const fromCmp = byId.get(relation.fromComponentId);
+        const toCmp = byId.get(relation.toComponentId);
+        if (fromCmp && isCollapsed(fromCmp.id)) {
+          from = borderPoint(componentRect(fromCmp, expandedSet, expandedInternals), to);
+        }
+        if (toCmp && isCollapsed(toCmp.id)) {
+          to = borderPoint(componentRect(toCmp, expandedSet, expandedInternals), from);
+        }
+
         const { path, mid } = relationPath(from, to, relation.fromComponentId === relation.toComponentId);
         const diffCls = showDiff && relation.diff ? relation.diff : '';
-        const dimmed = focusId && !isRelated(relation);
-        const marker =
-          !showDiff || !relation.diff
-            ? 'url(#hf-rel-arr)'
-            : relation.diff === 'added'
-              ? 'url(#hf-rel-arr-add)'
-              : relation.diff === 'removed'
-                ? 'url(#hf-rel-arr-rem)'
-                : 'url(#hf-rel-arr-chg)';
+        const dimmed = focusId && !isRelated(relation.fromComponentId, relation.toComponentId);
+        const showLabel = focusId || isCollapsed(relation.toComponentId) || isCollapsed(relation.fromComponentId);
 
         return (
           <g key={relation.id} className={dimmed ? 'hf-relation-dimmed' : ''}>
-            <path d={path} className={`hf-relation ${diffCls}`} markerEnd={marker} />
-            {focusId && (
+            <path
+              d={path}
+              className={`hf-relation ${diffCls}`}
+              markerEnd={markerFor(showDiff, showDiff ? relation.diff : undefined)}
+            />
+            {showLabel && (
               <text x={mid.x} y={mid.y} className="hf-relation-label" textAnchor="middle">
                 {relation.kind}
               </text>

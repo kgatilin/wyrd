@@ -1171,6 +1171,13 @@ body {
   stroke-width: 3px;
 }
 .hf-relation-dimmed { opacity: 0.16; }
+/* Aggregated collapsed-pair arrow: solid + slightly heavier than the dashed
+   per-symbol relations, so the package-level dependency direction reads first. */
+.hf-relation-agg {
+  stroke-dasharray: none;
+  stroke-width: 1.5px;
+  opacity: 0.95;
+}
 
 /* comment marker on edges/elements */
 .hf-cmt-marker {
