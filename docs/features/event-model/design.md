@@ -88,7 +88,7 @@ emits:
 
 folds:
   - name: billing.open-invoices
-    pattern: svc.billing.*.invoice.>
+    pattern: billing.invoice.>       # matched against emitted kinds, not transport subjects
     state:
       type: object
       properties:
