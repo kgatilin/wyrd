@@ -257,20 +257,36 @@ func TestReadEmptyDirectory(t *testing.T) {
 	}
 }
 
-func TestNamespace(t *testing.T) {
+func TestKindHasPrefix(t *testing.T) {
 	cases := []struct {
-		kind string
-		want string
+		kind  string
+		owns  string
+		want  bool
 	}{
-		{"billing.invoice.issued", "billing"},
-		{"billing", "billing"},
-		{"a.b.c.d.e", "a"},
-		{"", ""},
+		// Exact matches.
+		{"billing", "billing", true},
+		{"billing.invoice", "billing.invoice", true},
+		{"", "", false}, // empty owns never matches
+
+		// Prefix matches.
+		{"billing.invoice.issued", "billing", true},
+		{"billing.invoice.issued", "billing.invoice", true},
+		{"billing.invoice", "billing", true},
+
+		// Non-matches.
+		{"billing", "billing.invoice", false},  // kind shorter than owns
+		{"ledger.entry.posted", "billing", false},
+		{"billingX", "billing", false},         // not a segment boundary
+		{"billingX.foo", "billing", false},     // not a segment boundary
+
+		// Edge cases.
+		{"billing", "", false},
+		{"", "billing", false},
 	}
 	for _, tc := range cases {
-		got := namespace(tc.kind)
+		got := kindHasPrefix(tc.kind, tc.owns)
 		if got != tc.want {
-			t.Errorf("namespace(%q) = %q, want %q", tc.kind, got, tc.want)
+			t.Errorf("kindHasPrefix(%q, %q) = %v, want %v", tc.kind, tc.owns, got, tc.want)
 		}
 	}
 }

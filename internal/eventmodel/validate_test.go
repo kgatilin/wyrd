@@ -158,6 +158,55 @@ func TestDuplicateOwner(t *testing.T) {
 	}
 }
 
+func TestNestedOwnershipPrefix(t *testing.T) {
+	// billing and billing.invoice are nested prefixes => error
+	a := comp("a", "billing")
+	b := comp("b", "billing.invoice")
+
+	fs := Validate(model(a, b))
+	dupes := findingsByKind(fs, KindDuplicateOwner)
+	if len(dupes) != 1 {
+		t.Fatalf("want 1 duplicate owner finding for nested prefix, got %d: %+v", len(dupes), dupes)
+	}
+	// The error should mention nesting.
+	if dupes[0].Related["parent_prefix"] != "billing" {
+		t.Errorf("expected parent_prefix=billing, got %v", dupes[0].Related["parent_prefix"])
+	}
+}
+
+func TestPrefixOwnershipMatches(t *testing.T) {
+	// Test that a component can emit facts under its owned prefix (not just first segment).
+	billing := comp("billing", "billing.invoice")
+	billing.Emits = []Slot{
+		{Kind: "billing.invoice.issued", Role: RoleFact},
+		{Kind: "billing.invoice.paid", Role: RoleFact},
+	}
+
+	// Needs a consumer to avoid orphan warnings.
+	consumer := comp("consumer", "consumer")
+	consumer.Receives = []Slot{
+		{Kind: "billing.invoice.issued", Role: RoleFact},
+		{Kind: "billing.invoice.paid", Role: RoleFact},
+	}
+
+	fs := Validate(model(billing, consumer))
+	if hasKind(fs, KindOwnershipViolation) {
+		t.Errorf("should not have ownership violation for kinds under owned prefix: %+v",
+			findingsByKind(fs, KindOwnershipViolation))
+	}
+}
+
+func TestPrefixOwnershipViolation(t *testing.T) {
+	// Component owns billing.invoice but tries to emit billing.credit.issued
+	billing := comp("billing", "billing.invoice")
+	billing.Emits = []Slot{{Kind: "billing.credit.issued", Role: RoleFact}}
+
+	fs := Validate(model(billing))
+	if !hasKind(fs, KindOwnershipViolation) {
+		t.Error("want ownership violation for emitting fact outside owned prefix")
+	}
+}
+
 func TestStarvedReceive(t *testing.T) {
 	c := comp("billing", "billing")
 	c.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}

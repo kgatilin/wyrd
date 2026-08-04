@@ -29,22 +29,14 @@ func Validate(m *Model) []Finding {
 	allEmittedKinds := make(map[string]struct{})   // all kinds emitted as facts
 	allEmittedActions := make(map[string]struct{}) // all kinds emitted as actions
 
+	// Track ownership claims (map prefix -> list of component IDs claiming it).
+	ownerClaims := make(map[string][]string)
+
 	for id, comp := range m.Components {
-		// Check for duplicate namespace ownership.
+		// Record ownership prefixes for later validation.
 		if comp.Owns != "" {
-			if existing, ok := ownerOf[comp.Owns]; ok {
-				findings = append(findings, Finding{
-					Severity:  SeverityError,
-					Kind:      KindDuplicateOwner,
-					Component: id,
-					File:      comp.SourceFile,
-					Message: fmt.Sprintf("namespace %q already owned by %q",
-						comp.Owns, existing),
-					Related: map[string]any{"other": existing},
-				})
-			} else {
-				ownerOf[comp.Owns] = id
-			}
+			ownerClaims[comp.Owns] = append(ownerClaims[comp.Owns], id)
+			ownerOf[comp.Owns] = id
 		}
 
 		// Index receives.
@@ -55,17 +47,23 @@ func Validate(m *Model) []Finding {
 		// Index emits and check ownership.
 		for _, slot := range comp.Emits {
 			emittersOf[slot.Kind] = append(emittersOf[slot.Kind], id)
-			if slot.Role == RoleFact {
+			switch slot.Role {
+			case RoleFact:
 				allEmittedKinds[slot.Kind] = struct{}{}
-			} else if slot.Role == RoleAction {
+			case RoleAction:
 				allEmittedActions[slot.Kind] = struct{}{}
 			}
 		}
 	}
 
+	// Check for overlapping namespace ownership. Exact duplicates and nesting
+	// without explicit containment are both errors — sub-namespace ownership
+	// must be unique among the declared set.
+	findings = append(findings, validateOwnershipOverlaps(m, ownerOf, ownerClaims)...)
+
 	// Per-component validation.
 	for id, comp := range m.Components {
-		findings = append(findings, validateOwnership(id, comp)...)
+		findings = append(findings, validateOwnership(id, comp, ownerOf)...)
 		findings = append(findings, validateRefs(id, comp, m)...)
 	}
 
@@ -78,25 +76,109 @@ func Validate(m *Model) []Finding {
 	return findings
 }
 
+// validateOwnershipOverlaps detects conflicting namespace ownership claims.
+// Exact duplicates are always errors. Nested prefixes (e.g., "billing" and
+// "billing.invoice") are errors because longest-prefix-wins resolution
+// requires unique ownership — allowing nesting would make ownership ambiguous
+// at declaration time.
+func validateOwnershipOverlaps(m *Model, ownerOf map[string]string, ownerClaims map[string][]string) []Finding {
+	var findings []Finding
+
+	// Check for exact duplicates first.
+	for prefix, claimants := range ownerClaims {
+		if len(claimants) > 1 {
+			// Sort claimants for deterministic error ordering.
+			sorted := make([]string, len(claimants))
+			copy(sorted, claimants)
+			sort.Strings(sorted)
+
+			// Report an error for each claimant after the first.
+			for i := 1; i < len(sorted); i++ {
+				findings = append(findings, Finding{
+					Severity:  SeverityError,
+					Kind:      KindDuplicateOwner,
+					Component: sorted[i],
+					File:      m.Components[sorted[i]].SourceFile,
+					Message: fmt.Sprintf("namespace %q already owned by %q",
+						prefix, sorted[0]),
+					Related: map[string]any{"other": sorted[0]},
+				})
+			}
+		}
+	}
+
+	// Collect unique prefixes sorted by length (longest first) for stable ordering.
+	prefixes := make([]string, 0, len(ownerOf))
+	for prefix := range ownerOf {
+		prefixes = append(prefixes, prefix)
+	}
+	sort.Slice(prefixes, func(i, j int) bool {
+		if len(prefixes[i]) != len(prefixes[j]) {
+			return len(prefixes[i]) > len(prefixes[j])
+		}
+		return prefixes[i] < prefixes[j]
+	})
+
+	// Check each pair for nesting (one prefix being a prefix of another).
+	for i, p1 := range prefixes {
+		for _, p2 := range prefixes[i+1:] {
+			if p1 == p2 {
+				continue // handled above
+			}
+			if kindHasPrefix(p1, p2) {
+				// p2 is a prefix of p1 (p1 is the longer nested prefix).
+				findings = append(findings, Finding{
+					Severity:  SeverityError,
+					Kind:      KindDuplicateOwner,
+					Component: ownerOf[p1],
+					File:      m.Components[ownerOf[p1]].SourceFile,
+					Message: fmt.Sprintf("namespace %q nests inside %q owned by %q; ownership must be unique",
+						p1, p2, ownerOf[p2]),
+					Related: map[string]any{"other": ownerOf[p2], "parent_prefix": p2},
+				})
+			} else if kindHasPrefix(p2, p1) {
+				// p1 is a prefix of p2 (p2 is the longer nested prefix).
+				findings = append(findings, Finding{
+					Severity:  SeverityError,
+					Kind:      KindDuplicateOwner,
+					Component: ownerOf[p2],
+					File:      m.Components[ownerOf[p2]].SourceFile,
+					Message: fmt.Sprintf("namespace %q nests inside %q owned by %q; ownership must be unique",
+						p2, p1, ownerOf[p1]),
+					Related: map[string]any{"other": ownerOf[p1], "parent_prefix": p1},
+				})
+			}
+		}
+	}
+
+	return findings
+}
+
+// resolveOwner finds the component that owns a kind by longest prefix match.
+// Returns empty string if no component owns the kind's namespace.
+func resolveOwner(kind string, ownerOf map[string]string) string {
+	var bestPrefix string
+	var bestOwner string
+	for prefix, owner := range ownerOf {
+		if kindHasPrefix(kind, prefix) {
+			if len(prefix) > len(bestPrefix) {
+				bestPrefix = prefix
+				bestOwner = owner
+			}
+		}
+	}
+	return bestOwner
+}
+
 // validateOwnership checks the role x ownership matrix for one component.
-func validateOwnership(id string, comp *Component) []Finding {
+// The ownerOf map is used for longest-prefix resolution of kind ownership.
+func validateOwnership(id string, comp *Component, ownerOf map[string]string) []Finding {
 	var findings []Finding
 
 	// emit, role=fact, kind not in owns => error (forging another namespace's fact)
 	for _, slot := range comp.Emits {
 		if slot.Role == RoleFact {
-			ns := namespace(slot.Kind)
-			if comp.Owns != "" && ns != comp.Owns {
-				findings = append(findings, Finding{
-					Severity:  SeverityError,
-					Kind:      KindOwnershipViolation,
-					Component: id,
-					File:      comp.SourceFile,
-					Location:  slot.Kind,
-					Message: fmt.Sprintf("emitting fact %q outside owned namespace %q",
-						slot.Kind, comp.Owns),
-				})
-			} else if comp.Owns == "" {
+			if comp.Owns == "" {
 				// A component without owns cannot emit facts at all.
 				findings = append(findings, Finding{
 					Severity:  SeverityError,
@@ -106,6 +188,16 @@ func validateOwnership(id string, comp *Component) []Finding {
 					Location:  slot.Kind,
 					Message:   fmt.Sprintf("emitting fact %q but component has no owns", slot.Kind),
 				})
+			} else if !kindHasPrefix(slot.Kind, comp.Owns) {
+				findings = append(findings, Finding{
+					Severity:  SeverityError,
+					Kind:      KindOwnershipViolation,
+					Component: id,
+					File:      comp.SourceFile,
+					Location:  slot.Kind,
+					Message: fmt.Sprintf("emitting fact %q outside owned namespace %q",
+						slot.Kind, comp.Owns),
+				})
 			}
 		}
 		// emit, role=action is always ok (self-scheduling or call-out).
@@ -114,8 +206,16 @@ func validateOwnership(id string, comp *Component) []Finding {
 	// receive, role=action, kind not in owns => error (accepting commands in another namespace)
 	for _, slot := range comp.Receives {
 		if slot.Role == RoleAction {
-			ns := namespace(slot.Kind)
-			if comp.Owns != "" && ns != comp.Owns {
+			if comp.Owns == "" {
+				findings = append(findings, Finding{
+					Severity:  SeverityError,
+					Kind:      KindOwnershipViolation,
+					Component: id,
+					File:      comp.SourceFile,
+					Location:  slot.Kind,
+					Message:   fmt.Sprintf("receiving action %q but component has no owns", slot.Kind),
+				})
+			} else if !kindHasPrefix(slot.Kind, comp.Owns) {
 				findings = append(findings, Finding{
 					Severity:  SeverityError,
 					Kind:      KindOwnershipViolation,
@@ -124,15 +224,6 @@ func validateOwnership(id string, comp *Component) []Finding {
 					Location:  slot.Kind,
 					Message: fmt.Sprintf("receiving action %q outside owned namespace %q",
 						slot.Kind, comp.Owns),
-				})
-			} else if comp.Owns == "" {
-				findings = append(findings, Finding{
-					Severity:  SeverityError,
-					Kind:      KindOwnershipViolation,
-					Component: id,
-					File:      comp.SourceFile,
-					Location:  slot.Kind,
-					Message:   fmt.Sprintf("receiving action %q but component has no owns", slot.Kind),
 				})
 			}
 		}
@@ -351,10 +442,9 @@ func walkSchemaNode(node SchemaNode, fn func(SchemaNode)) {
 //   - "#/vocab/X" — local vocab reference
 //   - "other-component#/vocab/X" — cross-component reference
 func resolveRef(ref string, comp *Component, m *Model) bool {
-	if strings.HasPrefix(ref, "#/vocab/") {
-		name := strings.TrimPrefix(ref, "#/vocab/")
-		_, ok := comp.Vocab[name]
-		return ok
+	if name, ok := strings.CutPrefix(ref, "#/vocab/"); ok {
+		_, exists := comp.Vocab[name]
+		return exists
 	}
 
 	// Cross-component ref: "component#/vocab/X"

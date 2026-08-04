@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	yamlv3 "gopkg.in/yaml.v3"
 )
@@ -192,13 +191,19 @@ func convertSlot(rs rawSlot, section string, idx int) (Slot, error) {
 	}, nil
 }
 
-// namespace extracts the leading segment(s) of a kind up to (but not including)
-// the final identifier. For "billing.invoice.issued", returns "billing".
-// For a single-segment kind, returns the whole string.
-func namespace(kind string) string {
-	// Namespace is the first dot-separated segment.
-	if idx := strings.Index(kind, "."); idx > 0 {
-		return kind[:idx]
+// kindHasPrefix reports whether kind starts with the given owns prefix.
+// An owns prefix matches if the kind equals the prefix or starts with
+// prefix followed by a dot. For example: owns "billing" matches kinds
+// "billing", "billing.invoice", "billing.invoice.issued".
+func kindHasPrefix(kind, owns string) bool {
+	if owns == "" {
+		return false
 	}
-	return kind
+	if kind == owns {
+		return true
+	}
+	if len(kind) > len(owns) && kind[:len(owns)] == owns && kind[len(owns)] == '.' {
+		return true
+	}
+	return false
 }
