@@ -79,14 +79,14 @@ func ToArchmotifGraph(g *eventmodel.Graph) (*archmotifimport.Graph, error) {
 				return nil, fmt.Errorf("eventmodel graphml: kind %s: %w", n.ID, err)
 			}
 		case eventmodel.NodeFold:
-			// Folds are owned by their component; extract component from ID.
-			compID := foldOwnerComponent(n.ID)
+			// Folds store their owning component in attributes.
+			compID := componentID(n.Attrs["component"].(string))
 			if err := b.AddType(n.ID, compID, false, "fold"); err != nil {
 				return nil, fmt.Errorf("eventmodel graphml: fold %s: %w", n.ID, err)
 			}
 		case eventmodel.NodeType:
-			// Vocab types are owned by their component.
-			compID := typeOwnerComponent(n.ID)
+			// Vocab types store their owning component in attributes.
+			compID := componentID(n.Attrs["component"].(string))
 			role := "vocab_type"
 			if deprecated, ok := n.Attrs["deprecated"].(bool); ok && deprecated {
 				role = "vocab_type_deprecated"
@@ -166,27 +166,8 @@ func kindPackage(kindID string) string {
 	return "kinds:" + name
 }
 
-// foldOwnerComponent extracts the owning component ID from a fold ID.
-// "fold:billing.open-invoices" -> "component:billing"
-func foldOwnerComponent(foldID string) string {
-	// Strip "fold:" prefix.
-	name := strings.TrimPrefix(foldID, "fold:")
-	// Take everything before the last "." as component.
-	if idx := strings.LastIndex(name, "."); idx > 0 {
-		return "component:" + name[:idx]
-	}
-	return "component:" + name
-}
-
-// typeOwnerComponent extracts the owning component ID from a type ID.
-// "type:billing.Invoice" -> "component:billing"
-func typeOwnerComponent(typeID string) string {
-	// Strip "type:" prefix.
-	name := strings.TrimPrefix(typeID, "type:")
-	// Take everything before the last "." as component.
-	if idx := strings.LastIndex(name, "."); idx > 0 {
-		return "component:" + name[:idx]
-	}
-	return "component:" + name
+// componentID creates the graph node ID for a component.
+func componentID(id string) string {
+	return "component:" + id
 }
 

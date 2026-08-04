@@ -173,7 +173,10 @@ func BuildGraph(m *Model) *Graph {
 					break
 				}
 			}
-			attrs := map[string]any{"pattern": fold.Pattern}
+			attrs := map[string]any{
+				"pattern":   fold.Pattern,
+				"component": compID, // Stored explicitly so exporters don't parse the ID.
+			}
 			g.Nodes = append(g.Nodes, Node{
 				ID:    foldID(compID, fold.Name),
 				Kind:  NodeFold,
@@ -193,7 +196,9 @@ func BuildGraph(m *Model) *Graph {
 
 		for _, name := range vocabNames {
 			schema := comp.Vocab[name]
-			attrs := make(map[string]any)
+			attrs := map[string]any{
+				"component": compID, // Stored explicitly so exporters don't parse the ID.
+			}
 			if schema.Deprecated() {
 				attrs["deprecated"] = true
 			}

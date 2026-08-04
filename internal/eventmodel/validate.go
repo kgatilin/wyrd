@@ -63,7 +63,7 @@ func Validate(m *Model) []Finding {
 
 	// Per-component validation.
 	for id, comp := range m.Components {
-		findings = append(findings, validateOwnership(id, comp, ownerOf)...)
+		findings = append(findings, validateOwnership(id, comp)...)
 		findings = append(findings, validateRefs(id, comp, m)...)
 	}
 
@@ -154,25 +154,8 @@ func validateOwnershipOverlaps(m *Model, ownerOf map[string]string, ownerClaims 
 	return findings
 }
 
-// resolveOwner finds the component that owns a kind by longest prefix match.
-// Returns empty string if no component owns the kind's namespace.
-func resolveOwner(kind string, ownerOf map[string]string) string {
-	var bestPrefix string
-	var bestOwner string
-	for prefix, owner := range ownerOf {
-		if kindHasPrefix(kind, prefix) {
-			if len(prefix) > len(bestPrefix) {
-				bestPrefix = prefix
-				bestOwner = owner
-			}
-		}
-	}
-	return bestOwner
-}
-
 // validateOwnership checks the role x ownership matrix for one component.
-// The ownerOf map is used for longest-prefix resolution of kind ownership.
-func validateOwnership(id string, comp *Component, ownerOf map[string]string) []Finding {
+func validateOwnership(id string, comp *Component) []Finding {
 	var findings []Finding
 
 	// emit, role=fact, kind not in owns => error (forging another namespace's fact)

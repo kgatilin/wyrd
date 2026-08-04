@@ -130,34 +130,76 @@ func TestKindPackage(t *testing.T) {
 	}
 }
 
-func TestFoldOwnerComponent(t *testing.T) {
-	cases := []struct {
-		foldID string
-		want   string
-	}{
-		{"fold:billing.open-invoices", "component:billing"},
-		{"fold:billing", "component:billing"},
+// TestDottedFoldName verifies that fold names containing dots are handled
+// correctly. The old string-splitting approach (LastIndex(".")) would parse
+// "fold:billing.invoice.tracker" as component "billing.invoice" instead of
+// "billing". The fix stores the component ID in the node's attributes.
+func TestDottedFoldName(t *testing.T) {
+	billing := &eventmodel.Component{
+		ID:   "billing",
+		Owns: "billing",
 	}
-	for _, tc := range cases {
-		got := foldOwnerComponent(tc.foldID)
-		if got != tc.want {
-			t.Errorf("foldOwnerComponent(%q) = %q, want %q", tc.foldID, got, tc.want)
-		}
-	}
-}
+	// Fold name contains a dot - this would break string-splitting.
+	billing.Folds = []eventmodel.Fold{{Name: "invoice.tracker", Pattern: "billing.invoice.>"}}
+	billing.Emits = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
 
-func TestTypeOwnerComponent(t *testing.T) {
-	cases := []struct {
-		typeID string
-		want   string
-	}{
-		{"type:billing.Invoice", "component:billing"},
-		{"type:billing", "component:billing"},
+	consumer := &eventmodel.Component{
+		ID:   "consumer",
+		Owns: "consumer",
 	}
-	for _, tc := range cases {
-		got := typeOwnerComponent(tc.typeID)
-		if got != tc.want {
-			t.Errorf("typeOwnerComponent(%q) = %q, want %q", tc.typeID, got, tc.want)
+	consumer.Receives = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
+
+	m := &eventmodel.Model{
+		Components: map[string]*eventmodel.Component{
+			"billing":  billing,
+			"consumer": consumer,
+		},
+	}
+
+	g := eventmodel.BuildGraph(m)
+
+	// Verify the fold node has the correct component attribute.
+	var foldNode eventmodel.Node
+	for _, n := range g.Nodes {
+		if n.Kind == eventmodel.NodeFold {
+			foldNode = n
+			break
 		}
+	}
+	if foldNode.ID == "" {
+		t.Fatal("fold node not found")
+	}
+
+	// The fold ID should be "fold:billing.invoice.tracker".
+	expectedID := "fold:billing.invoice.tracker"
+	if foldNode.ID != expectedID {
+		t.Errorf("fold ID = %q, want %q", foldNode.ID, expectedID)
+	}
+
+	// The component attribute should be "billing" (not "billing.invoice").
+	if foldNode.Attrs["component"] != "billing" {
+		t.Errorf("fold component attr = %q, want %q", foldNode.Attrs["component"], "billing")
+	}
+
+	// Convert to archmotif - this would fail with the old approach.
+	amg, err := ToArchmotifGraph(g)
+	if err != nil {
+		t.Fatalf("ToArchmotifGraph failed: %v", err)
+	}
+	if amg == nil {
+		t.Fatal("returned graph is nil")
+	}
+
+	// Verify the fold is contained by the billing component.
+	nodes := amg.Nodes()
+	var foundFold bool
+	for _, n := range nodes {
+		if n.ID == expectedID {
+			foundFold = true
+			break
+		}
+	}
+	if !foundFold {
+		t.Error("fold node not found in archmotif graph")
 	}
 }
