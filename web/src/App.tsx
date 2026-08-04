@@ -380,16 +380,86 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     };
   }, []);
 
-  // After the first layout resolves, scroll the diagram into view (it sits one
-  // PAN_MARGIN in from the top-left of the oversized scroll area).
-  const didInitScrollRef = useRef(false);
-  useLayoutEffect(() => {
-    if (displayLaid && !didInitScrollRef.current && canvasWrapRef.current) {
-      didInitScrollRef.current = true;
-      canvasWrapRef.current.scrollLeft = PAN_MARGIN * zoom - 40;
-      canvasWrapRef.current.scrollTop = PAN_MARGIN * zoom - 40;
+  // ── Initial fit ─────────────────────────────────────────────────────────
+  // When a layout lands for a fresh view (first load or a review view/scope/
+  // grouping switch), fit the CONTENT bounding box into the viewport: pick a
+  // zoom that shows the whole graph and scroll to the content's top-left, so
+  // the canvas never opens onto the empty PAN_MARGIN slack. In an embed the
+  // wrap can still be zero-sized when the layout resolves (hidden iframe) —
+  // then the fit is retried by a ResizeObserver once the wrap gets real
+  // dimensions instead of being silently clamped to scroll 0,0.
+  const needsFitRef = useRef(true);
+  const displayLaidRef = useRef<typeof displayLaid>(null);
+  displayLaidRef.current = displayLaid;
+
+  const fitToContent = (): boolean => {
+    const wrap = canvasWrapRef.current;
+    const laid = displayLaidRef.current;
+    if (!wrap || !laid) return false;
+    if (wrap.clientWidth < 40 || wrap.clientHeight < 40) return false;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const bc of laid.boundedContexts) {
+      if (bc.x == null || bc.y == null) continue;
+      minX = Math.min(minX, bc.x);
+      minY = Math.min(minY, bc.y);
+      maxX = Math.max(maxX, bc.x + (bc.w ?? 0));
+      maxY = Math.max(maxY, bc.y + (bc.h ?? 0));
     }
-  }, [displayLaid, zoom]);
+    for (const c of laid.components) {
+      if (c.x == null || c.y == null) continue;
+      minX = Math.min(minX, c.x);
+      minY = Math.min(minY, c.y);
+      maxX = Math.max(maxX, c.x + (c.wx ?? c.w ?? 220));
+      maxY = Math.max(maxY, c.y + (c.hx ?? c.h ?? 86));
+    }
+    if (!Number.isFinite(minX) || maxX <= minX || maxY <= minY) return false;
+    const PAD = 40;
+    const bw = maxX - minX + PAD * 2;
+    const bh = maxY - minY + PAD * 2;
+    const fit = Math.min(wrap.clientWidth / bw, wrap.clientHeight / bh, 1);
+    const z = Math.max(ZOOM_MIN, Math.round(fit * 100) / 100);
+    const target = {
+      left: (PAN_MARGIN + minX - PAD) * z,
+      top: (PAN_MARGIN + minY - PAD) * z,
+    };
+    if (z !== storeApi.getState().ui.zoom) {
+      // Scroll applies via pendingScrollRef after the sizer resizes for `z`.
+      pendingScrollRef.current = target;
+      dispatch({ type: 'ZoomChanged', zoom: z });
+    } else {
+      wrap.scrollLeft = target.left;
+      wrap.scrollTop = target.top;
+    }
+    return true;
+  };
+
+  // A review view/scope/grouping switch re-lays out into very different
+  // geometry — re-fit on the next LayoutComputed.
+  const reviewSelectionKey = `${reviewViewId}|${reviewScopeId}|${reviewGroupingId}`;
+  const prevSelectionKeyRef = useRef(reviewSelectionKey);
+  if (prevSelectionKeyRef.current !== reviewSelectionKey) {
+    prevSelectionKeyRef.current = reviewSelectionKey;
+    needsFitRef.current = true;
+  }
+
+  useLayoutEffect(() => {
+    if (needsFitRef.current && fitToContent()) needsFitRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayLaid]);
+
+  useEffect(() => {
+    const wrap = canvasWrapRef.current;
+    if (!wrap || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (needsFitRef.current && fitToContent()) needsFitRef.current = false;
+    });
+    ro.observe(wrap);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Comment targets for highlighting (from current markers)
   const commentTargets = useMemo(
@@ -852,7 +922,9 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
             zoom={zoom}
             onZoomOut={() => zoomBy(-ZOOM_STEP)}
             onZoomIn={() => zoomBy(ZOOM_STEP)}
-            onFit={fitZoom}
+            onFit={() => {
+              if (!fitToContent()) fitZoom();
+            }}
             onExpandAll={() => dispatch({ type: 'ComponentsExpandedAll' })}
             onCollapseAll={() => dispatch({ type: 'ComponentsCollapsedAll' })}
             pinnedCount={pinnedCount}

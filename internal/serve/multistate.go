@@ -453,6 +453,10 @@ func (m *MultiState) runLoad(name string, entry worktree.Entry, load *stateLoad)
 	// reach the review base. No-op when no base ref is configured.
 	m.wireBaseResolver(name, loaded)
 
+	// Review UI config (review_views / review_groups) follows the primary
+	// checkout, not the branch's possibly-stale archai.yaml copy.
+	loaded.SetReviewConfigRoot(m.root)
+
 	// Spin up the per-worktree watcher. If the hook fails we keep the loaded
 	// state (the transport is still usable — just without auto-reload) and
 	// record the error on the load; the daemon logs it and carries on.

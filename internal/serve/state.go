@@ -57,6 +57,14 @@ type State struct {
 	// goModPath is the adjacent go.mod used for overlay validation.
 	goModPath string
 
+	// reviewConfigRoot, when non-empty and different from root, points at the
+	// primary worktree checkout whose archai.yaml supplies the review UI
+	// config (review_views + review_groups) for this State. Architecture
+	// semantics (layers, policy, contexts, …) stay per-worktree; presentation
+	// config follows the primary checkout so stale branches don't pin an old
+	// review UI. Set by MultiState after load.
+	reviewConfigRoot string
+
 	// currentTarget is the active target id (may be empty).
 	currentTarget string
 
@@ -494,8 +502,9 @@ func (s *State) reloadOverlayLocked() error {
 	overlayPath := filepath.Join(s.root, "archai.yaml")
 	goModPath := filepath.Join(s.root, "go.mod")
 	if _, err := os.Stat(overlayPath); err != nil {
-		// No overlay on disk: clear cache, not an error.
-		s.overlayCfg = nil
+		// No overlay on disk: clear cache, not an error. Review UI config can
+		// still come from the primary checkout.
+		s.overlayCfg = s.withPrimaryReviewConfig(nil)
 		s.overlayPath = ""
 		s.goModPath = ""
 		return nil
@@ -504,7 +513,7 @@ func (s *State) reloadOverlayLocked() error {
 	if err != nil {
 		return err
 	}
-	s.overlayCfg = cfg
+	s.overlayCfg = s.withPrimaryReviewConfig(cfg)
 	s.overlayPath = overlayPath
 	if _, err := os.Stat(goModPath); err == nil {
 		s.goModPath = goModPath
@@ -512,6 +521,52 @@ func (s *State) reloadOverlayLocked() error {
 		s.goModPath = ""
 	}
 	return nil
+}
+
+// SetReviewConfigRoot points this State at the primary worktree whose
+// archai.yaml owns the review UI config, then re-applies the overlay so the
+// override takes effect immediately. A root equal to this State's own root
+// (or empty) is a no-op.
+func (s *State) SetReviewConfigRoot(root string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if root == "" || root == s.root {
+		s.reviewConfigRoot = ""
+		return
+	}
+	s.reviewConfigRoot = root
+	_ = s.reloadOverlayLocked() // keep prior overlay error semantics: best-effort
+}
+
+// withPrimaryReviewConfig overlays the review UI fields (review_views,
+// review_groups) from the primary checkout's archai.yaml onto cfg. When the
+// primary overlay is missing or unreadable, cfg is returned unchanged — a
+// stale-but-working branch config beats none.
+func (s *State) withPrimaryReviewConfig(cfg *overlay.Config) *overlay.Config {
+	if s.reviewConfigRoot == "" {
+		return cfg
+	}
+	primaryPath := filepath.Join(s.reviewConfigRoot, "archai.yaml")
+	if _, err := os.Stat(primaryPath); err != nil {
+		return cfg
+	}
+	primary, err := overlay.LoadComposed(primaryPath)
+	if err != nil || primary == nil {
+		return cfg
+	}
+	if len(primary.ReviewViews) == 0 && len(primary.ReviewGroups) == 0 {
+		return cfg
+	}
+	if cfg == nil {
+		return &overlay.Config{
+			ReviewViews:  primary.ReviewViews,
+			ReviewGroups: primary.ReviewGroups,
+		}
+	}
+	merged := *cfg
+	merged.ReviewViews = primary.ReviewViews
+	merged.ReviewGroups = primary.ReviewGroups
+	return &merged
 }
 
 func mapValues(in map[string]domain.PackageModel) []domain.PackageModel {

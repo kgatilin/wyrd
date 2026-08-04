@@ -248,6 +248,73 @@ func TestStateLoadIgnoresModelCacheVersionMismatch(t *testing.T) {
 	}
 }
 
+func TestStateReviewConfigFollowsPrimaryWorktree(t *testing.T) {
+	branch := t.TempDir()
+	primary := t.TempDir()
+
+	writeFile(t, filepath.Join(branch, "archai.yaml"), `module: example.com/fixture
+layers:
+  domain:
+    - "internal/foo/..."
+review_views:
+  stale:
+    title: Stale
+    default_expansion: changed
+`)
+	writeFile(t, filepath.Join(primary, "archai.yaml"), `module: example.com/fixture
+review_views:
+  fresh:
+    title: Fresh
+    default_expansion: collapsed
+review_groups:
+  core:
+    title: Core
+`)
+
+	s := NewState(branch)
+	if err := s.ReloadOverlay(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s.SetReviewConfigRoot(primary)
+
+	cfg := s.Snapshot().Overlay
+	if cfg == nil {
+		t.Fatal("overlay config missing")
+	}
+	if _, ok := cfg.ReviewViews["fresh"]; !ok {
+		t.Errorf("ReviewViews = %v, want primary's 'fresh'", cfg.ReviewViews)
+	}
+	if _, ok := cfg.ReviewViews["stale"]; ok {
+		t.Errorf("ReviewViews still contains branch's 'stale': %v", cfg.ReviewViews)
+	}
+	if _, ok := cfg.ReviewGroups["core"]; !ok {
+		t.Errorf("ReviewGroups = %v, want primary's 'core'", cfg.ReviewGroups)
+	}
+	// Architecture semantics stay per-branch.
+	if len(cfg.Layers["domain"]) == 0 {
+		t.Errorf("branch layers lost: %v", cfg.Layers)
+	}
+
+	// A later overlay reload (watcher path) keeps the override.
+	if err := s.ReloadOverlay(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cfg = s.Snapshot().Overlay
+	if _, ok := cfg.ReviewViews["fresh"]; !ok {
+		t.Errorf("override lost after reload: %v", cfg.ReviewViews)
+	}
+
+	// Same-root (the primary itself) is a no-op.
+	p := NewState(primary)
+	if err := p.ReloadOverlay(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	p.SetReviewConfigRoot(primary)
+	if _, ok := p.Snapshot().Overlay.ReviewViews["fresh"]; !ok {
+		t.Errorf("primary state lost its own config")
+	}
+}
+
 func TestStateSwitchTargetUpdatesID(t *testing.T) {
 	st := NewState(t.TempDir())
 	if got := st.Snapshot().CurrentTarget; got != "" {
