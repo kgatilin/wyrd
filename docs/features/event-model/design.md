@@ -140,12 +140,19 @@ about. Validated only against an optional project-supplied schema fragment
 `folds` is legal: a pure vocabulary owner (a shared contract package) is a
 first-class component.
 
-**`owns` is a namespace prefix, matched by longest prefix.** `owns: billing`
-claims `billing.*`; `owns: billing.invoice` claims a sub-namespace and, where
-both are declared, the longer prefix wins for resolution. Prefix (not
-first-segment) ownership is what makes "no two components declare overlapping
-`owns`" a meaningful rule and lets a namespace be split across components later
-without renaming its kinds.
+**`owns` is a namespace prefix, resolved by longest prefix.** `owns: billing`
+claims `billing.*`. Ownership is prefix-based rather than first-segment so that
+a namespace can, in principle, be split across components without renaming its
+kinds.
+
+**Overlapping `owns` is an error today — including nesting.** Two components
+declaring `billing` and `billing.invoice` would be unambiguous under
+longest-prefix resolution, so this restriction is not a technical necessity; it
+is a deliberate choice of direction. A permissive rule cannot be tightened later
+without breaking every project that relied on it, while a strict one can be
+relaxed at any time. The longest-prefix resolution stays in the implementation,
+so allowing nesting later is a policy change rather than a rewrite. Until then,
+split a namespace by giving each component a distinct prefix.
 
 **`owns` may be omitted.** Such a component defines no vocabulary, and the rule
 table below then permits it exactly two roles: emitting actions (calling other
@@ -238,18 +245,30 @@ The composed model projects to a **bipartite graph**:
   - `component --emits--> kind` (attr: role)
   - `kind --receives--> component` (attr: role, exposure)
   - `kind --feeds--> fold` (pattern match), `fold --held-by--> component`
+  - `component --vocab--> type` (a component's declared shapes; without it,
+    vocabulary types float disconnected from their owner)
   - `kind --payload--> type`, `type --refs--> type`
 - node attributes: `owns`, `deprecated`, `producer_count`, `consumer_count`,
   health (`ok` | `orphan` | `starved` | `ambiguous`)
 
+Node ids are built from the **owning component reached structurally**, never by
+parsing a name — a fold named `billing.open-invoices` must not be split on a dot
+to recover its component.
+
+Edge direction here is *containment and derivation*, not flow: `kind --receives-->
+component` reads "this kind is delivered to that component". Renderers are free
+to invert it — the Mermaid exporter draws component→component with the kind as
+the edge label, which is what a reader of a flow diagram expects.
+
 Exposed three ways:
 
-1. **GraphML export** (`internal/adapter/archmotif`) so archmotif's existing
-   lenses — components, trophic layers, spectral clustering — run over the
-   *choreography* instead of the Go call graph. Emergent layers and inversions
-   over event flow is the analysis that does not exist anywhere else.
-2. **uigraph** (`internal/adapter/uigraph`) so the canvas renders it natively.
-3. **Mermaid** (`internal/adapter/mermaid`) for a static event-flow diagram.
+1. **GraphML export** so archmotif's existing lenses — components, trophic
+   layers, spectral clustering — run over the *choreography* instead of the Go
+   call graph. Emergent layers and inversions over event flow is the analysis
+   that does not exist anywhere else.
+2. **Mermaid** for a static event-flow diagram.
+3. **uigraph** so the canvas renders it natively — lands with the UI work, not
+   with the projection.
 
 ### Views
 
