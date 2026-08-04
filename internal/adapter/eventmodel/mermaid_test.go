@@ -181,3 +181,43 @@ func TestMermaidLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestSubgraphIDsDisjointFromNodeIDs(t *testing.T) {
+	// Verify that subgraph IDs cannot collide with component node IDs.
+	// This matters because Mermaid treats subgraph IDs as node IDs.
+
+	// Create components where namespace equals component id (the collision case).
+	billing := &eventmodel.Component{ID: "billing", Owns: "billing"}
+	billing.Emits = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
+
+	ledger := &eventmodel.Component{ID: "ledger", Owns: "ledger"}
+	ledger.Receives = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
+
+	shipping := &eventmodel.Component{ID: "shipping", Owns: "shipping"}
+	shipping.Receives = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
+
+	m := &eventmodel.Model{
+		Components: map[string]*eventmodel.Component{
+			"billing":  billing,
+			"ledger":   ledger,
+			"shipping": shipping,
+		},
+	}
+
+	g := eventmodel.BuildGraph(m)
+	output := ToMermaid(g)
+
+	// The subgraph IDs should be prefixed with "ns_" to avoid collision.
+	// For billing namespace, the subgraph should be ns_billing, not billing.
+	if strings.Contains(output, "subgraph billing[") {
+		t.Error("subgraph id should be ns_billing, not billing (collision with node id)")
+	}
+	if !strings.Contains(output, "subgraph ns_billing[") {
+		t.Error("subgraph id should be ns_billing")
+	}
+
+	// Verify component nodes are still just their raw ids (no ns_ prefix).
+	if !strings.Contains(output, "        billing[billing]") {
+		t.Error("component node should be billing[billing]")
+	}
+}

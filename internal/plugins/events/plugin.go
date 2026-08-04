@@ -118,10 +118,12 @@ func (p *Plugin) UIComponents() []plugin.UIComponent {
 	return nil
 }
 
-// loadModel reads and composes the event model from the repo root.
-// Returns an error if the root is unavailable or parsing fails.
-func (p *Plugin) loadModel() (*eventmodel.Model, error) {
-	root := p.host.RepoRoot()
+// loadModel reads and composes the event model from the given root,
+// falling back to the host's RepoRoot if root is empty.
+func (p *Plugin) loadModel(root string) (*eventmodel.Model, error) {
+	if root == "" {
+		root = p.host.RepoRoot()
+	}
 	if root == "" {
 		return nil, fmt.Errorf("events: repo root unavailable")
 	}
@@ -130,10 +132,12 @@ func (p *Plugin) loadModel() (*eventmodel.Model, error) {
 
 // validateCmd returns the `validate` subcommand.
 func (p *Plugin) validateCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "validate",
+	var root string
+
+	cmd := &cobra.Command{
+		Use:   "validate [--root PATH]",
 		Short: "Validate .arch/events.yaml declarations",
-		Long: `Validate all .arch/events.yaml declarations under the repo root.
+		Long: `Validate all .arch/events.yaml declarations under the specified root.
 
 Errors are fatal rule breaches (ownership violations, unresolved calls,
 duplicate owners, $ref cycles). Warnings are potential issues (starved
@@ -144,7 +148,7 @@ Exit codes:
   1 - one or more errors`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			model, err := p.loadModel()
+			model, err := p.loadModel(root)
 			if err != nil {
 				return err
 			}
@@ -192,15 +196,19 @@ Exit codes:
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&root, "root", "", "Root directory to scan (default: repo root)")
+	return cmd
 }
 
 // graphCmd returns the `graph` subcommand.
 func (p *Plugin) graphCmd() *cobra.Command {
 	var format string
 	var output string
+	var root string
 
 	cmd := &cobra.Command{
-		Use:   "graph",
+		Use:   "graph [--root PATH]",
 		Short: "Generate event model graph",
 		Long: `Generate a graph of the event model from .arch/events.yaml declarations.
 
@@ -212,7 +220,7 @@ Supported formats:
   mermaid  - Mermaid flowchart diagram`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			model, err := p.loadModel()
+			model, err := p.loadModel(root)
 			if err != nil {
 				return err
 			}
@@ -258,13 +266,14 @@ Supported formats:
 
 	cmd.Flags().StringVarP(&format, "format", "f", "mermaid", "Output format: graphml or mermaid")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file (default: stdout)")
+	cmd.Flags().StringVar(&root, "root", "", "Root directory to scan (default: repo root)")
 
 	return cmd
 }
 
 // handleEventModel is the MCP handler for event_model.
 func (p *Plugin) handleEventModel(_ context.Context, _ map[string]any) (any, error) {
-	model, err := p.loadModel()
+	model, err := p.loadModel("")
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +345,7 @@ func (p *Plugin) handleEventKind(_ context.Context, args map[string]any) (any, e
 		return nil, fmt.Errorf("missing required argument: kind")
 	}
 
-	model, err := p.loadModel()
+	model, err := p.loadModel("")
 	if err != nil {
 		return nil, err
 	}
@@ -432,7 +441,7 @@ func (p *Plugin) handleEventKind(_ context.Context, args map[string]any) (any, e
 
 // handleEventValidate is the MCP handler for event_validate.
 func (p *Plugin) handleEventValidate(_ context.Context, _ map[string]any) (any, error) {
-	model, err := p.loadModel()
+	model, err := p.loadModel("")
 	if err != nil {
 		return nil, err
 	}
@@ -470,7 +479,7 @@ func (p *Plugin) handleEventValidate(_ context.Context, _ map[string]any) (any, 
 
 // serveModel is the HTTP handler for /api/plugins/events/model.
 func (p *Plugin) serveModel(w http.ResponseWriter, _ *http.Request) {
-	model, err := p.loadModel()
+	model, err := p.loadModel("")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -301,3 +301,68 @@ func TestPlugin_UIComponents_Empty(t *testing.T) {
 		t.Errorf("UIComponents should be empty for v1, got %d", len(comps))
 	}
 }
+
+// TestPlugin_ValidateCmd_RootFlag exercises the --root flag to scan a specific
+// directory, bypassing the testdata skip in the reader.
+func TestPlugin_ValidateCmd_RootFlag(t *testing.T) {
+	// Initialize with an empty host root so we must use --root.
+	p := &Plugin{}
+	if err := p.Init(context.Background(), &hostStub{root: ""}, ""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	t.Run("valid_set", func(t *testing.T) {
+		cmd := p.validateCmd()
+		cmd.SetArgs([]string{"--root", filepath.Join(testdataRoot(t), "contracts")})
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+
+		err := cmd.Execute()
+		if err != nil {
+			t.Errorf("validate with --root should pass for clean fixture: %v", err)
+		}
+		if !strings.Contains(out.String(), "OK") {
+			t.Errorf("output should contain OK: %s", out.String())
+		}
+	})
+
+	t.Run("violation_set", func(t *testing.T) {
+		cmd := p.validateCmd()
+		cmd.SetArgs([]string{"--root", filepath.Join(testdataRoot(t), "violations")})
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+
+		err := cmd.Execute()
+		if err == nil {
+			t.Error("validate with --root should fail for violations fixture")
+		}
+		output := out.String()
+		if !strings.Contains(output, "ERROR") {
+			t.Errorf("output should contain ERROR: %s", output)
+		}
+	})
+}
+
+// TestPlugin_GraphCmd_RootFlag exercises the --root flag for graph generation.
+func TestPlugin_GraphCmd_RootFlag(t *testing.T) {
+	p := &Plugin{}
+	if err := p.Init(context.Background(), &hostStub{root: ""}, ""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	cmd := p.graphCmd()
+	cmd.SetArgs([]string{"--root", filepath.Join(testdataRoot(t), "billing")})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("graph with --root: %v", err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "flowchart") {
+		t.Errorf("mermaid output should contain flowchart: %s", output)
+	}
+	if !strings.Contains(output, "billing") {
+		t.Errorf("mermaid output should contain billing: %s", output)
+	}
+}

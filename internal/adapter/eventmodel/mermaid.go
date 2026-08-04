@@ -80,7 +80,7 @@ func ToMermaid(g *eventmodel.Graph) string {
 			if ns == "__none__" {
 				label = "unowned"
 			}
-			fmt.Fprintf(&sb, "    subgraph %s[%s]\n", mermaidID(ns), mermaidLabel(label))
+			fmt.Fprintf(&sb, "    subgraph %s[%s]\n", subgraphID(ns), mermaidLabel(label))
 			for _, id := range ids {
 				fmt.Fprintf(&sb, "        %s[%s]\n", mermaidID(id), mermaidLabel(id))
 			}
@@ -192,6 +192,13 @@ func mermaidID(s string) string {
 		" ", "_",
 	)
 	return r.Replace(s)
+}
+
+// subgraphID creates a Mermaid subgraph ID that cannot collide with node IDs.
+// Mermaid treats subgraph IDs as node IDs, so we prefix with "ns_" to ensure
+// a subgraph named "billing" doesn't collide with a component node "billing".
+func subgraphID(ns string) string {
+	return "ns_" + mermaidID(ns)
 }
 
 // mermaidLabel quotes a label when it contains special characters.
