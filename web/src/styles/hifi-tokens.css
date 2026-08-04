@@ -1064,6 +1064,13 @@ body {
   color: var(--layer-internal-fg);
   background: var(--layer-internal-bg);
 }
+.hf-internal-chevron {
+  font-size: 9px;
+  color: var(--fg-3);
+  transition: transform 0.12s ease;
+  flex: 0 0 auto;
+}
+.hf-internal-chevron.open { transform: rotate(90deg); }
 .hf-internal-name {
   font-weight: 500;
   color: var(--fg-0);

@@ -160,6 +160,10 @@ func groupsFromReviewGroups(models []domain.PackageModel, cfg *overlay.Config) [
 			if matchedTitle == "" {
 				matchedTitle = titleFromID(groupID)
 			}
+			if child := perDirectoryChild(group.PerDirectory, model.Path); child != "" {
+				matchedID += ":" + child
+				matchedTitle = titleFromID(child)
+			}
 			break
 		}
 		if matchedID == "" {
@@ -191,6 +195,25 @@ func groupsFromReviewGroups(models []domain.PackageModel, cfg *overlay.Config) [
 		})
 	}
 	return groups
+}
+
+// perDirectoryChild returns the direct child segment of pkg under prefix, or
+// "" when the group has no per_directory split or pkg is not strictly below
+// the prefix (including pkg == prefix, which stays in the base group).
+func perDirectoryChild(prefix, pkg string) string {
+	prefix = normalizePackagePath(prefix)
+	if prefix == "" {
+		return ""
+	}
+	pkg = normalizePackagePath(pkg)
+	if !strings.HasPrefix(pkg, prefix+"/") {
+		return ""
+	}
+	rest := pkg[len(prefix)+1:]
+	if slash := strings.IndexByte(rest, '/'); slash >= 0 {
+		rest = rest[:slash]
+	}
+	return rest
 }
 
 func groupsFromConfiguredContexts(

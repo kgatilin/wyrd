@@ -1324,6 +1324,57 @@ func TestProjectEmitsConfiguredReviewGroupCategories(t *testing.T) {
 	}
 }
 
+func TestConfiguredReviewGroupPerDirectorySplitsSubgroups(t *testing.T) {
+	models := []domain.PackageModel{
+		{Path: "internal/modules/alpha", Name: "alpha"},
+		{Path: "internal/modules/alpha/util", Name: "util"},
+		{Path: "internal/modules/beta", Name: "beta"},
+		{Path: "internal/modules", Name: "modules"},
+	}
+	cfg := &overlay.Config{
+		ReviewGroups: map[string]overlay.ReviewGroup{
+			"modules": {
+				Title:        "Modules",
+				PerDirectory: "internal/modules",
+				Packages: overlay.PackageSelector{
+					Include: []string{"internal/modules", "internal/modules/..."},
+				},
+			},
+		},
+	}
+
+	g, err := Project(models, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var categories *ReviewGrouping
+	for i := range g.ReviewGroupings {
+		if g.ReviewGroupings[i].ID == "configured_groups" {
+			categories = &g.ReviewGroupings[i]
+		}
+	}
+	if categories == nil {
+		t.Fatalf("missing configured_groups grouping in %#v", g.ReviewGroupings)
+	}
+	if got := groupComponentIDs(*categories, "configured_groups:modules:alpha"); !sameStrings(got, []string{"internal/modules/alpha", "internal/modules/alpha/util"}) {
+		t.Errorf("modules:alpha ComponentIDs = %v", got)
+	}
+	if got := groupComponentIDs(*categories, "configured_groups:modules:beta"); !sameStrings(got, []string{"internal/modules/beta"}) {
+		t.Errorf("modules:beta ComponentIDs = %v", got)
+	}
+	// The prefix package itself stays in the base group.
+	if got := groupComponentIDs(*categories, "configured_groups:modules"); !sameStrings(got, []string{"internal/modules"}) {
+		t.Errorf("modules base ComponentIDs = %v", got)
+	}
+	titleByID := map[string]string{}
+	for _, group := range categories.Groups {
+		titleByID[group.ID] = group.Title
+	}
+	if titleByID["configured_groups:modules:alpha"] != "Alpha" {
+		t.Errorf("modules:alpha title = %q, want Alpha", titleByID["configured_groups:modules:alpha"])
+	}
+}
+
 func TestProjectEmitsUnownedPackageOwnerGroupingByDefault(t *testing.T) {
 	models := []domain.PackageModel{
 		{Path: "config", Name: "config"},

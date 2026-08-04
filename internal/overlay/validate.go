@@ -254,6 +254,11 @@ func Validate(cfg *Config, goModPath string) error {
 				errs = append(errs, err)
 			}
 		}
+		if dir := strings.TrimSpace(group.PerDirectory); dir != "" {
+			if strings.Contains(dir, "*") || strings.Contains(dir, "...") {
+				errs = append(errs, fmt.Errorf("overlay: review_group %s: per_directory must be a plain package path, got %q", name, dir))
+			}
+		}
 	}
 
 	for _, name := range sortedKeys(cfg.PackageOwners) {

@@ -97,6 +97,8 @@ export interface ComponentProps {
   wideInternals: ReadonlySet<string>;
   /** Callback to toggle an internal's fit-width mode */
   onToggleWide?: (id: string) => void;
+  /** Callback to toggle an internal's member list open/closed */
+  onToggleInternal?: (id: string) => void;
   /** Callback to set ALL internals of this component to/from fit-width mode */
   onSetAllWide?: (id: string, wide: boolean) => void;
   /** Display name of the parent (bounded context); drives the header icon letter */
@@ -146,6 +148,7 @@ export function Component({
   expandedInternals,
   wideInternals,
   onToggleWide,
+  onToggleInternal,
   onSetAllWide,
   parentName,
   showDiff,
@@ -343,6 +346,7 @@ export function Component({
                 expanded={expandedInternals.has(internal.id)}
                 wide={wideInternals.has(internal.id)}
                 onToggleWide={() => onToggleWide?.(internal.id)}
+                onToggleExpand={() => onToggleInternal?.(internal.id)}
                 onAddComment={onAddComment}
                 hasComment={hasComment}
                 showInlineSignatures={showInlineSignatures}
@@ -603,6 +607,8 @@ interface InternalCardProps {
   /** Fit-width mode (card stretched to show all member text). Drives the +/− button. */
   wide: boolean;
   onToggleWide: () => void;
+  /** Toggles the member list open/closed (internals start collapsed). */
+  onToggleExpand: () => void;
   onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
   hasComment: (id: string) => boolean;
   showInlineSignatures: boolean;
@@ -617,6 +623,7 @@ function InternalCard({
   expanded,
   wide,
   onToggleWide,
+  onToggleExpand,
   onAddComment,
   hasComment,
   showInlineSignatures,
@@ -630,7 +637,16 @@ function InternalCard({
   const memberHeight = expanded ? (internal.members?.length ?? 0) * 18 + 4 : 0;
   const h = internal.h ?? (26 + memberHeight);
 
+  const memberCount = internal.members?.length ?? 0;
+
+  // Single click opens/closes the member list (internals start collapsed);
+  // double click keeps the drill-in flows: symbol wiring focus + comment.
   const handleHeadClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (memberCount > 0) onToggleExpand();
+  };
+
+  const handleHeadDblClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onSymbolFocus?.({ componentId, internalId: internal.id });
     onAddComment?.({ type: 'internal', id: internal.id }, e);
@@ -651,10 +667,18 @@ function InternalCard({
         height: h,
       }}
     >
-      <div className="hf-internal-head" onClick={handleHeadClick}>
+      <div
+        className="hf-internal-head"
+        onClick={handleHeadClick}
+        onDoubleClick={handleHeadDblClick}
+        title={memberCount > 0 ? (expanded ? 'Hide members' : `Show ${memberCount} members`) : undefined}
+      >
         <span className="hf-internal-kind">
           {internalKindLabel(internal.kind)}
         </span>
+        {memberCount > 0 && (
+          <span className={`hf-internal-chevron${expanded ? ' open' : ''}`}>▸</span>
+        )}
         <span className="hf-internal-name" title={internal.name}>{internalName}</span>
         {hasComment(internal.id) && <span className="hf-cmt-marker sm">!</span>}
         {showFitControl && (

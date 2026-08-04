@@ -50,11 +50,11 @@ function withTwoComponentGraph(): AppState {
 }
 
 describe('update — focus slice', () => {
-  it('ComponentSelected enters focused package view; selecting the focused one clears focus', () => {
+  it('ComponentSelected enters focused package view with internals collapsed; selecting the focused one clears focus', () => {
     let s = update(withTwoComponentGraph(), { type: 'ComponentSelected', id: 'a' });
     expect(s.ui.focusId).toBe('a');
     expect([...s.ui.expanded]).toEqual(['a']);
-    expect([...s.ui.internalExpanded].sort()).toEqual(['a.Public', 'a.private']);
+    expect([...s.ui.internalExpanded]).toEqual([]);
     s = update(s, { type: 'ComponentSelected', id: 'a' });
     expect(s.ui.focusId).toBeNull();
   });
@@ -86,12 +86,12 @@ describe('update — focus slice', () => {
     expect(s.ui.expanded.has('a')).toBe(true);
   });
 
-  it('TreeFocusRequested focuses the whole package and expands all its internals', () => {
+  it('TreeFocusRequested focuses the whole package and opens only the targeted internal', () => {
     const s = update(withTwoComponentGraph(), { type: 'TreeFocusRequested', target: { componentId: 'a', internalId: 'a.Public' } });
     expect(s.ui.focusId).toBe('a');
     expect(s.ui.expanded.has('a')).toBe(true);
     expect(s.ui.expanded.has('b')).toBe(false);
-    expect([...s.ui.internalExpanded].sort()).toEqual(['a.Public', 'a.private']);
+    expect([...s.ui.internalExpanded]).toEqual(['a.Public']);
     expect(s.ui.activeChangeId).toBeNull();
   });
 
@@ -128,23 +128,31 @@ describe('update — graph loading slice', () => {
 });
 
 describe('update — expansion slice', () => {
-  it('ComponentToggled expands and auto-expands the component internals', () => {
+  it('ComponentToggled expands a component with its internals collapsed', () => {
     const s = update(withGraph(), { type: 'ComponentToggled', id: 'a' });
     expect(s.ui.expanded.has('a')).toBe(true);
-    expect(s.ui.internalExpanded.has('a.i')).toBe(true);
+    expect(s.ui.internalExpanded.has('a.i')).toBe(false);
   });
 
-  it('ComponentToggled collapses an expanded component (internalExpanded is add-only)', () => {
+  it('ComponentToggled collapses an expanded component and keeps internal expansion state', () => {
     const opened = update(withGraph(), { type: 'ComponentToggled', id: 'a' });
-    const closed = update(opened, { type: 'ComponentToggled', id: 'a' });
+    const openedInternal = update(opened, { type: 'InternalToggled', id: 'a.i' });
+    const closed = update(openedInternal, { type: 'ComponentToggled', id: 'a' });
     expect(closed.ui.expanded.has('a')).toBe(false);
-    expect(closed.ui.internalExpanded.has('a.i')).toBe(true); // not removed, matching current behaviour
+    expect(closed.ui.internalExpanded.has('a.i')).toBe(true); // survives collapse/re-expand
   });
 
-  it('ComponentsExpandedAll expands every visible component and internal', () => {
+  it('InternalToggled opens and closes one internal member list', () => {
+    const opened = update(withGraph(), { type: 'InternalToggled', id: 'a.i' });
+    expect(opened.ui.internalExpanded.has('a.i')).toBe(true);
+    const closed = update(opened, { type: 'InternalToggled', id: 'a.i' });
+    expect(closed.ui.internalExpanded.has('a.i')).toBe(false);
+  });
+
+  it('ComponentsExpandedAll expands every visible component, internals stay collapsed', () => {
     const s = update(withTwoComponentGraph(), { type: 'ComponentsExpandedAll' });
     expect([...s.ui.expanded].sort()).toEqual(['a', 'b']);
-    expect([...s.ui.internalExpanded].sort()).toEqual(['a.Public', 'a.private', 'b.i']);
+    expect([...s.ui.internalExpanded]).toEqual([]);
   });
 
   it('ComponentsExpandedAll respects the selected public surface', () => {
@@ -161,7 +169,7 @@ describe('update — expansion slice', () => {
       { type: 'ComponentsExpandedAll' }
     );
     expect([...s.ui.expanded].sort()).toEqual(['a']);
-    expect([...s.ui.internalExpanded].sort()).toEqual(['a.Public']);
+    expect([...s.ui.internalExpanded]).toEqual([]);
   });
 
   it('ComponentsCollapsedAll collapses every component and internal', () => {

@@ -49,12 +49,17 @@ export class InternalHarness extends ComponentHarness {
     return parsePx(await this.root.styleProp('width'));
   }
 
-  /** Click the internal header to open the comment popover (tag 'internal'). */
-  async commentOnHeader(): Promise<void> {
+  /** Single click on the header toggles the member list open/closed. */
+  async toggleMembers(): Promise<void> {
     await (await this.root.locator('.hf-internal-head').first()).click();
   }
 
+  /** Double-click the internal header to open the comment popover (tag 'internal'). */
+  async commentOnHeader(): Promise<void> {
+    await (await this.root.locator('.hf-internal-head').first()).dblclick();
+  }
+
   async focusSymbol(): Promise<void> {
-    await (await this.root.locator('.hf-internal-head').first()).click();
+    await (await this.root.locator('.hf-internal-head').first()).dblclick();
   }
 }

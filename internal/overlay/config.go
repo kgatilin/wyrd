@@ -145,9 +145,16 @@ type ReviewView struct {
 // ReviewGroup describes a user-configured package category for the review UI.
 // It is resolved server-side into concrete package/component ids. Groups are
 // evaluated in lexical key order, and the first matching group owns a package.
+//
+// PerDirectory splits the group into one sub-group per direct child directory
+// of the given package path: with `per_directory: internal/plugins`, every
+// matched package under internal/plugins/<name>/... lands in its own
+// "<name>" group instead of one shared group. Matched packages not under the
+// prefix stay in the base group.
 type ReviewGroup struct {
-	Title    string          `yaml:"title,omitempty"`
-	Packages PackageSelector `yaml:"packages,omitempty"`
+	Title        string          `yaml:"title,omitempty"`
+	Packages     PackageSelector `yaml:"packages,omitempty"`
+	PerDirectory string          `yaml:"per_directory,omitempty"`
 }
 
 // PackageSelector includes and excludes package paths using archai review

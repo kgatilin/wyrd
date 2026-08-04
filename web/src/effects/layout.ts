@@ -13,6 +13,7 @@ const LAYOUT_TRIGGERS: ReadonlySet<Event['type']> = new Set([
   'ComponentSelected',
   'FocusCleared',
   'CanvasCleared',
+  'InternalToggled',
   'InternalWideToggled',
   'ComponentAllWideSet',
   'ChangeActivated',

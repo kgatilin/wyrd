@@ -811,6 +811,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                 expandedInternals={internalExpanded}
                 wideInternals={internalWide}
                 onToggleWide={(id) => dispatch({ type: 'InternalWideToggled', id })}
+                onToggleInternal={(id) => dispatch({ type: 'InternalToggled', id })}
                 onSetAllWide={(componentId, wide) => dispatch({ type: 'ComponentAllWideSet', id: componentId, wide })}
                 parentName={bcNameById.get(c.bc)}
                 showDiff={showDiff}

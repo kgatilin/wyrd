@@ -269,11 +269,22 @@ describe('harness smoke (jsdom) — diffGraph', () => {
       message: 'focused package view never collapsed non-focused package',
     });
 
-    const a = await (await app.diagram()).component('A');
+    // Internals start collapsed (squares only); member lists open per internal.
+    let a = await (await app.diagram()).component('A');
+    expect(await (await a.internal('PublicType')).isExpanded()).toBe(false);
+    await (await a.internal('PublicType')).toggleMembers();
+    await (await (await (await app.diagram()).component('A')).internal('privateType')).toggleMembers();
+    await app.env.waitUntil(async () => {
+      const cmp = await (await app.diagram()).component('A');
+      return (
+        (await (await cmp.internal('PublicType')).isExpanded()) &&
+        (await (await cmp.internal('privateType')).isExpanded())
+      );
+    }, { message: 'internal member lists never opened' });
+
+    a = await (await app.diagram()).component('A');
     const publicType = await a.internal('PublicType');
     const privateType = await a.internal('privateType');
-    expect(await publicType.isExpanded()).toBe(true);
-    expect(await privateType.isExpanded()).toBe(true);
     expect(await publicType.symbolVisibility()).toBe('public');
     expect(await privateType.symbolVisibility()).toBe('internal');
     expect(await (await publicType.member('Do')).symbolVisibility()).toBe('public');
@@ -360,6 +371,11 @@ describe('harness smoke (jsdom) — diffGraph', () => {
     const env = await mountAppDom(graph);
     const app = await env.load(AppHarness);
     await app.waitForLoaded();
+    await (await (await (await app.diagram()).component('api')).internal('Store')).toggleMembers();
+    await app.env.waitUntil(
+      async () => (await (await (await app.diagram()).component('api')).internal('Store')).isExpanded(),
+      { message: 'Store member list never opened' }
+    );
     const store = await (await (await app.diagram()).component('api')).internal('Store');
     await (await store.member('Save')).focusSymbol();
 
