@@ -6,9 +6,43 @@ composed set and projects it to a graph for visualization and analysis.
 
 Use this feature when your system is event-driven (pub/sub, CQRS, event
 sourcing) and you want machine-readable documentation of what each component
-produces, consumes, and projects over. The declarations enable composition
-checks (ownership, closure, call resolution) and graph-based analysis before
-runtime.
+produces, observes, and projects over. The declarations enable composition
+checks (namespace ownership, closure, fold coherence) and graph-based analysis
+before runtime.
+
+## The core rule
+
+> A durable event is published once and may be observed independently by any
+> number of components and folds.
+
+Everything else follows from this:
+
+- **`emits`** — the component appends a durable event to the log.
+- **`receives`** — the component observes an event. There may be 0..N
+  observers of one kind, and they are independent of each other.
+- **`folds[].consumes`** — *stateful* observation. Several folds, in the same
+  or different components, may fold the same kind; their ordering and
+  completion relative to one another is not guaranteed.
+- **`role: action | fact`** — a *semantic* classification of the event.
+  It is not a delivery contract. An action is not an RPC and does not require
+  a handler, let alone exactly one.
+- **`owns`** — authority over a namespace's *schema definitions*. It is not an
+  exclusive right to produce events in that namespace, nor to observe them.
+
+One appended event can drive several reactions at once, and nothing in the base
+model treats that as ambiguity:
+
+```
+event appended
+  ├─ controller A folds it → emits event X
+  ├─ controller B folds it → emits event Y
+  └─ projection C folds it → updates a read model
+```
+
+**Exclusive handling is opt-in.** If a kind really is a command with exactly
+one owner, say so with `delivery: exclusive` on the slot. That — and only that
+— makes receiver cardinality a validated rule. Exclusivity is a transport /
+runtime policy, not a property of event sourcing, so it is never the default.
 
 ## File Location and Discovery
 
@@ -31,12 +65,13 @@ cause a parse error.
 ```yaml
 version: 1                   # required; currently only version 1 is supported
 component: billing           # required; stable unique id for this component
-owns: billing                # optional; namespace prefix this component owns
+owns: billing                # optional; namespace whose schemas this component defines
 description: Invoice lifecycle management  # optional
 
 receives:
   - kind: billing.invoice.issue    # required; the event kind name
-    role: action                   # required; "action" or "fact"
+    role: action                   # required; "action" or "fact" (semantic only)
+    delivery: exclusive            # optional; "broadcast" (default) or "exclusive"
     description: Create an invoice # optional
     exposure: [public_api]         # optional; free-form tags
     schema:                        # optional; JSON Schema in YAML syntax
@@ -47,16 +82,20 @@ receives:
 emits:
   - kind: billing.invoice.issued
     role: fact
-    schema: {$ref: '#/vocab/Invoice'}
+    schema: {$ref: '#/types/Invoice'}
 
 folds:
   - name: billing.open-invoices     # required
-    subject: svc.*.billing.{account}.invoice.>  # optional; transport read-set
+    subjects:                       # optional; transport read-set (see below)
+      - svc.*.billing.{account}.invoice.>
+      - svc.*.billing.{account}.credit.>
     consumes: [billing.invoice.*]   # required; kinds the reducer folds (globs)
-    state:                          # optional; JSON Schema for projection state
+    state:                          # required; JSON Schema or $ref
       type: object
+      properties:
+        Open: {type: array, items: {$ref: '#/types/Invoice'}}
 
-vocab:                           # optional; component-local shared schema shapes
+types:                           # optional; reusable schema definitions ($defs)
   Invoice:
     type: object
     properties:
@@ -72,12 +111,12 @@ extra:                           # optional; opaque passthrough for templates
 |-------|------|----------|-------------|
 | `version` | int | yes | Schema version. Must be `1`. |
 | `component` | string | yes | Stable component id, unique in the repo. |
-| `owns` | string | no | Namespace prefix this component owns (e.g., `billing` owns `billing.*`). |
+| `owns` | string | no | Namespace whose schemas this component defines (e.g., `billing` defines `billing.*`). Not a production or observation restriction. |
 | `description` | string | no | Human-readable summary. |
-| `receives` | list of Slot | no | Event kinds this component handles. |
-| `emits` | list of Slot | no | Event kinds this component produces. |
+| `receives` | list of Slot | no | Event kinds this component observes. |
+| `emits` | list of Slot | no | Event kinds this component appends. |
 | `folds` | list of Fold | no | Projections maintained over event patterns. |
-| `vocab` | map[string]Schema | no | Reusable schema shapes within this component. |
+| `types` | map[string]Schema | no | Reusable schema definitions, the analogue of JSON Schema `$defs`. |
 | `extra` | map[string]any | no | Opaque data passed through to templates; archai never interprets it. |
 
 **Slot fields** (receives/emits entries):
@@ -85,7 +124,8 @@ extra:                           # optional; opaque passthrough for templates
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `kind` | string | yes | Event kind name (e.g., `billing.invoice.issued`). |
-| `role` | string | yes | `"action"` (command) or `"fact"` (event record). |
+| `role` | string | yes | `"action"` (expresses intent) or `"fact"` (records what happened). Classification only — no cardinality implied. |
+| `delivery` | string | no | `"broadcast"` (default, 0..N observers) or `"exclusive"` (opt into exactly-one-receiver validation). |
 | `description` | string | no | Human-readable summary. |
 | `exposure` | list of string | no | Free-form tags (e.g., `["public_api"]`). |
 | `schema` | Schema | no | Payload schema. |
@@ -96,28 +136,52 @@ extra:                           # optional; opaque passthrough for templates
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | yes | Fold identifier (e.g., `billing.open-invoices`). |
-| `subject` | string | no | Transport subject pattern (e.g., `svc.*.billing.{account}.>`). Opaque to validation; carried for codegen. |
+| `subjects` | list of string | no | Transport subject patterns (e.g., `svc.*.billing.{account}.>`). All entries must extract the same ordered partition key. Opaque to kind matching; carried for codegen. |
 | `consumes` | list of string | yes | Kind globs the reducer folds. Starvation checked per entry. |
-| `state` | Schema | no | Schema for the projection state. |
+| `state` | Schema | yes | Schema for the projection state — a full schema or a `$ref` to a type. |
 | `extra` | map[string]any | no | Opaque passthrough. |
 
-### Subject vs Consumes
+### Subjects vs Consumes
 
 A fold declares two distinct things in different alphabets:
 
-- **`subject`** is the *transport read-set*: a NATS-style pattern with `{slot}`
-  tokens that declares the partition key layout ("one state per account") and
-  wires subscriptions. archai validates `{slot}` syntax but does NOT match this
+- **`subjects`** is the *transport read-set*: NATS-style patterns with `{slot}`
+  tokens that declare the partition key layout ("one state per account") and
+  wire subscriptions. archai validates `{slot}` syntax but does NOT match these
   against kinds.
 
 - **`consumes`** lists the *kinds the reducer actually folds*. These are kind
-  globs; the existing pattern matching applies. Starvation is checked here, not
-  on the subject.
+  globs; the pattern matching below applies. Starvation is checked here, not on
+  the subjects.
 
 The distinction matters: a subject pattern may deliver events the reducer
 ignores (wrong kind in the namespace), and a consumed kind may be emitted onto
 subjects the fold does not subscribe to. Conflating them produces false
 starved-fold warnings.
+
+### One fold, one partition key
+
+`subjects` is a list because a fold may need to read several transport streams
+into one state. All of them must extract the **same ordered partition key**: a
+fold instance holds exactly one state, and every subject it reads must identify
+that state identically.
+
+```yaml
+# OK — both subjects address per-account state.
+subjects:
+  - svc.*.billing.{account}.invoice.>
+  - svc.*.billing.{account}.credit.>
+
+# ERROR (partition-mismatch) — which state does an event belong to?
+subjects:
+  - svc.*.billing.{account}.invoice.>
+  - svc.*.billing.{region}.invoice.>
+
+# ERROR (partition-mismatch) — order is significant, [region sku] != [sku region].
+subjects:
+  - svc.*.warehouse.{region}.{sku}.stock.>
+  - svc.*.warehouse.{sku}.{region}.stock.>
+```
 
 **Strict decoding:** Unknown YAML keys cause a parse error. Typos like
 `componet:` or `recives:` are caught immediately.
@@ -127,16 +191,16 @@ starved-fold warnings.
 Schemas are JSON Schema written in YAML syntax. They are stored opaquely and
 used for `$ref` resolution and deprecated-field detection. archai does NOT
 validate payloads against schemas or check schema compatibility between
-callers and receivers.
+producers and observers.
 
 ### `$ref` resolution
 
 Two forms are supported:
 
-- **Local**: `{$ref: '#/vocab/Name'}` references a key in the same
-  component's `vocab` block.
-- **Cross-component**: `{$ref: 'other-component#/vocab/Name'}` references a
-  key in another component's `vocab`. The target component must exist.
+- **Local**: `{$ref: '#/types/Name'}` references a key in the same
+  component's `types` block.
+- **Cross-component**: `{$ref: 'other-component#/types/Name'}` references a
+  key in another component's `types`. The target component must exist.
 
 Unresolved refs produce an `unresolved-ref` error. Cross-component cycles
 produce a `ref-cycle` error.
@@ -172,9 +236,12 @@ Examples:
 - `billing.>` matches `billing.invoice`, `billing.invoice.issued`, but not `billing`
 - `*.invoice.*` matches `billing.invoice.issued`, `sales.invoice.voided`
 
+Folds match against **every** emitted kind, actions included: an action is a
+durable event like any other.
+
 ## Subject Slot Syntax
 
-The `subject` field uses NATS-style patterns with `{slot}` tokens to declare
+The `subjects` entries use NATS-style patterns with `{slot}` tokens to declare
 partition keys. archai validates only the `{slot}` syntax:
 
 - `{slot}` tokens must be balanced (matching `{` and `}`)
@@ -187,6 +254,9 @@ Examples:
 
 Malformed `{slot}` syntax produces a `malformed-slot` error.
 
+Note: in YAML, a value containing `{` must not be written in flow style
+(`[svc.{a}.>]` is a parse error). Use a block sequence or quote the entry.
+
 ## Validation Rules
 
 ### Error severity
@@ -194,38 +264,62 @@ Malformed `{slot}` syntax produces a `malformed-slot` error.
 - **Errors** are fatal rule breaches; exit code 1.
 - **Warnings** are potential issues that may be acceptable; exit code 0.
 
-### Role x Ownership Matrix
+### What ownership does and does not mean
 
-| | kind in `owns` | kind outside `owns` |
-|---|---|---|
-| **emit fact** | ok | `ownership-violation` (forging another namespace's fact) |
-| **emit action** | ok (self-scheduling) | ok (call-out; must resolve to one receiver) |
-| **receive action** | ok (inbound command) | `ownership-violation` (accepting commands in another namespace) |
-| **receive fact** | ok (self-observation) | ok (normal subscription) |
+`owns` declares the component that **defines the schemas** for a namespace.
+That is all. In particular:
 
-A component without `owns` may only emit actions and receive facts.
+| Situation | Verdict |
+|---|---|
+| emit a fact in a namespace you do not own | legal |
+| emit an action in a namespace you do not own | legal |
+| observe an action in a namespace you do not own | legal |
+| observe a fact in a namespace you do not own | legal |
+| a component with no `owns` at all | legal, in every role |
+| two components claiming overlapping `owns` | **error** (`duplicate-owner`) |
+
+Two claimants over one namespace mean two answers to "what does this kind look
+like", so overlapping ownership — exact or nested — stays an error. Ownership
+is resolved by longest prefix, and reported by `event_kind` as the kind's
+schema owner.
 
 ### All finding kinds
 
 | Finding Kind | Severity | Trigger | Fix |
 |--------------|----------|---------|-----|
-| `ownership-violation` | error | Emitting fact or receiving action outside owned namespace | Move the kind under your `owns` prefix, or change role |
 | `duplicate-owner` | error | Two components declare overlapping `owns` (exact or nested) | Give each component a distinct namespace prefix |
-| `unresolved-call` | error | Emitted action has zero receivers | Add a component that receives this action |
-| `ambiguous-call` | error | Emitted action has multiple receivers | Remove duplicate receivers; only one component may handle an action |
-| `unresolved-ref` | error | `$ref` points to nonexistent vocab entry | Fix the path or add the missing vocab entry |
+| `partition-mismatch` | error | A fold's `subjects` extract different ordered partition keys | Make every subject address the same state, or split into separate folds |
+| `malformed-slot` | error | A fold subject has invalid `{slot}` syntax | Fix the `{slot}` tokens (balance braces, non-empty) |
+| `unresolved-ref` | error | `$ref` points to a nonexistent `types` entry | Fix the path or add the missing type |
 | `ref-cycle` | error | Cross-component `$ref` forms a cycle | Break the cycle by inlining or restructuring |
-| `starved-receive` | warning | Receives a kind no component emits | Add a producer or remove the unused receive |
+| `exclusive-unhandled` | error | A kind declared `delivery: exclusive` has no receiver | Add the handler, or drop the exclusive declaration |
+| `exclusive-conflict` | error | A kind declared `delivery: exclusive` has more than one receiver | Remove the extra handlers, or drop the exclusive declaration |
+| `starved-receive` | warning | Observes a kind no component emits | Add a producer or remove the unused receive |
 | `starved-fold` | warning | A `consumes` entry matches no emitted kind | Fix the consumes entry or add emitters |
-| `malformed-slot` | error | Fold subject has invalid `{slot}` syntax | Fix the `{slot}` tokens (balance braces, non-empty) |
-| `orphan-fact` | warning | Emitted fact has no consumer (no receive or fold match) | Add a consumer or remove the unused emit |
+| `orphan-event` | warning | An emitted event (either role) has no observer — no receive, no fold | Add an observer or remove the unused emit |
+| `underspecified-state` | warning | A fold state is `type: object` with no properties and no `$ref` | Declare the projection shape or reference a type |
+
+### Removed rules
+
+Two rules from the first iteration were RPC assumptions and no longer exist:
+
+- **`unresolved-call`** — "an emitted action must have a receiver". Replaced by
+  the `orphan-event` warning, which applies to both roles, and by
+  `exclusive-unhandled` when the kind opts into single-handler delivery.
+- **`ambiguous-call`** — "an emitted action must have exactly one receiver".
+  Multiple independent observers are the normal case. Replaced by
+  `exclusive-conflict`, gated on `delivery: exclusive`.
+- **`ownership-violation`** — the role × ownership matrix. Ownership no longer
+  restricts who may produce or observe.
 
 ### What is NOT checked
 
-- **Schema compatibility**: archai does not verify that a call-out's payload is
-  compatible with the target's inbound schema. Schemas are recorded but not
+- **Schema compatibility**: archai does not verify that an emitted payload is
+  compatible with an observer's inbound schema. Schemas are recorded but not
   compared.
 - **Runtime conformance**: archai does not observe actual event traffic.
+- **Ordering**: nothing here constrains the order in which independent
+  observers of one event complete, because nothing can.
 - **Project-specific policy**: custom rules over the event graph are not yet
   implemented.
 
@@ -251,12 +345,11 @@ OK: 5 component(s) validated.
 
 ```
 $ archai plugin events validate --root ./broken
-ERROR [ownership-violation] billing:ledger.entry.post: receiving action "ledger.entry.post" outside owned namespace "billing"
-ERROR [ownership-violation] billing:ledger.entry.posted: emitting fact "ledger.entry.posted" outside owned namespace "billing"
-WARN [orphan-fact] billing:ledger.entry.posted: emits fact "ledger.entry.posted" but no component receives it
-WARN [starved-receive] billing:ledger.entry.post: receives "ledger.entry.post" but no component emits it
+ERROR [exclusive-unhandled] billing:ledger.entry.post: emits "ledger.entry.post" declared delivery: exclusive but no component receives it
+ERROR [partition-mismatch] billing:billing.mixed: fold "billing.mixed" subject "svc.*.billing.{region}.invoice.>" extracts partition key [region] but "svc.*.billing.{account}.invoice.>" extracts [account]; all subjects of one fold must extract the same ordered key
+WARN [orphan-event] billing:billing.invoice.issued: emits fact "billing.invoice.issued" but no component receives or folds it
 
-2 error(s), 2 warning(s)
+2 error(s), 1 warning(s)
 Error: validation failed
 ```
 
@@ -288,7 +381,9 @@ flowchart LR
     ledger -->|entry.posted| gateway
 ```
 
-Solid arrows (`-->`) are facts; dashed arrows (`-.->`) are actions.
+Solid arrows (`-->`) are facts; dashed arrows (`-.->`) are actions. The arrow
+style reflects the semantic role only — a dashed edge is still a broadcast
+unless the kind declares `delivery: exclusive`.
 
 ### MCP Tools
 
@@ -298,14 +393,15 @@ When running as an MCP server, three tools are exposed:
 
 Arguments: none
 
-Returns the composed model as text: components with their receives/emits/folds/vocab.
+Returns the composed model as text: components with their
+receives/emits/folds/types.
 
 **event_kind**
 
 Arguments: `{"kind": "billing.invoice.issued"}`
 
-Returns detail for one event kind: role, owner, producers, consumers, payload
-schema, deprecated fields.
+Returns detail for one event kind: role, delivery policy, schema owner,
+producers, observers (receives and folds), payload schema, deprecated fields.
 
 **event_validate**
 
@@ -318,10 +414,27 @@ Returns validation findings as text (same format as the CLI).
 `GET /api/plugins/events/model` returns the composed model and projected graph
 as JSON.
 
+## Graph Projection
+
+The model projects to a bipartite graph:
+
+- nodes: `component:<id>`, `kind:<name>`, `fold:<component>.<name>`,
+  `type:<component>.<typeName>`
+- edges: `emits`, `receives`, `feeds` (kind → fold), `held-by` (fold →
+  component), `defines` (component → type), `payload` (kind → type), `refs`
+  (type → type)
+- kind attributes: `producer_count`, `consumer_count`, `fold_consumer_count`,
+  `health` (`ok` | `orphan` | `starved` | `ambiguous`), `role`, `delivery`
+- fold attributes: `subjects`, `partition_key`, `partition_arity`, `consumes`,
+  `component`
+
+`health: ambiguous` is reserved for exclusive kinds with more than one
+receiver. A broadcast kind with many receivers is `ok`.
+
 ## Worked Example
 
-A minimal two-component system: billing issues invoices and posts to the
-ledger; the ledger records entries.
+A minimal system: billing issues invoices and asks the ledger to post entries;
+the ledger records them; two independent observers watch the same fact.
 
 **billing/.arch/events.yaml**
 
@@ -352,7 +465,9 @@ emits:
         Account: {type: string}
   - kind: ledger.entry.post
     role: action
-    description: Post a ledger entry for the invoice
+    description: >-
+      Emitted into a namespace billing does not own. Legal: ownership is schema
+      authority, not an exclusive right to produce.
     schema:
       type: object
       properties:
@@ -368,8 +483,10 @@ owns: ledger
 description: Double-entry accounting ledger
 
 receives:
+  # A genuine command with one owner — declared, not assumed.
   - kind: ledger.entry.post
     role: action
+    delivery: exclusive
     description: Post a ledger entry
     schema:
       type: object
@@ -390,7 +507,9 @@ emits:
 
 folds:
   - name: ledger.account-balances
-    subject: svc.*.ledger.{account}.entry.>
+    subjects:
+      - svc.*.ledger.{account}.entry.>
+      - svc.*.ledger.{account}.adjustment.>
     consumes: [ledger.entry.*]
     state:
       type: object
@@ -401,14 +520,39 @@ folds:
 
 The fold consumes the same kind (`ledger.entry.posted`) that this component
 emits. A component folding its own facts is the common case — the fold
-maintains projection state from the events the component produces.
+maintains projection state from the events the component produces. Its two
+subjects share the `{account}` partition key, so both feed one state.
+
+**analytics/.arch/events.yaml** (a second, independent observer)
+
+```yaml
+version: 1
+component: analytics
+owns: analytics
+description: Read models over the event log
+
+folds:
+  - name: analytics.invoice-volume
+    subjects:
+      - svc.*.analytics.{tenant}.billing.>
+    consumes: [billing.invoice.*]
+    state:
+      type: object
+      properties:
+        Count: {type: integer}
+        Total: {type: number}
+```
+
+`billing.invoice.issued` is now folded by `analytics.invoice-volume` **and**
+received by `ledger`. That is two independent observations of one appended
+event, and validation says nothing about it — no ambiguity, no ordering claim.
 
 **gateway/.arch/events.yaml** (optional, completes the graph)
 
 ```yaml
 version: 1
 component: gateway
-description: API gateway - orchestrates without owning events
+description: API gateway - orchestrates without owning any namespace
 
 receives:
   - kind: ledger.entry.posted
@@ -425,7 +569,7 @@ emits:
 
 ```
 $ archai plugin events validate --root ./example
-OK: 3 component(s) validated.
+OK: 4 component(s) validated.
 ```
 
 ### Broken variant
@@ -438,52 +582,60 @@ component: bad
 owns: bad
 description: Component with deliberate violations
 
-receives:
-  - kind: ledger.entry.post
-    role: action
-    description: Receiving action outside owned namespace
-
 emits:
-  - kind: ledger.entry.posted
-    role: fact
-    description: Emitting fact outside owned namespace
+  # Declares an exclusive contract nothing satisfies.
+  - kind: bad.command.run
+    role: action
+    delivery: exclusive
+
+folds:
+  # Two subjects, two different partition keys.
+  - name: bad.mixed
+    subjects:
+      - svc.*.bad.{tenant}.events.>
+      - svc.*.bad.{region}.events.>
+    consumes: [bad.command.*]
+    state:
+      type: object
 ```
 
 **Validation output**
 
 ```
 $ archai plugin events validate --root ./bad
-ERROR [ownership-violation] bad:ledger.entry.post: receiving action "ledger.entry.post" outside owned namespace "bad"
-ERROR [ownership-violation] bad:ledger.entry.posted: emitting fact "ledger.entry.posted" outside owned namespace "bad"
-WARN [orphan-fact] bad:ledger.entry.posted: emits fact "ledger.entry.posted" but no component receives it
-WARN [starved-receive] bad:ledger.entry.post: receives "ledger.entry.post" but no component emits it
+ERROR [exclusive-unhandled] bad:bad.command.run: emits "bad.command.run" declared delivery: exclusive but no component receives it
+ERROR [partition-mismatch] bad:bad.mixed: fold "bad.mixed" subject "svc.*.bad.{region}.events.>" extracts partition key [region] but "svc.*.bad.{tenant}.events.>" extracts [tenant]; all subjects of one fold must extract the same ordered key
+WARN [underspecified-state] bad:bad.mixed: fold "bad.mixed" declares an object state with no properties and no $ref; declare the projection shape or reference a type
 
-2 error(s), 2 warning(s)
+2 error(s), 1 warning(s)
 Error: validation failed
 ```
 
+Note what is *not* reported: `bad` emits into its own namespace and folds its
+own command, and nothing complains about who is allowed to do what.
+
 ## Adoption Workflow
 
-1. **Start with the owner.** Pick the component that owns the most events (the
-   one whose namespace prefix others call into). Declare its `owns`, receives,
-   and emits. Run `archai plugin events validate --root ./path`. Expect
-   warnings for starved receives and orphan facts; errors mean structural
-   mistakes.
+1. **Start with the owner.** Pick the component that defines the most event
+   schemas. Declare its `owns`, receives, emits and folds. Run
+   `archai plugin events validate --root ./path`. Expect warnings for starved
+   receives and orphan events; errors mean structural mistakes.
 
-2. **Add callers.** Declare components that emit actions into the owner's
-   namespace. Each action must resolve to exactly one receiver. Validate after
-   each addition.
+2. **Add producers.** Declare components that emit into the namespace. They do
+   not need to own it. Validate after each addition.
 
-3. **Add observers.** Declare components that receive facts from the owner.
-   Orphan-fact warnings should decrease.
+3. **Add observers.** Declare components that receive or fold those events.
+   Orphan-event warnings should decrease. Adding a second or third observer of
+   the same kind is expected and produces no findings.
 
-4. **Close the graph.** Continue until warnings are intentional (external
-   entry points with no internal producer, facts published for external
-   consumers). Use the Mermaid output to visualize flow.
+4. **Mark the real commands.** Where a kind genuinely must have exactly one
+   handler, add `delivery: exclusive` on the handler's slot. Everything else
+   stays broadcast.
 
-5. **Iterate.** As the system evolves, re-run validation. New emits or receives
-   that break ownership or closure rules surface immediately.
+5. **Close the graph.** Continue until warnings are intentional (external entry
+   points with no internal producer, events published for external consumers).
+   Use the Mermaid output to visualize flow.
 
-The graph output (`archai plugin events graph --format mermaid`) shows
-components, event flow, and health status. Facts are solid arrows; actions are
-dashed. Health issues (orphan, starved, ambiguous) appear as annotations.
+6. **Iterate.** As the system evolves, re-run validation. New emits, receives
+   or folds that break closure, fold coherence or an exclusive contract surface
+   immediately.

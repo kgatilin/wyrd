@@ -31,15 +31,15 @@ type hostStub struct {
 	root string
 }
 
-func (h *hostStub) RepoRoot() string                                       { return h.root }
-func (h *hostStub) CurrentModel() *plugin.Model                            { return nil }
-func (h *hostStub) Targets() []plugin.TargetMeta                           { return nil }
-func (h *hostStub) Target(string) (*plugin.TargetSnapshot, error)          { return nil, nil }
-func (h *hostStub) ActiveTarget() *plugin.TargetSnapshot                   { return nil }
-func (h *hostStub) Diff(string, string) (*plugin.Diff, error)              { return nil, nil }
-func (h *hostStub) Validate(string) (*plugin.ValidationReport, error)      { return nil, nil }
-func (h *hostStub) Subscribe(func(plugin.ModelEvent)) plugin.Unsubscribe   { return func() {} }
-func (h *hostStub) Logger() *slog.Logger                                   { return slog.Default() }
+func (h *hostStub) RepoRoot() string                                     { return h.root }
+func (h *hostStub) CurrentModel() *plugin.Model                          { return nil }
+func (h *hostStub) Targets() []plugin.TargetMeta                         { return nil }
+func (h *hostStub) Target(string) (*plugin.TargetSnapshot, error)        { return nil, nil }
+func (h *hostStub) ActiveTarget() *plugin.TargetSnapshot                 { return nil }
+func (h *hostStub) Diff(string, string) (*plugin.Diff, error)            { return nil, nil }
+func (h *hostStub) Validate(string) (*plugin.ValidationReport, error)    { return nil, nil }
+func (h *hostStub) Subscribe(func(plugin.ModelEvent)) plugin.Unsubscribe { return func() {} }
+func (h *hostStub) Logger() *slog.Logger                                 { return slog.Default() }
 
 func TestPlugin_Manifest(t *testing.T) {
 	p := &Plugin{}
@@ -92,8 +92,15 @@ func TestPlugin_ValidateCmd_WithErrors(t *testing.T) {
 	if !strings.Contains(output, "ERROR") {
 		t.Errorf("output should contain ERROR: %s", output)
 	}
-	if !strings.Contains(output, "ownership-violation") {
-		t.Errorf("output should mention ownership-violation: %s", output)
+	for _, want := range []string{"exclusive-unhandled", "partition-mismatch", "malformed-slot", "unresolved-ref"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output should mention %s: %s", want, output)
+		}
+	}
+	// The fixture deliberately emits a fact into, and observes an action from, a
+	// namespace it does not own. Under event-sourced semantics that is legal.
+	if strings.Contains(output, "ownership-violation") {
+		t.Errorf("ownership must not restrict production or observation: %s", output)
 	}
 }
 
@@ -212,6 +219,51 @@ func TestPlugin_MCPEventKind(t *testing.T) {
 	}
 	if !strings.Contains(text, "Consumers:") {
 		t.Errorf("output should contain Consumers: %s", text)
+	}
+}
+
+// TestPlugin_MCPEventKind_Delivery checks that the delivery policy and the
+// schema-owner framing reach the agent-facing output. Broadcast is the default
+// and must be stated explicitly, so an agent never has to assume.
+func TestPlugin_MCPEventKind_Delivery(t *testing.T) {
+	root := filepath.Join(testdataRoot(t), "ledger")
+
+	p := &Plugin{}
+	if err := p.Init(context.Background(), &hostStub{root: root}, ""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	tools := p.MCPTools()
+	var kindTool *plugin.MCPTool
+	for i := range tools {
+		if tools[i].Name == "event_kind" {
+			kindTool = &tools[i]
+			break
+		}
+	}
+	if kindTool == nil {
+		t.Fatal("event_kind tool not found")
+	}
+
+	cases := []struct {
+		kind string
+		want string
+	}{
+		{"ledger.entry.post", "Delivery: exclusive"},
+		{"ledger.entry.posted", "Delivery: broadcast"},
+	}
+	for _, tc := range cases {
+		out, err := kindTool.Handler(context.Background(), map[string]any{"kind": tc.kind})
+		if err != nil {
+			t.Fatalf("handler(%s): %v", tc.kind, err)
+		}
+		text := out.(string)
+		if !strings.Contains(text, tc.want) {
+			t.Errorf("%s: output should contain %q: %s", tc.kind, tc.want, text)
+		}
+		if !strings.Contains(text, "Schema owner: ledger") {
+			t.Errorf("%s: output should name the schema owner: %s", tc.kind, text)
+		}
 	}
 }
 

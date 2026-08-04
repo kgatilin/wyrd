@@ -39,7 +39,8 @@ emits:
 folds:
   # Multi-slot subject: one state per region, location, and SKU.
   - name: warehouse.stock-levels
-    subject: svc.*.warehouse.{region}.{location}.stock.{sku}.>
+    subjects:
+      - 'svc.*.warehouse.{region}.{location}.stock.{sku}.>'
     consumes:
       - warehouse.stock.adjusted
       - warehouse.stock.depleted

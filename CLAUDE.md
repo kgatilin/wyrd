@@ -269,6 +269,23 @@ Declarative event-driven architecture declarations (`.arch/events.yaml`) with
 validation and graph projection. See `docs/event-model.md` for the full usage
 guide: format reference, validation rules, CLI/MCP surfaces, worked examples.
 
+**The model is event-sourced choreography, not RPC.** A durable event is
+appended once and may be observed independently by any number of components and
+folds. Consequences baked into the rules:
+
+- `role: action | fact` is *semantic classification only* — no cardinality.
+- `owns` is authority over a namespace's **schemas**, not an exclusive right to
+  emit into it or observe it. Its only rule is uniqueness (`duplicate-owner`).
+- Single-handler semantics are opt-in per slot via `delivery: exclusive`; only
+  then do `exclusive-unhandled` / `exclusive-conflict` fire. The removed
+  `unresolved-call` / `ambiguous-call` / `ownership-violation` rules were the
+  RPC assumption and must not come back as defaults.
+- `folds[].subjects` is a list; every entry must extract the **same ordered**
+  `{slot}` partition key (one fold instance = one state), else
+  `partition-mismatch`. `state` is required.
+- `types` (not `vocab`) are reusable JSON Schema definitions, `$defs`-style,
+  addressed as `#/types/X` or `other-component#/types/X`.
+
 ## Development Rules
 
 1. **No test-only production code** - Don't add functions/parameters, types, or exported wrappers solely for testing. If you need to expose internals for testing, the architecture is wrong. Solutions:

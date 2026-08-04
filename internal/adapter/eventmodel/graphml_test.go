@@ -12,7 +12,7 @@ func TestToArchmotifGraph(t *testing.T) {
 	billing := &eventmodel.Component{
 		ID:    "billing",
 		Owns:  "billing",
-		Vocab: map[string]eventmodel.SchemaNode{"Invoice": {Raw: map[string]any{"type": "object"}}},
+		Types: map[string]eventmodel.SchemaNode{"Invoice": {Raw: map[string]any{"type": "object"}}},
 	}
 	billing.Emits = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
 	billing.Receives = []eventmodel.Slot{{Kind: "billing.invoice.issue", Role: eventmodel.RoleAction}}
@@ -70,7 +70,7 @@ func TestToArchmotifGraph(t *testing.T) {
 		t.Error("expected kind nodes in graph")
 	}
 	if !hasVocabType {
-		t.Error("expected vocab type nodes in graph")
+		t.Error("expected types type nodes in graph")
 	}
 }
 
@@ -140,7 +140,7 @@ func TestDottedFoldName(t *testing.T) {
 		Owns: "billing",
 	}
 	// Fold name contains a dot - this would break string-splitting.
-	billing.Folds = []eventmodel.Fold{{Name: "invoice.tracker", Subject: "svc.*.billing.{account}.>", Consumes: []string{"billing.invoice.>"}}}
+	billing.Folds = []eventmodel.Fold{{Name: "invoice.tracker", Subjects: []string{"svc.*.billing.{account}.>"}, Consumes: []string{"billing.invoice.>"}}}
 	billing.Emits = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
 
 	consumer := &eventmodel.Component{

@@ -3,11 +3,25 @@
 // a .arch/events.yaml file; the reader discovers and composes these into a
 // Model that the validator checks for structural integrity.
 //
+// # Core semantics
+//
+// A durable event is published once and may be observed independently by any
+// number of components and folds. Nothing in the base model requires an event
+// to resolve to a single handler: emission is an append to a log, reception is
+// an observation of it, and the two are not a call. Role (action | fact) is a
+// semantic classification of the event, not a delivery contract.
+//
+// Exclusive handling — "exactly one component processes this kind" — is a
+// transport/runtime policy, not a property of event sourcing. It is available
+// as an explicit opt-in per slot (Delivery == DeliveryExclusive) and is the
+// only thing that turns receiver cardinality into a validated rule.
+//
 // The package implements the built-in rules from the event-model design doc:
-// role x ownership matrix, single-owner namespaces, closure (starved receives,
-// orphan facts), call resolution, and $ref integrity. Schema compatibility
-// (structural subset check on call-out payloads) is NOT implemented in this
-// iteration; the opaque schema representation does not support it cleanly.
+// single-owner namespaces, closure (starved receives, starved folds, orphan
+// events), fold partition coherence, opt-in exclusive delivery, and $ref
+// integrity. Schema compatibility (structural subset check on payloads) is NOT
+// implemented in this iteration; the opaque schema representation does not
+// support it cleanly.
 package eventmodel
 
 // Model is the composed set of event components discovered under a repo root.
@@ -26,25 +40,32 @@ type Component struct {
 	// ID is the stable component identifier, unique in the repo.
 	ID string
 
-	// Owns is the namespace whose vocabulary this component defines.
-	// A component may only emit facts and receive actions in its owned
-	// namespace.
+	// Owns is the namespace whose vocabulary this component defines —
+	// the authority over the schemas of kinds under that prefix. It is
+	// NOT an exclusive right to produce or to observe those events: any
+	// component may emit into, or subscribe to, a namespace it does not own.
 	Owns string
 
 	// Description is a human-readable summary.
 	Description string
 
-	// Receives are the event kinds this component handles.
+	// Receives are the event kinds this component observes (stateless
+	// observation). A kind may have 0..N receivers; observation carries no
+	// cardinality contract unless a slot opts into exclusive delivery.
 	Receives []Slot
 
-	// Emits are the event kinds this component produces.
+	// Emits are the event kinds this component appends to the durable log.
 	Emits []Slot
 
-	// Folds are projections maintained over event patterns.
+	// Folds are stateful observations: projections maintained over event
+	// patterns. Several folds — in the same or different components — may
+	// consume the same kind independently.
 	Folds []Fold
 
-	// Vocab are component-local shared schema shapes.
-	Vocab map[string]SchemaNode
+	// Types are component-local reusable JSON Schema definitions, the
+	// analogue of JSON Schema's $defs. They are referenced from payload and
+	// fold-state schemas via $ref.
+	Types map[string]SchemaNode
 
 	// Extra is opaque passthrough data for templates; archai never
 	// interprets it.
@@ -60,8 +81,17 @@ type Slot struct {
 	// Kind is the event kind name (e.g. "billing.invoice.issued").
 	Kind string
 
-	// Role distinguishes actions (commands) from facts (events).
+	// Role classifies the event semantically: an action expresses intent,
+	// a fact records what happened. It carries no delivery contract — an
+	// action is not an RPC and does not require a single handler.
 	Role Role
+
+	// Delivery is the optional delivery policy for this kind. The default
+	// (DeliveryBroadcast) is plain event-sourced observation: 0..N receivers.
+	// DeliveryExclusive opts into the RPC-like rule that exactly one
+	// component must receive the kind, and is the only way to make receiver
+	// cardinality a validated constraint.
+	Delivery Delivery
 
 	// Description is a human-readable summary.
 	Description string
@@ -76,13 +106,15 @@ type Slot struct {
 	Extra map[string]any
 }
 
-// Role classifies an event kind.
+// Role classifies an event kind semantically. It is documentation and a
+// rendering axis, never a cardinality contract: an action may be observed by
+// zero, one, or many components exactly like a fact.
 type Role string
 
 const (
-	// RoleAction is a command — an instruction to do something.
+	// RoleAction expresses intent — "do this". It is not an RPC.
 	RoleAction Role = "action"
-	// RoleFact is an event — a record that something happened.
+	// RoleFact records that something happened.
 	RoleFact Role = "fact"
 )
 
@@ -91,19 +123,47 @@ func (r Role) Valid() bool {
 	return r == RoleAction || r == RoleFact
 }
 
-// Fold represents a projection maintained over an event pattern.
+// Delivery is the optional delivery policy attached to a slot. It is the
+// escape hatch for systems that genuinely need a command with exactly one
+// handler; the event-sourced default is broadcast.
+type Delivery string
+
+const (
+	// DeliveryBroadcast is the default: the event is appended once and may
+	// be observed independently by any number of components and folds.
+	DeliveryBroadcast Delivery = "broadcast"
+	// DeliveryExclusive opts into single-handler semantics for this kind.
+	// Only under this policy are zero-receiver and multi-receiver situations
+	// validation errors.
+	DeliveryExclusive Delivery = "exclusive"
+)
+
+// Valid reports whether d is a recognized delivery value. The empty value is
+// valid and means DeliveryBroadcast.
+func (d Delivery) Valid() bool {
+	return d == "" || d == DeliveryBroadcast || d == DeliveryExclusive
+}
+
+// IsExclusive reports whether the slot opted into single-handler delivery.
+func (d Delivery) IsExclusive() bool { return d == DeliveryExclusive }
+
+// Fold is a stateful observation: a projection maintained over event facts.
+// Folds are independent of one another and of receives — several folds may
+// consume the same kind, and a kind consumed by a fold need not be received
+// anywhere.
 //
-// The subject and consumes fields serve distinct purposes and operate in
+// The subjects and consumes fields serve distinct purposes and operate in
 // different alphabets:
 //
-//   - Subject is the transport read-set: a NATS-style subject pattern with
-//     {slot} tokens that declares the partition key layout ("one state per X").
-//     archai does not match it against kinds; it carries the pattern through
-//     for codegen and parses only enough to extract {slot} tokens.
+//   - Subjects is the transport read-set: NATS-style subject patterns with
+//     {slot} tokens that declare the partition key layout ("one state per X")
+//     and wire subscriptions. archai does not match them against kinds; it
+//     carries the patterns through for codegen and parses only enough to
+//     extract {slot} tokens.
 //
 //   - Consumes lists the event kinds the reducer actually folds. These are
 //     kind globs in the kind alphabet (MatchPattern applies). Starvation is
-//     checked here, not on the subject.
+//     checked here, not on the subjects.
 //
 // The distinction matters: a subject pattern matches events the reducer may
 // ignore (wrong kind in the namespace), and a consumes entry may be emitted
@@ -113,21 +173,28 @@ type Fold struct {
 	// Name is the fold identifier (e.g. "billing.open-invoices").
 	Name string
 
-	// Subject is a NATS-style transport pattern with {slot} tokens.
-	// Example: "svc.*.billing.{account}.invoice.>"
-	// archai validates {slot} syntax but does not match this against kinds.
-	Subject string
+	// Subjects are NATS-style transport patterns with {slot} tokens.
+	// Example: ["svc.*.billing.{account}.invoice.>",
+	//           "svc.*.billing.{account}.credit.>"]
+	// A fold may read from several subjects, but all of them must extract
+	// the same ordered partition key — one fold instance holds one state,
+	// so every subject it reads must identify that state identically.
+	// archai validates {slot} syntax but does not match these against kinds.
+	Subjects []string
 
-	// PartitionArity is the number of {slot} tokens in Subject.
-	// Derived at parse time; zero if Subject is empty or has no slots.
-	PartitionArity int
+	// PartitionKey is the ordered list of {slot} names shared by every
+	// entry in Subjects. Derived at parse time; nil when no subject is
+	// declared or the subjects carry no slots.
+	PartitionKey []string
 
 	// Consumes lists the event kinds the reducer folds, as kind globs.
 	// Example: ["billing.invoice.*", "billing.credit.issued"]
 	// MatchPattern applies; starvation is checked per entry.
 	Consumes []string
 
-	// State is the projection state schema (opaque structured data).
+	// State is the projection state schema. It is required: a fold without a
+	// declared state shape is an unfinished declaration, not a valid one.
+	// Either a full schema or a $ref to a component type.
 	State SchemaNode
 
 	// Extra is opaque passthrough data for templates.

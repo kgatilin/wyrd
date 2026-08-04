@@ -15,27 +15,38 @@ const (
 type FindingKind string
 
 const (
-	// KindOwnershipViolation — emitting facts or receiving actions outside
-	// the owned namespace.
-	KindOwnershipViolation FindingKind = "ownership-violation"
-
-	// KindDuplicateOwner — two components claim overlapping owns.
+	// KindDuplicateOwner — two components claim overlapping owns, so the
+	// authority over a namespace's schemas is ambiguous.
 	KindDuplicateOwner FindingKind = "duplicate-owner"
 
 	// KindStarvedReceive — a receives slot has no producer.
 	KindStarvedReceive FindingKind = "starved-receive"
 
-	// KindStarvedFold — a fold pattern matches no emitted kind.
+	// KindStarvedFold — a fold consumes entry matches no emitted kind.
 	KindStarvedFold FindingKind = "starved-fold"
 
-	// KindOrphanFact — an emitted fact has no consumer.
-	KindOrphanFact FindingKind = "orphan-fact"
+	// KindOrphanEvent — an emitted event (of either role) is observed by
+	// nobody: no receives slot and no fold consumes it.
+	KindOrphanEvent FindingKind = "orphan-event"
 
-	// KindAmbiguousCall — an emitted action resolves to multiple receivers.
-	KindAmbiguousCall FindingKind = "ambiguous-call"
+	// KindPartitionMismatch — a fold's subjects do not extract the same
+	// ordered partition key, so they cannot address one fold state.
+	KindPartitionMismatch FindingKind = "partition-mismatch"
 
-	// KindUnresolvedCall — an emitted action resolves to zero receivers.
-	KindUnresolvedCall FindingKind = "unresolved-call"
+	// KindUnderspecifiedState — a fold declares a state schema with no
+	// shape (an object with no properties and no $ref): a placeholder,
+	// not a projection contract.
+	KindUnderspecifiedState FindingKind = "underspecified-state"
+
+	// KindExclusiveUnhandled — a kind declared `delivery: exclusive` has no
+	// receiver. Fires ONLY under that opt-in policy; broadcast events with
+	// no observer are orphan-event warnings, not errors.
+	KindExclusiveUnhandled FindingKind = "exclusive-unhandled"
+
+	// KindExclusiveConflict — a kind declared `delivery: exclusive` has more
+	// than one receiver. Fires ONLY under that opt-in policy; multiple
+	// independent observers are the event-sourced norm, not a defect.
+	KindExclusiveConflict FindingKind = "exclusive-conflict"
 
 	// KindUnresolvedRef — a $ref does not resolve.
 	KindUnresolvedRef FindingKind = "unresolved-ref"

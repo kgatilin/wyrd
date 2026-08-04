@@ -20,7 +20,7 @@ import (
 //   - component -> archmotif package node (role="component")
 //   - kind -> archmotif type node (role="event_kind")
 //   - fold -> archmotif type node (role="fold")
-//   - type -> archmotif type node (role="vocab_type")
+//   - type -> archmotif type node (role="type_def")
 //
 // Edge mapping:
 //   - emits -> DependencyDependsOn (component -> kind)
@@ -29,7 +29,7 @@ import (
 //   - held-by -> AddContains (fold is contained by component)
 //   - payload -> DependencyUsesType (kind -> type)
 //   - refs -> DependencyUsesType (type -> type)
-//   - vocab -> AddContains (type is contained by component)
+//   - defines -> AddContains (type is contained by component)
 func ToArchmotifGraph(g *eventmodel.Graph) (*archmotifimport.Graph, error) {
 	b := archmotifimport.NewBuilder()
 	createdPkgs := make(map[string]bool)
@@ -64,7 +64,7 @@ func ToArchmotifGraph(g *eventmodel.Graph) (*archmotifimport.Graph, error) {
 		}
 	}
 
-	// Pass 2: Create type nodes (kinds, folds, vocab types).
+	// Pass 2: Create type nodes (kinds, folds, type definitions).
 	for _, n := range nodes {
 		switch n.Kind {
 		case eventmodel.NodeComponent:
@@ -85,11 +85,11 @@ func ToArchmotifGraph(g *eventmodel.Graph) (*archmotifimport.Graph, error) {
 				return nil, fmt.Errorf("eventmodel graphml: fold %s: %w", n.ID, err)
 			}
 		case eventmodel.NodeType:
-			// Vocab types store their owning component in attributes.
+			// Type definitions store their owning component in attributes.
 			compID := componentID(n.Attrs["component"].(string))
-			role := "vocab_type"
+			role := "type_def"
 			if deprecated, ok := n.Attrs["deprecated"].(bool); ok && deprecated {
-				role = "vocab_type_deprecated"
+				role = "type_def_deprecated"
 			}
 			if err := b.AddType(n.ID, compID, false, role); err != nil {
 				return nil, fmt.Errorf("eventmodel graphml: type %s: %w", n.ID, err)
@@ -143,10 +143,10 @@ func ToArchmotifGraph(g *eventmodel.Graph) (*archmotifimport.Graph, error) {
 			if err := b.AddDependency(e.From, e.To, archmotifimport.DependencyUsesType); err != nil {
 				return nil, fmt.Errorf("eventmodel graphml: refs %s->%s: %w", e.From, e.To, err)
 			}
-		case eventmodel.EdgeVocab:
-			// Component contains vocab type: structural containment.
+		case eventmodel.EdgeDefines:
+			// Component contains its type definitions: structural containment.
 			if err := b.AddContains(e.From, e.To); err != nil {
-				return nil, fmt.Errorf("eventmodel graphml: vocab %s->%s: %w", e.From, e.To, err)
+				return nil, fmt.Errorf("eventmodel graphml: defines %s->%s: %w", e.From, e.To, err)
 			}
 		}
 	}
@@ -170,4 +170,3 @@ func kindPackage(kindID string) string {
 func componentID(id string) string {
 	return "component:" + id
 }
-

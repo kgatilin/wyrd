@@ -68,7 +68,7 @@ func (p *Plugin) MCPTools() []plugin.MCPTool {
 	return []plugin.MCPTool{
 		{
 			Name:        "event_model",
-			Description: "Return the composed event model: components with their receives/emits/folds/vocab, plus the projected graph for visualization.",
+			Description: "Return the composed event model: components with their receives/emits/folds/types, plus the projected graph for visualization.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -77,7 +77,7 @@ func (p *Plugin) MCPTools() []plugin.MCPTool {
 		},
 		{
 			Name:        "event_kind",
-			Description: "Return detail for a single event kind: role, owner, producers, consumers, payload schema, deprecated fields. Pass the full kind name (e.g. billing.invoice.issued).",
+			Description: "Return detail for a single event kind: role, delivery policy, schema owner, producers, observers (receives and folds), payload schema, deprecated fields. Pass the full kind name (e.g. billing.invoice.issued).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -92,7 +92,7 @@ func (p *Plugin) MCPTools() []plugin.MCPTool {
 		},
 		{
 			Name:        "event_validate",
-			Description: "Validate all .arch/events.yaml declarations and return findings. Errors are fatal rule breaches; warnings are potential issues (starvation, orphans) that may be acceptable.",
+			Description: "Validate all .arch/events.yaml declarations and return findings. Errors are fatal rule breaches; warnings are potential issues (starvation, orphans) that may be acceptable. Multiple observers of one event are never a finding unless the kind declares delivery: exclusive.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -139,9 +139,14 @@ func (p *Plugin) validateCmd() *cobra.Command {
 		Short: "Validate .arch/events.yaml declarations",
 		Long: `Validate all .arch/events.yaml declarations under the specified root.
 
-Errors are fatal rule breaches (ownership violations, unresolved calls,
-duplicate owners, $ref cycles). Warnings are potential issues (starved
-receives, orphan facts) that may be acceptable depending on the composed set.
+Errors are fatal rule breaches (duplicate namespace owners, incoherent fold
+partition keys, malformed subject slots, $ref cycles, and violations of an
+explicit 'delivery: exclusive' contract). Warnings are potential issues
+(starved receives, orphan events, underspecified fold state) that may be
+acceptable depending on the composed set.
+
+Multiple components observing the same event is NOT a finding: a durable event
+is appended once and may be folded independently by any number of observers.
 
 Exit codes:
   0 - no errors (warnings may be present)
@@ -213,8 +218,8 @@ func (p *Plugin) graphCmd() *cobra.Command {
 		Short: "Generate event model graph",
 		Long: `Generate a graph of the event model from .arch/events.yaml declarations.
 
-The graph shows components, event kinds, folds, and vocab types with
-their relationships (emits, receives, feeds, payload refs).
+The graph shows components, event kinds, folds, and type definitions with
+their relationships (emits, receives, feeds, defines, payload refs).
 
 Supported formats:
   graphml  - GraphML XML for archmotif analysis
@@ -308,29 +313,30 @@ func (p *Plugin) handleEventModel(_ context.Context, _ map[string]any) (any, err
 		if len(comp.Receives) > 0 {
 			sb.WriteString("  receives:\n")
 			for _, slot := range comp.Receives {
-				sb.WriteString(fmt.Sprintf("    - %s [%s]\n", slot.Kind, slot.Role))
+				sb.WriteString("    - " + slotLine(slot))
 			}
 		}
 		if len(comp.Emits) > 0 {
 			sb.WriteString("  emits:\n")
 			for _, slot := range comp.Emits {
-				sb.WriteString(fmt.Sprintf("    - %s [%s]\n", slot.Kind, slot.Role))
+				sb.WriteString("    - " + slotLine(slot))
 			}
 		}
 		if len(comp.Folds) > 0 {
 			sb.WriteString("  folds:\n")
 			for _, fold := range comp.Folds {
-				sb.WriteString(fmt.Sprintf("    - %s (subject: %s, consumes: %v)\n", fold.Name, fold.Subject, fold.Consumes))
+				sb.WriteString(fmt.Sprintf("    - %s (subjects: %v, partition key: %v, consumes: %v)\n",
+					fold.Name, fold.Subjects, fold.PartitionKey, fold.Consumes))
 			}
 		}
-		if len(comp.Vocab) > 0 {
-			sb.WriteString("  vocab:\n")
-			vocabNames := make([]string, 0, len(comp.Vocab))
-			for name := range comp.Vocab {
-				vocabNames = append(vocabNames, name)
+		if len(comp.Types) > 0 {
+			sb.WriteString("  types:\n")
+			typeNames := make([]string, 0, len(comp.Types))
+			for name := range comp.Types {
+				typeNames = append(typeNames, name)
 			}
-			sort.Strings(vocabNames)
-			for _, name := range vocabNames {
+			sort.Strings(typeNames)
+			for _, name := range typeNames {
 				sb.WriteString(fmt.Sprintf("    - %s\n", name))
 			}
 		}
@@ -355,25 +361,25 @@ func (p *Plugin) handleEventKind(_ context.Context, args map[string]any) (any, e
 		return nil, fmt.Errorf("no event declarations found")
 	}
 
-	// Find the kind across all components.
+	// Find the kind across all components. Ownership is resolved by longest
+	// `owns` prefix and identifies who defines the schema — not who is
+	// allowed to emit or observe the kind.
 	var producers []string
 	var consumers []string
 	var foldConsumers []string
 	var role eventmodel.Role
-	var owner string
+	var exclusive bool
 	var schema eventmodel.SchemaNode
 	var deprecatedFields []string
 
-	for id, comp := range model.Components {
-		// Check if this component owns the kind's namespace.
-		if eventmodel.MatchPattern(comp.Owns+".*", kindName) || comp.Owns == kindName {
-			owner = id
-		}
+	owner := eventmodel.OwnerOf(model, kindName)
 
+	for id, comp := range model.Components {
 		for _, slot := range comp.Emits {
 			if slot.Kind == kindName {
 				producers = append(producers, id)
 				role = slot.Role
+				exclusive = exclusive || slot.Delivery.IsExclusive()
 				if !slot.Schema.IsZero() {
 					schema = slot.Schema
 				}
@@ -383,6 +389,7 @@ func (p *Plugin) handleEventKind(_ context.Context, args map[string]any) (any, e
 			if slot.Kind == kindName {
 				consumers = append(consumers, id)
 				role = slot.Role
+				exclusive = exclusive || slot.Delivery.IsExclusive()
 				if !slot.Schema.IsZero() {
 					schema = slot.Schema
 				}
@@ -398,7 +405,7 @@ func (p *Plugin) handleEventKind(_ context.Context, args map[string]any) (any, e
 		}
 	}
 
-	if len(producers) == 0 && len(consumers) == 0 {
+	if len(producers) == 0 && len(consumers) == 0 && len(foldConsumers) == 0 {
 		return nil, fmt.Errorf("kind %q not found in any component", kindName)
 	}
 
@@ -416,10 +423,15 @@ func (p *Plugin) handleEventKind(_ context.Context, args map[string]any) (any, e
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("KIND: %s\n", kindName))
 	sb.WriteString(fmt.Sprintf("Role: %s\n", role))
-	if owner != "" {
-		sb.WriteString(fmt.Sprintf("Owner: %s\n", owner))
+	if exclusive {
+		sb.WriteString("Delivery: exclusive (exactly one receiver required)\n")
 	} else {
-		sb.WriteString("Owner: (none - cross-cutting or unowned)\n")
+		sb.WriteString("Delivery: broadcast (0..N independent observers)\n")
+	}
+	if owner != "" {
+		sb.WriteString(fmt.Sprintf("Schema owner: %s\n", owner))
+	} else {
+		sb.WriteString("Schema owner: (none - namespace unclaimed)\n")
 	}
 
 	sort.Strings(producers)
@@ -508,6 +520,15 @@ func (p *Plugin) serveModel(w http.ResponseWriter, _ *http.Request) {
 		Components: model.Components,
 		Graph:      g,
 	})
+}
+
+// slotLine renders one receives/emits entry. Delivery is shown only when it
+// departs from the broadcast default, so the common case stays quiet.
+func slotLine(slot eventmodel.Slot) string {
+	if slot.Delivery.IsExclusive() {
+		return fmt.Sprintf("%s [%s, delivery: exclusive]\n", slot.Kind, slot.Role)
+	}
+	return fmt.Sprintf("%s [%s]\n", slot.Kind, slot.Role)
 }
 
 // formatList formats a slice as a comma-separated string, or "(none)".

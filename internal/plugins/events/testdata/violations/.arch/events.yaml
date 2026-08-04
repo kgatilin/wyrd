@@ -4,36 +4,65 @@ owns: violations
 description: Component with deliberate rule violations for testing
 
 receives:
-  # ERROR: receiving action outside owned namespace
+  # Not a violation any more: observing an action in a namespace this component
+  # does not own is ordinary choreography. Kept here so the fixture proves it
+  # produces no ownership finding.
   - kind: billing.invoice.issue
     role: action
-    description: Illegally accepting commands in billing namespace
+    description: Observing an action owned by another namespace
 
 emits:
-  # ERROR: emitting fact outside owned namespace
+  # Also not a violation: ownership is schema authority, not exclusive
+  # production. This only yields closure warnings when nobody observes it.
   - kind: ledger.entry.posted
     role: fact
-    description: Illegally forging ledger facts
-  # ERROR: emitting action with no receiver
-  - kind: violations.orphan.action
+    description: Emitting into a namespace owned elsewhere
+
+  # ERROR (exclusive-unhandled): opted into single-handler delivery, no receiver.
+  - kind: violations.command.run
     role: action
-    description: Action with no handler
-  # WARNING: orphan fact (no consumer)
+    delivery: exclusive
+    description: Declares an exclusive handler contract that nothing satisfies
+
+  # WARNING (orphan-event): nobody receives or folds it.
   - kind: violations.orphan.fact
     role: fact
     description: Fact that nobody listens to
 
 folds:
-  # WARNING: starved fold (consumes entry matches nothing)
+  # WARNING (starved-fold): consumes entry matches nothing.
+  # WARNING (underspecified-state): object state with no shape.
   - name: violations.starved-fold
-    subject: svc.*.violations.{tenant}.events.>
+    subjects:
+      - 'svc.*.violations.{tenant}.events.>'
     consumes: [nonexistent.events.*]
     state:
       type: object
 
-vocab:
-  # Unresolved $ref for testing
+  # ERROR (partition-mismatch): the two subjects address different states.
+  - name: violations.mixed-partitions
+    subjects:
+      - svc.*.violations.{tenant}.events.>
+      - svc.*.violations.{region}.events.>
+    consumes: [violations.orphan.*]
+    state:
+      type: object
+      properties:
+        Count: {type: integer}
+
+  # ERROR (malformed-slot): empty {} slot token.
+  - name: violations.bad-subject
+    subjects:
+      - 'svc.*.violations.{}.events.>'
+    consumes: [violations.orphan.*]
+    state:
+      type: object
+      properties:
+        Count: {type: integer}
+
+types:
+  # ERROR (unresolved-ref).
   BadRef:
     type: object
     properties:
-      Field: {$ref: '#/vocab/DoesNotExist'}
+      Field: {$ref: '#/types/DoesNotExist'}

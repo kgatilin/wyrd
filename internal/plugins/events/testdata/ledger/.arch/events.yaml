@@ -4,8 +4,12 @@ owns: ledger
 description: Double-entry accounting ledger
 
 receives:
+  # A genuine command: the ledger claims to be its only handler, and says so
+  # explicitly. Without this opt-in, nothing would constrain how many
+  # components observe the kind.
   - kind: ledger.entry.post
     role: action
+    delivery: exclusive
     description: Post a ledger entry (debit/credit pair)
     schema:
       type: object
@@ -27,7 +31,7 @@ emits:
         Credit: {type: string}
         Amount: {type: number}
 
-vocab:
+types:
   Entry:
     type: object
     properties:

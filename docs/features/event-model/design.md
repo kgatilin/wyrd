@@ -59,16 +59,16 @@ The examples below use an invented order-processing system — `billing`, `ledge
 ```yaml
 version: 1
 component: billing                # stable id, unique in the repo
-owns: billing                     # namespace whose vocabulary this component defines
+owns: billing                     # namespace whose schemas this component defines
 description: invoice lifecycle
 
 extra:                            # opaque to archai, passed through to templates
   partition: account
   transport: queue
 
-receives:
+receives:                         # observation; 0..N observers per kind
   - kind: billing.invoice.issue
-    role: action                  # action | fact
+    role: action                  # action | fact — semantic classification only
     description: create an invoice for one account
     exposure: [public_api]        # free-form tags; projects decide what they mean
     schema:
@@ -77,25 +77,27 @@ receives:
       properties:
         Account:  {type: string}
         Currency: {type: string}
-        Lines:    {type: array, items: {$ref: '#/vocab/Line'}}
+        Lines:    {type: array, items: {$ref: '#/types/Line'}}
 
-emits:
+emits:                            # append a durable event to the log
   - kind: billing.invoice.issued
     role: fact
-    schema: {$ref: '#/vocab/Invoice'}
-  - kind: ledger.entry.post       # role=action + kind outside `owns` ⇒ a call-out
+    schema: {$ref: '#/types/Invoice'}
+  - kind: ledger.entry.post       # a kind outside `owns` — legal, not a call-out
     role: action
 
-folds:
+folds:                            # stateful observation
   - name: billing.open-invoices
-    subject: svc.*.billing.{account}.invoice.>  # transport read-set with partition slots
-    consumes: [billing.invoice.*]               # kinds the reducer folds (globs)
-    state:
+    subjects:                     # transport read-set; one shared partition key
+      - svc.*.billing.{account}.invoice.>
+      - svc.*.billing.{account}.credit.>
+    consumes: [billing.invoice.*] # kinds the reducer folds (globs)
+    state:                        # required
       type: object
       properties:
-        Open: {type: array, items: {$ref: '#/vocab/Invoice'}}
+        Open: {type: array, items: {$ref: '#/types/Invoice'}}
 
-vocab:                            # component-local shared shapes
+types:                            # reusable schema definitions ($defs analogue)
   Invoice:
     type: object
     properties:
@@ -103,30 +105,57 @@ vocab:                            # component-local shared shapes
       Status:  {type: string, enum: [open, paid, void]}
       Lines:
         oneOf:
-          - {type: array, items: {$ref: '#/vocab/Line'}}
+          - {type: array, items: {$ref: '#/types/Line'}}
           - {type: string, deprecated: true,
              description: legacy single-line form, read-only}
 ```
 
+### The rule everything else follows from
+
+> **A durable event is published once and may be observed independently by any
+> number of components and folds.**
+
+One appended event can drive several independent reactions — controller A folds
+it and emits X, controller B folds it and emits Y, projection C updates a read
+model — and neither their ordering nor their completion relative to one another
+is guaranteed. There is no ambiguity to detect here. The first iteration of this
+design imported an RPC assumption ("an action resolves to exactly one handler")
+into an event-sourced model, which is simply wrong for choreography; the rules
+that encoded it (`unresolved-call`, `ambiguous-call`, the role × ownership
+matrix) are gone.
+
+Exclusive handling is a **transport/runtime policy**, not a property of event
+sourcing. Where a project really does have a command with one owner, it opts in
+per slot with `delivery: exclusive`, and only then does receiver cardinality
+become a validated rule.
+
 ### Decisions baked into the shape
 
-**`calls-out` is not a field.** It is derived: `calls(C) = {e ∈ emits(C) :
-role == action}`, and the target is the component whose `receives` declares that
-kind. Merging it into `emits` is what makes the role/ownership rule table below
-total.
+**`role` is classification, not contract.** `action` expresses intent, `fact`
+records what happened. The distinction is worth recording — it drives rendering
+and reads as documentation — but it implies nothing about how many components
+observe the kind. An action emitted into another namespace is not a "call-out";
+it is an event that a component in that namespace happens to be interested in.
 
-**`folds` are separate from `receives`.** `receives` is the *invocable* surface —
-"how you call me" — predominantly `role: action`. It is what a future codegen step
-projects into tool definitions. A fold is a projection maintained over event
-*facts*; the reducer switches on the event kind and ignores everything else.
+**`owns` is definitional authority.** It names the component that defines a
+namespace's schemas. It does *not* confer an exclusive right to produce events
+in that namespace or to observe them. The only ownership rule left is that two
+components must not claim overlapping prefixes, because that would mean two
+answers to "what does this kind look like".
 
-**`subject` vs `consumes` — two alphabets.** A fold declares two distinct things:
+**`folds` are separate from `receives`.** Both are observation; the difference is
+state. `receives` is stateless observation — the component reacts and forgets.
+A fold maintains projection state over the events it consumes. Several folds, in
+the same or different components, may consume the same kind independently.
 
-- **`subject`** is the transport read-set: a NATS-style pattern with `{slot}`
-  tokens that declares the partition key layout ("one state per account") and
-  wires subscriptions at runtime. archai validates `{slot}` syntax but does not
-  match this against kinds — it is opaque to validation and carried through for
-  codegen.
+**`subjects` vs `consumes` — two alphabets.** A fold declares two distinct
+things:
+
+- **`subjects`** is the transport read-set: NATS-style patterns with `{slot}`
+  tokens that declare the partition key layout ("one state per account") and
+  wire subscriptions at runtime. archai validates `{slot}` syntax but does not
+  match these against kinds — they are opaque to validation and carried through
+  for codegen.
 
 - **`consumes`** lists the event kinds the reducer actually folds, as kind globs.
   The existing `MatchPattern` applies; starvation is checked per entry.
@@ -137,11 +166,29 @@ the fold does not subscribe to. Conflating them (as a single `pattern` field did
 produces false starved-fold warnings whenever a project uses realistic NATS
 subject patterns.
 
+**`subjects` is a list, with one shared partition key.** A fold may read several
+transport streams into one state, so `subjects` is plural. But a fold instance
+holds exactly one state, addressed by its partition key, so every subject must
+extract the **same ordered** list of `{slot}` names. Different names, a different
+order, or a different count means there is no single answer to "which state does
+this event belong to" — a `partition-mismatch` error.
+
+**`state` is required.** A fold is a projection; a projection with no declared
+state shape is an unfinished declaration. Either a full schema or a `$ref` to a
+component type. An `object` with no properties and no `$ref` parses but earns an
+`underspecified-state` warning, because that is the shape a placeholder leaves
+behind.
+
+**`types` are reusable schema definitions**, the direct analogue of JSON Schema's
+`$defs` — named shapes referenced from payload and fold-state schemas. (Named
+`vocab` in the first iteration, which oversold them as a vocabulary concept when
+they are plain type definitions.)
+
 **Schemas are inline, in JSON Schema vocabulary, written as YAML.** JSON Schema
 is a data model, not a syntax — schemas expressed in YAML are valid JSON Schema
 after `yaml→json`. There is no second file and no external schema references by
-default. `$ref: '#/vocab/X'` addresses the component's own vocab block;
-`$ref: 'other-component#/vocab/X'` addresses another component's (which makes it
+default. `$ref: '#/types/X'` addresses the component's own types block;
+`$ref: 'other-component#/types/X'` addresses another component's (which makes it
 a declared cross-component type dependency, visible in the graph).
 
 **The wire shape is authoritative, not the Go shape.** A payload that accepts a
@@ -156,14 +203,14 @@ bindings) that the codegen template needs and the neutral model must not know
 about. Validated only against an optional project-supplied schema fragment
 (`.arch/events.extra.schema.yaml`).
 
-**A component need not have a runtime.** `owns` + `emits`/`receives` with no
-`folds` is legal: a pure vocabulary owner (a shared contract package) is a
-first-class component.
+**A component need not have a runtime.** `owns` + `types` with no `folds`,
+`emits` or `receives` is legal: a pure schema owner (a shared contract package)
+is a first-class component.
 
 **`owns` is a namespace prefix, resolved by longest prefix.** `owns: billing`
-claims `billing.*`. Ownership is prefix-based rather than first-segment so that
-a namespace can, in principle, be split across components without renaming its
-kinds.
+claims schema authority over `billing.*`. Ownership is prefix-based rather than
+first-segment so that a namespace can, in principle, be split across components
+without renaming its kinds.
 
 **Overlapping `owns` is an error today — including nesting.** Two components
 declaring `billing` and `billing.invoice` would be unambiguous under
@@ -174,17 +221,18 @@ relaxed at any time. The longest-prefix resolution stays in the implementation,
 so allowing nesting later is a policy change rather than a rewrite. Until then,
 split a namespace by giving each component a distinct prefix.
 
-**`owns` may be omitted.** Such a component defines no vocabulary, and the rule
-table below then permits it exactly two roles: emitting actions (calling other
-components) and receiving facts (observing them). That is a real and useful
-category — an edge or gateway component that orchestrates without owning any
-event of its own — not a degenerate case.
+**`owns` may be omitted.** Such a component defines no schemas of its own. It
+may still emit and observe anything — an edge or gateway component that
+orchestrates without defining any namespace is a first-class case, not a
+degenerate one. (In the first iteration an ownerless component was restricted to
+emitting actions and receiving facts; that restriction came from the RPC framing
+and is gone.)
 
 ### What archai must implement
 
-- `internal/eventmodel/` — the domain: `Component`, `Slot{Kind, Role,
-  Description, Exposure, Schema}`, `Fold{Name, Subject, PartitionArity, Consumes,
-  State}`, `Vocab`, `Extra`. Pure data, no behavior, no dependencies (archai
+- `internal/eventmodel/` — the domain: `Component`, `Slot{Kind, Role, Delivery,
+  Description, Exposure, Schema}`, `Fold{Name, Subjects, PartitionKey, Consumes,
+  State}`, `Types`, `Extra`. Pure data, no behavior, no dependencies (archai
   rule 4).
 - A reader that discovers every `.arch/events.yaml` under the repo, parses it
   (reuse `internal/adapter/yaml`), validates it against the built-in meta-schema,
@@ -197,30 +245,35 @@ event of its own — not a degenerate case.
 
 ### Built-in rules
 
-The role × ownership matrix is total, and two of its four errors fall out of the
-model rather than being invented:
+There is **no role × ownership matrix**. Every cell of the one this design
+originally carried is now legal: any component may emit into any namespace and
+observe any namespace, whether or not it owns one. Ownership is authority over a
+namespace's *schemas*, and the only rule it produces is uniqueness.
 
-| | kind ∈ `owns` | kind ∉ `owns` |
-|---|---|---|
-| **emit, role=fact** | ok (0..n consumers) | **error** — forging another namespace's fact |
-| **emit, role=action** | ok — self-scheduling | ok — this is a call-out; must resolve to exactly one receiver |
-| **receive, role=action** | ok — this is my inbound | **error** — accepting commands in another namespace |
-| **receive, role=fact** | ok — self-observation | ok — normal subscription |
-
-Plus:
-
-- **single owner** — no two components declare overlapping `owns`.
+- **single owner** — no two components declare overlapping `owns` (exact or
+  nested). Two claimants mean two answers to "what does this kind look like".
+  Resolution is longest-prefix.
 - **closure** — every `receives` kind has ≥1 producer; every `consumes` entry in
   a fold matches ≥1 emitted kind (reported per entry, not per fold); every
-  emitted fact has ≥1 consumer (receive or fold consumes match).
-- **call resolution** — an emitted action resolves to exactly one receiving
-  component (zero = starved, more than one = ambiguous).
-- **vocab integrity** — every `$ref` resolves; cross-component refs do not cycle.
+  emitted event, of either role, has ≥1 observer (a receive or a fold consumes
+  match). All three are warnings.
+- **fold partition coherence** — every entry in a fold's `subjects` extracts the
+  same ordered `{slot}` key (`partition-mismatch` error otherwise). One fold
+  instance holds one state; every subject it reads must address that state
+  identically.
+- **fold state** — `state` is required at parse time; an object schema with no
+  properties and no `$ref` is an `underspecified-state` warning.
+- **exclusive delivery (opt-in)** — a kind declared `delivery: exclusive`
+  anywhere (emit side or receive side) must resolve to exactly one receiving
+  component: zero is `exclusive-unhandled`, more than one is
+  `exclusive-conflict`, both errors. Without the opt-in, receiver cardinality is
+  unconstrained — that is the whole point.
+- **type integrity** — every `$ref` resolves; cross-component refs do not cycle.
 - **slot syntax** — `{slot}` tokens in fold subjects are balanced and non-empty
   (`malformed-slot` error otherwise). archai does not interpret the subject
   beyond this syntax check.
-- **schema compatibility** — *deferred, not implemented.* A call-out's payload
-  should be a structural subset of the target's inbound schema for that kind.
+- **schema compatibility** — *deferred, not implemented.* An emitted payload
+  should be a structural subset of each observer's inbound schema for that kind.
   Doing this properly means implementing JSON Schema subtyping (required
   properties, type widening, `oneOf` branches, nested objects) over the opaque
   schema representation, which is a feature in its own right. The restricted
@@ -235,8 +288,9 @@ runtime (plugin-contributed components, config-expanded instances), a static run
 sees a *superset* of declarations and cannot honestly call an unconsumed fact an
 error. Therefore:
 
-- `archai plugin events validate` (static, whole repo): ownership/schema/ref violations
-  are **errors**; starvation and orphans are **warnings**.
+- `archai plugin events validate` (static, whole repo): ownership uniqueness,
+  fold coherence, ref integrity and exclusive-delivery breaches are **errors**;
+  starvation, orphans and underspecified state are **warnings**.
 - The same rules evaluated by the project at startup over the *actually composed*
   set: starvation becomes an **error**. archai supplies the rules; enforcement at
   startup is the project's code (see §4).
@@ -265,22 +319,24 @@ edges. Implementation reuses `internal/policy` with a different edge source.
 The composed model projects to a **bipartite graph**:
 
 - nodes: `component:<id>`, `kind:<name>`, `fold:<component>.<name>`,
-  `type:<component>.<vocabName>`
+  `type:<component>.<typeName>`
 - edges:
   - `component --emits--> kind` (attr: role)
   - `kind --receives--> component` (attr: role, exposure)
   - `kind --feeds--> fold` (consumes match), `fold --held-by--> component`
-  - `component --vocab--> type` (a component's declared shapes; without it,
-    vocabulary types float disconnected from their owner)
+  - `component --defines--> type` (a component's declared shapes; without it,
+    type definitions float disconnected from their owner)
   - `kind --payload--> type`, `type --refs--> type`
 - node attributes:
   - component: `owns`, `deprecated`
-  - kind: `producer_count`, `consumer_count`, `health` (`ok` | `orphan` |
-    `starved` | `ambiguous`), `role`
-  - fold: `subject`, `partition_arity`, `consumes`, `component`
+  - kind: `producer_count`, `consumer_count`, `fold_consumer_count`, `health`
+    (`ok` | `orphan` | `starved` | `ambiguous`), `role`, `delivery`.
+    `ambiguous` is reserved for exclusive kinds with more than one receiver; a
+    broadcast kind with many receivers is `ok`.
+  - fold: `subjects`, `partition_key`, `partition_arity`, `consumes`, `component`
   - type: `component`, `deprecated`
 
-Fold nodes carry `subject` and `partition_arity` as attributes because the
+Fold nodes carry `subjects` and `partition_key` as attributes because the
 partition layout ("one state per account") is an architectural fact worth
 exposing in the graph and renderers.
 
@@ -307,11 +363,13 @@ Exposed three ways:
 
 **Event map** — the default canvas view. Components as boxes, event kinds as
 chips between them, edge direction = production/consumption. Facts and actions
-visually distinct (an action edge is a *call*, a fact edge is a *broadcast*).
+visually distinct (the roles read differently even though both are broadcast;
+an exclusive kind is the one that deserves call-like emphasis).
 Health is the colour axis: starved subscriptions and orphan emissions must be
 visible without hunting. Namespace ownership is the grouping axis — a kind chip
-sits inside its owner's group, and a call-out is an edge crossing a group
-boundary, which is exactly the picture that makes coupling obvious.
+sits inside the group of the component that defines it, and an emission into
+another namespace is an edge crossing a group boundary, which is exactly the
+picture that makes coupling obvious.
 
 **Kind detail** — schema as a field table: name, type, required, **deprecated**,
 description. `oneOf` branches rendered as alternative shapes with their
@@ -319,8 +377,8 @@ deprecation state. Producers and consumers listed with links. Where a Go binding
 exists (§4), a link to the bound type in archai's code graph — this is the
 "maps to code" affordance.
 
-**Component detail** — the four roles (inbound / outbound / folds / call-outs)
-plus the owned namespace, each linking into the map.
+**Component detail** — inbound observations, outbound emissions and folds, plus
+the owned namespace, each linking into the map.
 
 **Deprecation lens** — every deprecated field/shape across the model, with its
 producers and consumers, so "can this be removed" is answerable in one view.
@@ -348,10 +406,10 @@ Template data model (a stable archai contract, versioned alongside the format):
 
 ```
 .Component .Owns .Description .Extra
-.Receives[] .Emits[]   {Kind, Role, Description, Exposure, Schema, Extra}
-.Folds[]               {Name, Pattern, State, Extra}
-.Vocab{}               {Name, Schema, GoType?}
-.CallsOut[]            derived: emits where role=action and kind ∉ owns
+.Receives[] .Emits[]   {Kind, Role, Delivery, Description, Exposure, Schema, Extra}
+.Folds[]               {Name, Subjects, PartitionKey, Consumes, State, Extra}
+.Types{}               {Name, Schema, GoType?}
+.Foreign[]             derived: emits/receives where kind ∉ owns
 + helpers: goIdent, constName, quote, jsonRaw, indent, docComment
 ```
 
@@ -377,7 +435,7 @@ Generation tiers, adopt in order:
   casing — a durable log is not refactorable.
 - **Bindings file** (`.arch/bindings/go.yaml`) does three jobs:
   ```yaml
-  types:
+  go_types:
     Money: example.com/proj/money.Amount   # reuse existing type
     Bytes: "[]byte"                        # non-bijective mapping
   verify_only:
@@ -417,7 +475,7 @@ capability kinds this needs.
 | Surface | Entry points |
 |---|---|
 | CLI | `archai plugin events validate [--root PATH]` · `graph [--root PATH] [--format graphml\|mermaid] [-o FILE]` · later `gen` · `scaffold` |
-| MCP | `event_model` (composed model) · `event_kind` (one kind + producers/consumers/schema) · `event_validate` (findings) |
+| MCP | `event_model` (composed model) · `event_kind` (one kind + producers/observers/delivery/schema) · `event_validate` (findings) |
 | HTTP | `/api/plugins/events/model` — the projected graph the UI consumes |
 | UI | `plugin-events-map` embedded in the canvas; kind/component detail panels |
 
@@ -466,7 +524,10 @@ Bindings file; struct generation (tier 3); `verify_only` checking against the
 code graph; `scaffold`.
 
 **Iteration 5 — event policy.**
-Selector/operator rules over event edges in the overlay policy block.
+Selector/operator rules over event edges in the overlay policy block. This is
+also where anything resembling a delivery or handling constraint beyond
+`delivery: exclusive` belongs — as declared project policy, never as default
+event-model semantics.
 
 Iteration 1 and 2 are worth building even if 3–5 never happen: a validated,
 visualized event model is useful with handwritten declarations.
@@ -484,9 +545,18 @@ visualized event model is useful with handwritten declarations.
   and `**` is an alias for `>`. If a project needs a different dialect, the
   matcher is deliberately isolated so it can be swapped.
 - **Subject/kind coherence.** archai does not verify that a consumed kind is
-  emitted onto a subject the fold's pattern matches. This coherence check is
-  deliberately deferred because it requires archai to understand the project's
-  subject grammar, which varies between transports.
+  emitted onto a subject one of the fold's patterns matches. This coherence
+  check is deliberately deferred because it requires archai to understand the
+  project's subject grammar, which varies between transports.
+- **Undeclared kinds.** A component may emit or observe a kind in a namespace
+  owned by another component that declares no slot for it — the schema is
+  undefined. That is arguably an `undeclared-kind` warning under the new
+  ownership semantics, but it is not implemented; ownership currently produces
+  only the uniqueness rule.
+- **Delivery policies beyond exclusive.** `broadcast` and `exclusive` are the
+  two the model needs today. Anything richer (queue groups, at-least-once vs
+  effectively-once, ordering guarantees) is transport configuration and should
+  stay out of the architectural declaration until a real example forces it.
 - **Kind identity across repos.** Within one repo `kind` is unique. Federating
   later needs a qualifier (owner + version). Deferred, but the format should not
   make it a breaking change.

@@ -14,25 +14,32 @@ receives:
       properties:
         Account: {type: string}
         Currency: {type: string}
-        Lines: {type: array, items: {$ref: '#/vocab/Line'}}
+        Lines: {type: array, items: {$ref: '#/types/Line'}}
 
 emits:
   - kind: billing.invoice.issued
     role: fact
-    schema: {$ref: '#/vocab/Invoice'}
+    schema: {$ref: '#/types/Invoice'}
   - kind: ledger.entry.post
     role: action
+    description: >-
+      Ask the ledger to post an entry. Emitting into a namespace billing does
+      not own is normal: ownership is schema authority, not an exclusive right
+      to produce.
 
 folds:
+  # Two subjects, one partition key: both read per-account state.
   - name: billing.open-invoices
-    subject: svc.*.billing.{account}.invoice.>
+    subjects:
+      - svc.*.billing.{account}.invoice.>
+      - svc.*.billing.{account}.credit.>
     consumes: [billing.invoice.*]
     state:
       type: object
       properties:
-        Open: {type: array, items: {$ref: '#/vocab/Invoice'}}
+        Open: {type: array, items: {$ref: '#/types/Invoice'}}
 
-vocab:
+types:
   Invoice:
     type: object
     properties:
@@ -40,7 +47,7 @@ vocab:
       Status: {type: string, enum: [open, paid, void]}
       Lines:
         oneOf:
-          - {type: array, items: {$ref: '#/vocab/Line'}}
+          - {type: array, items: {$ref: '#/types/Line'}}
           - type: string
             deprecated: true
             description: legacy single-line form, read-only

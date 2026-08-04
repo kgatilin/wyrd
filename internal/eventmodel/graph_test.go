@@ -5,12 +5,12 @@ import (
 )
 
 func TestBuildGraphNodes(t *testing.T) {
-	// Build a model with components, kinds, folds, and vocab.
+	// Build a model with components, kinds, folds, and types.
 	billing := comp("billing", "billing")
-	billing.Vocab["Invoice"] = SchemaNode{Raw: map[string]any{"type": "object"}}
+	billing.Types["Invoice"] = SchemaNode{Raw: map[string]any{"type": "object"}}
 	billing.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
 	billing.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
-	billing.Folds = []Fold{{Name: "open-invoices", Subject: "svc.*.billing.{account}.>", Consumes: []string{"billing.invoice.>"}}}
+	billing.Folds = []Fold{{Name: "open-invoices", Subjects: []string{"svc.*.billing.{account}.>"}, Consumes: []string{"billing.invoice.>"}}}
 
 	shipping := comp("shipping", "shipping")
 	shipping.Receives = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
@@ -59,7 +59,7 @@ func TestBuildGraphEdges(t *testing.T) {
 	billing.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
 	billing.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
 	// Use a specific consumes entry to match only facts.
-	billing.Folds = []Fold{{Name: "self-fold", Subject: "svc.*.billing.{account}.>", Consumes: []string{"billing.invoice.issued"}}}
+	billing.Folds = []Fold{{Name: "self-fold", Subjects: []string{"svc.*.billing.{account}.>"}, Consumes: []string{"billing.invoice.issued"}}}
 
 	ledger := comp("ledger", "ledger")
 	ledger.Receives = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
@@ -152,11 +152,35 @@ func TestBuildGraphHealth(t *testing.T) {
 			wantHealth: HealthStarved,
 		},
 		{
-			name: "ambiguous: action with multiple receivers",
+			// Without the exclusive opt-in, many receivers is the healthy
+			// event-sourced default, not an ambiguity.
+			name: "ok: broadcast action with multiple receivers",
 			model: model(
 				func() *Component {
 					c := comp("gateway", "gateway")
 					c.Emits = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
+					return c
+				}(),
+				func() *Component {
+					c := comp("billing1", "billing1")
+					c.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
+					return c
+				}(),
+				func() *Component {
+					c := comp("billing2", "billing2")
+					c.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
+					return c
+				}(),
+			),
+			kind:       "billing.invoice.issue",
+			wantHealth: HealthOK,
+		},
+		{
+			name: "ambiguous: exclusive kind with multiple receivers",
+			model: model(
+				func() *Component {
+					c := comp("gateway", "gateway")
+					c.Emits = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction, Delivery: DeliveryExclusive}}
 					return c
 				}(),
 				func() *Component {
@@ -183,7 +207,7 @@ func TestBuildGraphHealth(t *testing.T) {
 				}(),
 				func() *Component {
 					c := comp("analytics", "analytics")
-					c.Folds = []Fold{{Name: "invoices", Subject: "svc.*.analytics.>", Consumes: []string{"billing.>"}}}
+					c.Folds = []Fold{{Name: "invoices", Subjects: []string{"svc.*.analytics.>"}, Consumes: []string{"billing.>"}}}
 					return c
 				}(),
 			),
@@ -215,17 +239,17 @@ func TestBuildGraphHealth(t *testing.T) {
 
 func TestBuildGraphPayloadAndRefEdges(t *testing.T) {
 	billing := comp("billing", "billing")
-	billing.Vocab["Invoice"] = SchemaNode{Raw: map[string]any{"type": "object"}}
-	billing.Vocab["Line"] = SchemaNode{Raw: map[string]any{
+	billing.Types["Invoice"] = SchemaNode{Raw: map[string]any{"type": "object"}}
+	billing.Types["Line"] = SchemaNode{Raw: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"product": map[string]any{"$ref": "#/vocab/Invoice"},
+			"product": map[string]any{"$ref": "#/types/Invoice"},
 		},
 	}}
 	billing.Emits = []Slot{{
 		Kind:   "billing.invoice.issued",
 		Role:   RoleFact,
-		Schema: SchemaNode{Raw: map[string]any{"$ref": "#/vocab/Invoice"}},
+		Schema: SchemaNode{Raw: map[string]any{"$ref": "#/types/Invoice"}},
 	}}
 
 	shipping := comp("shipping", "shipping")
@@ -265,20 +289,20 @@ func TestBuildGraphPayloadAndRefEdges(t *testing.T) {
 
 func TestBuildGraphVocabEdges(t *testing.T) {
 	billing := comp("billing", "billing")
-	billing.Vocab["Invoice"] = SchemaNode{Raw: map[string]any{"type": "object"}}
-	billing.Vocab["Line"] = SchemaNode{Raw: map[string]any{"type": "object"}}
+	billing.Types["Invoice"] = SchemaNode{Raw: map[string]any{"type": "object"}}
+	billing.Types["Line"] = SchemaNode{Raw: map[string]any{"type": "object"}}
 
 	m := model(billing)
 	g := BuildGraph(m)
 
-	// Should have 2 vocab edges: component -> type
-	var vocabEdges int
+	// Should have 2 types edges: component -> type
+	var typesEdges int
 	for _, e := range g.Edges {
-		if e.Kind == EdgeVocab && e.From == componentID("billing") {
-			vocabEdges++
+		if e.Kind == EdgeDefines && e.From == componentID("billing") {
+			typesEdges++
 		}
 	}
-	if vocabEdges != 2 {
-		t.Errorf("want 2 vocab edges, got %d", vocabEdges)
+	if typesEdges != 2 {
+		t.Errorf("want 2 types edges, got %d", typesEdges)
 	}
 }

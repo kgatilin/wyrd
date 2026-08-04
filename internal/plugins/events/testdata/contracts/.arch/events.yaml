@@ -7,7 +7,7 @@ description: Shared contract definitions - vocabulary only, no runtime
 # This represents a shared contract package that defines event shapes
 # used by other components.
 
-vocab:
+types:
   Address:
     type: object
     properties:

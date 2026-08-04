@@ -37,20 +37,22 @@ receives:
 emits:
   - kind: billing.invoice.issued
     role: fact
-    schema: {$ref: '#/vocab/Invoice'}
+    schema: {$ref: '#/types/Invoice'}
   - kind: ledger.entry.post
     role: action
 
 folds:
   - name: billing.open-invoices
-    subject: svc.*.billing.{account}.invoice.>
+    subjects:
+      - svc.*.billing.{account}.invoice.>
+      - svc.*.billing.{account}.credit.>
     consumes: [billing.invoice.*]
     state:
       type: object
       properties:
         Open: {type: array}
 
-vocab:
+types:
   Invoice:
     type: object
     properties:
@@ -108,21 +110,25 @@ vocab:
 		if f.Name != "billing.open-invoices" {
 			t.Errorf("Folds[0].Name = %q", f.Name)
 		}
-		if f.Subject != "svc.*.billing.{account}.invoice.>" {
-			t.Errorf("Folds[0].Subject = %q", f.Subject)
+		wantSubjects := []string{
+			"svc.*.billing.{account}.invoice.>",
+			"svc.*.billing.{account}.credit.>",
 		}
-		if f.PartitionArity != 1 {
-			t.Errorf("Folds[0].PartitionArity = %d, want 1", f.PartitionArity)
+		if !slotKeysEqual(f.Subjects, wantSubjects) {
+			t.Errorf("Folds[0].Subjects = %v, want %v", f.Subjects, wantSubjects)
+		}
+		if !slotKeysEqual(f.PartitionKey, []string{"account"}) {
+			t.Errorf("Folds[0].PartitionKey = %v, want [account]", f.PartitionKey)
 		}
 		if len(f.Consumes) != 1 || f.Consumes[0] != "billing.invoice.*" {
 			t.Errorf("Folds[0].Consumes = %v", f.Consumes)
 		}
 	}
-	if len(comp.Vocab) != 1 {
-		t.Errorf("Vocab: want 1, got %d", len(comp.Vocab))
+	if len(comp.Types) != 1 {
+		t.Errorf("Types: want 1, got %d", len(comp.Types))
 	}
-	if _, ok := comp.Vocab["Invoice"]; !ok {
-		t.Error("Vocab missing 'Invoice'")
+	if _, ok := comp.Types["Invoice"]; !ok {
+		t.Error("Types missing 'Invoice'")
 	}
 	if comp.Extra == nil || comp.Extra["partition"] != "account" {
 		t.Errorf("Extra = %v", comp.Extra)
@@ -203,8 +209,30 @@ folds:
 component: billing
 folds:
   - name: foo
-    subject: svc.*.billing.{account}.>`,
+    subjects:
+      - svc.*.billing.{account}.>`,
 			want: "missing required field 'consumes'",
+		},
+		{
+			name: "missing fold state",
+			yaml: `version: 1
+component: billing
+folds:
+  - name: foo
+    subjects:
+      - svc.*.billing.{account}.>
+    consumes: [billing.*]`,
+			want: "missing required field 'state'",
+		},
+		{
+			name: "invalid delivery",
+			yaml: `version: 1
+component: billing
+receives:
+  - kind: billing.foo
+    role: action
+    delivery: at-most-once`,
+			want: "invalid delivery",
 		},
 	}
 
@@ -265,24 +293,34 @@ func TestReadEmptyDirectory(t *testing.T) {
 	}
 }
 
-func TestCountSlotTokens(t *testing.T) {
+func TestSlotTokens(t *testing.T) {
 	cases := []struct {
 		subject string
-		want    int
+		want    []string
 	}{
-		{"", 0},
-		{"svc.*.billing.invoice.>", 0},
-		{"svc.*.billing.{account}.invoice.>", 1},
-		{"svc.*.billing.{region}.{location}.stock.{sku}.>", 3},
-		{"svc.{a}.{b}.{c}.{d}.>", 4},
-		{"{unclosed", 0}, // Malformed but we still count what looks complete.
-		{"{}", 1},        // Empty slot still counts.
+		{"", nil},
+		{"svc.*.billing.invoice.>", nil},
+		{"svc.*.billing.{account}.invoice.>", []string{"account"}},
+		{"svc.*.billing.{region}.{location}.stock.{sku}.>", []string{"region", "location", "sku"}},
+		{"svc.{a}.{b}.{c}.{d}.>", []string{"a", "b", "c", "d"}},
+		{"{unclosed", nil},   // Malformed; only complete tokens are reported.
+		{"{}", []string{""}}, // Empty slot still occupies a position.
 	}
 	for _, tc := range cases {
-		got := countSlotTokens(tc.subject)
-		if got != tc.want {
-			t.Errorf("countSlotTokens(%q) = %d, want %d", tc.subject, got, tc.want)
+		got := SlotTokens(tc.subject)
+		if !slotKeysEqual(got, tc.want) {
+			t.Errorf("SlotTokens(%q) = %v, want %v", tc.subject, got, tc.want)
 		}
+	}
+}
+
+// TestSlotTokensOrderIsSignificant pins the property the partition-key rule
+// rests on: the same slot names in a different order are a different key.
+func TestSlotTokensOrderIsSignificant(t *testing.T) {
+	a := SlotTokens("svc.{region}.{sku}.>")
+	b := SlotTokens("svc.{sku}.{region}.>")
+	if slotKeysEqual(a, b) {
+		t.Errorf("SlotTokens must preserve order: %v == %v", a, b)
 	}
 }
 
@@ -325,9 +363,9 @@ func TestValidateSlotSyntax(t *testing.T) {
 
 func TestKindHasPrefix(t *testing.T) {
 	cases := []struct {
-		kind  string
-		owns  string
-		want  bool
+		kind string
+		owns string
+		want bool
 	}{
 		// Exact matches.
 		{"billing", "billing", true},
@@ -340,10 +378,10 @@ func TestKindHasPrefix(t *testing.T) {
 		{"billing.invoice", "billing", true},
 
 		// Non-matches.
-		{"billing", "billing.invoice", false},  // kind shorter than owns
+		{"billing", "billing.invoice", false}, // kind shorter than owns
 		{"ledger.entry.posted", "billing", false},
-		{"billingX", "billing", false},         // not a segment boundary
-		{"billingX.foo", "billing", false},     // not a segment boundary
+		{"billingX", "billing", false},     // not a segment boundary
+		{"billingX.foo", "billing", false}, // not a segment boundary
 
 		// Edge cases.
 		{"billing", "", false},

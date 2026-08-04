@@ -3,7 +3,7 @@ package eventmodel
 import "sort"
 
 // Graph is a bipartite event-model graph projected from a validated Model.
-// Nodes are components, kinds, folds, and vocab types. Edges capture the
+// Nodes are components, kinds, folds, and type definitions. Edges capture the
 // event-driven relationships: emission, reception, fold feeding, payload
 // typing, and schema references.
 //
@@ -17,7 +17,7 @@ type Graph struct {
 // Node is a single vertex in the event graph.
 type Node struct {
 	// ID follows the scheme from design.md §3:
-	//   component:<id>  kind:<name>  fold:<component>.<name>  type:<component>.<vocabName>
+	//   component:<id>  kind:<name>  fold:<component>.<name>  type:<component>.<typeName>
 	ID string
 
 	// Kind classifies the node.
@@ -25,9 +25,10 @@ type Node struct {
 
 	// Attrs holds node-specific attributes. Keys vary by Kind:
 	//   component: owns, deprecated
-	//   kind: producer_count, consumer_count, health, deprecated, role
-	//   fold: pattern
-	//   type: deprecated
+	//   kind: producer_count, consumer_count, fold_consumer_count, health,
+	//         role, delivery, deprecated
+	//   fold: subjects, partition_key, partition_arity, consumes, component
+	//   type: component, deprecated
 	Attrs map[string]any
 }
 
@@ -59,23 +60,26 @@ type Edge struct {
 type EdgeKind string
 
 const (
-	EdgeEmits     EdgeKind = "emits"     // component --emits--> kind
-	EdgeReceives  EdgeKind = "receives"  // kind --receives--> component
-	EdgeFeeds     EdgeKind = "feeds"     // kind --feeds--> fold
-	EdgeHeldBy    EdgeKind = "held-by"   // fold --held-by--> component
-	EdgePayload   EdgeKind = "payload"   // kind --payload--> type
-	EdgeRefs      EdgeKind = "refs"      // type --refs--> type
-	EdgeVocab     EdgeKind = "vocab"     // component --vocab--> type (structural contains)
+	EdgeEmits    EdgeKind = "emits"    // component --emits--> kind
+	EdgeReceives EdgeKind = "receives" // kind --receives--> component
+	EdgeFeeds    EdgeKind = "feeds"    // kind --feeds--> fold
+	EdgeHeldBy   EdgeKind = "held-by"  // fold --held-by--> component
+	EdgePayload  EdgeKind = "payload"  // kind --payload--> type
+	EdgeRefs     EdgeKind = "refs"     // type --refs--> type
+	EdgeDefines  EdgeKind = "defines"  // component --defines--> type (structural contains)
 )
 
 // Health classifies a kind's connectivity status.
 type Health string
 
 const (
-	HealthOK        Health = "ok"
-	HealthOrphan    Health = "orphan"    // fact with no consumer
-	HealthStarved   Health = "starved"   // no producer
-	HealthAmbiguous Health = "ambiguous" // action with multiple receivers
+	HealthOK      Health = "ok"
+	HealthOrphan  Health = "orphan"  // emitted but observed by nobody
+	HealthStarved Health = "starved" // observed but emitted by nobody
+	// HealthAmbiguous applies only to kinds declared `delivery: exclusive`
+	// that have more than one receiver. Multiple observers of an ordinary
+	// broadcast event are normal and healthy.
+	HealthAmbiguous Health = "ambiguous"
 )
 
 // BuildGraph projects a Model into a Graph. The model should be validated
@@ -87,16 +91,19 @@ func BuildGraph(m *Model) *Graph {
 	// Build indexes for health computation (same as Validate).
 	receiversOf := make(map[string][]string)
 	emittersOf := make(map[string][]string)
-	allEmittedFacts := make(map[string]struct{})
+	exclusiveKinds := make(map[string]struct{})
 
 	for id, comp := range m.Components {
 		for _, slot := range comp.Receives {
 			receiversOf[slot.Kind] = append(receiversOf[slot.Kind], id)
+			if slot.Delivery.IsExclusive() {
+				exclusiveKinds[slot.Kind] = struct{}{}
+			}
 		}
 		for _, slot := range comp.Emits {
 			emittersOf[slot.Kind] = append(emittersOf[slot.Kind], id)
-			if slot.Role == RoleFact {
-				allEmittedFacts[slot.Kind] = struct{}{}
+			if slot.Delivery.IsExclusive() {
+				exclusiveKinds[slot.Kind] = struct{}{}
 			}
 		}
 	}
@@ -142,12 +149,20 @@ func BuildGraph(m *Model) *Graph {
 
 	for _, kind := range kindNames {
 		role := kindRoles[kind]
-		health := computeKindHealth(kind, role, receiversOf, emittersOf, m)
+		_, exclusive := exclusiveKinds[kind]
+		foldConsumers := countFoldConsumers(m, kind)
+		health := computeKindHealth(kind, receiversOf, emittersOf, foldConsumers, exclusive)
+		delivery := DeliveryBroadcast
+		if exclusive {
+			delivery = DeliveryExclusive
+		}
 		attrs := map[string]any{
-			"producer_count": len(emittersOf[kind]),
-			"consumer_count": len(receiversOf[kind]),
-			"health":         string(health),
-			"role":           string(role),
+			"producer_count":      len(emittersOf[kind]),
+			"consumer_count":      len(receiversOf[kind]),
+			"fold_consumer_count": foldConsumers,
+			"health":              string(health),
+			"role":                string(role),
+			"delivery":            string(delivery),
 		}
 		g.Nodes = append(g.Nodes, Node{
 			ID:    kindID(kind),
@@ -174,10 +189,11 @@ func BuildGraph(m *Model) *Graph {
 				}
 			}
 			attrs := map[string]any{
-				"subject":          fold.Subject,
-				"partition_arity":  fold.PartitionArity,
-				"consumes":         fold.Consumes,
-				"component":        compID, // Stored explicitly so exporters don't parse the ID.
+				"subjects":        fold.Subjects,
+				"partition_key":   fold.PartitionKey,
+				"partition_arity": len(fold.PartitionKey),
+				"consumes":        fold.Consumes,
+				"component":       compID, // Stored explicitly so exporters don't parse the ID.
 			}
 			g.Nodes = append(g.Nodes, Node{
 				ID:    foldID(compID, fold.Name),
@@ -187,17 +203,17 @@ func BuildGraph(m *Model) *Graph {
 		}
 	}
 
-	// Type (vocab) nodes.
+	// Type-definition nodes.
 	for _, compID := range compIDs {
 		comp := m.Components[compID]
-		vocabNames := make([]string, 0, len(comp.Vocab))
-		for name := range comp.Vocab {
-			vocabNames = append(vocabNames, name)
+		typeNames := make([]string, 0, len(comp.Types))
+		for name := range comp.Types {
+			typeNames = append(typeNames, name)
 		}
-		sort.Strings(vocabNames)
+		sort.Strings(typeNames)
 
-		for _, name := range vocabNames {
-			schema := comp.Vocab[name]
+		for _, name := range typeNames {
+			schema := comp.Types[name]
 			attrs := map[string]any{
 				"component": compID, // Stored explicitly so exporters don't parse the ID.
 			}
@@ -287,20 +303,20 @@ func BuildGraph(m *Model) *Graph {
 		}
 	}
 
-	// Edges: component --vocab--> type (structural containment).
+	// Edges: component --defines--> type (structural containment).
 	for _, compID := range compIDs {
 		comp := m.Components[compID]
-		vocabNames := make([]string, 0, len(comp.Vocab))
-		for name := range comp.Vocab {
-			vocabNames = append(vocabNames, name)
+		typeNames := make([]string, 0, len(comp.Types))
+		for name := range comp.Types {
+			typeNames = append(typeNames, name)
 		}
-		sort.Strings(vocabNames)
+		sort.Strings(typeNames)
 
-		for _, name := range vocabNames {
+		for _, name := range typeNames {
 			g.Edges = append(g.Edges, Edge{
 				From: componentID(compID),
 				To:   typeID(compID, name),
-				Kind: EdgeVocab,
+				Kind: EdgeDefines,
 			})
 		}
 	}
@@ -336,8 +352,8 @@ func BuildGraph(m *Model) *Graph {
 			processSlotSchema(slot)
 		}
 
-		// Type refs from vocab.
-		for fromName, schema := range comp.Vocab {
+		// Type-to-type refs from the component's type definitions.
+		for fromName, schema := range comp.Types {
 			fromID := typeID(compID, fromName)
 			walkSchemaNode(schema, func(n SchemaNode) {
 				ref := n.Ref()
@@ -363,57 +379,37 @@ func BuildGraph(m *Model) *Graph {
 // computeKindHealth determines the health status of an event kind using the
 // same logic as Validate. This is the single source of truth for health
 // classification.
-func computeKindHealth(kind string, role Role, receiversOf, emittersOf map[string][]string, m *Model) Health {
+//
+// Health does not depend on role: an action and a fact are both durable events
+// with 0..N observers. Only an explicit `delivery: exclusive` declaration makes
+// receiver cardinality a health signal.
+func computeKindHealth(kind string, receiversOf, emittersOf map[string][]string, foldConsumers int, exclusive bool) Health {
 	producers := len(emittersOf[kind])
 	consumers := len(receiversOf[kind])
 
-	// Check fold consumers via consumes matching.
-	foldConsumers := 0
-	for _, comp := range m.Components {
-		for _, fold := range comp.Folds {
-			for _, consumesEntry := range fold.Consumes {
-				if MatchPattern(consumesEntry, kind) {
-					foldConsumers++
-					break // Count each fold once.
-				}
-			}
-		}
+	if producers == 0 {
+		return HealthStarved
 	}
-
-	switch role {
-	case RoleFact:
-		if producers == 0 {
-			return HealthStarved
-		}
-		if consumers == 0 && foldConsumers == 0 {
-			return HealthOrphan
-		}
-	case RoleAction:
-		if producers == 0 {
-			return HealthStarved
-		}
-		if consumers == 0 {
-			// Actions must resolve to exactly one receiver.
-			return HealthStarved
-		}
-		if consumers > 1 {
-			return HealthAmbiguous
-		}
+	if exclusive && consumers != 1 {
+		return HealthAmbiguous
+	}
+	if consumers == 0 && foldConsumers == 0 {
+		return HealthOrphan
 	}
 	return HealthOK
 }
 
 // resolveRefToTypeID converts a $ref string to a graph type node ID.
 func resolveRefToTypeID(ref, currentCompID string, m *Model) string {
-	// Local ref: "#/vocab/Name"
-	if name, ok := cutLocalVocabRef(ref); ok {
-		if _, exists := m.Components[currentCompID].Vocab[name]; exists {
+	// Local ref: "#/types/Name"
+	if name, ok := cutLocalTypeRef(ref); ok {
+		if _, exists := m.Components[currentCompID].Types[name]; exists {
 			return typeID(currentCompID, name)
 		}
 		return ""
 	}
 
-	// Cross-component ref: "component#/vocab/Name"
+	// Cross-component ref: "component#/types/Name"
 	compID, name, ok := parseCrossComponentRef(ref)
 	if !ok {
 		return ""
@@ -422,24 +418,24 @@ func resolveRefToTypeID(ref, currentCompID string, m *Model) string {
 	if !exists {
 		return ""
 	}
-	if _, exists := comp.Vocab[name]; !exists {
+	if _, exists := comp.Types[name]; !exists {
 		return ""
 	}
 	return typeID(compID, name)
 }
 
-// cutLocalVocabRef parses "#/vocab/Name" and returns the name.
-func cutLocalVocabRef(ref string) (string, bool) {
-	const prefix = "#/vocab/"
+// cutLocalTypeRef parses "#/types/Name" and returns the name.
+func cutLocalTypeRef(ref string) (string, bool) {
+	const prefix = typeRefMarker
 	if len(ref) > len(prefix) && ref[:len(prefix)] == prefix {
 		return ref[len(prefix):], true
 	}
 	return "", false
 }
 
-// parseCrossComponentRef parses "component#/vocab/Name".
+// parseCrossComponentRef parses "component#/types/Name".
 func parseCrossComponentRef(ref string) (compID, name string, ok bool) {
-	const marker = "#/vocab/"
+	const marker = typeRefMarker
 	for i := 0; i < len(ref)-len(marker); i++ {
 		if ref[i:i+len(marker)] == marker {
 			if i == 0 {
@@ -452,7 +448,7 @@ func parseCrossComponentRef(ref string) (compID, name string, ok bool) {
 }
 
 // ID helpers for graph nodes.
-func componentID(id string) string      { return "component:" + id }
-func kindID(name string) string         { return "kind:" + name }
-func foldID(comp, name string) string   { return "fold:" + comp + "." + name }
-func typeID(comp, name string) string   { return "type:" + comp + "." + name }
+func componentID(id string) string    { return "component:" + id }
+func kindID(name string) string       { return "kind:" + name }
+func foldID(comp, name string) string { return "fold:" + comp + "." + name }
+func typeID(comp, name string) string { return "type:" + comp + "." + name }

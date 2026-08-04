@@ -80,20 +80,21 @@ func findEventsFiles(root string) ([]string, error) {
 // rawComponent is the YAML structure for parsing. Field names match the
 // schema from design.md §1.
 type rawComponent struct {
-	Version     int                    `yaml:"version"`
-	Component   string                 `yaml:"component"`
-	Owns        string                 `yaml:"owns"`
-	Description string                 `yaml:"description"`
-	Receives    []rawSlot              `yaml:"receives"`
-	Emits       []rawSlot              `yaml:"emits"`
-	Folds       []rawFold              `yaml:"folds"`
-	Vocab       map[string]any         `yaml:"vocab"`
-	Extra       map[string]any         `yaml:"extra"`
+	Version     int            `yaml:"version"`
+	Component   string         `yaml:"component"`
+	Owns        string         `yaml:"owns"`
+	Description string         `yaml:"description"`
+	Receives    []rawSlot      `yaml:"receives"`
+	Emits       []rawSlot      `yaml:"emits"`
+	Folds       []rawFold      `yaml:"folds"`
+	Types       map[string]any `yaml:"types"`
+	Extra       map[string]any `yaml:"extra"`
 }
 
 type rawSlot struct {
 	Kind        string         `yaml:"kind"`
 	Role        string         `yaml:"role"`
+	Delivery    string         `yaml:"delivery"`
 	Description string         `yaml:"description"`
 	Exposure    []string       `yaml:"exposure"`
 	Schema      any            `yaml:"schema"`
@@ -102,7 +103,7 @@ type rawSlot struct {
 
 type rawFold struct {
 	Name     string         `yaml:"name"`
-	Subject  string         `yaml:"subject"`
+	Subjects []string       `yaml:"subjects"`
 	Consumes []string       `yaml:"consumes"`
 	State    any            `yaml:"state"`
 	Extra    map[string]any `yaml:"extra"`
@@ -134,14 +135,14 @@ func parseEventsFile(path string) (*Component, error) {
 		ID:          raw.Component,
 		Owns:        raw.Owns,
 		Description: raw.Description,
-		Vocab:       make(map[string]SchemaNode, len(raw.Vocab)),
+		Types:       make(map[string]SchemaNode, len(raw.Types)),
 		Extra:       raw.Extra,
 		SourceFile:  path,
 	}
 
-	// Convert vocab.
-	for name, schema := range raw.Vocab {
-		comp.Vocab[name] = SchemaNode{Raw: schema}
+	// Convert reusable type definitions.
+	for name, schema := range raw.Types {
+		comp.Types[name] = SchemaNode{Raw: schema}
 	}
 
 	// Convert receives.
@@ -170,14 +171,19 @@ func parseEventsFile(path string) (*Component, error) {
 		if len(rf.Consumes) == 0 {
 			return nil, fmt.Errorf("folds[%d] (%s): missing required field 'consumes'", i, rf.Name)
 		}
-		arity := countSlotTokens(rf.Subject)
+		// State is required: a fold with no declared state shape is an
+		// unfinished declaration. The partition key says which state is
+		// addressed; the state schema says what is actually held there.
+		if rf.State == nil {
+			return nil, fmt.Errorf("folds[%d] (%s): missing required field 'state'", i, rf.Name)
+		}
 		comp.Folds = append(comp.Folds, Fold{
-			Name:           rf.Name,
-			Subject:        rf.Subject,
-			PartitionArity: arity,
-			Consumes:       rf.Consumes,
-			State:          SchemaNode{Raw: rf.State},
-			Extra:          rf.Extra,
+			Name:         rf.Name,
+			Subjects:     rf.Subjects,
+			PartitionKey: partitionKeyOf(rf.Subjects),
+			Consumes:     rf.Consumes,
+			State:        SchemaNode{Raw: rf.State},
+			Extra:        rf.Extra,
 		})
 	}
 
@@ -193,14 +199,30 @@ func convertSlot(rs rawSlot, section string, idx int) (Slot, error) {
 		return Slot{}, fmt.Errorf("%s[%d] (%s): invalid role %q (want 'action' or 'fact')",
 			section, idx, rs.Kind, rs.Role)
 	}
+	delivery := Delivery(rs.Delivery)
+	if !delivery.Valid() {
+		return Slot{}, fmt.Errorf("%s[%d] (%s): invalid delivery %q (want 'broadcast' or 'exclusive')",
+			section, idx, rs.Kind, rs.Delivery)
+	}
 	return Slot{
 		Kind:        rs.Kind,
 		Role:        role,
+		Delivery:    delivery,
 		Description: rs.Description,
 		Exposure:    rs.Exposure,
 		Schema:      SchemaNode{Raw: rs.Schema},
 		Extra:       rs.Extra,
 	}, nil
+}
+
+// partitionKeyOf returns the ordered {slot} names of the first subject, which
+// the validator then requires every other subject of the same fold to repeat.
+// It does not validate syntax; use ValidateSlotSyntax for that.
+func partitionKeyOf(subjects []string) []string {
+	if len(subjects) == 0 {
+		return nil
+	}
+	return SlotTokens(subjects[0])
 }
 
 // kindHasPrefix reports whether kind starts with the given owns prefix.
@@ -220,10 +242,12 @@ func kindHasPrefix(kind, owns string) bool {
 	return false
 }
 
-// countSlotTokens counts {slot} tokens in a subject pattern.
+// SlotTokens returns the {slot} names of a subject pattern in declaration
+// order. The order is significant: it is the partition key layout, and two
+// subjects reading into the same fold state must agree on it exactly.
 // It does not validate syntax; use ValidateSlotSyntax for that.
-func countSlotTokens(subject string) int {
-	count := 0
+func SlotTokens(subject string) []string {
+	var out []string
 	for i := 0; i < len(subject); {
 		if subject[i] == '{' {
 			// Find closing brace.
@@ -232,14 +256,14 @@ func countSlotTokens(subject string) int {
 				end++
 			}
 			if end < len(subject) {
-				count++
+				out = append(out, subject[i+1:end])
 				i = end + 1
 				continue
 			}
 		}
 		i++
 	}
-	return count
+	return out
 }
 
 // ValidateSlotSyntax checks that {slot} tokens in a subject are well-formed:
