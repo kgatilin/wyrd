@@ -140,6 +140,19 @@ about. Validated only against an optional project-supplied schema fragment
 `folds` is legal: a pure vocabulary owner (a shared contract package) is a
 first-class component.
 
+**`owns` is a namespace prefix, matched by longest prefix.** `owns: billing`
+claims `billing.*`; `owns: billing.invoice` claims a sub-namespace and, where
+both are declared, the longer prefix wins for resolution. Prefix (not
+first-segment) ownership is what makes "no two components declare overlapping
+`owns`" a meaningful rule and lets a namespace be split across components later
+without renaming its kinds.
+
+**`owns` may be omitted.** Such a component defines no vocabulary, and the rule
+table below then permits it exactly two roles: emitting actions (calling other
+components) and receiving facts (observing them). That is a real and useful
+category — an edge or gateway component that orchestrates without owning any
+event of its own — not a degenerate case.
+
 ### What archai must implement
 
 - `internal/eventmodel/` — the domain: `Component`, `Slot{Kind, Role,
@@ -173,10 +186,17 @@ Plus:
   matched by ≥1 emitted kind; every emitted fact has ≥1 consumer.
 - **call resolution** — an emitted action resolves to exactly one receiving
   component (zero = starved, more than one = ambiguous).
-- **schema compatibility** — a call-out's payload schema must be a subset of the
-  target's `receives` schema for that kind (structural check: every required
-  property of the target present and type-compatible).
 - **vocab integrity** — every `$ref` resolves; cross-component refs do not cycle.
+- **schema compatibility** — *deferred, not implemented.* A call-out's payload
+  should be a structural subset of the target's inbound schema for that kind.
+  Doing this properly means implementing JSON Schema subtyping (required
+  properties, type widening, `oneOf` branches, nested objects) over the opaque
+  schema representation, which is a feature in its own right. The restricted
+  form worth building first: for object schemas only, every `required` property
+  of the target must be present in the caller's payload with a compatible
+  `type`, and anything the check cannot interpret is reported as *unknown*
+  rather than passing silently. Until it exists, the model carries schemas but
+  does not compare them.
 
 **Severity is context-dependent.** Where the composed set is only known at
 runtime (plugin-contributed components, config-expanded instances), a static run
@@ -393,9 +413,12 @@ visualized event model is useful with handwritten declarations.
   on the composed set, or declaring the expanded family as a pattern. Needs a
   real example before choosing.
 - **Pattern semantics.** `folds[].pattern` is matched against emitted kinds to
-  detect starvation, which requires archai to know a wildcard syntax. v1 assumes
-  dot-segmented globs (`*`, `>`/`**`). If a project's transport differs, this
-  needs a declared dialect rather than a hardcoded matcher.
+  detect starvation, which requires archai to know a wildcard syntax. v1 is
+  dot-segmented globs with NATS semantics: `*` matches exactly one segment, `>`
+  matches **one or more** trailing segments (not zero), and `**` is an alias for
+  `>`. If a project's transport differs, this needs a declared dialect rather
+  than a hardcoded matcher — the matcher is deliberately isolated so it can be
+  swapped.
 - **Kind identity across repos.** Within one repo `kind` is unique. Federating
   later needs a qualifier (owner + version). Deferred, but the format should not
   make it a breaking change.
