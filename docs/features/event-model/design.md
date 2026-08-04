@@ -210,7 +210,7 @@ runtime (plugin-contributed components, config-expanded instances), a static run
 sees a *superset* of declarations and cannot honestly call an unconsumed fact an
 error. Therefore:
 
-- `archai events validate` (static, whole repo): ownership/schema/ref violations
+- `archai plugin events validate` (static, whole repo): ownership/schema/ref violations
   are **errors**; starvation and orphans are **warnings**.
 - The same rules evaluated by the project at startup over the *actually composed*
   set: starvation becomes an **error**. archai supplies the rules; enforcement at
@@ -307,7 +307,7 @@ a production binary — not as a library, not at runtime.
 
 ### Codegen
 
-`archai events gen` renders each component's declaration through a
+`archai plugin events gen` renders each component's declaration through a
 **project-supplied template** (`.arch/templates/*.tmpl`) into the component's
 package. Generated files import only project types.
 
@@ -360,14 +360,14 @@ Generation tiers, adopt in order:
 
 ### Keeping it honest
 
-Generated files are committed. `//go:generate archai events gen ./...` plus
+Generated files are committed. `//go:generate archai plugin events gen ./...` plus
 `go generate ./... && git diff --exit-code` in CI. The generator writes only to
 `*_gen.go` and never touches handwritten files — a generator that can clobber
 hand-edits will not be re-run.
 
 ### Scaffolding (migration only)
 
-`archai events scaffold` reads existing types via the code graph and emits draft
+`archai plugin events scaffold` reads existing types via the code graph and emits draft
 declarations. Sound for ordinary structs, **unsound wherever custom marshaling
 exists** — reflection cannot see a legacy wire form. It is a one-time migration
 aid, never a maintained direction. There is exactly one authoritative direction:
@@ -377,16 +377,30 @@ declaration → code.
 
 ## 5. Surfaces
 
-Implement as an in-process plugin (`internal/plugins/eventmodel`), following
+Implement as an in-process plugin (`internal/plugins/events`), following
 `internal/plugins/complexity`. The plugin contract already carries the four
 capability kinds this needs.
 
 | Surface | Entry points |
 |---|---|
-| CLI | `archai events validate` · `graph [--format graphml\|mermaid]` · `gen` · `scaffold` |
+| CLI | `archai plugin events validate [--root PATH]` · `graph [--root PATH] [--format graphml\|mermaid] [-o FILE]` · later `gen` · `scaffold` |
 | MCP | `event_model` (composed model) · `event_kind` (one kind + producers/consumers/schema) · `event_validate` (findings) |
-| HTTP | `/api/plugins/eventmodel/model` — the projected graph the UI consumes |
-| UI | `plugin-eventmodel-map` embedded in the canvas; kind/component detail panels |
+| HTTP | `/api/plugins/events/model` — the projected graph the UI consumes |
+| UI | `plugin-events-map` embedded in the canvas; kind/component detail panels |
+
+The CLI lives under `archai plugin <name> …` because the plugin contract uses the
+plugin name as the command namespace. That is the contract's behaviour, not a
+workaround; a top-level `archai events` alias would require a core change and is
+not worth one.
+
+`--root` defaults to the repository root. Discovery skips `.git`, `vendor`,
+`node_modules`, `testdata` and similar while walking a tree, but **never skips
+the root it was pointed at** — an explicit root is an explicit instruction, and
+without that exception a fixture tree under `testdata/` is unreachable from the
+CLI.
+
+A validation failure is not a usage error: findings and the summary line are
+printed, the exit code is 1, and cobra's usage block stays hidden.
 
 The MCP tools matter as much as the UI: agents author these declarations, and
 they need to query the composed model — "who consumes this kind", "what is this
@@ -402,7 +416,7 @@ rather than smuggling file reads through the model.
 
 **Iteration 1 — model and validation.**
 `internal/eventmodel` domain + reader + meta-schema; discovery and composition;
-built-in rule set; `archai events validate`; MCP `event_model` / `event_validate`.
+built-in rule set; `archai plugin events validate`; MCP `event_model` / `event_validate`.
 No codegen, no UI. Proves the format on real declarations.
 
 **Iteration 2 — graph and views.**
@@ -411,7 +425,7 @@ detail, deprecation lens; Mermaid export. This is the payload of the whole
 feature and should land before anything in §4.
 
 **Iteration 3 — codegen tiers 1–2.**
-Template data model; `archai events gen`; example templates. Project-side
+Template data model; `archai plugin events gen`; example templates. Project-side
 enforcement (wiring, log guard) is demonstrated, not shipped by archai.
 
 **Iteration 4 — payload binding.**
