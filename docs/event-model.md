@@ -387,7 +387,21 @@ emits:
       type: object
       properties:
         EntryID: {type: string}
+
+folds:
+  - name: ledger.account-balances
+    subject: svc.*.ledger.{account}.entry.>
+    consumes: [ledger.entry.*]
+    state:
+      type: object
+      properties:
+        Balance: {type: number}
+        LastUpdated: {type: string, format: date-time}
 ```
+
+The fold consumes the same kind (`ledger.entry.posted`) that this component
+emits. A component folding its own facts is the common case — the fold
+maintains projection state from the events the component produces.
 
 **gateway/.arch/events.yaml** (optional, completes the graph)
 
