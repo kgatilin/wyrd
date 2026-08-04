@@ -146,7 +146,8 @@ receives, orphan facts) that may be acceptable depending on the composed set.
 Exit codes:
   0 - no errors (warnings may be present)
   1 - one or more errors`,
-		Args: cobra.NoArgs,
+		Args:         cobra.NoArgs,
+		SilenceUsage: true, // Validation failure is not a usage error.
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			model, err := p.loadModel(root)
 			if err != nil {
@@ -218,7 +219,8 @@ their relationships (emits, receives, feeds, payload refs).
 Supported formats:
   graphml  - GraphML XML for archmotif analysis
   mermaid  - Mermaid flowchart diagram`,
-		Args: cobra.NoArgs,
+		Args:         cobra.NoArgs,
+		SilenceUsage: true, // Graph generation errors are not usage errors.
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			model, err := p.loadModel(root)
 			if err != nil {

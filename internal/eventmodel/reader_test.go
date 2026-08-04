@@ -290,3 +290,84 @@ func TestKindHasPrefix(t *testing.T) {
 		}
 	}
 }
+
+// TestReadRootNamedTestdata verifies that an explicitly supplied root whose
+// basename is "testdata" is honored — the skip list applies only to directories
+// encountered below the root, not to the root itself.
+func TestReadRootNamedTestdata(t *testing.T) {
+	// Create a directory named "testdata" with a component inside.
+	parent := t.TempDir()
+	testdataDir := filepath.Join(parent, "testdata")
+	archDir := filepath.Join(testdataDir, "mycomp", ".arch")
+	if err := os.MkdirAll(archDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	yaml := `version: 1
+component: mycomp
+owns: mycomp
+`
+	if err := os.WriteFile(filepath.Join(archDir, "events.yaml"), []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read with root pointing directly at the testdata directory.
+	model, err := Read(testdataDir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+
+	if len(model.Components) != 1 {
+		t.Fatalf("want 1 component when root is named 'testdata', got %d", len(model.Components))
+	}
+	if model.Components["mycomp"] == nil {
+		t.Error("component 'mycomp' not found")
+	}
+}
+
+// TestReadSkipsTestdataSubdirectory verifies that a subdirectory named
+// "testdata" is still skipped when it's not the root.
+func TestReadSkipsTestdataSubdirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a component in a testdata subdirectory — should be skipped.
+	testdataArch := filepath.Join(dir, "testdata", "hidden", ".arch")
+	if err := os.MkdirAll(testdataArch, 0755); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `version: 1
+component: hidden
+owns: hidden
+`
+	if err := os.WriteFile(filepath.Join(testdataArch, "events.yaml"), []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a component outside testdata — should be found.
+	visibleArch := filepath.Join(dir, "visible", ".arch")
+	if err := os.MkdirAll(visibleArch, 0755); err != nil {
+		t.Fatal(err)
+	}
+	yaml2 := `version: 1
+component: visible
+owns: visible
+`
+	if err := os.WriteFile(filepath.Join(visibleArch, "events.yaml"), []byte(yaml2), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	model, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+
+	if len(model.Components) != 1 {
+		t.Fatalf("want 1 component (testdata subdir should be skipped), got %d", len(model.Components))
+	}
+	if model.Components["visible"] == nil {
+		t.Error("component 'visible' not found")
+	}
+	if model.Components["hidden"] != nil {
+		t.Error("component 'hidden' should have been skipped (inside testdata subdir)")
+	}
+}

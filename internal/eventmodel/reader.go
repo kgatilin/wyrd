@@ -41,6 +41,8 @@ func Read(root string) (*Model, error) {
 
 func findEventsFiles(root string) ([]string, error) {
 	var out []string
+	// Clean the root path for consistent comparison.
+	cleanRoot := filepath.Clean(root)
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -49,11 +51,17 @@ func findEventsFiles(root string) ([]string, error) {
 			return nil
 		}
 		name := d.Name()
-		// Skip common non-source directories.
-		switch name {
-		case ".git", ".worktrees", ".claude", "bin", "vendor", "node_modules", "testdata":
-			return filepath.SkipDir
-		case ".arch":
+		// Skip common non-source directories, but never skip the explicitly
+		// requested root — an explicit --root is an instruction to scan that
+		// directory regardless of its name.
+		cleanPath := filepath.Clean(path)
+		if cleanPath != cleanRoot {
+			switch name {
+			case ".git", ".worktrees", ".claude", "bin", "vendor", "node_modules", "testdata":
+				return filepath.SkipDir
+			}
+		}
+		if name == ".arch" {
 			// Check for events.yaml in this .arch directory.
 			eventsPath := filepath.Join(path, eventsFileName)
 			if _, statErr := os.Stat(eventsPath); statErr == nil {
