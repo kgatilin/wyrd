@@ -263,6 +263,12 @@ All take `{package, include_subpackages}` and run on the package subgraph.
   and the `/api/mcp/tools/call` loading short-circuit in
   `internal/adapter/http/multi.go`. CLI: `cmd/archai/daemon.go`.
 
+### Event Model
+
+Declarative event-driven architecture declarations (`.arch/events.yaml`) with
+validation and graph projection. See `docs/event-model.md` for the full usage
+guide: format reference, validation rules, CLI/MCP surfaces, worked examples.
+
 ## Development Rules
 
 1. **No test-only production code** - Don't add functions/parameters, types, or exported wrappers solely for testing. If you need to expose internals for testing, the architecture is wrong. Solutions:
