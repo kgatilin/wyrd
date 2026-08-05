@@ -190,12 +190,14 @@ func validateOwnershipOverlaps(m *Model, ownerOf map[string]string, ownerClaims 
 // validateSelfReceive rejects a component that declares the same kind in both
 // emits and receives.
 //
-// A component does not subscribe to itself. It already knows it appended the
-// event — the emit *is* the notification — so a matching receives slot adds no
-// information and draws a self-loop in the graph that does not correspond to
-// anything at runtime. Where the component genuinely needs to carry its own
-// events into state, that is a fold: `folds[].consumes` says exactly this, and
-// says it with a state schema and a partition key attached.
+// `receives` and `emits` are the component's ports: inputs and outputs. Routing
+// your own output back into your own input describes nothing — it is a loop
+// through a boundary that exists to separate you from everyone else, and it
+// draws a self-edge in the graph with no runtime referent.
+//
+// Folding your own events is a different thing entirely and is fully allowed:
+// `folds[].consumes` is not a port, it is state maintained over the log, and it
+// carries a state schema and a partition key that a receives slot cannot.
 //
 // The rule is deliberately narrow. It does NOT restrict:
 //   - `folds[].consumes` over the component's own kinds — that is the fix;

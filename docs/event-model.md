@@ -82,14 +82,14 @@ choice; what is not available is one kind carrying both roles at once.
 
 ## A component does not subscribe to itself
 
-Declaring the same kind in both `emits` and `receives` of one component is a
-`self-receive-conflict` **error**. The emit *is* the notification — the
-component already knows it appended the event — so the receives slot adds no
-information and draws a self-loop in the graph that nothing at runtime
-corresponds to.
+`receives` and `emits` are the component's ports: inputs and outputs. Routing
+your own output back into your own input describes nothing — it is a loop
+through the boundary that exists to separate you from everyone else, and it
+draws a self-edge in the graph with no runtime referent. Declaring the same kind
+in both is a `self-receive-conflict` **error**.
 
-Where the component genuinely needs to carry its own events into state, that is
-a fold:
+Folding your own events is a different thing entirely and is fully allowed: a
+fold is not a port, it is state maintained over the log.
 
 ```yaml
 # WRONG — self-receive-conflict.
@@ -100,8 +100,8 @@ receives:
   - kind: llm.failed
     role: fact
 
-# RIGHT — stateful observation of one's own events is a fold, and it comes with
-# a state schema and a partition key attached.
+# RIGHT — a fold is not an input port; it is state over the log, and it comes
+# with a state schema and a partition key attached.
 emits:
   - kind: llm.failed
     role: fact
