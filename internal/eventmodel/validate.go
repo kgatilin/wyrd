@@ -74,6 +74,7 @@ func Validate(m *Model) []Finding {
 	for id, comp := range m.Components {
 		findings = append(findings, validateRefs(id, comp, m)...)
 		findings = append(findings, validateFolds(id, comp)...)
+		findings = append(findings, validateSelfReceive(id, comp)...)
 	}
 
 	// Cross-component validation.
@@ -181,6 +182,66 @@ func validateOwnershipOverlaps(m *Model, ownerOf map[string]string, ownerClaims 
 				})
 			}
 		}
+	}
+
+	return findings
+}
+
+// validateSelfReceive rejects a component that declares the same kind in both
+// emits and receives.
+//
+// A component does not subscribe to itself. It already knows it appended the
+// event — the emit *is* the notification — so a matching receives slot adds no
+// information and draws a self-loop in the graph that does not correspond to
+// anything at runtime. Where the component genuinely needs to carry its own
+// events into state, that is a fold: `folds[].consumes` says exactly this, and
+// says it with a state schema and a partition key attached.
+//
+// The rule is deliberately narrow. It does NOT restrict:
+//   - `folds[].consumes` over the component's own kinds — that is the fix;
+//   - other components receiving the kind, however many of them;
+//   - the same component emitting X and receiving a different kind Y.
+//
+// Matching is on the exact kind. Once the model becomes subject-aware — where
+// one kind can travel several routes and a component may legitimately emit on
+// one and observe another — the comparison becomes (kind, route) rather than
+// kind alone, and this exact-kind check is the degenerate single-route case.
+func validateSelfReceive(id string, comp *Component) []Finding {
+	if len(comp.Emits) == 0 || len(comp.Receives) == 0 {
+		return nil
+	}
+
+	emitPositions := make(map[string][]int, len(comp.Emits))
+	for i, slot := range comp.Emits {
+		emitPositions[slot.Kind] = append(emitPositions[slot.Kind], i)
+	}
+
+	var findings []Finding
+	reported := make(map[string]bool)
+	for i, slot := range comp.Receives {
+		emits, ok := emitPositions[slot.Kind]
+		if !ok || reported[slot.Kind] {
+			continue
+		}
+		reported[slot.Kind] = true
+
+		receives := []int{i}
+		for j := i + 1; j < len(comp.Receives); j++ {
+			if comp.Receives[j].Kind == slot.Kind {
+				receives = append(receives, j)
+			}
+		}
+
+		findings = append(findings, Finding{
+			Severity:  SeverityError,
+			Kind:      KindSelfReceiveConflict,
+			Component: id,
+			File:      comp.SourceFile,
+			Location:  slot.Kind,
+			Message: fmt.Sprintf("component %q both emits and receives kind %q; use folds[].consumes for stateful observation of the component's own events",
+				id, slot.Kind),
+			Related: map[string]any{"emits": emits, "receives": receives},
+		})
 	}
 
 	return findings

@@ -283,6 +283,9 @@ folds. Consequences baked into the rules:
   then do `exclusive-unhandled` / `exclusive-conflict` fire. The removed
   `unresolved-call` / `ambiguous-call` / `ownership-violation` rules were the
   RPC assumption and must not come back as defaults.
+- a component never `receives` its own emitted kind (`self-receive-conflict`);
+  stateful observation of own events is `folds[].consumes`. Exact-kind match
+  today, `(kind, route)` once the model is subject-aware.
 - `folds[].subjects` is a list; every entry must extract the **same ordered**
   `{slot}` partition key (one fold instance = one state), else
   `partition-mismatch`. `state` is required.

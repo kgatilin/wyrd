@@ -24,6 +24,10 @@ const (
 	// a declaration site.
 	KindRoleConflict FindingKind = "kind-role-conflict"
 
+	// KindSelfReceiveConflict — one component declares the same kind in both
+	// emits and receives. Observing one's own event statefully is a fold.
+	KindSelfReceiveConflict FindingKind = "self-receive-conflict"
+
 	// KindStarvedReceive — a receives slot has no producer.
 	KindStarvedReceive FindingKind = "starved-receive"
 

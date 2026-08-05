@@ -18,8 +18,8 @@ before runtime.
 Everything else follows from this:
 
 - **`emits`** — the component appends a durable event to the log.
-- **`receives`** — the component observes an event. There may be 0..N
-  observers of one kind, and they are independent of each other.
+- **`receives`** — the component observes *another* component's event. There
+  may be 0..N observers of one kind, and they are independent of each other.
 - **`folds[].consumes`** — *stateful* observation. Several folds, in the same
   or different components, may fold the same kind; their ordering and
   completion relative to one another is not guaranteed.
@@ -79,6 +79,47 @@ The alternative — deciding the whole kind is a `fact` and letting intent live 
 the payload — is legal too, and sometimes right when the "action" reading was
 only ever a projection of who happened to be reading the log. It is a modelling
 choice; what is not available is one kind carrying both roles at once.
+
+## A component does not subscribe to itself
+
+Declaring the same kind in both `emits` and `receives` of one component is a
+`self-receive-conflict` **error**. The emit *is* the notification — the
+component already knows it appended the event — so the receives slot adds no
+information and draws a self-loop in the graph that nothing at runtime
+corresponds to.
+
+Where the component genuinely needs to carry its own events into state, that is
+a fold:
+
+```yaml
+# WRONG — self-receive-conflict.
+emits:
+  - kind: llm.failed
+    role: fact
+receives:
+  - kind: llm.failed
+    role: fact
+
+# RIGHT — stateful observation of one's own events is a fold, and it comes with
+# a state schema and a partition key attached.
+emits:
+  - kind: llm.failed
+    role: fact
+folds:
+  - name: llm.failures
+    subjects: ['svc.*.llm.{session}.>']
+    consumes: [llm.failed]
+    state:
+      type: object
+      properties:
+        Count: {type: integer}
+```
+
+The rule is narrow. It does not restrict `folds[].consumes` over the
+component's own kinds, other components receiving the kind (any number of
+them), or the same component emitting `X` and receiving a different kind `Y`.
+Matching is on the exact kind; once the model becomes subject-aware the
+comparison becomes `(kind, route)`, and today's check is the single-route case.
 
 **Exclusive handling is opt-in.** If a kind really is a command with exactly
 one owner, say so with `delivery: exclusive` on the slot. That — and only that
@@ -330,6 +371,7 @@ schema owner.
 |--------------|----------|---------|-----|
 | `duplicate-owner` | error | Two components declare overlapping `owns` (exact or nested) | Give each component a distinct namespace prefix |
 | `kind-role-conflict` | error | One kind is declared with more than one role across the composed set | Split the intent and the outcome into separate kinds, or settle on one role |
+| `self-receive-conflict` | error | One component declares the same kind in both `emits` and `receives` | Drop the receives slot; use `folds[].consumes` to carry your own events into state |
 | `partition-mismatch` | error | A fold's `subjects` extract different ordered partition keys | Make every subject address the same state, or split into separate folds |
 | `malformed-slot` | error | A fold subject has invalid `{slot}` syntax | Fix the `{slot}` tokens (balance braces, non-empty) |
 | `unresolved-ref` | error | `$ref` points to a nonexistent `types` entry | Fix the path or add the missing type |

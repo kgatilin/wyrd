@@ -68,8 +68,11 @@ func TestOwnershipIsNotProductionControl(t *testing.T) {
 		{"emit action in owns", func() *Model {
 			c := comp("billing", "billing")
 			c.Emits = []Slot{{Kind: "billing.invoice.retry", Role: RoleAction}}
-			c.Receives = []Slot{{Kind: "billing.invoice.retry", Role: RoleAction}}
-			return model(c)
+			// The observer is a separate component: a component never
+			// receives its own emission (see self-receive-conflict).
+			worker := comp("retry-worker", "retry-worker")
+			worker.Receives = []Slot{{Kind: "billing.invoice.retry", Role: RoleAction}}
+			return model(c, worker)
 		}},
 		{"receive action outside owns", func() *Model {
 			c := comp("billing", "billing")
@@ -803,10 +806,7 @@ func TestPayloadVariantsDoNotChangeRole(t *testing.T) {
 func TestSplitKindsResolveRoleConflict(t *testing.T) {
 	c := comp("llm", "llm")
 	c.Receives = []Slot{{Kind: "llm.message.send", Role: RoleAction}}
-	c.Emits = []Slot{
-		{Kind: "llm.message.send", Role: RoleAction},
-		{Kind: "llm.message.sent", Role: RoleFact},
-	}
+	c.Emits = []Slot{{Kind: "llm.message.sent", Role: RoleFact}}
 	c.Folds = []Fold{{
 		Name:     "llm.transcript",
 		Subjects: []string{"svc.*.llm.{session}.message.>"},
@@ -817,8 +817,146 @@ func TestSplitKindsResolveRoleConflict(t *testing.T) {
 		}},
 	}}
 
-	fs := Validate(model(c))
+	caller := comp("chat", "chat")
+	caller.Emits = []Slot{{Kind: "llm.message.send", Role: RoleAction}}
+
+	fs := Validate(model(c, caller))
 	if len(fs) != 0 {
 		t.Errorf("split kinds should validate clean, got %+v", fs)
+	}
+}
+
+// --- self-receive-conflict ---------------------------------------------------
+
+// A component does not subscribe to itself: the emit is already the
+// notification, and a matching receives slot draws a self-loop that nothing at
+// runtime corresponds to.
+func TestSelfReceiveConflict(t *testing.T) {
+	c := comp("controller-llm", "llm")
+	c.Emits = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+	c.Receives = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+
+	fs := Validate(model(c))
+	found := findingsByKind(fs, KindSelfReceiveConflict)
+	if len(found) != 1 {
+		t.Fatalf("want 1 self-receive-conflict finding, got %d: %+v", len(found), fs)
+	}
+	if found[0].Severity != SeverityError {
+		t.Errorf("self-receive-conflict should be an error, got %s", found[0].Severity)
+	}
+	if found[0].Component != "controller-llm" {
+		t.Errorf("Component = %q, want controller-llm", found[0].Component)
+	}
+	if found[0].Location != "llm.failed" {
+		t.Errorf("Location = %q, want llm.failed", found[0].Location)
+	}
+	// Component id, kind, and both declaration sites must be recoverable.
+	for _, want := range []string{`"controller-llm"`, `"llm.failed"`, "emits", "receives", "folds[].consumes"} {
+		if !strings.Contains(found[0].Message, want) {
+			t.Errorf("message should mention %q: %s", want, found[0].Message)
+		}
+	}
+	if _, ok := found[0].Related["emits"]; !ok {
+		t.Errorf("Related should carry the emits positions: %v", found[0].Related)
+	}
+	if _, ok := found[0].Related["receives"]; !ok {
+		t.Errorf("Related should carry the receives positions: %v", found[0].Related)
+	}
+}
+
+// The prescribed fix: fold the component's own events instead of receiving them.
+func TestSelfFoldIsAllowed(t *testing.T) {
+	c := comp("controller-llm", "llm")
+	c.Emits = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+	c.Folds = []Fold{{
+		Name:     "llm.failures",
+		Subjects: []string{"svc.*.llm.{session}.>"},
+		Consumes: []string{"llm.failed"},
+		State: SchemaNode{Raw: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"Count": map[string]any{"type": "integer"}},
+		}},
+	}}
+
+	fs := Validate(model(c))
+	if len(fs) != 0 {
+		t.Errorf("folding own events should validate clean, got %+v", fs)
+	}
+}
+
+// Other components observe the emitter's kind freely, however many of them.
+func TestOtherComponentsMayReceiveEmittedKind(t *testing.T) {
+	producer := comp("controller-llm", "llm")
+	producer.Emits = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+
+	b := comp("router", "router")
+	b.Receives = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+
+	c := comp("audit", "audit")
+	c.Receives = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+
+	fs := Validate(model(producer, b, c))
+	if len(fs) != 0 {
+		t.Errorf("independent observers should validate clean, got %+v", fs)
+	}
+}
+
+// Emitting one kind and receiving a different one is the ordinary case.
+func TestEmitAndReceiveDifferentKinds(t *testing.T) {
+	c := comp("controller-llm", "llm")
+	c.Emits = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+	c.Receives = []Slot{{Kind: "router.request.dispatched", Role: RoleFact}}
+
+	router := comp("router", "router")
+	router.Emits = []Slot{{Kind: "router.request.dispatched", Role: RoleFact}}
+	router.Receives = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+
+	if hasKind(Validate(model(c, router)), KindSelfReceiveConflict) {
+		t.Error("distinct kinds must not conflict")
+	}
+}
+
+// One finding per (component, kind) — not one per duplicated slot.
+func TestSelfReceiveConflictIsPerKind(t *testing.T) {
+	c := comp("controller-llm", "llm")
+	c.Emits = []Slot{
+		{Kind: "llm.failed", Role: RoleFact},
+		{Kind: "llm.done", Role: RoleFact},
+	}
+	c.Receives = []Slot{
+		{Kind: "llm.failed", Role: RoleFact},
+		{Kind: "llm.failed", Role: RoleFact},
+		{Kind: "llm.done", Role: RoleFact},
+	}
+
+	found := findingsByKind(Validate(model(c)), KindSelfReceiveConflict)
+	if len(found) != 2 {
+		t.Fatalf("want 1 finding per conflicting kind, got %d", len(found))
+	}
+	// Both receives positions of the repeated kind are reported.
+	for _, f := range found {
+		if f.Location != "llm.failed" {
+			continue
+		}
+		pos, ok := f.Related["receives"].([]int)
+		if !ok || len(pos) != 2 {
+			t.Errorf("both receives positions should be reported, got %v", f.Related["receives"])
+		}
+	}
+}
+
+// Matching is on the exact kind: a fold glob covering the kind is not a
+// receives slot, and a similarly-named kind is a different kind.
+func TestSelfReceiveConflictMatchesExactKind(t *testing.T) {
+	c := comp("controller-llm", "llm")
+	c.Emits = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+	c.Receives = []Slot{{Kind: "llm.failed.retried", Role: RoleFact}}
+
+	other := comp("supervisor", "supervisor")
+	other.Emits = []Slot{{Kind: "llm.failed.retried", Role: RoleFact}}
+	other.Receives = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+
+	if hasKind(Validate(model(c, other)), KindSelfReceiveConflict) {
+		t.Error("prefix-related kinds are different kinds")
 	}
 }

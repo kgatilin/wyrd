@@ -161,6 +161,11 @@ state. `receives` is stateless observation — the component reacts and forgets.
 A fold maintains projection state over the events it consumes. Several folds, in
 the same or different components, may consume the same kind independently.
 
+The split also decides what a component does with its *own* events: it folds
+them, it does not receive them. `receives` is observation of somebody else's
+emission, so the same kind appearing in one component's `emits` and `receives`
+is a `self-receive-conflict` error rather than a self-loop in the graph.
+
 **`subjects` vs `consumes` — two alphabets.** A fold declares two distinct
 things:
 
@@ -266,6 +271,13 @@ namespace's *schemas*, and the only rule it produces is uniqueness.
 - **single owner** — no two components declare overlapping `owns` (exact or
   nested). Two claimants mean two answers to "what does this kind look like".
   Resolution is longest-prefix.
+- **no self-receive** — a component must not declare the same kind in both
+  `emits` and `receives` (`self-receive-conflict` error). The emit is already
+  the notification; a matching receives slot is a self-loop with no runtime
+  referent. Stateful observation of one's own events is `folds[].consumes`,
+  which says the same thing and carries a state schema and partition key.
+  The check is on the exact kind, and becomes `(kind, route)` once the model is
+  subject-aware.
 - **single role per kind** — a kind carries one role across the composed set
   (`kind-role-conflict` error otherwise). Role is a property of the kind, not of
   the declaration site; see §1. The graph projection resolves a conflicting kind
