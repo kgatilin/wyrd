@@ -24,8 +24,9 @@ Everything else follows from this:
   or different components, may fold the same kind; their ordering and
   completion relative to one another is not guaranteed.
 - **`role: action | fact`** — a *semantic* classification of the event.
-  It is not a delivery contract. An action is not an RPC and does not require
-  a handler, let alone exactly one.
+  It is not a delivery contract: an action is not an RPC and does not require
+  a handler, let alone exactly one. But it *is* a global property of the kind —
+  see below.
 - **`owns`** — authority over a namespace's *schema definitions*. It is not an
   exclusive right to produce events in that namespace, nor to observe them.
 
@@ -38,6 +39,46 @@ event appended
   ├─ controller B folds it → emits event Y
   └─ projection C folds it → updates a read model
 ```
+
+## Role is a property of the kind
+
+One kind has exactly one role across the whole composed set. Role says what the
+event *is* — an expressed intent or a recorded outcome — and one event cannot be
+both.
+
+- Different producers and observers **cannot** declare different roles for the
+  same kind. Disagreement is a `kind-role-conflict` **error**.
+- **Payload variants never change the role.** A `oneOf`, a legacy branch marked
+  `deprecated: true`, an extra field — that is schema evolution. The kind still
+  is what it was.
+- Where a name would need both readings, that is **two kinds**, not one kind read
+  two ways:
+
+```yaml
+# WRONG — one kind, two roles. kind-role-conflict.
+receives:
+  - kind: llm.message
+    role: action        # "send this message"
+emits:
+  - kind: llm.message
+    role: fact          # "a message happened"
+
+# RIGHT — the intent and the outcome are separate events.
+receives:
+  - kind: llm.message.send
+    role: action
+emits:
+  - kind: llm.message.sent
+    role: fact
+```
+
+Folds subscribe by glob, so a split costs nothing on the consuming side:
+`consumes: [llm.message.*]` still folds both.
+
+The alternative — deciding the whole kind is a `fact` and letting intent live in
+the payload — is legal too, and sometimes right when the "action" reading was
+only ever a projection of who happened to be reading the log. It is a modelling
+choice; what is not available is one kind carrying both roles at once.
 
 **Exclusive handling is opt-in.** If a kind really is a command with exactly
 one owner, say so with `delivery: exclusive` on the slot. That — and only that
@@ -124,7 +165,7 @@ extra:                           # optional; opaque passthrough for templates
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `kind` | string | yes | Event kind name (e.g., `billing.invoice.issued`). |
-| `role` | string | yes | `"action"` (expresses intent) or `"fact"` (records what happened). Classification only — no cardinality implied. |
+| `role` | string | yes | `"action"` (expresses intent) or `"fact"` (records what happened). Classification only — no cardinality implied — but global to the kind: every declaration must agree. |
 | `delivery` | string | no | `"broadcast"` (default, 0..N observers) or `"exclusive"` (opt into exactly-one-receiver validation). |
 | `description` | string | no | Human-readable summary. |
 | `exposure` | list of string | no | Free-form tags (e.g., `["public_api"]`). |
@@ -288,6 +329,7 @@ schema owner.
 | Finding Kind | Severity | Trigger | Fix |
 |--------------|----------|---------|-----|
 | `duplicate-owner` | error | Two components declare overlapping `owns` (exact or nested) | Give each component a distinct namespace prefix |
+| `kind-role-conflict` | error | One kind is declared with more than one role across the composed set | Split the intent and the outcome into separate kinds, or settle on one role |
 | `partition-mismatch` | error | A fold's `subjects` extract different ordered partition keys | Make every subject address the same state, or split into separate folds |
 | `malformed-slot` | error | A fold subject has invalid `{slot}` syntax | Fix the `{slot}` tokens (balance braces, non-empty) |
 | `unresolved-ref` | error | `$ref` points to a nonexistent `types` entry | Fix the path or add the missing type |
@@ -424,7 +466,9 @@ The model projects to a bipartite graph:
   component), `defines` (component → type), `payload` (kind → type), `refs`
   (type → type)
 - kind attributes: `producer_count`, `consumer_count`, `fold_consumer_count`,
-  `health` (`ok` | `orphan` | `starved` | `ambiguous`), `role`, `delivery`
+  `health` (`ok` | `orphan` | `starved` | `ambiguous`), `role`, `delivery`, and
+  `role_conflict: true` when declarations disagree (the reported role is then
+  the first in deterministic order)
 - fold attributes: `subjects`, `partition_key`, `partition_arity`, `consumes`,
   `component`
 
@@ -628,14 +672,18 @@ own command, and nothing complains about who is allowed to do what.
    Orphan-event warnings should decrease. Adding a second or third observer of
    the same kind is expected and produces no findings.
 
-4. **Mark the real commands.** Where a kind genuinely must have exactly one
+4. **Keep roles global.** If validation reports `kind-role-conflict`, do not
+   patch it by flipping one side — decide whether the kind is an intent or an
+   outcome, and split it if it is genuinely both.
+
+5. **Mark the real commands.** Where a kind genuinely must have exactly one
    handler, add `delivery: exclusive` on the handler's slot. Everything else
    stays broadcast.
 
-5. **Close the graph.** Continue until warnings are intentional (external entry
+6. **Close the graph.** Continue until warnings are intentional (external entry
    points with no internal producer, events published for external consumers).
    Use the Mermaid output to visualize flow.
 
-6. **Iterate.** As the system evolves, re-run validation. New emits, receives
+7. **Iterate.** As the system evolves, re-run validation. New emits, receives
    or folds that break closure, fold coherence or an exclusive contract surface
    immediately.

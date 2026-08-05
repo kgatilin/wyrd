@@ -696,3 +696,129 @@ func TestSpecifiedFoldState(t *testing.T) {
 		t.Error("a state with a $ref or properties must not be flagged")
 	}
 }
+
+// TestKindRoleConflictAcrossComponents: role is a property of the kind, so two
+// components cannot read the same kind differently.
+func TestKindRoleConflictAcrossComponents(t *testing.T) {
+	producer := comp("llm", "llm")
+	producer.Emits = []Slot{{Kind: "llm.message", Role: RoleFact}}
+
+	consumer := comp("router", "router")
+	consumer.Receives = []Slot{{Kind: "llm.message", Role: RoleAction}}
+
+	fs := Validate(model(producer, consumer))
+	found := findingsByKind(fs, KindRoleConflict)
+	if len(found) != 1 {
+		t.Fatalf("want 1 kind-role-conflict finding, got %d: %+v", len(found), fs)
+	}
+	if found[0].Severity != SeverityError {
+		t.Errorf("kind-role-conflict should be an error, got %s", found[0].Severity)
+	}
+	for _, want := range []string{"llm.message", "action", "fact", "llm:emits", "router:receives"} {
+		if !strings.Contains(found[0].Message, want) {
+			t.Errorf("message should mention %q: %s", want, found[0].Message)
+		}
+	}
+}
+
+// TestKindRoleConflictWithinComponent: the common shape — one component both
+// receives a kind as an action and emits it as a fact.
+func TestKindRoleConflictWithinComponent(t *testing.T) {
+	c := comp("llm", "llm")
+	c.Receives = []Slot{{Kind: "llm.message", Role: RoleAction}}
+	c.Emits = []Slot{{Kind: "llm.message", Role: RoleFact}}
+
+	if !hasKind(Validate(model(c)), KindRoleConflict) {
+		t.Error("want kind-role-conflict when one component declares both roles")
+	}
+}
+
+// TestKindRoleConsistent: the same role on every side is clean, and repeating a
+// kind across many producers and observers is not itself a conflict.
+func TestKindRoleConsistent(t *testing.T) {
+	a := comp("llm", "llm")
+	a.Emits = []Slot{{Kind: "llm.message", Role: RoleFact}}
+
+	b := comp("mirror", "mirror")
+	b.Emits = []Slot{{Kind: "llm.message", Role: RoleFact}}
+
+	c := comp("router", "router")
+	c.Receives = []Slot{{Kind: "llm.message", Role: RoleFact}}
+
+	d := comp("audit", "audit")
+	d.Receives = []Slot{{Kind: "llm.message", Role: RoleFact}}
+
+	if hasKind(Validate(model(a, b, c, d)), KindRoleConflict) {
+		t.Error("agreeing declarations must not conflict")
+	}
+}
+
+// TestKindRoleConflictIsPerKind: two conflicting kinds produce two findings,
+// not one per declaration site.
+func TestKindRoleConflictIsPerKind(t *testing.T) {
+	c := comp("llm", "llm")
+	c.Receives = []Slot{
+		{Kind: "llm.message", Role: RoleAction},
+		{Kind: "llm.tool", Role: RoleAction},
+	}
+	c.Emits = []Slot{
+		{Kind: "llm.message", Role: RoleFact},
+		{Kind: "llm.tool", Role: RoleFact},
+	}
+
+	found := findingsByKind(Validate(model(c)), KindRoleConflict)
+	if len(found) != 2 {
+		t.Fatalf("want 1 finding per conflicting kind, got %d", len(found))
+	}
+	if found[0].Location != "llm.message" || found[1].Location != "llm.tool" {
+		t.Errorf("findings should be sorted by kind, got %q and %q", found[0].Location, found[1].Location)
+	}
+}
+
+// TestPayloadVariantsDoNotChangeRole: alternative payload shapes (oneOf, a
+// deprecated legacy branch) are schema evolution, not a role change.
+func TestPayloadVariantsDoNotChangeRole(t *testing.T) {
+	c := comp("llm", "llm")
+	c.Types["Text"] = SchemaNode{Raw: map[string]any{"type": "object"}}
+	c.Types["Legacy"] = SchemaNode{Raw: map[string]any{"type": "string", "deprecated": true}}
+	c.Emits = []Slot{{
+		Kind: "llm.message",
+		Role: RoleFact,
+		Schema: SchemaNode{Raw: map[string]any{
+			"oneOf": []any{
+				map[string]any{"$ref": "#/types/Text"},
+				map[string]any{"$ref": "#/types/Legacy"},
+			},
+		}},
+	}}
+	c.Receives = []Slot{{Kind: "llm.message", Role: RoleFact}}
+
+	if hasKind(Validate(model(c)), KindRoleConflict) {
+		t.Error("payload variants must not be read as a role change")
+	}
+}
+
+// TestSplitKindsResolveRoleConflict documents the prescribed fix: separate
+// kinds for the intent and the outcome.
+func TestSplitKindsResolveRoleConflict(t *testing.T) {
+	c := comp("llm", "llm")
+	c.Receives = []Slot{{Kind: "llm.message.send", Role: RoleAction}}
+	c.Emits = []Slot{
+		{Kind: "llm.message.send", Role: RoleAction},
+		{Kind: "llm.message.sent", Role: RoleFact},
+	}
+	c.Folds = []Fold{{
+		Name:     "llm.transcript",
+		Subjects: []string{"svc.*.llm.{session}.message.>"},
+		Consumes: []string{"llm.message.*"},
+		State: SchemaNode{Raw: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"Turns": map[string]any{"type": "integer"}},
+		}},
+	}}
+
+	fs := Validate(model(c))
+	if len(fs) != 0 {
+		t.Errorf("split kinds should validate clean, got %+v", fs)
+	}
+}

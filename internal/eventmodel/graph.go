@@ -26,7 +26,7 @@ type Node struct {
 	// Attrs holds node-specific attributes. Keys vary by Kind:
 	//   component: owns, deprecated
 	//   kind: producer_count, consumer_count, fold_consumer_count, health,
-	//         role, delivery, deprecated
+	//         role, role_conflict, delivery, deprecated
 	//   fold: subjects, partition_key, partition_arity, consumes, component
 	//   type: component, deprecated
 	Attrs map[string]any
@@ -108,23 +108,24 @@ func BuildGraph(m *Model) *Graph {
 		}
 	}
 
-	// Collect all unique kind names and their roles.
-	kindRoles := make(map[string]Role)
-	for _, comp := range m.Components {
-		for _, slot := range comp.Receives {
-			kindRoles[slot.Kind] = slot.Role
-		}
-		for _, slot := range comp.Emits {
-			kindRoles[slot.Kind] = slot.Role
+	// Collect all unique kind names and their roles. A kind carries one role
+	// globally; where declarations disagree (a kind-role-conflict error) the
+	// first declaration in deterministic order wins and the node is flagged,
+	// so the projection exposes the conflict instead of silently picking.
+	roleDecls := roleDeclarations(m)
+	kindRoles := make(map[string]Role, len(roleDecls))
+	roleConflict := make(map[string]bool, len(roleDecls))
+	for kind, decls := range roleDecls {
+		kindRoles[kind] = decls[0].Role
+		for _, d := range decls[1:] {
+			if d.Role != decls[0].Role {
+				roleConflict[kind] = true
+				break
+			}
 		}
 	}
 
-	// Sort component IDs for deterministic output.
-	compIDs := make([]string, 0, len(m.Components))
-	for id := range m.Components {
-		compIDs = append(compIDs, id)
-	}
-	sort.Strings(compIDs)
+	compIDs := sortedComponentIDs(m)
 
 	// Component nodes.
 	for _, id := range compIDs {
@@ -163,6 +164,9 @@ func BuildGraph(m *Model) *Graph {
 			"health":              string(health),
 			"role":                string(role),
 			"delivery":            string(delivery),
+		}
+		if roleConflict[kind] {
+			attrs["role_conflict"] = true
 		}
 		g.Nodes = append(g.Nodes, Node{
 			ID:    kindID(kind),

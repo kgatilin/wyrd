@@ -273,7 +273,10 @@ guide: format reference, validation rules, CLI/MCP surfaces, worked examples.
 appended once and may be observed independently by any number of components and
 folds. Consequences baked into the rules:
 
-- `role: action | fact` is *semantic classification only* — no cardinality.
+- `role: action | fact` is *semantic classification only* — no cardinality —
+  but it is **global to the kind**: every producer and observer must agree,
+  payload variants never change it, and intent vs outcome means two kinds
+  (`x.do` / `x.done`). Disagreement is a `kind-role-conflict` error.
 - `owns` is authority over a namespace's **schemas**, not an exclusive right to
   emit into it or observe it. Its only rule is uniqueness (`duplicate-owner`).
 - Single-handler semantics are opt-in per slot via `delivery: exclusive`; only

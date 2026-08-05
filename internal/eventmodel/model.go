@@ -109,6 +109,13 @@ type Slot struct {
 // Role classifies an event kind semantically. It is documentation and a
 // rendering axis, never a cardinality contract: an action may be observed by
 // zero, one, or many components exactly like a fact.
+//
+// Role is a property of the KIND, held globally across the composed set — not
+// a property of a declaration site. Every producer and every observer of a
+// kind must agree on it, and payload variants never change it. Where the same
+// name would carry both an intent and its outcome, those are two kinds
+// (e.g. `x.thing.do` and `x.thing.done`), not one kind read two ways.
+// Disagreement is a kind-role-conflict error.
 type Role string
 
 const (

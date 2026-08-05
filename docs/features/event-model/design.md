@@ -137,6 +137,19 @@ and reads as documentation — but it implies nothing about how many components
 observe the kind. An action emitted into another namespace is not a "call-out";
 it is an event that a component in that namespace happens to be interested in.
 
+**`role` is global to the kind.** Dropping the cardinality reading of `role`
+does not make it a free-form per-site label. Role says what the event *is*, and
+one event cannot both express an intent and record an outcome. So: every
+producer and every observer of a kind must declare the same role, payload
+variants (a `oneOf` branch, a legacy shape, an added field) never change it, and
+a name that needs both readings is two kinds — `x.thing.do` and `x.thing.done` —
+not one kind read two ways. Disagreement is a `kind-role-conflict` error, not a
+warning: there is no composition under which it is benign, and the fix is always
+structural. Splitting is cheap on the consuming side because folds subscribe by
+glob (`consumes: [x.thing.*]` covers both). The other legitimate resolution is
+to decide the kind is wholly a `fact` and let intent live in the payload; what
+is not available is one kind carrying both roles at once.
+
 **`owns` is definitional authority.** It names the component that defines a
 namespace's schemas. It does *not* confer an exclusive right to produce events
 in that namespace or to observe them. The only ownership rule left is that two
@@ -253,6 +266,11 @@ namespace's *schemas*, and the only rule it produces is uniqueness.
 - **single owner** — no two components declare overlapping `owns` (exact or
   nested). Two claimants mean two answers to "what does this kind look like".
   Resolution is longest-prefix.
+- **single role per kind** — a kind carries one role across the composed set
+  (`kind-role-conflict` error otherwise). Role is a property of the kind, not of
+  the declaration site; see §1. The graph projection resolves a conflicting kind
+  to its first declaration in deterministic order and flags the node with
+  `role_conflict`, so the projection never silently picks a side.
 - **closure** — every `receives` kind has ≥1 producer; every `consumes` entry in
   a fold matches ≥1 emitted kind (reported per entry, not per fold); every
   emitted event, of either role, has ≥1 observer (a receive or a fold consumes
@@ -330,7 +348,8 @@ The composed model projects to a **bipartite graph**:
 - node attributes:
   - component: `owns`, `deprecated`
   - kind: `producer_count`, `consumer_count`, `fold_consumer_count`, `health`
-    (`ok` | `orphan` | `starved` | `ambiguous`), `role`, `delivery`.
+    (`ok` | `orphan` | `starved` | `ambiguous`), `role`, `role_conflict`,
+    `delivery`.
     `ambiguous` is reserved for exclusive kinds with more than one receiver; a
     broadcast kind with many receivers is `ok`.
   - fold: `subjects`, `partition_key`, `partition_arity`, `consumes`, `component`

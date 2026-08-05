@@ -29,6 +29,12 @@ emits:
     role: fact
     description: Fact that nobody listens to
 
+  # ERROR (kind-role-conflict): received above as an action, emitted here as a
+  # fact. Role is a property of the kind, so this must become two kinds.
+  - kind: billing.invoice.issue
+    role: fact
+    description: Same kind, second role
+
 folds:
   # WARNING (starved-fold): consumes entry matches nothing.
   # WARNING (underspecified-state): object state with no shape.

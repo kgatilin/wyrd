@@ -19,6 +19,11 @@ const (
 	// authority over a namespace's schemas is ambiguous.
 	KindDuplicateOwner FindingKind = "duplicate-owner"
 
+	// KindRoleConflict — one event kind is declared with more than one role
+	// across the composed set. Role is a global property of the kind, not of
+	// a declaration site.
+	KindRoleConflict FindingKind = "kind-role-conflict"
+
 	// KindStarvedReceive — a receives slot has no producer.
 	KindStarvedReceive FindingKind = "starved-receive"
 

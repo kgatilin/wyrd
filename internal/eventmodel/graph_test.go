@@ -306,3 +306,52 @@ func TestBuildGraphVocabEdges(t *testing.T) {
 		t.Errorf("want 2 types edges, got %d", typesEdges)
 	}
 }
+
+// TestBuildGraphRoleConflict: where declarations disagree the projection must
+// pick deterministically and say so, not silently expose whichever role the map
+// iteration happened to land on.
+func TestBuildGraphRoleConflict(t *testing.T) {
+	producer := comp("llm", "llm")
+	producer.Emits = []Slot{{Kind: "llm.message", Role: RoleFact}}
+
+	consumer := comp("router", "router")
+	consumer.Receives = []Slot{{Kind: "llm.message", Role: RoleAction}}
+
+	for i := 0; i < 20; i++ {
+		g := BuildGraph(model(producer, consumer))
+		var node *Node
+		for j := range g.Nodes {
+			if g.Nodes[j].ID == kindID("llm.message") {
+				node = &g.Nodes[j]
+				break
+			}
+		}
+		if node == nil {
+			t.Fatal("kind node not found")
+		}
+		// "llm" sorts before "router", so its declaration is canonical.
+		if node.Attrs["role"] != string(RoleFact) {
+			t.Fatalf("role = %v, want a stable %q", node.Attrs["role"], RoleFact)
+		}
+		if node.Attrs["role_conflict"] != true {
+			t.Fatalf("role_conflict should be set, attrs = %v", node.Attrs)
+		}
+	}
+}
+
+func TestBuildGraphNoRoleConflictFlagWhenConsistent(t *testing.T) {
+	c := comp("llm", "llm")
+	c.Emits = []Slot{{Kind: "llm.message", Role: RoleFact}}
+	c.Receives = []Slot{{Kind: "llm.message", Role: RoleFact}}
+
+	g := BuildGraph(model(c))
+	for _, n := range g.Nodes {
+		if n.ID == kindID("llm.message") {
+			if _, ok := n.Attrs["role_conflict"]; ok {
+				t.Errorf("role_conflict must be absent when declarations agree: %v", n.Attrs)
+			}
+			return
+		}
+	}
+	t.Fatal("kind node not found")
+}

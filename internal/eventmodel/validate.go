@@ -18,6 +18,7 @@ import (
 //
 // Rules implemented:
 //   - Single-owner namespaces: one component defines a namespace's schemas
+//   - Single role per kind: role is global, not per declaration site
 //   - Closure: starved receives, starved fold consumes, orphan events
 //   - Fold coherence: {slot} syntax, one shared partition key, declared state
 //   - Exclusive delivery (opt-in): a kind declared `delivery: exclusive`
@@ -76,6 +77,7 @@ func Validate(m *Model) []Finding {
 	}
 
 	// Cross-component validation.
+	findings = append(findings, validateKindRoles(m)...)
 	findings = append(findings, validateClosure(m, receiversOf, emittersOf, allEmittedKinds)...)
 	findings = append(findings, validateExclusiveDelivery(m, receiversOf, exclusiveKinds)...)
 	findings = append(findings, validateRefCycles(m)...)
@@ -179,6 +181,100 @@ func validateOwnershipOverlaps(m *Model, ownerOf map[string]string, ownerClaims 
 				})
 			}
 		}
+	}
+
+	return findings
+}
+
+// roleDecl records one site where a kind's role was declared.
+type roleDecl struct {
+	Component string
+	Section   string // "receives" or "emits"
+	Role      Role
+}
+
+// Site renders the declaration site as "component:section".
+func (d roleDecl) Site() string { return d.Component + ":" + d.Section }
+
+// roleDeclarations collects every role declaration per kind in a deterministic
+// order: components sorted by id, and within a component receives before emits
+// in declaration order. The first entry for a kind is the canonical role that
+// renderers use when declarations disagree.
+func roleDeclarations(m *Model) map[string][]roleDecl {
+	out := make(map[string][]roleDecl)
+	for _, id := range sortedComponentIDs(m) {
+		comp := m.Components[id]
+		for _, slot := range comp.Receives {
+			out[slot.Kind] = append(out[slot.Kind], roleDecl{id, "receives", slot.Role})
+		}
+		for _, slot := range comp.Emits {
+			out[slot.Kind] = append(out[slot.Kind], roleDecl{id, "emits", slot.Role})
+		}
+	}
+	return out
+}
+
+// sortedComponentIDs returns component ids in a stable order.
+func sortedComponentIDs(m *Model) []string {
+	ids := make([]string, 0, len(m.Components))
+	for id := range m.Components {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// validateKindRoles enforces that a kind carries exactly one role across the
+// whole composed set.
+//
+// Role is a property of the kind, not of the declaration site: it says what the
+// event *is*, and one event cannot both express an intent and record an
+// outcome. Producers and observers therefore cannot disagree about it, and a
+// payload variant (a different schema branch, a legacy shape, an extra field)
+// never changes it. Where a name would need both readings, that is two kinds —
+// `x.thing.do` and `x.thing.done` — not one kind read two ways. Splitting them
+// is the fix; there is no reading under which the conflict is benign, so it is
+// an error rather than a warning.
+func validateKindRoles(m *Model) []Finding {
+	decls := roleDeclarations(m)
+
+	kinds := make([]string, 0, len(decls))
+	for kind := range decls {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+
+	var findings []Finding
+	for _, kind := range kinds {
+		sitesByRole := make(map[Role][]string)
+		var order []Role // roles in first-declared order
+		for _, d := range decls[kind] {
+			if _, seen := sitesByRole[d.Role]; !seen {
+				order = append(order, d.Role)
+			}
+			sitesByRole[d.Role] = append(sitesByRole[d.Role], d.Site())
+		}
+		if len(order) < 2 {
+			continue
+		}
+
+		parts := make([]string, 0, len(order))
+		related := make(map[string]any, len(order))
+		for _, role := range order {
+			parts = append(parts, fmt.Sprintf("%s (%s)", role, strings.Join(sitesByRole[role], ", ")))
+			related[string(role)] = sitesByRole[role]
+		}
+
+		findings = append(findings, Finding{
+			Severity:  SeverityError,
+			Kind:      KindRoleConflict,
+			Component: decls[kind][0].Component,
+			File:      m.Components[decls[kind][0].Component].SourceFile,
+			Location:  kind,
+			Message: fmt.Sprintf("kind %q is declared with conflicting roles: %s; role is a property of the kind, so split intent and outcome into separate kinds",
+				kind, strings.Join(parts, " vs ")),
+			Related: map[string]any{"roles": related},
+		})
 	}
 
 	return findings

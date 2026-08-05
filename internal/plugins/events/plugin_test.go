@@ -92,7 +92,7 @@ func TestPlugin_ValidateCmd_WithErrors(t *testing.T) {
 	if !strings.Contains(output, "ERROR") {
 		t.Errorf("output should contain ERROR: %s", output)
 	}
-	for _, want := range []string{"exclusive-unhandled", "partition-mismatch", "malformed-slot", "unresolved-ref"} {
+	for _, want := range []string{"exclusive-unhandled", "partition-mismatch", "malformed-slot", "unresolved-ref", "kind-role-conflict"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output should mention %s: %s", want, output)
 		}
