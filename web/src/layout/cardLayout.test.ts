@@ -186,3 +186,79 @@ describe('layoutCard', () => {
     expect(laid).toEqual({ files: [], contentW: 0, contentH: 0 });
   });
 });
+
+describe('card size', () => {
+  it('keeps a file container as wide as its widest class shape', async () => {
+    // Six symbols referencing each other inside one file: a layered layout
+    // would spread them sideways; a single ordered column must not.
+    const internals: Internal[] = ['A', 'B', 'C', 'D', 'E', 'F'].map((name) =>
+      internal({ id: `p.${name}`, kind: 'class', name, sourceFile: 'a.go' })
+    );
+    const relations: SymbolRelation[] = [
+      ['A', 'B'],
+      ['A', 'C'],
+      ['A', 'D'],
+      ['B', 'E'],
+      ['C', 'F'],
+    ].map(([from, to], i) => ({
+      id: `r${i}`,
+      kind: 'uses',
+      fromComponentId: 'p',
+      fromInternalId: `p.${from}`,
+      toComponentId: 'p',
+      toInternalId: `p.${to}`,
+    }));
+
+    const files = buildCardModel(internals);
+    const laid = await layoutCard(files, relations, OPTS);
+    const [file] = laid.files;
+    const widest = Math.max(...file.blocks.map((b) => b.w!));
+
+    expect(file.w!).toBeLessThanOrEqual(widest + 2 * CARD_LAYOUT_METRICS.FILE_PAD);
+    // One column: every shape shares the same left edge.
+    expect(new Set(file.blocks.map((b) => b.x)).size).toBe(1);
+  });
+
+  it('orders class shapes so a symbol sits above what it references', async () => {
+    const internals: Internal[] = ['Leaf', 'Mid', 'Root'].map((name) =>
+      internal({ id: `p.${name}`, kind: 'class', name, sourceFile: 'a.go' })
+    );
+    const relations: SymbolRelation[] = [
+      ['Root', 'Mid'],
+      ['Mid', 'Leaf'],
+    ].map(([from, to], i) => ({
+      id: `r${i}`,
+      kind: 'uses',
+      fromComponentId: 'p',
+      fromInternalId: `p.${from}`,
+      toComponentId: 'p',
+      toInternalId: `p.${to}`,
+    }));
+
+    const laid = await layoutCard(buildCardModel(internals), relations, OPTS);
+    const byName = new Map(laid.files[0].blocks.map((b) => [b.name, b.y!]));
+
+    expect(byName.get('Root')!).toBeLessThan(byName.get('Mid')!);
+    expect(byName.get('Mid')!).toBeLessThan(byName.get('Leaf')!);
+  });
+
+  it('survives a reference cycle without dropping a shape', async () => {
+    const internals: Internal[] = ['A', 'B'].map((name) =>
+      internal({ id: `p.${name}`, kind: 'class', name, sourceFile: 'a.go' })
+    );
+    const relations: SymbolRelation[] = [
+      ['A', 'B'],
+      ['B', 'A'],
+    ].map(([from, to], i) => ({
+      id: `r${i}`,
+      kind: 'uses',
+      fromComponentId: 'p',
+      fromInternalId: `p.${from}`,
+      toComponentId: 'p',
+      toInternalId: `p.${to}`,
+    }));
+
+    const laid = await layoutCard(buildCardModel(internals), relations, OPTS);
+    expect(laid.files[0].blocks.map((b) => b.name).sort()).toEqual(['A', 'B']);
+  });
+});
