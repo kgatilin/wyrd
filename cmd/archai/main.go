@@ -96,7 +96,6 @@ Examples:
 	generateCmd.Flags().Bool("debug", false, "Print debug information about packages and dependencies")
 	generateCmd.Flags().String("overlay", "", "Path to archai.yaml overlay (default: auto-detect in current directory)")
 	generateCmd.Flags().String("mode", "public", "Combined-mode overview detail: 'public' (default) or 'full'")
-	generateCmd.Flags().String("java-jar", "", "Path to archai-java-analyzer.jar (defaults to ARCHAI_JAVA_JAR env or sibling-of-binary)")
 
 	diagramCmd.AddCommand(generateCmd)
 
@@ -530,10 +529,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		// clearing HTTPAddr. The MCP stdio callback owns the session
 		// lifetime. Plugin bootstrap runs so plugin tools surface in
 		// the stdio tools/list.
-		oneShotReader, note := assembleServeReader()
-		if note != "" {
-			fmt.Fprintln(os.Stderr, note)
-		}
 		return serve.Serve(ctx, serve.Options{
 			Root:     root,
 			MCPStdio: true,
@@ -543,18 +538,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 			HTTPAddr:        "",
 			Debug:           debug,
 			PluginBootstrap: bootstrapDaemonPlugins,
-			Reader:          oneShotReader,
+			Reader:          assembleServeReader(),
 		})
 	}
 
-	// Build a multi-language reader once and share it across every State
-	// the daemon may construct (single-state and per-worktree multi-state
-	// loads alike). The note, if any, is surfaced to stderr so users see
-	// when Java was unwired.
-	serveReader, note := assembleServeReader()
-	if note != "" {
-		fmt.Fprintln(os.Stderr, note)
-	}
+	// Build the reader once and share it across every State the daemon
+	// may construct (single-state and per-worktree multi-state loads
+	// alike).
+	serveReader := assembleServeReader()
 	stateLoader := newServeStateLoader(serveReader)
 
 	// The review UI is the daemon's browser surface: whenever there is an
@@ -1305,7 +1296,6 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	debug, _ := cmd.Flags().GetBool("debug")
 	overlayFlag, _ := cmd.Flags().GetString("overlay")
 	modeFlag, _ := cmd.Flags().GetString("mode")
-	javaJarFlag, _ := cmd.Flags().GetString("java-jar")
 
 	// Resolve overlay path: explicit flag wins; otherwise auto-detect
 	// archai.yaml in the current working directory.
@@ -1335,17 +1325,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	yamlReader := yamlAdapter.NewReader()
 	yamlWriter := yamlAdapter.NewWriter()
 
-	// Java support is opt-in by environment: only attach the Java reader
-	// when both `java` is on PATH AND a JAR can be resolved. Pure-Go
-	// users pay no cost (the Java reader's match predicate skips paths
-	// without .java files anyway, but we belt-and-brace by not even
-	// registering the reader when the toolchain is incomplete).
 	options := []service.Option{service.WithYAML(yamlReader, yamlWriter)}
-	if javaReader, note := tryAssembleJavaReader(javaJarFlag); javaReader != nil {
-		options = append(options, service.WithJavaReader(javaReader))
-	} else if note != "" {
-		fmt.Fprintln(os.Stderr, note)
-	}
 	svc := service.NewService(goReader, d2Reader, writer, options...)
 
 	// Validate flags
@@ -1384,8 +1364,8 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			if !ok {
 				return fmt.Errorf("writer does not support full-mode combined output (use --format=d2)")
 			}
-			// Use the service so the Java/Go multi-language dispatch is
-			// honoured here too, not just on the per-package path.
+			// Read through the service so this path shares the
+			// per-package path's read entry point.
 			packages, err := svc.ReadModels(ctx, args)
 			if err != nil {
 				return fmt.Errorf("generation failed: reading packages: %w", err)

@@ -630,10 +630,10 @@ func TestCombinedBuilder_QuotesReservedKeywords(t *testing.T) {
 			Name: "strategy",
 			Path: "vibe/bidder/strategy",
 			TypeDefs: []domain.TypeDef{
-				{Name: "Direction", IsExported: true, SourceFile: "Strategy.java", Stereotype: domain.StereotypeEnum},
+				{Name: "Direction", IsExported: true, SourceFile: "strategy.go", Stereotype: domain.StereotypeEnum},
 			},
 			Structs: []domain.StructDef{
-				{Name: "Width", IsExported: true, SourceFile: "Layout.java"},
+				{Name: "Width", IsExported: true, SourceFile: "layout.go"},
 			},
 			Dependencies: []domain.Dependency{
 				{

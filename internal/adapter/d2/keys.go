@@ -7,7 +7,7 @@ import (
 
 // d2ReservedKeywords lists the D2 grammar keywords that, when used
 // unquoted as a key, are interpreted as built-in attributes rather than
-// shape IDs. Matching is case-insensitive in D2, so a Java class named
+// shape IDs. Matching is case-insensitive in D2, so a type named
 // "Direction" or "Width" collides with `direction:` / `width:`.
 //
 // Symbol declarations whose name matches any of these must be emitted

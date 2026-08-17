@@ -1,5 +1,4 @@
-.PHONY: build build-all test clean install version web-build \
-        java-analyzer java-analyzer-build java-analyzer-test java-analyzer-clean \
+.PHONY: build test clean install version web-build \
         archai-generate archai-baseline archai-check archai-smoke
 
 # VERSION is stamped into the binary at build time via -ldflags. By
@@ -13,44 +12,12 @@ ARCHAI_PACKAGES ?= ./...
 ARCHAI_TARGET ?= self-hosted
 WEB_DIR := web
 
-# Java analyzer (issue #101): separate sub-project under tools/, only built
-# explicitly via `make java-analyzer` or `make build-all`. Default `make
-# build` stays Go-only — Go-only users don't need a JVM.
-JAVA_ANALYZER_DIR := tools/archai-java-analyzer
-JAVA_ANALYZER_JAR := $(JAVA_ANALYZER_DIR)/target/archai-java-analyzer.jar
-# Sibling-binary distribution path: #102's default exec resolver looks here.
-JAVA_ANALYZER_BIN_JAR := bin/archai-java-analyzer.jar
-MVN ?= mvn
-
 web-build:
 	npm --prefix $(WEB_DIR) run build
 
 build: web-build
 	@mkdir -p bin
 	go build -ldflags "$(LDFLAGS)" -o bin/archai ./cmd/archai
-
-# build-all: Go binary + Java analyzer JAR copied next to bin/archai. Use this
-# on releases that bundle the JAR alongside the binary; CI invokes it for
-# tagged builds. The sibling-binary location matches #102's default resolver.
-build-all: build java-analyzer
-	@cp $(JAVA_ANALYZER_JAR) $(JAVA_ANALYZER_BIN_JAR)
-	@echo "built: bin/archai + $(JAVA_ANALYZER_BIN_JAR)"
-
-# java-analyzer: build + run the JAR's tests. Issue #101 acceptance requires
-# this target builds AND tests; if you only want a fast build (skip tests),
-# use `make java-analyzer-build`.
-java-analyzer: java-analyzer-build java-analyzer-test
-	@echo "built + tested: $(JAVA_ANALYZER_JAR)"
-
-java-analyzer-build:
-	$(MVN) -f $(JAVA_ANALYZER_DIR)/pom.xml -DskipTests package
-	@echo "built: $(JAVA_ANALYZER_JAR)"
-
-java-analyzer-test:
-	$(MVN) -f $(JAVA_ANALYZER_DIR)/pom.xml test
-
-java-analyzer-clean:
-	$(MVN) -f $(JAVA_ANALYZER_DIR)/pom.xml clean
 
 install: web-build
 	go install -ldflags "$(LDFLAGS)" ./cmd/archai
@@ -85,5 +52,3 @@ archai-smoke: build
 
 clean:
 	rm -rf bin/
-	rm -rf $(JAVA_ANALYZER_DIR)/target/
-	rm -f $(JAVA_ANALYZER_BIN_JAR)

@@ -15,16 +15,16 @@ const (
 	// DependencyImplements indicates a struct implements an interface.
 	DependencyImplements DependencyKind = "implements"
 
-	// DependencyExtends indicates a class extends another class
-	// (Java-style inheritance). Emitted by adapter/java; the Go
-	// adapter does not produce this kind.
+	// DependencyExtends indicates a type extends another type
+	// (class inheritance). Part of the graph's edge vocabulary; no
+	// reader emits it today — the Go adapter has no inheritance to
+	// report.
 	DependencyExtends DependencyKind = "extends"
 
-	// DependencyNestedIn indicates an inner class is lexically nested
-	// inside an outer class (Java nested / inner classes). Java nested
-	// classes are flattened to leaf names in the domain model, and this
-	// edge preserves the enclosing relationship that name flattening
-	// drops. Only adapter/java emits this kind.
+	// DependencyNestedIn indicates a type is lexically nested inside
+	// another (inner classes). It preserves an enclosing relationship
+	// that flattening a nested type to its leaf name would drop. Part
+	// of the graph's edge vocabulary; no reader emits it today.
 	DependencyNestedIn DependencyKind = "nested-in"
 )
 

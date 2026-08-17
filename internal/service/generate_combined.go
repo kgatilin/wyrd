@@ -51,8 +51,7 @@ func (s *Service) GenerateCombined(ctx context.Context, opts GenerateCombinedOpt
 		}
 	}
 
-	// Read all packages from configured language readers (Go always; Java
-	// and friends only when their match predicate accepts a path).
+	// Read all packages from the configured reader.
 	packages, err := s.readPackages(ctx, opts.Paths)
 	if err != nil {
 		return nil, fmt.Errorf("reading packages: %w", err)

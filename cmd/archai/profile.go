@@ -50,10 +50,9 @@ Examples:
 }
 
 type profileLoadReport struct {
-	Root     string           `json:"root"`
-	Runs     []profileLoadRun `json:"runs"`
-	Summary  profileSummary   `json:"summary"`
-	Warnings []string         `json:"warnings,omitempty"`
+	Root    string           `json:"root"`
+	Runs    []profileLoadRun `json:"runs"`
+	Summary profileSummary   `json:"summary"`
 }
 
 type profileLoadRun struct {
@@ -115,14 +114,7 @@ func runProfileLoad(cmd *cobra.Command, args []string) error {
 		defer pprof.StopCPUProfile()
 	}
 
-	reader, note := assembleServeReader()
-	warnings := []string{}
-	if note != "" {
-		warnings = append(warnings, note)
-		if !asJSON {
-			fmt.Fprintln(cmd.ErrOrStderr(), note)
-		}
-	}
+	reader := assembleServeReader()
 
 	ctx := cmd.Context()
 	if ctx == nil {
@@ -130,9 +122,8 @@ func runProfileLoad(cmd *cobra.Command, args []string) error {
 	}
 
 	report := profileLoadReport{
-		Root:     absRoot,
-		Runs:     make([]profileLoadRun, 0, repeat),
-		Warnings: warnings,
+		Root: absRoot,
+		Runs: make([]profileLoadRun, 0, repeat),
 	}
 	for i := 1; i <= repeat; i++ {
 		run, err := profileLoadOnce(ctx, absRoot, reader, i)
@@ -246,11 +237,6 @@ func summarizeProfileRuns(runs []profileLoadRun) profileSummary {
 
 func printProfileLoadReport(w interface{ Write([]byte) (int, error) }, report profileLoadReport, cpuProfile string) {
 	fmt.Fprintf(w, "archai profile load: %s\n", report.Root)
-	if len(report.Warnings) > 0 {
-		for _, warning := range report.Warnings {
-			fmt.Fprintf(w, "warning: %s\n", warning)
-		}
-	}
 	for _, run := range report.Runs {
 		fmt.Fprintf(w, "\nrun %d: %.3fs, %d package(s), %d relation(s), %.2f MiB JSON\n",
 			run.Index,

@@ -309,7 +309,7 @@ func TestToArchmotifGraph_StereotypeRoles(t *testing.T) {
 	}
 }
 
-// TestToArchmotifGraph_ExtendsBecomesEmbeds checks that the Java
+// TestToArchmotifGraph_ExtendsBecomesEmbeds checks that the
 // 'extends' kind is mapped to archmotif's embeds edge.
 func TestToArchmotifGraph_ExtendsBecomesEmbeds(t *testing.T) {
 	models := []domain.PackageModel{{

@@ -47,7 +47,7 @@
 //	DependencyReturns    -> archmotifimport.DependencyReturns
 //	DependencyImplements -> AddImplements (dedicated method)
 //	DependencyExtends    -> archmotifimport.DependencyEmbeds
-//	                        (Java inheritance: closest typed analog
+//	                        (inheritance: closest typed analog
 //	                        in archmotif's edge vocabulary)
 //	DependencyNestedIn   -> AddContains (structural)
 //

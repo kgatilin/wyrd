@@ -90,11 +90,9 @@ type Options struct {
 	// onto the HTTP transport.
 	PluginHTTPFactory func(state *State, plugins plugin.BootstrapResult) (HTTPTransport, error)
 
-	// Reader, when non-nil, replaces the default Go-only model reader.
-	// Pass a multi-language reader here (e.g. one that wraps a
-	// service.Service with WithJavaReader) so `archai serve` works on
-	// pure-Java projects without tripping the Go loader's "directory
-	// prefix . does not contain main module" error.
+	// Reader, when non-nil, replaces the default model reader the
+	// daemon would construct for itself. The CLI passes one in so
+	// every State shares a single reader instance.
 	Reader service.ModelReader
 }
 

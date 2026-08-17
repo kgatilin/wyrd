@@ -186,10 +186,9 @@ func (s *State) CurrentTarget() string {
 // StateOption configures optional fields on a freshly-constructed State.
 type StateOption func(*State)
 
-// WithReader replaces the default Go-only reader with a multi-language
-// reader. Used by the CLI to wire `archai serve` through the same
-// service.Service-based dispatch as `archai diagram generate`, so Java
-// (and any other future language) projects load correctly.
+// WithReader replaces the reader the State would construct for
+// itself. Used by the CLI so every State the daemon builds shares one
+// reader instance.
 func WithReader(r service.ModelReader) StateOption {
 	return func(s *State) { s.reader = r }
 }

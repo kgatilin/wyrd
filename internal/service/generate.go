@@ -94,8 +94,7 @@ func (s *Service) generateInternal(ctx context.Context, opts GenerateOptions) ([
 		}
 	}
 
-	// Read all packages from configured language readers (Go always; Java
-	// and friends only when their match predicate accepts a path).
+	// Read all packages from the configured reader.
 	packages, err := s.readPackages(ctx, opts.Paths)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading packages: %w", err)

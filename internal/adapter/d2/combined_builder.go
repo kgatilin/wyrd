@@ -777,7 +777,7 @@ func (b *combinedBuilder) writeCrossPackageDep(dep depInfo) {
 // converting the path to a D2 identifier. It keeps each segment
 // distinct from class names, which D2 matches case-insensitively.
 //
-// Without the prefix, a Java class `Strategy` declared in package
+// Without the prefix, a class `Strategy` declared in package
 // `vibe.bidder` blocks the sub-package `vibe.bidder.strategy` from
 // being added as a container — D2 treats `strategy` as a child of the
 // existing class shape `Strategy` and rejects the merge with
@@ -797,8 +797,8 @@ func sanitizePackageID(path string) string {
 	if path == "" || path == "." {
 		return "root"
 	}
-	// Java packages already use ".", Go packages come in with "/".
-	// Both collapse to "." segments here.
+	// Go package paths come in with "/"; dot-separated paths pass
+	// through unchanged. Both collapse to "." segments here.
 	normalised := strings.ReplaceAll(path, "/", ".")
 	segments := strings.Split(normalised, ".")
 	for i, s := range segments {
