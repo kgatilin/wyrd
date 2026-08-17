@@ -16,7 +16,6 @@ import (
 	// Built-in plugins. Importing them for side effects registers
 	// each one with the plugin package's global registry. Adding a
 	// new built-in plugin is a one-line change here.
-	_ "github.com/kgatilin/archai/internal/plugins/complexity"
 	_ "github.com/kgatilin/archai/internal/plugins/events"
 )
 
