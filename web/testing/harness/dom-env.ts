@@ -157,7 +157,7 @@ export class DomEnvironment implements HarnessEnvironment {
 }
 
 /**
- * Stub fetch so loadGraph() resolves to `graph` (App fetches /archgraph.json
+ * Stub fetch so loadGraph() resolves to `graph` (App fetches /api/uigraph
  * first), render <App/>, and return a DomEnvironment. Call cleanup() and
  * vi.unstubAllGlobals() in the test's afterEach.
  */
@@ -173,7 +173,7 @@ export async function mountAppDom(graph: UIGraph): Promise<DomEnvironment> {
     ({ ok: true, json: async () => data } as unknown as Response);
   vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.includes('archgraph.json')) return okJson(graph);
+    if (url.includes('/api/uigraph')) return okJson(graph);
     return { ok: false, json: async () => ({}) } as unknown as Response;
   });
   render(React.createElement(App));

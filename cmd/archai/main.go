@@ -439,9 +439,6 @@ Examples:
 	// profile — measures expensive project loading/projection stages.
 	rootCmd.AddCommand(newProfileCmd())
 
-	// export — exports architecture data in various formats (POC: UIGraph JSON).
-	rootCmd.AddCommand(newExportCmd())
-
 	// M12: in-process plugin contract. Built-in plugins register
 	// themselves via init(); wirePlugins runs the bootstrap once
 	// against a CLI-scoped Host and mounts every plugin-contributed

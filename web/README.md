@@ -21,7 +21,8 @@ Open the URL Vite prints (e.g. http://localhost:5174/).
 
 The app loads a `UIGraph` JSON via `src/data/load.ts` in this order:
 
-1. `public/archgraph.json` — a live export (gitignored; you generate it, see below)
+1. `/api/uigraph` — the live `archai serve` daemon (under `/w/<worktree>/` in
+   multi-worktree mode). This is the real source; the rest are `npm run dev` fallbacks.
 2. `public/archgraph.sample.json` — a committed real export of archai's own packages
 3. `src/data/fixture.ts` — the designed scenario from the mockup (rich diff), used as a
    guaranteed fallback so the diff UI is always demonstrable
@@ -29,27 +30,23 @@ The app loads a `UIGraph` JSON via `src/data/load.ts` in this order:
 `showDiff` is on when the graph has a `pr` block: the left panel defaults to **CHANGES**
 and diff coloring shows. With no `pr` (the sample) it defaults to **CONTEXTS**.
 
-## Generate a live UIGraph from a repo
+## Serve the live UIGraph from a repo
 
-The engine side is the `archai export ui` command (package `internal/adapter/uigraph`):
+The engine side is `archai serve`, which builds the graph in-process (package
+`internal/adapter/uigraph`) and serves both this UI and its JSON API:
 
 ```bash
 # from the repo root
-go build -o bin/archai ./cmd/archai
+make build
 
-# current architecture, no diff (CONTEXTS view)
-./bin/archai export ui ./internal/... -o web/public/archgraph.json
-
-# target-vs-current diff (CHANGES view): lock a baseline, change code, re-export
-./bin/archai diagram generate ./internal/... --format yaml
-./bin/archai target lock baseline
-#   …make an architectural change in the working tree…
-./bin/archai export ui ./internal/... --target baseline -o web/public/archgraph.json
+# serve the repo's worktrees; open the URL it prints
+./bin/archai serve --multi
 ```
 
-Diff direction: `export ui` runs `diff.Compute(current, target)`, then the projection
+Diff direction: `/api/uigraph?base=<ref>` compares the active worktree against the base
+ref's worktree (default `main`) via `diff.Compute(current, base)`, then the projection
 inverts it to the reviewer's perspective — an element present in **current** (the
-agent's after-state) but not in **target** (the baseline) renders as **added**.
+agent's after-state) but not in **base** renders as **added**.
 
 ## The contract
 

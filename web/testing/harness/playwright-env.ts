@@ -137,10 +137,10 @@ export class PlaywrightEnvironment implements HarnessEnvironment {
 
 /**
  * Register routes so the app loads `graph` deterministically. Independent of the
- * gitignored public/archgraph.json. MUST be called BEFORE page.goto('/').
+ * committed public/archgraph.sample.json. MUST be called BEFORE page.goto('/').
  */
 export async function routeGraph(page: Page, graph: UIGraph): Promise<void> {
-  await page.route('**/archgraph.json', (route) => route.fulfill({ json: graph as unknown as object }));
+  await page.route('**/api/uigraph', (route) => route.fulfill({ json: graph as unknown as object }));
   await page.route('**/archgraph.sample.json', (route) => route.abort());
 }
 
@@ -149,6 +149,6 @@ export async function routeGraph(page: Page, graph: UIGraph): Promise<void> {
  * (loadGraph swallows fetch errors and falls back). MUST be called before goto.
  */
 export async function routeGraphFailure(page: Page): Promise<void> {
-  await page.route('**/archgraph.json', (route) => route.abort());
+  await page.route('**/api/uigraph', (route) => route.abort());
   await page.route('**/archgraph.sample.json', (route) => route.abort());
 }
