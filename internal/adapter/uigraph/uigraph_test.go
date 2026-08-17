@@ -126,8 +126,17 @@ func TestProjectMarksAddedInterface(t *testing.T) {
 	if len(svcInternal.Members) != 1 {
 		t.Fatalf("len(Members) = %d, want 1", len(svcInternal.Members))
 	}
-	if svcInternal.Members[0].Name != "Handle(id string) error" {
-		t.Errorf("Member.Name = %q, want %q", svcInternal.Members[0].Name, "Handle(id string) error")
+	// A method row is split into its three columns so the card can render a
+	// class body instead of one truncated signature string.
+	member := svcInternal.Members[0]
+	if member.Name != "Handle" {
+		t.Errorf("Member.Name = %q, want %q", member.Name, "Handle")
+	}
+	if member.Params != "id string" {
+		t.Errorf("Member.Params = %q, want %q", member.Params, "id string")
+	}
+	if member.Type != "error" {
+		t.Errorf("Member.Type = %q, want %q", member.Type, "error")
 	}
 }
 
@@ -189,11 +198,13 @@ func TestProjectDisplaysGoGenerics(t *testing.T) {
 	if cmp == nil {
 		t.Fatalf("component repo missing")
 	}
+	// Names carry generic type parameters; everything else moved to the
+	// structured columns.
 	cases := map[string]string{
 		"repo.Repository": "Repository[T any]",
 		"repo.Box":        "Box[T comparable]",
-		"repo.NewBox":     "NewBox[T comparable](value T) Box[T]",
-		"repo.Result":     "Result[T any] : []T",
+		"repo.NewBox":     "NewBox[T comparable]",
+		"repo.Result":     "Result[T any]",
 	}
 	for id, want := range cases {
 		internal := internalByID(cmp.Internals, id)
@@ -203,6 +214,23 @@ func TestProjectDisplaysGoGenerics(t *testing.T) {
 		if internal.Name != want {
 			t.Errorf("%s name = %q, want %q", id, internal.Name, want)
 		}
+	}
+
+	// A type definition keeps its underlying type in the right-hand column.
+	if result := internalByID(cmp.Internals, "repo.Result"); result.Type != "[]T" {
+		t.Errorf("repo.Result type = %q, want %q", result.Type, "[]T")
+	}
+
+	// A function renders as parameter rows plus a return row.
+	newBox := internalByID(cmp.Internals, "repo.NewBox")
+	if len(newBox.Members) != 2 {
+		t.Fatalf("repo.NewBox members = %d, want 2", len(newBox.Members))
+	}
+	if newBox.Members[0].Kind != "param" || newBox.Members[0].Name != "value" || newBox.Members[0].Type != "T" {
+		t.Errorf("repo.NewBox param row = %+v", newBox.Members[0])
+	}
+	if newBox.Members[1].Kind != "return" || newBox.Members[1].Type != "Box[T]" {
+		t.Errorf("repo.NewBox return row = %+v", newBox.Members[1])
 	}
 }
 
@@ -1433,5 +1461,89 @@ func TestProjectDefaultsToFirstNonEmptyReviewView(t *testing.T) {
 	}
 	if g.DefaultReviewScope != "all_public_api" {
 		t.Errorf("DefaultReviewScope = %q, want all_public_api", g.DefaultReviewScope)
+	}
+}
+
+func TestProjectCarriesStereotypeAndLeafTypeColumns(t *testing.T) {
+	models := []domain.PackageModel{
+		{
+			Path: "internal/shop",
+			Name: "shop",
+			Interfaces: []domain.InterfaceDef{
+				{Name: "Repo", SourceFile: "ports.go", IsExported: true, Stereotype: domain.StereotypeRepository},
+			},
+			Structs: []domain.StructDef{
+				{Name: "Order", SourceFile: "order.go", IsExported: true, Stereotype: domain.StereotypeAggregate},
+				{Name: "Money", SourceFile: "order.go", IsExported: true},
+			},
+			Functions: []domain.FunctionDef{
+				{Name: "NewRepo", SourceFile: "factory.go", IsExported: true, Stereotype: domain.StereotypeFactory},
+			},
+			TypeDefs: []domain.TypeDef{
+				{
+					Name:           "Status",
+					SourceFile:     "status.go",
+					IsExported:     true,
+					UnderlyingType: domain.TypeRef{Name: "int"},
+					Constants:      []string{"StatusNew"},
+					Stereotype:     domain.StereotypeEnum,
+				},
+			},
+			Constants: []domain.ConstDef{
+				{Name: "MaxItems", SourceFile: "limits.go", IsExported: true, Type: domain.TypeRef{Name: "int"}, Value: "50"},
+			},
+			Variables: []domain.VarDef{
+				{Name: "Registry", SourceFile: "limits.go", IsExported: true, Type: domain.TypeRef{Name: "string", IsSlice: true}},
+			},
+			Errors: []domain.ErrorDef{
+				{Name: "ErrMissing", SourceFile: "limits.go", IsExported: true, Message: "order missing"},
+			},
+		},
+	}
+
+	g, err := Project(models, nil, nil)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	cmp := componentByID(g.Components, "internal/shop")
+	if cmp == nil {
+		t.Fatal("component internal/shop missing")
+	}
+
+	// A detected stereotype reaches the card as its own channel.
+	stereotypes := map[string]string{
+		"internal/shop.Repo":    "repository",
+		"internal/shop.Order":   "aggregate",
+		"internal/shop.NewRepo": "factory",
+		"internal/shop.Status":  "enum",
+		// Nothing detected stays empty rather than defaulting to noise.
+		"internal/shop.Money": "",
+	}
+	for id, want := range stereotypes {
+		internal := internalByID(cmp.Internals, id)
+		if internal == nil {
+			t.Fatalf("internal %s missing", id)
+		}
+		if internal.Stereotype != want {
+			t.Errorf("%s stereotype = %q, want %q", id, internal.Stereotype, want)
+		}
+	}
+
+	// Leaf symbols carry their detail in the right-hand column, with the bare
+	// identifier left in Name so the card can align the two columns.
+	leaves := map[string][2]string{
+		"internal/shop.Status":     {"Status", "int"},
+		"internal/shop.MaxItems":   {"MaxItems", "int = 50"},
+		"internal/shop.Registry":   {"Registry", "[]string"},
+		"internal/shop.ErrMissing": {"ErrMissing", `"order missing"`},
+	}
+	for id, want := range leaves {
+		internal := internalByID(cmp.Internals, id)
+		if internal == nil {
+			t.Fatalf("internal %s missing", id)
+		}
+		if internal.Name != want[0] || internal.Type != want[1] {
+			t.Errorf("%s = (%q, %q), want (%q, %q)", id, internal.Name, internal.Type, want[0], want[1])
+		}
 	}
 }

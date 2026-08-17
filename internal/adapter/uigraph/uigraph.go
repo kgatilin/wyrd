@@ -121,10 +121,24 @@ type Component struct {
 	Ports     []Port     `json:"ports"`
 }
 
+// Internal is one symbol of a package, rendered as a class shape inside the
+// package card. Name is the bare identifier (with generic type params); all
+// structure lives in Type and Members so the renderer can lay the symbol out
+// as a two-column class body instead of one truncated signature string.
 type Internal struct {
-	ID         string   `json:"id"`
-	Kind       string   `json:"kind"` // class|iface
-	Name       string   `json:"name"`
+	ID   string `json:"id"`
+	Kind string `json:"kind"` // class|iface|func|type|const|var|error
+	Name string `json:"name"`
+	// Type is the right-hand column for leaf symbols: the underlying type of a
+	// type definition, a constant's type and value, a variable's type, or a
+	// sentinel error's message. Empty for structs, interfaces and functions,
+	// whose detail lives in Members.
+	Type string `json:"type,omitempty"`
+	// Stereotype is the detected DDD classification (service, repository, port,
+	// factory, aggregate, entity, value, enum). Empty when nothing was detected
+	// — the renderer shows a chip only for symbols that actually carry one, so
+	// an undetected stereotype stays silent rather than defaulting to noise.
+	Stereotype string   `json:"stereotype,omitempty"`
 	SourceFile string   `json:"sourceFile,omitempty"`
 	Exported   bool     `json:"exported,omitempty"`
 	Diff       string   `json:"diff,omitempty"`
@@ -133,10 +147,17 @@ type Internal struct {
 	Members    []Member `json:"members"`
 }
 
+// Member is one row of a class body. Name is the bare identifier, Params the
+// formatted parameter list (methods only) and Type the right-hand column
+// (return types, field type, constant type). Members synthesized from diff
+// fingerprints carry the whole signature in Name and leave the rest empty.
 type Member struct {
-	ID         string `json:"id"`
-	Kind       string `json:"kind"` // method|prop
-	Name       string `json:"name"`
+	ID     string `json:"id"`
+	Kind   string `json:"kind"` // method|prop|const|param|return
+	Name   string `json:"name"`
+	Params string `json:"params,omitempty"`
+	Type   string `json:"type,omitempty"`
+
 	SourceFile string `json:"sourceFile,omitempty"`
 	Exported   bool   `json:"exported,omitempty"`
 	Diff       string `json:"diff,omitempty"`
@@ -360,6 +381,7 @@ func buildComponent(
 			ID:         m.Path + "." + iface.Name,
 			Kind:       "iface",
 			Name:       displayName,
+			Stereotype: iface.Stereotype.String(),
 			SourceFile: iface.SourceFile,
 			Exported:   publicIndex.HasSymbolID(m.Path + "." + iface.Name),
 			Members:    []Member{},
@@ -375,13 +397,12 @@ func buildComponent(
 		applyPublicDiffDetailToInternal(&internal, publicDiffs)
 		// Build members from methods
 		for _, method := range iface.Methods {
-			member := Member{
-				ID:         internal.ID + "." + method.Name,
-				Kind:       "method",
-				Name:       method.Signature(),
-				SourceFile: iface.SourceFile,
-				Exported:   publicIndex.HasMemberID(internal.ID + "." + method.Name),
-			}
+			member := methodMember(
+				internal.ID,
+				method,
+				iface.SourceFile,
+				publicIndex.HasMemberID(internal.ID+"."+method.Name),
+			)
 			// Apply diff at member level
 			if op, ok := diffMap[member.ID]; ok {
 				member.Diff = op
@@ -416,6 +437,7 @@ func buildComponent(
 			ID:         m.Path + "." + s.Name,
 			Kind:       "class",
 			Name:       domain.NameWithTypeParams(s.Name, s.TypeParams),
+			Stereotype: s.Stereotype.String(),
 			SourceFile: s.SourceFile,
 			Exported:   publicIndex.HasSymbolID(m.Path + "." + s.Name),
 			Members:    []Member{},
@@ -431,13 +453,12 @@ func buildComponent(
 		applyPublicDiffDetailToInternal(&internal, publicDiffs)
 		// Build members from fields
 		for _, f := range s.Fields {
-			member := Member{
-				ID:         internal.ID + "." + f.Name,
-				Kind:       "prop",
-				Name:       f.Name + " : " + f.Type.String(),
-				SourceFile: s.SourceFile,
-				Exported:   publicIndex.HasMemberID(internal.ID + "." + f.Name),
-			}
+			member := fieldMember(
+				internal.ID,
+				f,
+				s.SourceFile,
+				publicIndex.HasMemberID(internal.ID+"."+f.Name),
+			)
 			// Apply diff at member level
 			if op, ok := diffMap[member.ID]; ok {
 				member.Diff = op
@@ -451,13 +472,12 @@ func buildComponent(
 		}
 		// Build members from struct methods
 		for _, method := range s.Methods {
-			member := Member{
-				ID:         internal.ID + "." + method.Name,
-				Kind:       "method",
-				Name:       method.Signature(),
-				SourceFile: s.SourceFile,
-				Exported:   publicIndex.HasMemberID(internal.ID + "." + method.Name),
-			}
+			member := methodMember(
+				internal.ID,
+				method,
+				s.SourceFile,
+				publicIndex.HasMemberID(internal.ID+"."+method.Name),
+			)
 			if op, ok := diffMap[member.ID]; ok {
 				member.Diff = op
 			}
@@ -474,13 +494,17 @@ func buildComponent(
 	}
 
 	for _, fn := range m.Functions {
+		exported := publicIndex.HasSymbolID(m.Path + "." + fn.Name)
 		internal := Internal{
 			ID:         m.Path + "." + fn.Name,
 			Kind:       "func",
-			Name:       fn.Signature(),
+			Name:       domain.NameWithTypeParams(fn.Name, fn.TypeParams),
+			Stereotype: fn.Stereotype.String(),
 			SourceFile: fn.SourceFile,
-			Exported:   publicIndex.HasSymbolID(m.Path + "." + fn.Name),
-			Members:    []Member{},
+			Exported:   exported,
+			// Parameters and the return type are class-body rows, not a
+			// signature crammed into the header.
+			Members: functionMembers(m.Path+"."+fn.Name, fn, fn.SourceFile, exported),
 		}
 		if op, ok := diffMap[internal.ID]; ok {
 			internal.Diff = op
@@ -497,7 +521,9 @@ func buildComponent(
 		internal := Internal{
 			ID:         m.Path + "." + td.Name,
 			Kind:       "type",
-			Name:       typeDefDisplayName(td),
+			Name:       domain.NameWithTypeParams(td.Name, td.TypeParams),
+			Type:       typeDefTypeLabel(td),
+			Stereotype: td.Stereotype.String(),
 			SourceFile: td.SourceFile,
 			Exported:   publicIndex.HasSymbolID(m.Path + "." + td.Name),
 			Members:    []Member{},
@@ -534,7 +560,8 @@ func buildComponent(
 		internal := Internal{
 			ID:         m.Path + "." + c.Name,
 			Kind:       "const",
-			Name:       constDisplayName(c),
+			Name:       c.Name,
+			Type:       constTypeLabel(c),
 			SourceFile: c.SourceFile,
 			Exported:   publicIndex.HasSymbolID(m.Path + "." + c.Name),
 			Members:    []Member{},
@@ -554,7 +581,8 @@ func buildComponent(
 		internal := Internal{
 			ID:         m.Path + "." + v.Name,
 			Kind:       "var",
-			Name:       varDisplayName(v),
+			Name:       v.Name,
+			Type:       varTypeLabel(v),
 			SourceFile: v.SourceFile,
 			Exported:   publicIndex.HasSymbolID(m.Path + "." + v.Name),
 			Members:    []Member{},
@@ -575,6 +603,7 @@ func buildComponent(
 			ID:         m.Path + "." + e.Name,
 			Kind:       "error",
 			Name:       e.Name,
+			Type:       errorTypeLabel(e),
 			SourceFile: e.SourceFile,
 			Exported:   publicIndex.HasSymbolID(m.Path + "." + e.Name),
 			Members:    []Member{},
@@ -938,14 +967,6 @@ func typeDefSignature(v any) string {
 		return "type " + domain.NameWithTypeParams(td.Name, td.TypeParams) + " " + td.UnderlyingType.String()
 	}
 	return ""
-}
-
-func typeDefDisplayName(td domain.TypeDef) string {
-	name := domain.NameWithTypeParams(td.Name, td.TypeParams)
-	if td.UnderlyingType.Name == "" && td.UnderlyingType.Package == "" {
-		return name
-	}
-	return name + " : " + td.UnderlyingType.String()
 }
 
 func constSignature(v any) string {
