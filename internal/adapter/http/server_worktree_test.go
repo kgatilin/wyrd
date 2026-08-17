@@ -27,7 +27,11 @@ func TestServe_Lifecycle_WithServeJSON(t *testing.T) {
 		Root:     root,
 		HTTPAddr: "127.0.0.1:0",
 		HTTPServerFactory: func(state *serve.State) (serve.HTTPTransport, error) {
-			return NewServer(state)
+			srv, err := NewServer(state)
+			if err != nil {
+				return nil, err
+			}
+			return srv.WithReviewUI(testReviewUIFS()), nil
 		},
 		LogOut: io.Discard,
 	}

@@ -3,9 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	nethttp "net/http"
-	"sort"
 	"strings"
 
 	"github.com/kgatilin/archai/internal/adapter/mcp"
@@ -13,16 +11,15 @@ import (
 )
 
 // registerMultiRoutes installs the multi-worktree routing shell on
-// mux. All content routes are re-scoped under /w/{name}/*; legacy top
-// paths redirect to the current worktree; a small /worktree API lets
-// the switcher dropdown set the cookie without JS heavy-lifting.
+// mux. All content routes are re-scoped under /w/{name}/*; top-level
+// API paths redirect to the current worktree; POST /worktree/select
+// sets the cookie that decides which worktree those redirects land in.
 //
-// Static assets (/assets/), /render, and the switcher endpoint stay
-// at the top level because they do not depend on the active worktree.
+// The review UI bundle, /api/version, the plugin surfaces and the
+// switcher endpoint stay at the top level because they do not depend
+// on the active worktree.
 func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
-	mux.Handle("/assets/", nethttp.StripPrefix("/assets/", nethttp.FileServer(nethttp.FS(s.assets))))
 	s.registerReviewUIRoutes(mux)
-	mux.HandleFunc("/render", s.handleRender)
 	mux.HandleFunc("/worktree/select", s.handleWorktreeSelect)
 	// /api/version stays at the top level so its URL is the same in
 	// single- and multi-worktree mode.
@@ -39,35 +36,25 @@ func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
 	s.routesContent(contentMux)
 	mux.Handle("/w/", s.dispatchWorktree(contentMux))
 
-	// Legacy roots — redirect to the current worktree. We enumerate
-	// them explicitly so unknown paths still 404 (rather than getting
-	// silently rewritten).
-	legacyRoots := []string{
-		"/layers",
-		"/packages",
-		"/packages/",
-		"/configs",
-		"/diff",
-		"/diff/",
-		"/targets",
-		"/targets/",
-		"/search",
-		"/search/results",
+	// Worktree-less API roots — redirect to the current worktree so a
+	// caller that does not know the worktree name still resolves. We
+	// enumerate them explicitly so unknown paths still 404 (rather than
+	// getting silently rewritten).
+	apiRoots := []string{
+		"/api/uigraph",
+		"/api/sequence",
+		"/api/source",
 		"/api/events",
+		"/api/public-surface",
 		"/api/archmotif/metrics",
 		"/api/archmotif/embed",
-		"/types/",
-		"/api/uigraph",
-		"/api/source",
-		"/api/types/",
-		"/source",
 	}
 	if s.reviewUIEnabled() {
 		mux.HandleFunc("/", s.handleReviewUIRoot)
 	} else {
-		legacyRoots = append([]string{"/"}, legacyRoots...)
+		apiRoots = append([]string{"/"}, apiRoots...)
 	}
-	for _, p := range legacyRoots {
+	for _, p := range apiRoots {
 		path := p
 		mux.HandleFunc(path, func(w nethttp.ResponseWriter, r *nethttp.Request) {
 			s.redirectToWorktree(w, r)
@@ -177,8 +164,8 @@ func (s *Server) canServeWorktreeRouteWithoutState(rest string) bool {
 }
 
 func (s *Server) rewriteWorktreeRequest(r *nethttp.Request, name, rest string, state *serve.State) *nethttp.Request {
-	// Rewrite the URL so the content mux sees /layers instead of
-	// /w/foo/layers. We clone the URL so the original request is
+	// Rewrite the URL so the content mux sees /api/uigraph instead of
+	// /w/foo/api/uigraph. We clone the URL so the original request is
 	// unchanged (useful for logging/debugging middleware).
 	r2 := r.Clone(r.Context())
 	u := *r.URL
@@ -266,42 +253,4 @@ func rewriteForWorktree(redirect, name string) string {
 		return "/w/" + name + redirect
 	}
 	return "/w/" + name + "/" + redirect
-}
-
-// buildWorktreeList returns the switcher metadata (names + current
-// selection) for the top-bar dropdown. The caller passes r so the
-// current selection comes from context (inside dispatchWorktree) or
-// cookie/default (top-level legacy handlers, which redirect anyway).
-func (s *Server) buildWorktreeList(r *nethttp.Request) []worktreeOption {
-	if s.multi == nil {
-		return nil
-	}
-	cur := s.currentWorktree(r)
-	entries := s.multi.Worktrees()
-	out := make([]worktreeOption, 0, len(entries))
-	for _, e := range entries {
-		out = append(out, worktreeOption{
-			Name:    e.Name,
-			Branch:  e.Branch,
-			Current: e.Name == cur,
-		})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
-}
-
-// worktreeOption is one entry in the switcher dropdown.
-type worktreeOption struct {
-	Name    string
-	Branch  string
-	Current bool
-}
-
-// worktreeSwitcherLabel renders a compact label for the dropdown:
-// "name (branch)" when Branch is set, else just the name.
-func (o worktreeOption) Label() string {
-	if o.Branch == "" {
-		return o.Name
-	}
-	return fmt.Sprintf("%s (%s)", o.Name, o.Branch)
 }

@@ -8,7 +8,38 @@ import (
 
 	d2adapter "github.com/kgatilin/archai/internal/adapter/d2"
 	"github.com/kgatilin/archai/internal/adapter/mermaid"
+	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/archai/internal/overlay"
 )
+
+// applyOverlay merges the overlay config into a fresh copy of the
+// package list so Layer/Aggregate are populated for rendering. A nil
+// overlay is fine — the input slice is returned unchanged.
+func applyOverlay(pkgs []domain.PackageModel, cfg *overlay.Config) []domain.PackageModel {
+	if cfg == nil || len(pkgs) == 0 {
+		return pkgs
+	}
+	cp := make([]domain.PackageModel, len(pkgs))
+	copy(cp, pkgs)
+	merged, _, err := overlay.Merge(cp, cfg)
+	if err != nil {
+		// overlay.Merge only fails for nil cfg, which we guard above.
+		// Defensive fallback: keep the untouched copies.
+		return cp
+	}
+	return merged
+}
+
+// findPackage looks up a package by module-relative path. Returns a
+// zero-value and false when not found.
+func findPackage(pkgs []domain.PackageModel, path string) (domain.PackageModel, bool) {
+	for _, p := range pkgs {
+		if p.Path == path {
+			return p, true
+		}
+	}
+	return domain.PackageModel{}, false
+}
 
 // sequenceAPIEntry is one entry-point sequence diagram for a package,
 // rendered as Mermaid `sequenceDiagram` source so a front-end can draw it

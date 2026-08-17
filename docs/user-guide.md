@@ -312,7 +312,7 @@ adapters:
   http_server:
     name: "HTTP Server"
     direction: bidirectional
-    description: "HTTP API and dashboard host process."
+    description: "HTTP API and review UI host process."
     packages:
       - internal/serve/...
 ```
@@ -373,7 +373,7 @@ downstream tools.
 
 `archai serve --http :PORT` runs a long-running daemon that keeps an
 in-memory model of the project, watches the filesystem with fsnotify,
-and serves the browser UI on the given address.
+and serves the architecture review UI on the given address.
 
 ```bash
 archai serve --http :8080
@@ -387,24 +387,34 @@ Other flags:
   [§6](#6-agent-integration-mcp)).
 - `--debug` — verbose per-event logging.
 
-### 4.1 Views
+### 4.1 The review canvas
 
-| Route                 | View             | What it shows |
-|-----------------------|------------------|---------------|
-| `/`                   | Dashboard        | Project summary — module, layer counts, package/type counts, active target, drift status. |
-| `/layers`             | Layers           | The layer map from `archai.yaml` with package counts per layer and an allowed-dependencies grid. Red cells are layer-rule violations in the current code. |
-| `/packages`           | Packages         | Flat list of all packages with layer tag, counts, and import-path search. |
-| `/packages/{path}`    | Package detail   | Interfaces, structs, functions, methods, and dependencies for one package. Links to types and bounded context. |
-| `/types/{pkg}.{type}` | Type detail      | Fields/methods of a struct or interface, implementers/implementations, inbound references. |
-| `/configs`            | Configs          | Config bundles declared in `archai.yaml` (empty when no `configs:` entries). |
-| `/bc`                 | Domain           | Bounded context catalog with an interactive context-map graph (visible only when `bounded_contexts:` is declared). |
-| `/bc/{name}`          | BC detail        | Aggregates, upstream/downstream peer contexts, and member packages for one bounded context. |
-| `/targets`            | Targets          | All locked targets, which one is CURRENT, created_at, description. |
-| `/diff`               | Diff             | Structured diff between current code and the active target — color-coded: green = added, red = removed, amber = modified. |
-| `/search`             | Global search    | Packages, types, and functions by name substring. |
+The UI opens on a canvas of package cards. Every control below is in the
+bar at the top:
 
-Screenshots live under [`docs/screenshots/`](screenshots/) — see the
-README there for the expected filenames.
+| Control    | What it does |
+|------------|--------------|
+| View       | Which slice of the repository is on the canvas (`reviewViews` from the model). |
+| Scope      | How much of each package is shown: everything, public API only, or internal implementation only. |
+| Group by   | How cards are grouped into labelled regions (bounded contexts, configured groups, or the review view). |
+| Focus      | How far to expand from the changed packages: changed only, changed + linked, the containing group, the whole view, or the whole repo. |
+| Changes    | Which change kinds count: all, additions, removals, changed signatures, dependency changes, or policy/grouping. |
+| Details    | Whether a card lists only its changed symbols or the full package. |
+
+Click a card to expand it. An expanded card is the same picture
+`archai diagram generate` emits as D2: a container per source file, a
+class shape per symbol with its stereotype, and a two-column body of
+fields, parameters and returns. Arrows inside and between cards are the
+structural relations (`uses`, `returns`, `implements`); click a symbol to
+overlay its call wiring, which is the one place call edges are drawn.
+
+The daemon serves the canvas at `/` (single worktree) or
+`/w/{worktree}/` when it was started with `--repo` / `--multi`, plus the
+JSON APIs behind it (`/api/uigraph`, `/api/source`, `/api/sequence`,
+`/api/events`). The other lenses — layers, search, bounded contexts,
+targets, diff — are CLI and MCP surfaces: `archai target list/use`,
+`archai diff`, and the MCP tools (`search`, `expand`, `trophic_layers`,
+`spectral_cluster`, `latent_domains`, `get_bounded_context`).
 
 ### 4.2 Reading the diff colors
 
@@ -555,8 +565,9 @@ The daemon advertises eleven tools (defined in
 ### 7.1 Onboarding to an unfamiliar codebase
 
 1. `archai diagram generate ./...` — emit per-package D2.
-2. `archai serve --http :8080` — open the dashboard, skim *Layers* to
-   see the overall shape, drill into *Packages* for entry points.
+2. `archai serve --http :8080` — open the review canvas, skim the
+   grouped cards for the overall shape, expand the ones that look like
+   entry points.
 3. `archai sequence <pkg>.<Type>.<Method>` on the main request entry
    point to understand the call flow.
 
@@ -566,8 +577,8 @@ The daemon advertises eleven tools (defined in
    existing model.
 2. `archai target lock v-next --description "post-refactor shape"`.
 3. `archai target use v-next`.
-4. Keep editing. Run `archai diff` (or the *Diff* view) to see what is
-   still missing or wrong.
+4. Keep editing. Run `archai diff` to see what is still missing or
+   wrong.
 5. When `archai validate` exits `0`, you are done.
 
 ### 7.3 Enforcing architecture in CI

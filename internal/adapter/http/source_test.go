@@ -15,42 +15,6 @@ import (
 	"github.com/kgatilin/archai/internal/serve"
 )
 
-func TestSourceFile_RendersRelativeFile(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "internal", "event"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "internal", "event", "event.go"), []byte("package event\nconst x = \"<tag>\"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	ts := newSourceTestServer(t, root)
-	defer ts.Close()
-
-	resp, err := ts.Client().Get(ts.URL + "/source?file=" + url.QueryEscape("internal/event/event.go"))
-	if err != nil {
-		t.Fatalf("GET /source: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != nethttp.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(body)
-	for _, want := range []string{
-		"internal/event/event.go",
-		`<td class="source-no">1</td>`,
-		"package event",
-		`&lt;tag&gt;`,
-	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("body missing %q", want)
-		}
-	}
-}
-
 func TestSourceFileJSON_ReturnsContent(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "internal", "event"), 0o755); err != nil {
@@ -219,9 +183,9 @@ func TestSourceFile_RejectsTraversal(t *testing.T) {
 	ts := newSourceTestServer(t, root)
 	defer ts.Close()
 
-	resp, err := ts.Client().Get(ts.URL + "/source?file=" + url.QueryEscape("../secret.go"))
+	resp, err := ts.Client().Get(ts.URL + "/api/source?file=" + url.QueryEscape("../secret.go"))
 	if err != nil {
-		t.Fatalf("GET /source: %v", err)
+		t.Fatalf("GET /api/source: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != nethttp.StatusBadRequest {

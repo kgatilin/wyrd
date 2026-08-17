@@ -14,17 +14,6 @@ import (
 	"github.com/kgatilin/archai/internal/domain"
 )
 
-type sourceFilePageData struct {
-	pageData
-	Path  string
-	Lines []sourceLine
-}
-
-type sourceLine struct {
-	Number int
-	Text   string
-}
-
 type sourceFileJSON struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
@@ -42,23 +31,6 @@ type saveSourceFileJSON struct {
 	Content          string   `json:"content"`
 	Hash             string   `json:"hash"`
 	ReloadedPackages []string `json:"reloadedPackages,omitempty"`
-}
-
-func (s *Server) handleSourceFile(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if r.Method != nethttp.MethodGet {
-		nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
-		return
-	}
-	rel, content, err := s.readSourceFile(r)
-	if err != nil {
-		writeSourceError(w, err)
-		return
-	}
-	s.renderPage(w, "source.html", sourceFilePageData{
-		pageData: s.basePageData(r, rel, ""),
-		Path:     rel,
-		Lines:    sourceLines(content),
-	})
 }
 
 func (s *Server) handleSourceFileJSON(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -345,19 +317,4 @@ func writeSourceError(w nethttp.ResponseWriter, err error) {
 func sourceHash(content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-func sourceLines(src string) []sourceLine {
-	parts := strings.Split(src, "\n")
-	if len(parts) > 1 && parts[len(parts)-1] == "" {
-		parts = parts[:len(parts)-1]
-	}
-	lines := make([]sourceLine, 0, len(parts))
-	for i, text := range parts {
-		lines = append(lines, sourceLine{Number: i + 1, Text: text})
-	}
-	if len(lines) == 0 {
-		return []sourceLine{{Number: 1}}
-	}
-	return lines
 }

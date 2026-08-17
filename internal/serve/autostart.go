@@ -105,9 +105,6 @@ type AutoStartOptions struct {
 	// Multi, when true, starts a multi-worktree daemon (--multi flag).
 	// This is the new default for MCP clients.
 	Multi bool
-
-	// UI, when true, enables the UI on the auto-started daemon (--ui).
-	UI bool
 }
 
 // AutoStartDaemon spawns `archai serve --http <addr>` as a detached
@@ -181,9 +178,6 @@ func AutoStartDaemon(opts AutoStartOptions) (*worktree.ServeRecord, error) {
 	}
 	if opts.Multi {
 		args = append(args, "--multi")
-	}
-	if opts.UI {
-		args = append(args, "--ui")
 	}
 	cmd := exec.Command(exePath, args...)
 	cmd.Stdin = nil
@@ -282,7 +276,7 @@ func AutoStartRepoDaemon(opts AutoStartOptions) (*DaemonRecord, string, error) {
 	}
 
 	// Start a multi-worktree daemon at the repo root.
-	args := []string{"serve", "--repo", repoRoot, "--http", httpAddr, "--multi", "--ui"}
+	args := []string{"serve", "--repo", repoRoot, "--http", httpAddr, "--multi"}
 	if opts.IdleTimeout > 0 {
 		args = append(args, "--idle-timeout", opts.IdleTimeout.String())
 	}

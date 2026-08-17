@@ -135,7 +135,7 @@ func buildMultiServer(t *testing.T) (*Server, *serve.MultiState, *int64) {
 	return srv, multi, &loadCount
 }
 
-func TestMultiServer_LegacyRedirect(t *testing.T) {
+func TestMultiServer_APIRootRedirect(t *testing.T) {
 	srv, _, _ := buildMultiServer(t)
 
 	mux := nethttp.NewServeMux()
@@ -149,28 +149,28 @@ func TestMultiServer_LegacyRedirect(t *testing.T) {
 			return nethttp.ErrUseLastResponse
 		},
 	}
-	resp, err := client.Get(ts.URL + "/layers")
+	resp, err := client.Get(ts.URL + "/api/uigraph")
 	if err != nil {
-		t.Fatalf("GET /layers: %v", err)
+		t.Fatalf("GET /api/uigraph: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != nethttp.StatusFound {
 		t.Fatalf("status = %d, want 302", resp.StatusCode)
 	}
 	loc := resp.Header.Get("Location")
-	if loc != "/w/alpha/layers" {
-		t.Errorf("Location = %q, want /w/alpha/layers", loc)
+	if loc != "/w/alpha/api/uigraph" {
+		t.Errorf("Location = %q, want /w/alpha/api/uigraph", loc)
 	}
 
 	// With cookie -> redirects to the chosen worktree.
-	req, _ := nethttp.NewRequest(nethttp.MethodGet, ts.URL+"/layers", nil)
+	req, _ := nethttp.NewRequest(nethttp.MethodGet, ts.URL+"/api/uigraph", nil)
 	req.AddCookie(&nethttp.Cookie{Name: cookieName, Value: "beta"})
 	resp2, err := client.Do(req)
 	if err != nil {
-		t.Fatalf("GET /layers with cookie: %v", err)
+		t.Fatalf("GET /api/uigraph with cookie: %v", err)
 	}
 	defer resp2.Body.Close()
-	if resp2.Header.Get("Location") != "/w/beta/layers" {
+	if resp2.Header.Get("Location") != "/w/beta/api/uigraph" {
 		t.Errorf("Location with cookie = %q", resp2.Header.Get("Location"))
 	}
 
@@ -189,12 +189,13 @@ func TestMultiServer_LegacyRedirect(t *testing.T) {
 
 func TestMultiServer_WorktreeDispatch(t *testing.T) {
 	srv, _, _ := buildMultiServer(t)
+	srv.WithReviewUI(testReviewUIFS())
 	mux := nethttp.NewServeMux()
 	srv.routes(mux)
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	// /w/alpha/ should render the dashboard with status 200.
+	// /w/alpha/ redirects into that worktree's review UI and serves it.
 	resp, err := nethttp.Get(ts.URL + "/w/alpha/")
 	if err != nil {
 		t.Fatalf("GET /w/alpha/: %v", err)
@@ -204,13 +205,13 @@ func TestMultiServer_WorktreeDispatch(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, body=%s", resp.StatusCode, string(body))
 	}
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "Dashboard") {
-		t.Errorf("dashboard body missing Dashboard title: %s", string(body))
+	if got := resp.Request.URL.Path; got != "/w/alpha/review/" {
+		t.Errorf("landed on %q, want /w/alpha/review/", got)
 	}
-	// Nav links should be scoped to /w/alpha/.
-	if !strings.Contains(string(body), `href="/w/alpha/layers"`) {
-		t.Errorf("nav links not prefixed with worktree: %s", string(body))
+	body, _ := io.ReadAll(resp.Body)
+	// Asset URLs are rewritten to stay inside the worktree.
+	if !strings.Contains(string(body), `"/w/alpha/review/assets/app.js"`) {
+		t.Errorf("asset paths not scoped to worktree: %s", string(body))
 	}
 }
 
@@ -221,7 +222,7 @@ func TestMultiServer_UnknownWorktree(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	resp, err := nethttp.Get(ts.URL + "/w/nope/layers")
+	resp, err := nethttp.Get(ts.URL + "/w/nope/api/uigraph")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -446,13 +447,13 @@ func TestSingleServer_NoMultiRoutes(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	resp, err := nethttp.Get(ts.URL + "/layers")
+	resp, err := nethttp.Get(ts.URL + "/api/uigraph")
 	if err != nil {
-		t.Fatalf("GET /layers: %v", err)
+		t.Fatalf("GET /api/uigraph: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != nethttp.StatusOK {
-		t.Errorf("single mode /layers status = %d, want 200 (no redirect expected)", resp.StatusCode)
+		t.Errorf("single mode /api/uigraph status = %d, want 200 (no redirect expected)", resp.StatusCode)
 	}
 
 	// /w/foo/ should 404 in single mode (no prefix routes installed).
@@ -461,11 +462,9 @@ func TestSingleServer_NoMultiRoutes(t *testing.T) {
 		t.Fatalf("GET /w/foo/: %v", err)
 	}
 	defer resp2.Body.Close()
-	if resp2.StatusCode == nethttp.StatusOK {
+	if resp2.StatusCode != nethttp.StatusNotFound {
 		body, _ := io.ReadAll(resp2.Body)
-		if strings.Contains(string(body), "Dashboard") {
-			t.Errorf("single mode served dashboard at /w/foo/: %s", body)
-		}
+		t.Errorf("single mode /w/foo/ status = %d, want 404: %s", resp2.StatusCode, body)
 	}
 }
 

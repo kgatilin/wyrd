@@ -247,9 +247,12 @@ func Serve(ctx context.Context, opts Options) error {
 				serveRecorded = true
 
 				// Write global daemon record for repo-level discovery.
-				caps := []string{"mcp"}
+				// Every HTTP daemon serves the review UI, so "ui" rides
+				// along with the listener; "multi" marks repo-level
+				// daemons that expose several worktrees at once.
+				caps := []string{"mcp", "ui"}
 				if opts.MultiState != nil {
-					caps = append(caps, "multi", "ui")
+					caps = append(caps, "multi")
 				}
 				var worktrees []string
 				if opts.MultiState != nil {

@@ -2,12 +2,8 @@ package http
 
 import (
 	"context"
-	"io"
 	nethttp "net/http"
 	"net/http/httptest"
-	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,26 +11,10 @@ import (
 	"github.com/kgatilin/archai/internal/serve"
 )
 
-// navPaths lists the routes that every nav page should answer with a
-// 200 + fully-formed base layout. Kept as a var so it's trivial to
-// extend as M7b-f add real content.
-var navPaths = []string{"/", "/layers", "/packages", "/configs", "/targets", "/diff", "/search"}
-
-// expectedNavLinks are substrings we expect to find on every rendered
-// page — they are the canonical top-nav entries defined in handlers.go.
-var expectedNavLinks = []string{
-	`href="/"`,
-	`href="/layers"`,
-	`href="/packages"`,
-	`href="/configs"`,
-	`href="/targets"`,
-	`href="/diff"`,
-	`href="/search"`,
-}
-
 // newTestServer spins up a Server backed by an empty serve.State
-// rooted at t.TempDir() and wraps it in an httptest.Server. Callers
-// are responsible for closing the returned httptest.Server.
+// rooted at t.TempDir(), with the review UI mounted, and wraps it in an
+// httptest.Server. Callers are responsible for closing the returned
+// httptest.Server.
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	state := serve.NewState(t.TempDir())
@@ -42,41 +22,10 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
+	srv.WithReviewUI(testReviewUIFS())
 	mux := nethttp.NewServeMux()
 	srv.routes(mux)
 	return httptest.NewServer(mux)
-}
-
-func TestServer_NavPages_Return200WithNav(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	for _, path := range navPaths {
-		path := path
-		t.Run(path, func(t *testing.T) {
-			resp, err := ts.Client().Get(ts.URL + path)
-			if err != nil {
-				t.Fatalf("GET %s: %v", path, err)
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode != nethttp.StatusOK {
-				t.Fatalf("GET %s: status = %d, want 200", path, resp.StatusCode)
-			}
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatalf("read body: %v", err)
-			}
-			s := string(body)
-			for _, link := range expectedNavLinks {
-				if !strings.Contains(s, link) {
-					t.Errorf("GET %s: body missing nav link %q", path, link)
-				}
-			}
-			if !strings.Contains(s, `<main class="content">`) {
-				t.Errorf("GET %s: body missing main content area", path)
-			}
-		})
-	}
 }
 
 func TestServer_Unknown404(t *testing.T) {
@@ -93,283 +42,6 @@ func TestServer_Unknown404(t *testing.T) {
 	}
 }
 
-func TestServer_AssetsServed(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	// htmx.min.js and styles.css must both be reachable.
-	for _, asset := range []string{"/assets/htmx.min.js", "/assets/styles.css"} {
-		resp, err := ts.Client().Get(ts.URL + asset)
-		if err != nil {
-			t.Fatalf("GET %s: %v", asset, err)
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode != nethttp.StatusOK {
-			t.Fatalf("GET %s: status = %d (%s)", asset, resp.StatusCode, string(body))
-		}
-		if len(body) == 0 {
-			t.Fatalf("GET %s: empty body", asset)
-		}
-	}
-}
-
-// TestServer_StylesheetMobileResponsive (#73) guards the mobile-
-// responsive declarations so a future refactor doesn't silently
-// regress phone usability. Each marker maps to one of the rules from
-// the ticket: card grid auto-fit, mobile breakpoint, hamburger nav,
-// cytoscape touch-action, FQN wrap.
-func TestServer_StylesheetMobileResponsive(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	resp, err := ts.Client().Get(ts.URL + "/assets/styles.css")
-	if err != nil {
-		t.Fatalf("GET /assets/styles.css: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != nethttp.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	css := string(body)
-	wantMarkers := []string{
-		"minmax(280px, 1fr)",
-		"@media (max-width: 480px)",
-		"@media (max-width: 720px)",
-		"touch-action: none",
-		"overflow-wrap: anywhere",
-		".nav-toggle-input",
-		".cy-zoom-controls",
-	}
-	for _, m := range wantMarkers {
-		if !strings.Contains(css, m) {
-			t.Errorf("styles.css missing responsive marker %q", m)
-		}
-	}
-}
-
-// TestServer_BaseTemplate_HamburgerToggle (#73) asserts that pages
-// served from the base layout include the CSS-only nav toggle. We
-// hit the dashboard and look for the input + label markers.
-func TestServer_BaseTemplate_HamburgerToggle(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	resp, err := ts.Client().Get(ts.URL + "/")
-	if err != nil {
-		t.Fatalf("GET /: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != nethttp.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	html := string(body)
-	for _, m := range []string{`class="nav-toggle-input"`, `class="nav-toggle-label"`} {
-		if !strings.Contains(html, m) {
-			t.Errorf("rendered page missing %q", m)
-		}
-	}
-}
-
-func TestServer_RenderEndpoint_POSTForm(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	resp, err := ts.Client().PostForm(ts.URL+"/render", url.Values{"d2": {"a -> b"}})
-	if err != nil {
-		t.Fatalf("POST /render: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != nethttp.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status = %d, body = %s", resp.StatusCode, string(body))
-	}
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "<svg") {
-		t.Fatalf("body does not contain <svg: %s", string(body))
-	}
-}
-
-func TestServer_RenderEndpoint_MissingSource(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	resp, err := ts.Client().Get(ts.URL + "/render")
-	if err != nil {
-		t.Fatalf("GET /render: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != nethttp.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", resp.StatusCode)
-	}
-}
-
-// newLoadedTestServer spins up a Server whose State has been Loaded
-// against a tiny fixture module so search handlers have real packages
-// to query. The fixture mirrors the one used by serve/state_test.
-func newLoadedTestServer(t *testing.T) *httptest.Server {
-	t.Helper()
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "go.mod"),
-		[]byte("module example.com/searchfix\n\ngo 1.21\n"), 0o644); err != nil {
-		t.Fatalf("write go.mod: %v", err)
-	}
-	pkgDir := filepath.Join(root, "internal", "alpha")
-	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "alpha.go"), []byte(`package alpha
-
-// Greeter is an exported interface so the search index has an interface
-// to find.
-type Greeter interface {
-	Greet() string
-}
-
-// Hello is an exported struct so the search index has a struct to find.
-type Hello struct {
-	Name string
-}
-
-// NewHello returns a Hello.
-func NewHello() *Hello { return &Hello{} }
-`), 0o644); err != nil {
-		t.Fatalf("write alpha.go: %v", err)
-	}
-
-	state := serve.NewState(root)
-	if err := state.Load(context.Background()); err != nil {
-		t.Fatalf("state.Load: %v", err)
-	}
-	srv, err := NewServer(state)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
-	mux := nethttp.NewServeMux()
-	srv.routes(mux)
-	return httptest.NewServer(mux)
-}
-
-func TestServer_SearchPage_RendersFormAndNoResultsWhenEmpty(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	resp, err := ts.Client().Get(ts.URL + "/search")
-	if err != nil {
-		t.Fatalf("GET /search: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != nethttp.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	s := string(body)
-	// Full page must include the search input and the HTMX target.
-	for _, want := range []string{
-		`id="search-q"`,
-		`id="search-kind"`,
-		`hx-get="/search/results"`,
-		`id="search-results"`,
-	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("search page missing %q", want)
-		}
-	}
-}
-
-func TestServer_SearchPage_InlineResultsForQuery(t *testing.T) {
-	ts := newLoadedTestServer(t)
-	defer ts.Close()
-
-	resp, err := ts.Client().Get(ts.URL + "/search?q=Hello")
-	if err != nil {
-		t.Fatalf("GET /search?q=Hello: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != nethttp.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	s := string(body)
-	if !strings.Contains(s, `>Hello<`) {
-		t.Errorf("expected 'Hello' result in body, got:\n%s", s)
-	}
-	if !strings.Contains(s, `/packages/internal/alpha#struct-Hello`) {
-		t.Error("expected link to struct detail page")
-	}
-}
-
-func TestServer_SearchResults_Fragment(t *testing.T) {
-	ts := newLoadedTestServer(t)
-	defer ts.Close()
-
-	resp, err := ts.Client().Get(ts.URL + "/search/results?q=Greeter")
-	if err != nil {
-		t.Fatalf("GET /search/results: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != nethttp.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	s := string(body)
-
-	// Fragment must NOT contain the base layout chrome.
-	if strings.Contains(s, `<main class="content">`) {
-		t.Error("fragment should not include base layout <main> block")
-	}
-	if strings.Contains(s, `<header class="site-nav">`) {
-		t.Error("fragment should not include site nav")
-	}
-	// But it must include the result.
-	if !strings.Contains(s, "Greeter") {
-		t.Errorf("fragment missing 'Greeter' result, got:\n%s", s)
-	}
-	if !strings.Contains(s, "/packages/internal/alpha#interface-Greeter") {
-		t.Error("fragment missing interface detail href")
-	}
-}
-
-func TestServer_SearchResults_KindFilter(t *testing.T) {
-	ts := newLoadedTestServer(t)
-	defer ts.Close()
-
-	// Kind=struct should not surface the Greeter interface.
-	resp, err := ts.Client().Get(ts.URL + "/search/results?q=Hello&kind=struct")
-	if err != nil {
-		t.Fatalf("GET: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	s := string(body)
-	if !strings.Contains(s, "Hello") {
-		t.Errorf("expected Hello struct in results, got:\n%s", s)
-	}
-	if strings.Contains(s, "Greeter") {
-		t.Errorf("kind=struct filter leaked interface match: %s", s)
-	}
-}
-
-func TestServer_SearchResults_EmptyQueryHint(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	resp, err := ts.Client().Get(ts.URL + "/search/results?q=")
-	if err != nil {
-		t.Fatalf("GET: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != nethttp.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "Type to search") {
-		t.Errorf("empty query fragment should show hint, got:\n%s", string(body))
-	}
-}
-
 // TestServer_Serve_ReadyCallback verifies that Serve invokes the
 // ready callback with the actual bound address when addr uses port 0.
 func TestServer_Serve_ReadyCallback(t *testing.T) {
@@ -378,6 +50,7 @@ func TestServer_Serve_ReadyCallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
+	srv.WithReviewUI(testReviewUIFS())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -392,7 +65,8 @@ func TestServer_Serve_ReadyCallback(t *testing.T) {
 		if !strings.HasPrefix(addr, "127.0.0.1:") {
 			t.Fatalf("bound addr = %q, want 127.0.0.1:<port>", addr)
 		}
-		// Hit the server to confirm it's actually up.
+		// Hit the server to confirm it's actually up. The root redirects
+		// to the review UI, which the default client follows.
 		resp, err := nethttp.Get("http://" + addr + "/")
 		if err != nil {
 			t.Fatalf("GET /: %v", err)
@@ -400,6 +74,9 @@ func TestServer_Serve_ReadyCallback(t *testing.T) {
 		resp.Body.Close()
 		if resp.StatusCode != nethttp.StatusOK {
 			t.Fatalf("GET /: status = %d", resp.StatusCode)
+		}
+		if got := resp.Request.URL.Path; got != reviewUIPrefix {
+			t.Fatalf("GET / landed on %q, want %q", got, reviewUIPrefix)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("ready callback not invoked within 2s")

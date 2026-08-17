@@ -80,6 +80,12 @@ End state: a `validate`-able architecture model + a usable web browser for it.
 
 ## Browser sketch (M7)
 
+> **Superseded.** M7's html/template + HTMX site was removed once the React
+> review UI became the daemon's only browser surface. The lenses below now
+> live in the CLI (`archai target`, `archai diff`) and the MCP tools
+> (`search`, `expand`, `trophic_layers`, `get_bounded_context`). Kept for
+> the record.
+
 Top nav: **Dashboard** / **Layers** / **Packages** / **Configs** / **Targets**
 / **Diff** / **Search**.
 

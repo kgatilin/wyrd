@@ -309,17 +309,21 @@ Loads the Go model, the archai.yaml overlay (if present), and the active
 target id into memory, then watches the project root with fsnotify and
 incrementally refreshes the model on change.
 
-The HTTP transport (--http) serves the browser UI (dashboard, layers,
-packages, configs, targets, diff, search) backed by the in-memory
-model. MCP stdio (--mcp-stdio) remains a stub until M5b. With no
-transport flag, the daemon runs as a silent model-keeper useful for
-manual verification and as a base for future features.`,
+The HTTP transport (--http) serves the architecture review UI at / and
+the JSON APIs behind it, backed by the in-memory model. MCP stdio
+(--mcp-stdio) remains a stub until M5b. With no transport flag, the
+daemon runs as a silent model-keeper useful for manual verification
+and as a base for future features.`,
 		Args: cobra.NoArgs,
 		RunE: runServe,
 	}
 	serveCmd.Flags().String("root", ".", "Project root directory")
 	serveCmd.Flags().String("repo", "", "Repository root directory for repo-level review mode (enables --multi)")
-	serveCmd.Flags().Bool("ui", false, "Serve the React architecture review UI as the first screen")
+	// --ui used to opt in to the review UI, which is now the only browser
+	// surface and always mounted. Accepted and ignored so existing
+	// wrappers and launch scripts keep working.
+	serveCmd.Flags().Bool("ui", true, "Deprecated: the review UI is always served")
+	_ = serveCmd.Flags().MarkHidden("ui")
 	serveCmd.Flags().Bool("mcp-stdio", false, "Run as MCP stdio thin client, proxying tools/call to the worktree's HTTP daemon")
 	// Default to loopback-only port 0 so parallel worktrees don't
 	// fight over a fixed port and the daemon isn't exposed on the LAN
@@ -466,7 +470,6 @@ Examples:
 func runServe(cmd *cobra.Command, args []string) error {
 	root, _ := cmd.Flags().GetString("root")
 	repo, _ := cmd.Flags().GetString("repo")
-	ui, _ := cmd.Flags().GetBool("ui")
 	mcpStdio, _ := cmd.Flags().GetBool("mcp-stdio")
 	httpAddr, _ := cmd.Flags().GetString("http")
 	httpAddrFromFlag := cmd.Flags().Changed("http")
@@ -485,17 +488,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if ui && httpAddr == "" {
-		return fmt.Errorf("--ui requires HTTP; do not pass --http \"\"")
-	}
-	var reviewUI fs.FS
-	if ui {
-		reviewUI, err = resolveReviewUIFS()
-		if err != nil {
-			return err
-		}
-	}
-
 	// Resolve --http precedence: explicit flag > overlay serve.http_addr
 	// > flag default. Only consult the overlay when the user did not
 	// pass --http on the command line. Skip it entirely in MCP stdio
@@ -567,6 +559,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr, note)
 	}
 	stateLoader := newServeStateLoader(serveReader)
+
+	// The review UI is the daemon's browser surface: whenever there is an
+	// HTTP listener, it is mounted. Resolving it here (rather than behind
+	// a flag) means a missing bundle fails at startup instead of 404ing
+	// on the first page load.
+	var reviewUI fs.FS
+	if httpAddr != "" {
+		reviewUI, err = resolveReviewUIFS()
+		if err != nil {
+			return err
+		}
+	}
 
 	opts := serve.Options{
 		Root:        root,
@@ -768,7 +772,6 @@ func runMCPThinClient(ctx context.Context, root string) error {
 			HTTPAddr:    "127.0.0.1:0",
 			IdleTimeout: autoStartIdleTimeout,
 			Multi:       true,
-			UI:          true,
 		})
 		if err != nil {
 			return fmt.Errorf("mcp-client: auto-start daemon: %w", err)
@@ -800,7 +803,6 @@ func runMCPThinClient(ctx context.Context, root string) error {
 				HTTPAddr:    "127.0.0.1:0",
 				IdleTimeout: autoStartIdleTimeout,
 				Multi:       true,
-				UI:          true,
 			})
 			if err != nil {
 				return "", err
@@ -853,7 +855,6 @@ func runMCPSharedClient(ctx context.Context, root string) error {
 			HTTPAddr:    "127.0.0.1:0",
 			IdleTimeout: autoStartIdleTimeout,
 			Multi:       true,
-			UI:          true,
 		})
 		if err != nil {
 			return fmt.Errorf("mcp-client: auto-start shared daemon: %w", err)
@@ -883,7 +884,6 @@ func runMCPSharedClient(ctx context.Context, root string) error {
 				HTTPAddr:    "127.0.0.1:0",
 				IdleTimeout: autoStartIdleTimeout,
 				Multi:       true,
-				UI:          true,
 			})
 			if derr != nil {
 				return "", derr

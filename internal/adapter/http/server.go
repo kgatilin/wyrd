@@ -1,16 +1,16 @@
 // Package http implements the HTTP transport for the archai serve
-// daemon. It exposes a browser UI (dashboard, layers, packages,
-// configs, targets, diff, search) built on plain html/template + HTMX,
-// plus a small /render endpoint used by the other M7 sub-milestones to
-// turn D2 source into SVG.
+// daemon. It serves the React review UI as the browser surface and the
+// JSON APIs behind it — the graph projection the UI renders, source
+// read/write, model events, archmotif metrics — alongside the machine
+// API used by the MCP thin client and the retrieval endpoints.
 //
-// All templates and static assets are embedded at compile time via
-// //go:embed so the compiled binary is fully self-contained.
+// The review UI bundle is supplied by the caller via WithReviewUI (the
+// CLI embeds it), so this package holds no assets of its own.
 //
 // The transport supports two serving modes (M10):
 //
-//   - Single-worktree (default): NewServer(state) serves the familiar
-//     routes (/, /layers, /packages, …) backed by one *serve.State.
+//   - Single-worktree (default): NewServer(state) serves the routes at
+//     the root, backed by one *serve.State.
 //   - Multi-worktree: NewMultiServer(multi) serves the same routes
 //     re-scoped under /w/{name}/* and adds redirects + a switcher so
 //     one HTTP port can expose every discovered worktree at once.
@@ -18,10 +18,8 @@ package http
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"fmt"
-	"html/template"
 	"io/fs"
 	"net"
 	nethttp "net/http"
@@ -33,25 +31,19 @@ import (
 	"github.com/kgatilin/archai/internal/serve"
 )
 
-//go:embed templates/*.html assets
-var embedded embed.FS
-
 // Server is the HTTP transport. It wraps a net/http.Server and holds
 // a reference to the shared serve.State (single mode) or a
-// serve.MultiState (multi mode) so handlers can render snapshots
+// serve.MultiState (multi mode) so handlers can answer from snapshots
 // without reloading the model.
 type Server struct {
-	state     *serve.State
-	multi     *serve.MultiState
-	templates *template.Template
-	assets    fs.FS
-	reviewUI  fs.FS
+	state    *serve.State
+	multi    *serve.MultiState
+	reviewUI fs.FS
 
 	// plugins is the bootstrap result captured at server construction
-	// time (M13). httpHandlers / uiAssets / uiRegistry are derived
-	// from it and are nil when no plugins are wired.
+	// time (M13). The HTTP handlers and UI asset bundles are mounted
+	// from it; both are absent when no plugins are wired.
 	plugins      plugin.BootstrapResult
-	uiRegistry   *plugin.UIRegistry
 	pluginsWired bool
 
 	// onActivity, when non-nil, is invoked for every HTTP request
@@ -98,15 +90,8 @@ func (s *Server) versionInfo() buildinfo.Info {
 // concurrently with Serve.
 func (s *Server) WithPlugins(res plugin.BootstrapResult) *Server {
 	s.plugins = res
-	s.uiRegistry = plugin.BuildUIRegistry(res)
 	s.pluginsWired = true
 	return s
-}
-
-// UIRegistry returns the plugin UI registry attached to s, or nil when
-// no plugins are wired.
-func (s *Server) UIRegistry() *plugin.UIRegistry {
-	return s.uiRegistry
 }
 
 // SetActivityObserver installs fn as the per-request activity hook.
@@ -117,56 +102,23 @@ func (s *Server) SetActivityObserver(fn func()) {
 }
 
 // NewServer constructs a single-worktree Server backed by the given
-// state. Templates are parsed eagerly so malformed templates fail at
-// construction time rather than on the first request. This is the
-// Mode A constructor: routes stay at their historical paths (/,
-// /layers, …).
+// state. This is the Mode A constructor: routes stay at the root.
 func NewServer(state *serve.State) (*Server, error) {
 	if state == nil {
 		return nil, errors.New("http: nil state")
 	}
-	tmpls, assets, err := parseEmbedded()
-	if err != nil {
-		return nil, err
-	}
-	return &Server{
-		state:     state,
-		templates: tmpls,
-		assets:    assets,
-	}, nil
+	return &Server{state: state}, nil
 }
 
 // NewMultiServer constructs a multi-worktree Server backed by the
 // given MultiState. All content routes are served under /w/{name}/*;
-// legacy roots redirect to the cookie-selected (or first alphabetical)
-// worktree so existing bookmarks still resolve.
+// worktree-less API roots redirect to the cookie-selected (or first
+// alphabetical) worktree so existing bookmarks still resolve.
 func NewMultiServer(multi *serve.MultiState) (*Server, error) {
 	if multi == nil {
 		return nil, errors.New("http: nil multi-state")
 	}
-	tmpls, assets, err := parseEmbedded()
-	if err != nil {
-		return nil, err
-	}
-	return &Server{
-		multi:     multi,
-		templates: tmpls,
-		assets:    assets,
-	}, nil
-}
-
-// parseEmbedded reads the embedded templates and assets FS. Shared
-// between the single- and multi-mode constructors.
-func parseEmbedded() (*template.Template, fs.FS, error) {
-	tmpls, err := template.New("").Funcs(templateFuncs()).ParseFS(embedded, "templates/*.html")
-	if err != nil {
-		return nil, nil, fmt.Errorf("http: parse templates: %w", err)
-	}
-	assets, err := fs.Sub(embedded, "assets")
-	if err != nil {
-		return nil, nil, fmt.Errorf("http: assets sub-fs: %w", err)
-	}
-	return tmpls, assets, nil
+	return &Server{multi: multi}, nil
 }
 
 // Serve listens on addr and serves HTTP requests until ctx is
