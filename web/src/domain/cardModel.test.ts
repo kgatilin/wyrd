@@ -90,6 +90,48 @@ describe('buildCardModel', () => {
     ]);
   });
 
+  it('lists struct fields before methods, as the D2 writer does', () => {
+    // The projection sorts members by id, which interleaves the two kinds.
+    const files = buildCardModel([
+      internal({
+        id: 'p.S',
+        kind: 'class',
+        name: 'S',
+        sourceFile: 'a.go',
+        members: [
+          { id: 'p.S.Apply', kind: 'method', name: 'Apply', params: '', type: 'error' },
+          { id: 'p.S.count', kind: 'prop', name: 'count', type: 'int' },
+          { id: 'p.S.run', kind: 'method', name: 'run', params: '' },
+          { id: 'p.S.zone', kind: 'prop', name: 'zone', type: 'string' },
+        ],
+      }),
+    ]);
+
+    expect(files[0].blocks[0].rows.map((r) => [r.kind, r.name])).toEqual([
+      ['prop', 'count'],
+      ['prop', 'zone'],
+      ['method', 'Apply'],
+      ['method', 'run'],
+    ]);
+  });
+
+  it('lists function parameters before the return row', () => {
+    const files = buildCardModel([
+      internal({
+        id: 'p.F',
+        kind: 'func',
+        name: 'F',
+        sourceFile: 'a.go',
+        members: [
+          { id: 'p.F.return', kind: 'return', name: 'return', type: 'error' },
+          { id: 'p.F.param.0', kind: 'param', name: 'ctx', type: 'context.Context' },
+        ],
+      }),
+    ]);
+
+    expect(files[0].blocks[0].rows.map((r) => r.kind)).toEqual(['param', 'return']);
+  });
+
   it('carries the stereotype onto the block', () => {
     const files = buildCardModel([
         internal({ id: 'p.R', kind: 'iface', name: 'R', stereotype: 'repository', sourceFile: 'a.go' }),

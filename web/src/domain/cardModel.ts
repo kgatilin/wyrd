@@ -139,6 +139,23 @@ function memberRow(internal: Internal, member: Member): CardRow {
   };
 }
 
+/**
+ * Order rows take inside a class body, mirroring the D2 writer: a type
+ * definition leads with its underlying type, a struct lists fields before
+ * methods, a function lists parameters before its return.
+ *
+ * The projection sorts members by id so diff-synthesized rows land
+ * deterministically, which on a struct interleaves fields and methods
+ * alphabetically. Ranking by kind restores the reading order; a stable sort
+ * keeps the projection's order within each kind.
+ */
+const ROW_KIND_ORDER: CardRow['kind'][] = ['type', 'param', 'prop', 'const', 'method', 'return'];
+
+function rowRank(kind: CardRow['kind']): number {
+  const index = ROW_KIND_ORDER.indexOf(kind);
+  return index < 0 ? ROW_KIND_ORDER.length : index;
+}
+
 /** Rows of a single-symbol block. */
 function symbolRows(internal: Internal): CardRow[] {
   const rows: CardRow[] = [];
@@ -157,7 +174,7 @@ function symbolRows(internal: Internal): CardRow[] {
   for (const member of internal.members ?? []) {
     rows.push(memberRow(internal, member));
   }
-  return rows;
+  return rows.sort((a, b) => rowRank(a.kind) - rowRank(b.kind));
 }
 
 function symbolBlock(internal: Internal): CardBlock {
