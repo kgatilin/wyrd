@@ -339,12 +339,38 @@ function changedComponentIDs(
   }
   if (changeFilter === 'all' || changeFilter === 'policy') {
     const componentIds = new Set(components.map((component) => component.id));
-    for (const violation of policyViolations ?? []) {
+    const relevant =
+      changeFilter === 'policy' ? policyViolations : violationsOnChangedEdges(policyViolations, edges);
+    for (const violation of relevant ?? []) {
       if (componentIds.has(violation.sourceComponentId)) changed.add(violation.sourceComponentId);
       if (componentIds.has(violation.targetComponentId)) changed.add(violation.targetComponentId);
     }
   }
   return changed;
+}
+
+/**
+ * Policy violations this change is answerable for.
+ *
+ * A layer-rule violation on a dependency the diff never touched is a
+ * pre-existing fact about the repository, not something the change did. Under
+ * "All changes" it used to pull both of its packages onto the canvas, where
+ * "Changed symbols" then emptied them — a screen of blank cards around the few
+ * packages the review is actually about. Only a violation whose dependency edge
+ * itself changed belongs in the change set; the Policy lens still shows them all.
+ */
+function violationsOnChangedEdges(
+  policyViolations: UIGraph['policyViolations'],
+  edges: UIGraph['edges']
+): UIGraph['policyViolations'] {
+  const changedPairs = new Set<string>();
+  for (const edge of edges) {
+    if (edge.diff) changedPairs.add(policyPairKey(edge.from, edge.to));
+  }
+  if (changedPairs.size === 0) return undefined;
+  return (policyViolations ?? []).filter((violation) =>
+    changedPairs.has(policyPairKey(violation.sourceComponentId, violation.targetComponentId))
+  );
 }
 
 function dependencyChangedComponentIDs(

@@ -845,6 +845,60 @@ describe('selectReviewGraph', () => {
     ]);
   });
 
+  it('keeps pre-existing policy violations out of the changed set', () => {
+    const g = graph({
+      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      components: [
+        { id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', diff: 'added', internals: [], ports: [] },
+        { id: 'b', name: 'B', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
+        { id: 'c', name: 'C', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
+        { id: 'd', name: 'D', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
+        { id: 'e', name: 'E', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
+      ],
+      edges: [
+        // Untouched dependency that has always violated the layer rules.
+        { id: 'bc', from: 'b', to: 'c', fromPort: '', toPort: '', label: 'uses' },
+        // Violation this change introduced.
+        { id: 'de', from: 'd', to: 'e', fromPort: '', toPort: '', label: 'uses', diff: 'added' },
+      ],
+      policyViolations: [
+        {
+          id: 'policy:layer-rule:b->c',
+          kind: 'layer_rule',
+          sourceComponentId: 'b',
+          targetComponentId: 'c',
+          sourceLayer: 'domain',
+          targetLayer: 'service',
+          message: 'b (domain) imports c (service), which is not allowed by layer_rules',
+        },
+        {
+          id: 'policy:layer-rule:d->e',
+          kind: 'layer_rule',
+          sourceComponentId: 'd',
+          targetComponentId: 'e',
+          sourceLayer: 'domain',
+          targetLayer: 'service',
+          message: 'd (domain) imports e (service), which is not allowed by layer_rules',
+        },
+      ],
+    });
+
+    const selected = selectReviewGraph(g, null, 'everything', null, {
+      impactMode: 'changed_only',
+      changeFilter: 'all',
+    });
+
+    // "b" and "c" never changed; only the newly-violating pair joins the change.
+    expect(selected.components.map((c) => c.id)).toEqual(['a', 'd', 'e']);
+
+    // The Policy lens is where every violation still lives.
+    const policyLens = selectReviewGraph(g, null, 'everything', null, {
+      impactMode: 'changed_only',
+      changeFilter: 'policy',
+    });
+    expect(policyLens.components.map((c) => c.id)).toEqual(['b', 'c', 'd', 'e']);
+  });
+
   it('filters symbol relations by public API scope', () => {
     const g = graph({
       components: [
