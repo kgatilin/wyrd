@@ -1,11 +1,10 @@
 import type { Component, Diff, SymbolRelation } from '../types';
-import { computeExpandedHeight } from '../state/hooks';
+import { COMPONENT_HEADER_H, symbolAnchor } from '../domain/cardAnchors';
 
 export interface RelationLayerProps {
   relations: SymbolRelation[];
   components: Component[];
   expandedSet: ReadonlySet<string>;
-  expandedInternals: ReadonlySet<string>;
   showDiff: boolean;
   focusId: string | null;
 }
@@ -22,22 +21,14 @@ interface Rect {
   h: number;
 }
 
-const COMPONENT_HEADER_H = 36;
-const INTERNAL_HEADER_H = 26;
-const MEMBER_ROW_H = 18;
-const MEMBER_LIST_PAD_TOP = 2;
-
-function componentRect(
-  cmp: Component,
-  expandedSet: ReadonlySet<string>,
-  expandedInternals: ReadonlySet<string>
-): Rect {
-  const expanded = expandedSet.has(cmp.id);
+// Layout writes the card's real size onto w/h for both states, so the rect is
+// simply the laid geometry.
+function componentRect(cmp: Component): Rect {
   return {
     x: cmp.x ?? 0,
     y: cmp.y ?? 0,
-    w: expanded ? (cmp.wx ?? cmp.w ?? 220) : (cmp.w ?? 220),
-    h: expanded ? computeExpandedHeight(cmp, expandedInternals) : (cmp.h ?? 86),
+    w: cmp.w ?? 220,
+    h: cmp.h ?? 86,
   };
 }
 
@@ -64,38 +55,17 @@ function borderPoint(rect: Rect, toward: Anchor): Anchor {
 function relationAnchor(
   components: Component[],
   expandedSet: ReadonlySet<string>,
-  expandedInternals: ReadonlySet<string>,
   componentId: string,
   internalId?: string,
   memberId?: string
 ): Anchor | null {
   const cmp = components.find((component) => component.id === componentId);
   if (!cmp || cmp.x == null || cmp.y == null) return null;
-  if (!internalId || !expandedSet.has(cmp.id)) {
-    return rectCenter(componentRect(cmp, expandedSet, expandedInternals));
-  }
+  if (!internalId || !expandedSet.has(cmp.id)) return rectCenter(componentRect(cmp));
 
-  const internal = cmp.internals.find((item) => item.id === internalId);
-  if (!internal || internal.x == null || internal.y == null) {
-    return rectCenter(componentRect(cmp, expandedSet, expandedInternals));
-  }
-
-  const baseX = cmp.x + internal.x;
-  const baseY = cmp.y + COMPONENT_HEADER_H + internal.y;
-  if (memberId && expandedInternals.has(internal.id)) {
-    const idx = (internal.members ?? []).findIndex((member) => member.id === memberId);
-    if (idx >= 0) {
-      return {
-        x: baseX + (internal.w ?? 180) - 8,
-        y: baseY + INTERNAL_HEADER_H + MEMBER_LIST_PAD_TOP + idx * MEMBER_ROW_H + MEMBER_ROW_H / 2,
-      };
-    }
-  }
-
-  return {
-    x: baseX + (internal.w ?? 180) / 2,
-    y: baseY + Math.min((internal.h ?? INTERNAL_HEADER_H) / 2, INTERNAL_HEADER_H / 2),
-  };
+  const anchor = symbolAnchor(cmp, internalId, memberId);
+  if (!anchor) return rectCenter(componentRect(cmp));
+  return { x: cmp.x + anchor.x, y: cmp.y + COMPONENT_HEADER_H + anchor.y };
 }
 
 function relationPath(from: Anchor, to: Anchor, sameComponent: boolean): { path: string; mid: Anchor } {
@@ -174,7 +144,6 @@ export function RelationLayer({
   relations,
   components,
   expandedSet,
-  expandedInternals,
   showDiff,
   focusId,
 }: RelationLayerProps) {
@@ -247,8 +216,8 @@ export function RelationLayer({
         const fromCmp = byId.get(agg.fromComponentId);
         const toCmp = byId.get(agg.toComponentId);
         if (!fromCmp || !toCmp || fromCmp.x == null || toCmp.x == null) return null;
-        const fromRect = componentRect(fromCmp, expandedSet, expandedInternals);
-        const toRect = componentRect(toCmp, expandedSet, expandedInternals);
+        const fromRect = componentRect(fromCmp);
+        const toRect = componentRect(toCmp);
         const from = borderPoint(fromRect, rectCenter(toRect));
         const to = borderPoint(toRect, rectCenter(fromRect));
         // A cyclic pair renders as two opposite-bowed arcs instead of one
@@ -274,7 +243,6 @@ export function RelationLayer({
         let from = relationAnchor(
           components,
           expandedSet,
-          expandedInternals,
           relation.fromComponentId,
           relation.fromInternalId,
           relation.fromMemberId
@@ -282,7 +250,6 @@ export function RelationLayer({
         let to = relationAnchor(
           components,
           expandedSet,
-          expandedInternals,
           relation.toComponentId,
           relation.toInternalId,
           relation.toMemberId
@@ -294,10 +261,10 @@ export function RelationLayer({
         const fromCmp = byId.get(relation.fromComponentId);
         const toCmp = byId.get(relation.toComponentId);
         if (fromCmp && isCollapsed(fromCmp.id)) {
-          from = borderPoint(componentRect(fromCmp, expandedSet, expandedInternals), to);
+          from = borderPoint(componentRect(fromCmp), to);
         }
         if (toCmp && isCollapsed(toCmp.id)) {
-          to = borderPoint(componentRect(toCmp, expandedSet, expandedInternals), from);
+          to = borderPoint(componentRect(toCmp), from);
         }
 
         const { path, mid } = relationPath(from, to, relation.fromComponentId === relation.toComponentId);

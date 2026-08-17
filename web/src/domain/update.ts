@@ -10,21 +10,16 @@ import {
 } from './reviewDefaults';
 import type { UIGraph } from '../types';
 
-// Expanding a component shows its internals COLLAPSED (name squares + intra-
-// package relations only); each internal opens its member list individually
-// (InternalToggled). `internalId` force-opens one internal — used by drill-in
-// paths that target a specific symbol.
-function expandComponent(state: AppState, id: string, internalId?: string): AppState {
+// Expanding a component shows its source-file containers with the class bodies
+// already open, so a drill-in target is on screen as soon as its package is.
+function expandComponent(state: AppState, id: string): AppState {
   if (!state.graph) return state;
   const expanded = new Set(state.ui.expanded);
   expanded.add(id);
-  const internalExpanded = internalId
-    ? new Set(state.ui.internalExpanded).add(internalId)
-    : state.ui.internalExpanded;
-  return { ...state, ui: { ...state.ui, expanded, internalExpanded } };
+  return { ...state, ui: { ...state.ui, expanded } };
 }
 
-function focusedPackageView(state: AppState, id: string, internalId?: string): AppState {
+function focusedPackageView(state: AppState, id: string): AppState {
   if (!state.graph) return { ...state, ui: { ...state.ui, focusId: id, activeChangeId: null } };
   const component = state.graph.components.find((candidate) => candidate.id === id);
   if (!component) return { ...state, ui: { ...state.ui, focusId: id, activeChangeId: null } };
@@ -35,7 +30,6 @@ function focusedPackageView(state: AppState, id: string, internalId?: string): A
       focusId: id,
       activeChangeId: null,
       expanded: new Set([id]),
-      internalExpanded: new Set(internalId ? [internalId] : []),
     },
   };
 }
@@ -55,12 +49,12 @@ function focusSlice(state: AppState, event: Event): AppState {
       const { change } = event;
       const drillIn = !!(change.internal || change.member || change.port);
       let next: AppState = { ...state, ui: { ...state.ui, activeChangeId: change.id, focusId: change.cmp } };
-      if (drillIn) next = expandComponent(next, change.cmp, change.internal);
+      if (drillIn) next = expandComponent(next, change.cmp);
       return next;
     }
     case 'TreeFocusRequested': {
       const { target } = event;
-      return focusedPackageView(state, target.componentId, target.internalId);
+      return focusedPackageView(state, target.componentId);
     }
     default:
       return state;
@@ -75,12 +69,6 @@ function expansionSlice(state: AppState, event: Event): AppState {
       if (expanded.has(event.id)) expanded.delete(event.id);
       else expanded.add(event.id);
       return { ...state, ui: { ...state.ui, expanded } };
-    }
-    case 'InternalToggled': {
-      const internalExpanded = new Set(state.ui.internalExpanded);
-      if (internalExpanded.has(event.id)) internalExpanded.delete(event.id);
-      else internalExpanded.add(event.id);
-      return { ...state, ui: { ...state.ui, internalExpanded } };
     }
     case 'ComponentSeqToggled': {
       const seqMode = new Set(state.ui.seqMode);
@@ -116,25 +104,8 @@ function expansionSlice(state: AppState, event: Event): AppState {
         ui: {
           ...state.ui,
           expanded: new Set(),
-          internalExpanded: new Set(),
         },
       };
-    case 'InternalWideToggled': {
-      const internalWide = new Set(state.ui.internalWide);
-      if (internalWide.has(event.id)) internalWide.delete(event.id);
-      else internalWide.add(event.id);
-      return { ...state, ui: { ...state.ui, internalWide } };
-    }
-    case 'ComponentAllWideSet': {
-      const comp = state.graph.components.find((c) => c.id === event.id);
-      if (!comp) return state;
-      const internalWide = new Set(state.ui.internalWide);
-      for (const internal of comp.internals) {
-        if (event.wide) internalWide.add(internal.id);
-        else internalWide.delete(internal.id);
-      }
-      return { ...state, ui: { ...state.ui, internalWide } };
-    }
     default:
       return state;
   }
@@ -173,7 +144,7 @@ function chromeSlice(state: AppState, event: Event): AppState {
           state.ui.hideUnchangedNeighbors,
           state.ui.changedDetailsOnly
         )
-        : { expanded: state.ui.expanded, internalExpanded: state.ui.internalExpanded };
+        : { expanded: state.ui.expanded };
       return {
         ...state,
         ui: {
@@ -183,7 +154,6 @@ function chromeSlice(state: AppState, event: Event): AppState {
           reviewGroupingId,
           reviewDefaults: defaultsWithReviewView(state.ui.reviewDefaults, event.id),
           expanded: expansion.expanded,
-          internalExpanded: expansion.internalExpanded,
           focusId: null,
           activeChangeId: null,
         },
@@ -390,7 +360,6 @@ function loadGeometrySlice(state: AppState, event: Event): AppState {
           reviewDefaultsKey: null,
           reviewDefaults,
           expanded: expansion.expanded,
-          internalExpanded: expansion.internalExpanded,
         },
       };
     }
@@ -485,7 +454,6 @@ function applyReviewDefaults(state: AppState, key: string, defaults: ReviewDefau
       reviewDefaultsKey: key,
       reviewDefaults: mergedDefaults,
       expanded: expansion.expanded,
-      internalExpanded: expansion.internalExpanded,
       focusId: null,
       activeChangeId: null,
     },
@@ -501,7 +469,7 @@ function expandedForReviewSelection(
   changeFilter: AppState['ui']['reviewChangeFilter'],
   hideUnchangedNeighbors: boolean,
   changedDetailsOnly: boolean
-): { expanded: Set<string>; internalExpanded: Set<string> } {
+): { expanded: Set<string> } {
   const visible = selectReviewGraph(graph, reviewViewId, reviewScopeId, reviewGroupingId, {
     impactMode,
     changeFilter,
@@ -511,7 +479,7 @@ function expandedForReviewSelection(
   const expanded = new Set(initialExpanded(visible, reviewViewDefaultExpansion(graph, reviewViewId)));
   // Internals start collapsed even inside initially-expanded components — the
   // canvas reads as squares + relations first; members open per internal.
-  return { expanded, internalExpanded: new Set<string>() };
+  return { expanded };
 }
 
 function reviewViewDefaultExpansion(graph: UIGraph, reviewViewId: string | null): string {

@@ -28,8 +28,6 @@ export interface PendingComment {
 /** The expansion inputs the layout engine needs. */
 export interface Interaction {
   expanded: ReadonlySet<string>;
-  internalExpanded: ReadonlySet<string>;
-  internalWide: ReadonlySet<string>;
   /**
    * Expanded components showing their call-sequence instead of internals.
    * A seq-mode card gets a fixed frame from layout (its diagram scrolls
@@ -45,8 +43,6 @@ export interface AppUI {
   theme: 'dark' | 'light';
   focusId: string | null;
   expanded: ReadonlySet<string>;
-  internalExpanded: ReadonlySet<string>;
-  internalWide: ReadonlySet<string>;
   /** Expanded components currently flipped to their call-sequence view. */
   seqMode: ReadonlySet<string>;
   leftTab: 'changes' | 'tree';
@@ -87,8 +83,6 @@ export const initialState: AppState = {
     theme: 'dark',
     focusId: null,
     expanded: new Set(),
-    internalExpanded: new Set(),
-    internalWide: new Set(),
     seqMode: new Set(),
     leftTab: 'tree',
     leftCollapsed: false,

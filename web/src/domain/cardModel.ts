@@ -1,4 +1,4 @@
-import type { Component, Diff, Internal, InternalKind, Member } from '../types';
+import type { Diff, Internal, InternalKind, Member } from '../types';
 
 /**
  * The structure rendered inside an expanded package card.
@@ -212,9 +212,9 @@ function fileLabel(sourceFile?: string): string {
  * Files are ordered by name so a card's shape stays stable across reloads and
  * across scope switches; the unknown-file bucket sorts last.
  */
-export function buildCardModel(cmp: Pick<Component, 'internals'>): CardFile[] {
+export function buildCardModel(internals: Internal[]): CardFile[] {
   const byFile = new Map<string, Internal[]>();
-  for (const internal of cmp.internals ?? []) {
+  for (const internal of internals ?? []) {
     const label = fileLabel(internal.sourceFile);
     const bucket = byFile.get(label);
     if (bucket) bucket.push(internal);

@@ -28,22 +28,19 @@ describe('harness smoke (jsdom) — diffGraph', () => {
     expect(await svc.parentInitial()).toBe('O');
   });
 
-  it('expand-all glyph round-trips «» → »« → «»', async () => {
+  it('groups a package card into source-file containers', async () => {
     const env = await mountAppDom(diffGraph);
     const app = await env.load(AppHarness);
     await app.waitForLoaded();
-    await (await app.canvas()).toggleInlineSignatures();
-    await app.env.waitUntil(async () => (
-      await (await (await app.diagram()).component('OrderService')).hasExpandAllButton()
-    ), {
-      message: 'expand-all button never rendered in short-signature mode',
-    });
+    // OrderService is auto-expanded on load.
     const svc = await (await app.diagram()).component('OrderService');
-    expect(await svc.expandAllGlyph()).toBe('«»');
-    await svc.expandAll();
-    expect(await svc.expandAllGlyph()).toBe('»«');
-    await svc.expandAll();
-    expect(await svc.expandAllGlyph()).toBe('«»');
+    await app.env.waitUntil(async () => (await svc.fileCount()) >= 1, {
+      message: 'OrderService file containers never rendered',
+    });
+    // Every class shape lives inside a file container, never loose on the card.
+    const inFiles = (await Promise.all((await svc.files()).map(async (f) => (await f.blocks()).length)))
+      .reduce((a, b) => a + b, 0);
+    expect(inFiles).toBe(await svc.blockCount());
   });
 
   it('canvas toolbar expands and collapses all package cards', async () => {
@@ -82,10 +79,10 @@ describe('harness smoke (jsdom) — diffGraph', () => {
     // Expand PaymentService and assert IGateway (no own diff, members add/add/remove).
     const pay = await diagram.component('PaymentService');
     await pay.toggleExpand();
-    await app.env.waitUntil(async () => (await pay.internalCount()) >= 1, {
-      message: 'PaymentService internals never rendered',
+    await app.env.waitUntil(async () => (await pay.blockCount()) >= 1, {
+      message: 'PaymentService class shapes never rendered',
     });
-    expect(await (await pay.internal('IGateway')).diffState()).toBe('changed');
+    expect(await (await pay.block('IGateway')).diffState()).toBe('changed');
   });
 
   it('emits no in-card diff tags', async () => {
@@ -269,26 +266,15 @@ describe('harness smoke (jsdom) — diffGraph', () => {
       message: 'focused package view never collapsed non-focused package',
     });
 
-    // Internals start collapsed (squares only); member lists open per internal.
-    let a = await (await app.diagram()).component('A');
-    expect(await (await a.internal('PublicType')).isExpanded()).toBe(false);
-    await (await a.internal('PublicType')).toggleMembers();
-    await (await (await (await app.diagram()).component('A')).internal('privateType')).toggleMembers();
-    await app.env.waitUntil(async () => {
-      const cmp = await (await app.diagram()).component('A');
-      return (
-        (await (await cmp.internal('PublicType')).isExpanded()) &&
-        (await (await cmp.internal('privateType')).isExpanded())
-      );
-    }, { message: 'internal member lists never opened' });
-
-    a = await (await app.diagram()).component('A');
-    const publicType = await a.internal('PublicType');
-    const privateType = await a.internal('privateType');
+    // Class bodies are always open — a symbol's structure needs no extra click.
+    const a = await (await app.diagram()).component('A');
+    const publicType = await a.block('PublicType');
+    const privateType = await a.block('privateType');
+    expect(await publicType.hasBody()).toBe(true);
     expect(await publicType.symbolVisibility()).toBe('public');
     expect(await privateType.symbolVisibility()).toBe('internal');
-    expect(await (await publicType.member('Do')).symbolVisibility()).toBe('public');
-    expect(await (await privateType.member('help')).symbolVisibility()).toBe('internal');
+    expect(await (await publicType.row('Do')).symbolVisibility()).toBe('public');
+    expect(await (await privateType.row('help')).symbolVisibility()).toBe('internal');
     expect(await (await app.diagram()).edgeCount()).toBe(1);
   });
 
@@ -371,13 +357,8 @@ describe('harness smoke (jsdom) — diffGraph', () => {
     const env = await mountAppDom(graph);
     const app = await env.load(AppHarness);
     await app.waitForLoaded();
-    await (await (await (await app.diagram()).component('api')).internal('Store')).toggleMembers();
-    await app.env.waitUntil(
-      async () => (await (await (await app.diagram()).component('api')).internal('Store')).isExpanded(),
-      { message: 'Store member list never opened' }
-    );
-    const store = await (await (await app.diagram()).component('api')).internal('Store');
-    await (await store.member('Save')).focusSymbol();
+    const store = await (await (await app.diagram()).component('api')).block('Store');
+    await (await store.row('Save')).focusSymbol();
 
     await app.env.waitUntil(async () => (await env.rootLocator('.hf-symbol-overlay').count()) === 1, {
       message: 'symbol wiring overlay never opened',

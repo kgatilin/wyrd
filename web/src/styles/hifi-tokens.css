@@ -1020,34 +1020,59 @@ body {
   stroke: var(--bg-0);
   stroke-width: 4px;
 }
-.hf-internal {
+/* Source-file container: the chunking unit of a package card. Kept visually
+   quiet — a labelled tray — so the class shapes inside it stay the figure. */
+.hf-file {
   position: absolute;
   z-index: 1;
+  background: var(--bg-1);
+  border: 1px solid var(--line-1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.hf-file.added   { border-color: var(--add-line); background: var(--add-bg); }
+.hf-file.removed { border-color: var(--rem-line); background: var(--rem-bg); }
+.hf-file.changed { border-color: var(--chg-line); background: var(--chg-bg); }
+.hf-file-head {
+  display: flex; align-items: center;
+  height: 22px;
+  padding: 0 10px;
   background: var(--bg-2);
+  border-bottom: 1px solid var(--line-1);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--fg-2);
+}
+.hf-file.added .hf-file-head,
+.hf-file.removed .hf-file-head,
+.hf-file.changed .hf-file-head { background: transparent; }
+.hf-file-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Class shape: header + two-column body, the browser twin of a D2 class. */
+.hf-block {
+  position: absolute;
+  background: var(--bg-0);
   border: 1px solid var(--line-2);
   border-radius: 6px;
   overflow: hidden;
   font-family: 'JetBrains Mono', monospace;
 }
-.hf-internal.iface { border-style: dashed; }
-.hf-internal.added   { border-color: var(--add-line); background: var(--add-bg); }
-.hf-internal.removed { border-color: var(--rem-line); background: var(--rem-bg); }
-.hf-internal.changed { border-color: var(--chg-line); background: var(--chg-bg); }
-.hf-internal.symbol-public {
-  box-shadow: inset 3px 0 0 var(--layer-public-line);
-}
-.hf-internal.symbol-internal {
-  box-shadow: inset 3px 0 0 var(--layer-internal-line);
-}
-.hf-internal-head {
+.hf-block.iface { border-style: dashed; }
+.hf-block.added   { border-color: var(--add-line); background: var(--add-bg); }
+.hf-block.removed { border-color: var(--rem-line); background: var(--rem-bg); }
+.hf-block.changed { border-color: var(--chg-line); background: var(--chg-bg); }
+.hf-block.symbol-public   { box-shadow: inset 3px 0 0 var(--layer-public-line); }
+.hf-block.symbol-internal { box-shadow: inset 3px 0 0 var(--layer-internal-line); }
+.hf-block-head {
   display: flex; align-items: center; gap: 6px;
-  height: 26px;
+  height: 24px;
   padding: 0 8px;
   cursor: pointer;
   font-size: 11px;
 }
-.hf-internal-head:hover { background: var(--bg-hover); }
-.hf-internal-kind {
+.hf-block-head:hover { background: var(--bg-hover); }
+.hf-block-kind {
+  flex: 0 0 auto;
   font-size: 9px;
   font-weight: 700;
   color: var(--syn-cls);
@@ -1055,66 +1080,84 @@ body {
   padding: 1px 4px;
   border-radius: 3px;
 }
-.hf-internal.iface .hf-internal-kind { color: var(--syn-fn); }
-.hf-internal.symbol-public .hf-internal-kind {
+.hf-block.iface .hf-block-kind { color: var(--syn-fn); }
+.hf-block.func  .hf-block-kind { color: var(--syn-var); }
+.hf-block.symbol-public .hf-block-kind {
   color: var(--layer-public-fg);
   background: var(--layer-public-bg);
 }
-.hf-internal.symbol-internal .hf-internal-kind {
+.hf-block.symbol-internal .hf-block-kind {
   color: var(--layer-internal-fg);
   background: var(--layer-internal-bg);
 }
-.hf-internal-chevron {
-  font-size: 9px;
-  color: var(--fg-3);
-  transition: transform 0.12s ease;
-  flex: 0 0 auto;
-}
-.hf-internal-chevron.open { transform: rotate(90deg); }
-.hf-internal-name {
+.hf-block-name {
+  flex: 1;
   font-weight: 500;
   color: var(--fg-0);
-  flex: 1;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.hf-internal-toggle {
-  font-size: 11px;
-  color: var(--fg-3);
-  width: 14px; text-align: center;
+/* Stereotype rides a separate channel from diff: an outlined chip, never a
+   fill, so a changed symbol still reads as changed. */
+.hf-block-stereo {
+  flex: 0 0 auto;
+  font-size: 8.5px;
+  letter-spacing: 0.02em;
+  color: var(--syn-str);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  padding: 0 5px;
+  line-height: 13px;
 }
-.hf-member-list {
+.hf-block-rows {
   border-top: 1px solid var(--line-1);
   background: var(--bg-1);
-  padding: 2px 0;
+  padding: 5px 0;
 }
-.hf-member {
+.hf-block.added .hf-block-rows,
+.hf-block.removed .hf-block-rows,
+.hf-block.changed .hf-block-rows { background: transparent; }
+
+/* Body row: kind glyph, name (with parameters), then the type column pushed
+   to the right edge so types line up down the block. */
+.hf-row {
   display: flex; align-items: center; gap: 6px;
-  height: 18px;
-  padding: 0 10px;
+  height: 17px;
+  padding: 0 8px;
   font-size: 10px;
   color: var(--fg-1);
   cursor: pointer;
 }
-.hf-member:hover { background: var(--bg-hover); }
-.hf-member.symbol-public {
-  box-shadow: inset 2px 0 0 var(--layer-public-line);
-}
-.hf-member.symbol-internal {
-  box-shadow: inset 2px 0 0 var(--layer-internal-line);
-}
-.hf-member-kind {
+.hf-row:hover { background: var(--bg-hover); }
+.hf-row.symbol-public   { box-shadow: inset 2px 0 0 var(--layer-public-line); }
+.hf-row.symbol-internal { box-shadow: inset 2px 0 0 var(--layer-internal-line); }
+.hf-row-kind {
+  flex: 0 0 auto;
+  width: 10px;
+  text-align: center;
   font-size: 9px;
-  width: 14px;
-  flex-shrink: 0;
+  color: var(--fg-3);
 }
-.hf-member-kind.fn { color: var(--syn-fn); }
-.hf-member-kind.prop { color: var(--syn-num); }
-.hf-member.symbol-public .hf-member-kind { color: var(--layer-public-fg); }
-.hf-member.symbol-internal .hf-member-kind { color: var(--layer-internal-fg); }
-.hf-member-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hf-member.added   { color: var(--add-fg); background: var(--add-bg); }
-.hf-member.removed { color: var(--rem-fg); }
-.hf-member.changed { color: var(--chg-fg); background: var(--chg-bg); }
+.hf-row-kind.method { color: var(--syn-fn); }
+.hf-row-kind.prop   { color: var(--syn-num); }
+.hf-row-kind.return { color: var(--syn-key); }
+.hf-row-name {
+  flex: 0 1 auto;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hf-row-type {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 10px;
+  color: var(--syn-num);
+  white-space: nowrap;
+}
+.hf-row.return .hf-row-name { color: var(--fg-3); }
+.hf-row.added   { color: var(--add-fg); background: var(--add-bg); }
+.hf-row.removed { color: var(--rem-fg); }
+.hf-row.changed { color: var(--chg-fg); background: var(--chg-bg); }
+.hf-row.added .hf-row-type,
+.hf-row.removed .hf-row-type,
+.hf-row.changed .hf-row-type { color: inherit; }
 
 /* edges */
 .hf-edge {

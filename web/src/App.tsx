@@ -111,8 +111,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   const load = useStore((s) => s.load);
   const level = useStore((s) => s.ui.level);
   const expanded = useStore((s) => s.ui.expanded);
-  const internalExpanded = useStore((s) => s.ui.internalExpanded);
-  const internalWide = useStore((s) => s.ui.internalWide);
   const seqMode = useStore((s) => s.ui.seqMode);
   const focusId = useStore((s) => s.ui.focusId);
   const leftCollapsed = useStore((s) => s.ui.leftCollapsed);
@@ -850,7 +848,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
               edges={displayLaid.edges}
               components={displayLaid.components}
               expandedSet={expanded}
-              expandedInternals={internalExpanded}
               showDiff={showDiff}
               focusId={focusId}
               commentTargets={commentTargets}
@@ -864,7 +861,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
               // Seq-mode cards don't render internals, so their symbol
               // relations have no anchors — treat them as collapsed here.
               expandedSet={new Set([...expanded].filter((id) => !seqMode.has(id)))}
-              expandedInternals={internalExpanded}
               showDiff={showDiff}
               focusId={focusId}
             />
@@ -878,11 +874,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                 seqActive={seqMode.has(c.id)}
                 onToggleSeq={(id) => dispatch({ type: 'ComponentSeqToggled', id })}
                 onToggleExpand={(id) => dispatch({ type: 'ComponentToggled', id })}
-                expandedInternals={internalExpanded}
-                wideInternals={internalWide}
-                onToggleWide={(id) => dispatch({ type: 'InternalWideToggled', id })}
-                onToggleInternal={(id) => dispatch({ type: 'InternalToggled', id })}
-                onSetAllWide={(componentId, wide) => dispatch({ type: 'ComponentAllWideSet', id: componentId, wide })}
                 parentName={bcNameById.get(c.bc)}
                 showDiff={showDiff}
                 focused={focusId === c.id}
@@ -891,7 +882,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                 commentTargets={commentTargets}
                 pinned={activeLayoutPins[c.id] != null}
                 cardDensity={cardDensity}
-                showInlineSignatures={showInlineSignatures}
+                showTypes={showInlineSignatures}
                 relations={(displayLaid.relations ?? []).filter(
                   (relation) => relation.fromComponentId === c.id && relation.toComponentId === c.id
                 )}

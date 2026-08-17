@@ -1,5 +1,4 @@
 import type { Edge, Component } from '../types';
-import { computeExpandedHeight } from '../state/hooks';
 
 export interface EdgeLayerProps {
   /** All edges to render */
@@ -9,7 +8,6 @@ export interface EdgeLayerProps {
   /** Set of expanded component IDs */
   expandedSet: ReadonlySet<string>;
   /** Set of expanded internal IDs (for height calculation) */
-  expandedInternals: ReadonlySet<string>;
   /** Whether to show diff styling */
   showDiff: boolean;
   /** Currently focused component ID (null = none) */
@@ -95,7 +93,6 @@ function computeEdgePath(
   edge: Edge,
   components: Component[],
   expandedSet: ReadonlySet<string>,
-  expandedInternals: ReadonlySet<string>
 ): EdgePath | null {
   // --- ELK-routed path ---
   if (edge.points && edge.points.length >= 2) {
@@ -122,9 +119,10 @@ function computeEdgePath(
     const port = cmp.ports.find((p) => p.id === portId);
     if (!port) return null;
 
+    // Layout writes the card's real size onto w/h for both states.
     const isExp = expandedSet.has(cmp.id);
-    const w = isExp ? (cmp.wx ?? cmp.w ?? 220) : (cmp.w ?? 220);
-    const h = isExp ? computeExpandedHeight(cmp, expandedInternals) : (cmp.h ?? 86);
+    const w = cmp.w ?? 220;
+    const h = cmp.h ?? 86;
     const y = isExp ? (cmp.y ?? 0) + (port.y ?? 58) : (cmp.y ?? 0) + h / 2;
     const x = port.side === 'left' ? (cmp.x ?? 0) : (cmp.x ?? 0) + w;
 
@@ -163,7 +161,6 @@ export function EdgeLayer({
   edges,
   components,
   expandedSet,
-  expandedInternals,
   showDiff,
   focusId,
   commentTargets,
@@ -209,7 +206,7 @@ export function EdgeLayer({
       </defs>
 
       {edges.map((edge) => {
-        const r = computeEdgePath(edge, components, expandedSet, expandedInternals);
+        const r = computeEdgePath(edge, components, expandedSet);
         if (!r) return null;
 
         const diffCls = showDiff && edge.diff ? edge.diff : '';

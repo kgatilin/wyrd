@@ -1,3 +1,7 @@
+// Type-only import: CardFile is the laid-out shape of a card's contents, which
+// the layout pass attaches to Component alongside its other geometry.
+import type { CardFile } from './domain/cardModel';
+
 export type Diff = 'added' | 'removed' | 'changed';
 
 export interface UIGraph {
@@ -105,6 +109,11 @@ export interface Component {
   bc: string;
   diff?: Diff;
   internals: Internal[];
+  /**
+   * Laid-out source-file containers of an expanded card. Added by the layout
+   * pass; absent on the raw graph and on collapsed cards.
+   */
+  files?: CardFile[];
   ports: Port[];
   x?: number;
   y?: number;

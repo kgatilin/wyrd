@@ -28,8 +28,6 @@ export function relatedIds(graph: UIGraph, focusId: string | null): Set<string> 
 export function toInteraction(ui: AppUI): Interaction {
   return {
     expanded: ui.expanded,
-    internalExpanded: ui.internalExpanded,
-    internalWide: ui.internalWide,
     seqMode: ui.seqMode,
     cardDensity: ui.cardDensity,
     showInlineSignatures: ui.showInlineSignatures,

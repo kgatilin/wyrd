@@ -54,15 +54,15 @@ test.describe('diff mode (diffGraph)', () => {
 
     const pay = await diagram.component('PaymentService');
     await pay.toggleExpand();
-    await app.env.waitUntil(async () => (await pay.internalCount()) >= 1, {
+    await app.env.waitUntil(async () => (await pay.blockCount()) >= 1, {
       message: 'PaymentService internals never rendered',
     });
 
-    const gateway = await pay.internal('IGateway');
+    const gateway = await pay.block('IGateway');
     expect(await gateway.diffState()).toBe('changed'); // derived from members
 
     // Removed member charge(amt): colored but NOT line-through.
-    const charge = await gateway.member('charge');
+    const charge = await gateway.row('charge');
     expect(await charge.diffState()).toBe('removed');
     expect(await charge.textDecoration()).not.toContain('line-through');
 

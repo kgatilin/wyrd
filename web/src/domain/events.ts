@@ -49,9 +49,6 @@ export type Event =
   | { type: 'ComponentSeqToggled'; id: string }
   | { type: 'ComponentsExpandedAll' }
   | { type: 'ComponentsCollapsedAll' }
-  | { type: 'InternalToggled'; id: string }
-  | { type: 'InternalWideToggled'; id: string }
-  | { type: 'ComponentAllWideSet'; id: string; wide: boolean }
   // focus / navigation
   | { type: 'ComponentSelected'; id: string }
   | { type: 'FocusCleared' }

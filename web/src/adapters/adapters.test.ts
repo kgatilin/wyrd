@@ -16,8 +16,6 @@ describe('createElkLayout', () => {
     const port = createElkLayout();
     const laid = await port.compute(graph, {
       expanded: new Set(),
-      internalExpanded: new Set(),
-      internalWide: new Set(),
       seqMode: new Set(),
       cardDensity: 'detailed',
       showInlineSignatures: true,

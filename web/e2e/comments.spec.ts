@@ -49,7 +49,7 @@ test('internal header click opens popover with tag "internal"', async ({ page })
   const pay = await (await app.diagram()).component('PaymentService');
   await pay.toggleExpand();
   await app.env.waitUntil(async () => pay.isExpanded(), { message: 'PaymentService did not expand' });
-  const gateway = await pay.internal('IGateway');
+  const gateway = await pay.block('IGateway');
   await gateway.commentOnHeader();
   const popover = app.commentPopover();
   await app.env.waitUntil(async () => popover.isOpen(), { message: 'popover did not open on internal header' });
@@ -65,10 +65,10 @@ test('member row click opens popover with tag "member"', async ({ page }) => {
   const pay = await (await app.diagram()).component('PaymentService');
   await pay.toggleExpand();
   await app.env.waitUntil(async () => pay.isExpanded(), { message: 'PaymentService did not expand' });
-  // When a component expands, all its internals become expanded automatically (members visible).
-  const gateway = await pay.internal('IGateway');
-  await app.env.waitUntil(async () => (await gateway.members()).length > 0, { message: 'IGateway members never appeared' });
-  const member = await gateway.member('refund');
+  // Class bodies render with the card — no per-symbol expansion step.
+  const gateway = await pay.block('IGateway');
+  await app.env.waitUntil(async () => (await gateway.rows()).length > 0, { message: 'IGateway rows never appeared' });
+  const member = await gateway.row('refund');
   await member.comment();
   const popover = app.commentPopover();
   await app.env.waitUntil(async () => popover.isOpen(), { message: 'popover did not open on member click' });

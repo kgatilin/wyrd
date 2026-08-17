@@ -6,7 +6,8 @@ import {
   parsePx,
   TestElement,
 } from './test-element';
-import { InternalHarness } from './internal.harness';
+import { BlockHarness } from './block.harness';
+import { FileContainerHarness } from './file-container.harness';
 
 /** A component card on the canvas (`.hf-cmp`). */
 export class ComponentCardHarness extends ComponentHarness {
@@ -43,7 +44,7 @@ export class ComponentCardHarness extends ComponentHarness {
   async focus(): Promise<void> {
     await this.root.click();
   }
-  /** Expanded ⇒ the internals mini-canvas is present. */
+  /** Expanded ⇒ the card canvas with its file containers is present. */
   async isExpanded(): Promise<boolean> {
     return (await this.root.locator('.hf-cmp-canvas').count()) > 0;
   }
@@ -59,16 +60,6 @@ export class ComponentCardHarness extends ComponentHarness {
   async actionButtonCount(): Promise<number> {
     return this.root.locator('.hf-cmp-actions button').count();
   }
-  async hasExpandAllButton(): Promise<boolean> {
-    return (await this.root.locator('.hf-cmp-expand-all').count()) > 0;
-  }
-  async expandAll(): Promise<void> {
-    await (await this.root.locator('.hf-cmp-expand-all').first()).click();
-  }
-  /** '«»' (none wide) or '»«' (all wide). */
-  async expandAllGlyph(): Promise<string> {
-    return (await this.root.locator('.hf-cmp-expand-all').first()).text();
-  }
   async hasInfoButton(): Promise<boolean> {
     return (await this.root.locator('.hf-cmp-info').count()) > 0;
   }
@@ -80,9 +71,6 @@ export class ComponentCardHarness extends ComponentHarness {
   }
   async infoPopover(): Promise<TestElement> {
     return this.root.locator('.hf-cmp-info-pop').first();
-  }
-  async expandAllBox(): Promise<BoundingBox | null> {
-    return (await this.root.locator('.hf-cmp-expand-all').first()).boundingBox();
   }
   async expandBox(): Promise<BoundingBox | null> {
     return (await this.root.locator('.hf-cmp-expand').first()).boundingBox();
@@ -106,19 +94,37 @@ export class ComponentCardHarness extends ComponentHarness {
     return parsePx(await this.root.styleProp('height'));
   }
 
-  // ── Internals ────────────────────────────────────────────────────────────
-  async internalCount(): Promise<number> {
-    return this.root.locator('.hf-internal').count();
+  // ── Source-file containers and their class shapes ────────────────────────
+  async fileCount(): Promise<number> {
+    return this.root.locator('.hf-file').count();
   }
-  async internals(): Promise<InternalHarness[]> {
-    const cards = await this.root.locator('.hf-internal').all();
-    return cards.map((c) => new InternalHarness(c, this.env));
+  async files(): Promise<FileContainerHarness[]> {
+    const files = await this.root.locator('.hf-file').all();
+    return files.map((f) => new FileContainerHarness(f, this.env));
   }
-  async internal(name: string): Promise<InternalHarness> {
-    for (const it of await this.internals()) {
-      if ((await it.name()) === name) return it;
+  async file(label: string): Promise<FileContainerHarness> {
+    for (const f of await this.files()) {
+      if ((await f.label()) === label) return f;
     }
-    throw new Error(`internal "${name}" not found in component`);
+    throw new Error(`file container "${label}" not found in component`);
+  }
+  async fileLabels(): Promise<string[]> {
+    const out: string[] = [];
+    for (const f of await this.files()) out.push(await f.label());
+    return out;
+  }
+  async blockCount(): Promise<number> {
+    return this.root.locator('.hf-block').count();
+  }
+  async blocks(): Promise<BlockHarness[]> {
+    const blocks = await this.root.locator('.hf-block').all();
+    return blocks.map((b) => new BlockHarness(b, this.env));
+  }
+  async block(name: string): Promise<BlockHarness> {
+    for (const b of await this.blocks()) {
+      if ((await b.name()) === name) return b;
+    }
+    throw new Error(`block "${name}" not found in component`);
   }
 
   // ── Ports ──────────────────────────────────────────────────────────────

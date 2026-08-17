@@ -50,11 +50,10 @@ function withTwoComponentGraph(): AppState {
 }
 
 describe('update — focus slice', () => {
-  it('ComponentSelected enters focused package view with internals collapsed; selecting the focused one clears focus', () => {
+  it('ComponentSelected enters focused package view; selecting the focused one clears focus', () => {
     let s = update(withTwoComponentGraph(), { type: 'ComponentSelected', id: 'a' });
     expect(s.ui.focusId).toBe('a');
     expect([...s.ui.expanded]).toEqual(['a']);
-    expect([...s.ui.internalExpanded]).toEqual([]);
     s = update(s, { type: 'ComponentSelected', id: 'a' });
     expect(s.ui.focusId).toBeNull();
   });
@@ -86,12 +85,11 @@ describe('update — focus slice', () => {
     expect(s.ui.expanded.has('a')).toBe(true);
   });
 
-  it('TreeFocusRequested focuses the whole package and opens only the targeted internal', () => {
+  it('TreeFocusRequested focuses the whole package', () => {
     const s = update(withTwoComponentGraph(), { type: 'TreeFocusRequested', target: { componentId: 'a', internalId: 'a.Public' } });
     expect(s.ui.focusId).toBe('a');
     expect(s.ui.expanded.has('a')).toBe(true);
     expect(s.ui.expanded.has('b')).toBe(false);
-    expect([...s.ui.internalExpanded]).toEqual(['a.Public']);
     expect(s.ui.activeChangeId).toBeNull();
   });
 
@@ -128,31 +126,16 @@ describe('update — graph loading slice', () => {
 });
 
 describe('update — expansion slice', () => {
-  it('ComponentToggled expands a component with its internals collapsed', () => {
-    const s = update(withGraph(), { type: 'ComponentToggled', id: 'a' });
-    expect(s.ui.expanded.has('a')).toBe(true);
-    expect(s.ui.internalExpanded.has('a.i')).toBe(false);
-  });
-
-  it('ComponentToggled collapses an expanded component and keeps internal expansion state', () => {
+  it('ComponentToggled expands and collapses a component', () => {
     const opened = update(withGraph(), { type: 'ComponentToggled', id: 'a' });
-    const openedInternal = update(opened, { type: 'InternalToggled', id: 'a.i' });
-    const closed = update(openedInternal, { type: 'ComponentToggled', id: 'a' });
+    expect(opened.ui.expanded.has('a')).toBe(true);
+    const closed = update(opened, { type: 'ComponentToggled', id: 'a' });
     expect(closed.ui.expanded.has('a')).toBe(false);
-    expect(closed.ui.internalExpanded.has('a.i')).toBe(true); // survives collapse/re-expand
   });
 
-  it('InternalToggled opens and closes one internal member list', () => {
-    const opened = update(withGraph(), { type: 'InternalToggled', id: 'a.i' });
-    expect(opened.ui.internalExpanded.has('a.i')).toBe(true);
-    const closed = update(opened, { type: 'InternalToggled', id: 'a.i' });
-    expect(closed.ui.internalExpanded.has('a.i')).toBe(false);
-  });
-
-  it('ComponentsExpandedAll expands every visible component, internals stay collapsed', () => {
+  it('ComponentsExpandedAll expands every visible component', () => {
     const s = update(withTwoComponentGraph(), { type: 'ComponentsExpandedAll' });
     expect([...s.ui.expanded].sort()).toEqual(['a', 'b']);
-    expect([...s.ui.internalExpanded]).toEqual([]);
   });
 
   it('ComponentsExpandedAll respects the selected public surface', () => {
@@ -169,28 +152,12 @@ describe('update — expansion slice', () => {
       { type: 'ComponentsExpandedAll' }
     );
     expect([...s.ui.expanded].sort()).toEqual(['a']);
-    expect([...s.ui.internalExpanded]).toEqual([]);
   });
 
-  it('ComponentsCollapsedAll collapses every component and internal', () => {
+  it('ComponentsCollapsedAll collapses every component', () => {
     const expanded = update(withTwoComponentGraph(), { type: 'ComponentsExpandedAll' });
     const s = update(expanded, { type: 'ComponentsCollapsedAll' });
     expect([...s.ui.expanded]).toEqual([]);
-    expect([...s.ui.internalExpanded]).toEqual([]);
-  });
-
-  it('InternalWideToggled toggles one internal in fit-width mode', () => {
-    let s = update(withGraph(), { type: 'InternalWideToggled', id: 'a.i' });
-    expect(s.ui.internalWide.has('a.i')).toBe(true);
-    s = update(s, { type: 'InternalWideToggled', id: 'a.i' });
-    expect(s.ui.internalWide.has('a.i')).toBe(false);
-  });
-
-  it('ComponentAllWideSet adds/removes every internal of a component', () => {
-    let s = update(withGraph(), { type: 'ComponentAllWideSet', id: 'a', wide: true });
-    expect(s.ui.internalWide.has('a.i')).toBe(true);
-    s = update(s, { type: 'ComponentAllWideSet', id: 'a', wide: false });
-    expect(s.ui.internalWide.has('a.i')).toBe(false);
   });
 });
 
@@ -526,7 +493,6 @@ describe('update — load + geometry slice', () => {
     };
     const s = update(initialState, { type: 'GraphLoaded', graph: reviewGraph });
     expect([...s.ui.expanded]).toEqual([]);
-    expect([...s.ui.internalExpanded]).toEqual([]);
   });
 
   it('GraphLoaded selects the changes tab when the graph carries a PR', () => {

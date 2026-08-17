@@ -1,8 +1,9 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkNode, ElkPort, ElkExtendedEdge } from 'elkjs';
-import type { UIGraph, BoundedContext, Component, Port, Edge, Internal, SymbolRelation } from '../types';
-import { displaySymbolName } from '../domain/symbolNames';
+import type { UIGraph, BoundedContext, Component, Port, Edge, SymbolRelation } from '../types';
 import { componentPathPrefix } from '../domain/componentPath';
+import { buildCardModel, type CardFile } from '../domain/cardModel';
+import { layoutCard } from './cardLayout';
 
 // Spacing between sibling components. These MUST be set on the node that owns the
 // components — i.e. each bounded-context compound node — not just on the root.
@@ -30,27 +31,17 @@ const ELK_LAYOUT_OPTIONS: Record<string, string> = {
 const DEFAULT_W = 220;
 const DEFAULT_H = 86;
 
-// Internal card dimensions
-const INTERNAL_W = 180;
-const INTERNAL_HEADER_H = 26;
-const INTERNAL_MEMBER_H = 18;
-const INTERNAL_MEMBER_PADDING = 4;
-
 // Component layout constants
 const COMPONENT_HEADER_H = 36;
-// Inner padding between the component border and its internal grid.
-// Internals are absolutely positioned, so CSS padding on .hf-cmp-canvas is
-// ignored for them — this padding is baked into the internal coordinates and
-// into the component's expanded width/height. Kept equal to INTERNAL_GAP so the
-// gap around the grid matches the gap between internal cards.
+// Inner padding between the component border and its file containers. Those are
+// absolutely positioned, so CSS padding on .hf-cmp-canvas is ignored for them —
+// the padding is baked into the container coordinates and into the component's
+// expanded width/height instead.
 const CANVAS_PADDING = 10;
 
 // Port layout within a component
 const PORT_SPACING = 24;
 const PORT_START_Y = 16;
-
-// Internal grid layout spacing
-const INTERNAL_GAP = 10;
 
 // Collapsed-card height. Grows to fit the full description so long text is never
 // clipped, with a minimum of ~1.5x the old default (86) for breathing room.
@@ -99,11 +90,11 @@ function computeCollapsedWidth(component: Component, density: 'detailed' | 'comp
 }
 
 export interface LayoutOptions {
-  expanded: Set<string>;         // component ids currently expanded
-  internalExpanded: Set<string>; // internal ids currently expanded (affects expanded height)
-  internalWide?: Set<string>;    // internal ids in fit-width mode (stretch to fit member text)
-  seqMode?: Set<string>;         // expanded components showing their call-sequence (fixed frame)
+  expanded: Set<string>;      // component ids currently expanded
+  seqMode?: Set<string>;      // expanded components showing their call-sequence (fixed frame)
+  // 'compact' shows class headers only; 'detailed' shows their full bodies.
   cardDensity?: 'detailed' | 'compact';
+  // Whether class bodies show the right-hand type column.
   showInlineSignatures?: boolean;
 }
 
@@ -113,267 +104,58 @@ const SEQ_CARD_W = 620;
 const SEQ_CARD_H = 420;
 
 /**
- * Compute the height of an internal card based on whether it's expanded.
+ * Relations that stay inside one package — the only ones a card can draw.
  */
-function computeInternalHeight(internal: Internal, internalExpanded: Set<string>): number {
-  if (internalExpanded.has(internal.id)) {
-    const memberCount = internal.members?.length ?? 0;
-    return INTERNAL_HEADER_H + (memberCount > 0 ? memberCount * INTERNAL_MEMBER_H + INTERNAL_MEMBER_PADDING : 0);
-  }
-  return INTERNAL_HEADER_H;
-}
-
-// Width estimation for the "fit-width" internal mode. The internal text is
-// monospace (.hf-internal uses JetBrains Mono), so glyph advance is predictable.
-// Values slightly overestimate to guarantee the full text fits (no clipping).
-const MEMBER_CHAR_W = 6.2; // .hf-member font-size 10px (~0.6em), padded up
-const HEADER_CHAR_W = 6.8; // .hf-internal-head font-size 11px
-const MEMBER_CHROME_W = 40; // member row: left/right padding + kind col + gap
-const HEADER_CHROME_W = 72; // header: padding + kind tag + gaps + toggle button
-
-/**
- * Width an internal needs to show its widest member name (and its header) in
- * full. Never narrower than INTERNAL_W, so a card already fitting stays put.
- */
-function computeInternalFitWidth(internal: Internal, showInlineSignatures: boolean): number {
-  let maxMemberLen = 0;
-  for (const m of internal.members ?? []) {
-    const name = displaySymbolName(m.name, showInlineSignatures);
-    if (name.length > maxMemberLen) maxMemberLen = name.length;
-  }
-  const memberW = maxMemberLen > 0 ? MEMBER_CHROME_W + maxMemberLen * MEMBER_CHAR_W : 0;
-  const headerW = HEADER_CHROME_W + displaySymbolName(internal.name, showInlineSignatures).length * HEADER_CHAR_W;
-  return Math.ceil(Math.max(INTERNAL_W, memberW, headerW));
-}
-
-/** Width of a single internal: full signatures fit by default; short-name mode can still use fixed width. */
-function internalWidth(
-  internal: Internal,
-  internalWide: Set<string>,
-  showInlineSignatures: boolean
-): number {
-  return showInlineSignatures || internalWide.has(internal.id)
-    ? computeInternalFitWidth(internal, showInlineSignatures)
-    : INTERNAL_W;
-}
-
-/**
- * Layout internals within an expanded component using a simple grid/packing algorithm.
- * Returns the internals with x, y, w, h set, plus the required canvas content dimensions.
- */
-function packInternals(
-  internals: Internal[],
-  internalExpanded: Set<string>,
-  internalWide: Set<string>,
-  showInlineSignatures: boolean,
-  availableWidth: number
-): { laid: Internal[]; contentW: number; contentH: number } {
-  if (internals.length === 0) {
-    return { laid: [], contentW: 0, contentH: 0 };
-  }
-
-  // Compute width (fixed or fit-to-content) and height for all internals
-  const withHeights = internals.map((int) => ({
-    internal: int,
-    w: internalWidth(int, internalWide, showInlineSignatures),
-    h: computeInternalHeight(int, internalExpanded),
-  }));
-
-  // Simple row-based packing: place items left-to-right, wrap when exceeding available width
-  const laid: Internal[] = [];
-  let x = 0;
-  let y = 0;
-  let rowHeight = 0;
-  let maxX = 0;
-
-  for (const item of withHeights) {
-    // Check if we need to wrap to next row
-    if (x > 0 && x + item.w > availableWidth) {
-      x = 0;
-      y += rowHeight + INTERNAL_GAP;
-      rowHeight = 0;
-    }
-
-    laid.push({
-      ...item.internal,
-      x,
-      y,
-      w: item.w,
-      h: item.h,
-    });
-
-    maxX = Math.max(maxX, x + item.w);
-    rowHeight = Math.max(rowHeight, item.h);
-    x += item.w + INTERNAL_GAP;
-  }
-
-  const contentW = maxX;
-  const contentH = y + rowHeight;
-
-  return { laid, contentW, contentH };
-}
-
-function internalRelationKey(relation: SymbolRelation): string {
-  return `${relation.kind}\u0000${relation.fromInternalId ?? ''}\u0000${relation.toInternalId ?? ''}`;
-}
-
-function internalLayoutRelations(componentId: string, relations: SymbolRelation[]): SymbolRelation[] {
-  const internalRelations = new Map<string, SymbolRelation>();
-  for (const relation of relations) {
-    if (relation.fromComponentId !== componentId || relation.toComponentId !== componentId) continue;
-    if (!relation.fromInternalId || !relation.toInternalId) continue;
-    if (relation.fromInternalId === relation.toInternalId) continue;
-    const key = internalRelationKey(relation);
-    if (!internalRelations.has(key)) internalRelations.set(key, relation);
-  }
-  return [...internalRelations.values()].sort((a, b) => a.id.localeCompare(b.id));
-}
-
-async function layoutInternals(
-  internals: Internal[],
-  relations: SymbolRelation[],
-  internalExpanded: Set<string>,
-  internalWide: Set<string>,
-  showInlineSignatures: boolean,
-  availableWidth: number
-): Promise<{ laid: Internal[]; contentW: number; contentH: number }> {
-  if (internals.length === 0) {
-    return { laid: [], contentW: 0, contentH: 0 };
-  }
-
-  const withSizes = internals.map((internal) => ({
-    internal,
-    w: internalWidth(internal, internalWide, showInlineSignatures),
-    h: computeInternalHeight(internal, internalExpanded),
-  }));
-  const byId = new Map(withSizes.map((item) => [item.internal.id, item]));
-  const edges = relations.filter((relation) =>
-    relation.fromInternalId &&
-    relation.toInternalId &&
-    relation.fromInternalId !== relation.toInternalId &&
-    byId.has(relation.fromInternalId) &&
-    byId.has(relation.toInternalId)
+function cardRelations(componentId: string, relations: SymbolRelation[]): SymbolRelation[] {
+  return relations.filter(
+    (relation) =>
+      relation.fromComponentId === componentId &&
+      relation.toComponentId === componentId &&
+      relation.fromInternalId &&
+      relation.toInternalId &&
+      relation.fromInternalId !== relation.toInternalId
   );
-
-  if (edges.length === 0) {
-    return packInternals(internals, internalExpanded, internalWide, showInlineSignatures, availableWidth);
-  }
-
-  const elkGraph: ElkNode = {
-    id: 'internals',
-    layoutOptions: {
-      'elk.algorithm': 'layered',
-      'elk.direction': 'DOWN',
-      'elk.edgeRouting': 'SPLINES',
-      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
-      'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
-      'elk.spacing.nodeNode': '46',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '86',
-      'elk.spacing.edgeNode': '34',
-      'elk.spacing.edgeEdge': '18',
-      'elk.padding': '[top=0, left=0, bottom=0, right=0]',
-    },
-    children: withSizes.map((item) => ({
-      id: item.internal.id,
-      width: item.w,
-      height: item.h,
-    })),
-    edges: edges.map((relation, idx) => ({
-      id: `${relation.kind}:${relation.fromInternalId}->${relation.toInternalId}:${idx}`,
-      sources: [relation.fromInternalId!],
-      targets: [relation.toInternalId!],
-    })),
-  };
-
-  try {
-    const laidGraph = await new ELK().layout(elkGraph);
-    const nodeById = new Map((laidGraph.children ?? []).map((node) => [node.id, node]));
-    let contentW = 0;
-    let contentH = 0;
-    const laid = withSizes.map((item) => {
-      const node = nodeById.get(item.internal.id);
-      const x = node?.x ?? 0;
-      const y = node?.y ?? 0;
-      const w = node?.width ?? item.w;
-      const h = node?.height ?? item.h;
-      contentW = Math.max(contentW, x + w);
-      contentH = Math.max(contentH, y + h);
-      return {
-        ...item.internal,
-        x,
-        y,
-        w,
-        h,
-      };
-    });
-    return { laid, contentW, contentH };
-  } catch {
-    return packInternals(internals, internalExpanded, internalWide, showInlineSignatures, availableWidth);
-  }
 }
 
 /**
- * Compute the expanded dimensions of a component based on its internal layout.
- * This replaces the heuristic computeExpandedHeight function.
+ * Compute the expanded dimensions of a component from the layout of its
+ * source-file containers.
  */
 async function computeExpandedDimensions(
   component: Component,
   relations: SymbolRelation[],
-  internalExpanded: Set<string>,
-  internalWide: Set<string>,
   cardDensity: 'detailed' | 'compact',
   showInlineSignatures: boolean
-): Promise<{ w: number; h: number; internals: Internal[] }> {
-  // For expanded component, we need to lay out internals first to determine size
+): Promise<{ w: number; h: number; files: CardFile[] }> {
   const collapsedW = computeCollapsedWidth(component, cardDensity);
   // Floor expanded height at the collapsed height so expanding never shrinks a card.
   const collapsedH = computeCollapsedHeight(component, cardDensity);
   const minWidth = Math.max(collapsedW, DEFAULT_W);
-  const n = component.internals.length;
 
-  // Compute desired column count for a balanced grid:
-  // - Use sqrt(n) for rough balance, capped at 3 columns max
-  // - At least 1 column
-  const desiredCols = n > 0 ? Math.min(3, Math.ceil(Math.sqrt(n))) : 1;
+  // A compact card shows class headers only; the type column follows the
+  // toolbar's signature toggle. layoutCard owns the wrap width — it is the
+  // only place that knows container widths and the gaps between them.
+  const model = buildCardModel(component.internals);
+  const { files, contentW, contentH } = await layoutCard(model, cardRelations(component.id, relations), {
+    showRows: cardDensity !== 'compact',
+    showTypes: showInlineSignatures,
+    minWidth: minWidth - 2 * CANVAS_PADDING,
+  });
 
-  // Compute available width to fit that many columns
-  // Each column is INTERNAL_W wide, with INTERNAL_GAP between columns
-  const gridWidth = desiredCols * INTERNAL_W + (desiredCols - 1) * INTERNAL_GAP;
-  // A fit-mode internal can be wider than a column — the grid must be at least
-  // as wide as the widest internal so it isn't clipped.
-  const maxItemW = component.internals.reduce(
-    (mx, int) => Math.max(mx, internalWidth(int, internalWide, showInlineSignatures)),
-    INTERNAL_W
-  );
-  const availableWidth = Math.max(minWidth - 2 * CANVAS_PADDING, gridWidth, maxItemW);
-
-  const internalRelations = internalLayoutRelations(component.id, relations);
-
-  // Layout internals with the computed available width
-  const { laid, contentW, contentH } = await layoutInternals(
-    component.internals,
-    internalRelations,
-    internalExpanded,
-    internalWide,
-    showInlineSignatures,
-    availableWidth
-  );
-
-  // Offset the internal grid by CANVAS_PADDING so there is a top/left gap
-  // matching the spacing between cards. layoutInternals emits coords from
-  // (0,0); the padding can't come from CSS because the cards are absolutely
-  // positioned, so we bake it into the coordinates here.
-  const offsetInternals = laid.map((it) => ({
-    ...it,
-    x: (it.x ?? 0) + CANVAS_PADDING,
-    y: (it.y ?? 0) + CANVAS_PADDING,
+  // Offset the containers by CANVAS_PADDING so there is a top/left gap matching
+  // the spacing between cards. layoutCard emits coords from (0,0); the padding
+  // can't come from CSS because the containers are absolutely positioned, so we
+  // bake it into the coordinates here.
+  const offsetFiles = files.map((file) => ({
+    ...file,
+    x: (file.x ?? 0) + CANVAS_PADDING,
+    y: (file.y ?? 0) + CANVAS_PADDING,
   }));
 
-  // Calculate final dimensions - must be >= collapsed dimensions
   const w = Math.max(minWidth, contentW + 2 * CANVAS_PADDING);
   const h = Math.max(collapsedH, COMPONENT_HEADER_H + 2 * CANVAS_PADDING + contentH);
 
-  return { w, h, internals: offsetInternals };
+  return { w, h, files: offsetFiles };
 }
 
 /**
@@ -389,29 +171,25 @@ function shortName(id: string): string {
  * Compute layout for a UIGraph using ELK.
  * Returns a NEW UIGraph with absolute canvas coordinates; input is not mutated.
  * BCs → compound ELK nodes; components → child nodes; ports → ELK ports;
- * internals are laid out within expanded components.
+ * source-file containers are laid out within expanded components.
  */
 export async function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGraph> {
   const expanded = opts?.expanded ?? new Set<string>();
-  const internalExpanded = opts?.internalExpanded ?? new Set<string>();
-  const internalWide = opts?.internalWide ?? new Set<string>();
   const seqMode = opts?.seqMode ?? new Set<string>();
   const cardDensity = opts?.cardDensity ?? 'detailed';
   const showInlineSignatures = opts?.showInlineSignatures ?? true;
 
-  // --- 0. Pre-compute expanded component dimensions and internal layouts ---
+  // --- 0. Pre-compute expanded component dimensions and card layouts ---
   // We need to know component sizes BEFORE building ELK input, and we need
-  // internal layouts for expanded components. Seq-mode cards get a fixed
-  // frame instead — no internals layout needed for them.
+  // card layouts for expanded components. Seq-mode cards get a fixed
+  // frame instead — no card layout needed for them.
 
-  const expandedLayouts = new Map<string, { w: number; h: number; internals: Internal[] }>();
+  const expandedLayouts = new Map<string, { w: number; h: number; files: CardFile[] }>();
   for (const c of graph.components) {
     if (expanded.has(c.id) && !seqMode.has(c.id)) {
       expandedLayouts.set(c.id, await computeExpandedDimensions(
         c,
         graph.relations ?? [],
-        internalExpanded,
-        internalWide,
         cardDensity,
         showInlineSignatures
       ));
@@ -630,12 +408,10 @@ export async function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGr
         return { ...p, y: portY };
       });
 
-      // Get internal layout for expanded components
+      // Get the card layout for expanded components. Collapsed cards carry no
+      // file containers — they render their description instead.
       const isExpanded = expanded.has(c.id);
       const expandedLayout = expandedLayouts.get(c.id);
-      const returnedInternals = isExpanded && expandedLayout
-        ? expandedLayout.internals
-        : c.internals;
 
       return {
         ...c,
@@ -644,7 +420,7 @@ export async function layout(graph: UIGraph, opts?: LayoutOptions): Promise<UIGr
         w: cmpW,
         h: cmpH,
         ports: returnedPorts,
-        internals: returnedInternals,
+        files: isExpanded && expandedLayout ? expandedLayout.files : undefined,
       };
     });
 

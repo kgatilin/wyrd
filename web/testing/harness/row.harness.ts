@@ -1,9 +1,22 @@
 import { ComponentHarness, DiffState, diffStateFromClasses } from './test-element';
 
-/** A member row inside an expanded internal (`.hf-member`). */
-export class MemberHarness extends ComponentHarness {
+/** One row of a class body (`.hf-row`): kind glyph, name, type column. */
+export class RowHarness extends ComponentHarness {
+  /** Left column: bare name, with the parameter list for a method. */
   async name(): Promise<string> {
-    return (await this.root.locator('.hf-member-name').first()).text();
+    return (await this.root.locator('.hf-row-name').first()).text();
+  }
+  /** Right column: return types, field type, constant type. '' when hidden. */
+  async type(): Promise<string> {
+    const els = await this.root.locator('.hf-row-type').all();
+    return els.length > 0 ? els[0].text() : '';
+  }
+  async kind(): Promise<string> {
+    const classes = await this.root.classes();
+    for (const kind of ['method', 'prop', 'param', 'return', 'const', 'type', 'symbol']) {
+      if (classes.includes(kind)) return kind;
+    }
+    return '';
   }
   async diffState(): Promise<DiffState | null> {
     return diffStateFromClasses(await this.root.classes());
@@ -14,7 +27,7 @@ export class MemberHarness extends ComponentHarness {
     if (classes.includes('symbol-internal')) return 'internal';
     return 'unknown';
   }
-  /** The `title` tooltip on the row (full member name). */
+  /** The `title` tooltip on the row (full one-line text of the row). */
   async rowTitle(): Promise<string | null> {
     return this.root.getAttribute('title');
   }
@@ -23,7 +36,7 @@ export class MemberHarness extends ComponentHarness {
     return this.root.computedStyleProp('text-decoration');
   }
 
-  /** Click the member row to open the comment popover (tag 'member'). */
+  /** Click the row to open the comment popover. */
   async comment(): Promise<void> {
     await this.root.click();
   }

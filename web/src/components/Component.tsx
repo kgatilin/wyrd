@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
-import type { Component as ComponentType, Diff, Internal, Member, Port, SymbolRelation } from '../types';
-import { displaySymbolName } from '../domain/symbolNames';
+import type { Component as ComponentType, Diff, Internal, Port, SymbolRelation } from '../types';
 import { componentPathPrefix } from '../domain/componentPath';
+import { rowLabel, rowText, type CardBlock, type CardFile, type CardRow } from '../domain/cardModel';
+import { blockRect } from '../domain/cardAnchors';
+import { CARD_LAYOUT_METRICS } from '../layout/cardLayout';
 import { CardSequence } from './SequenceCanvas';
 import type { CardDensity } from '../domain/state';
 import type { SymbolFocusTarget } from '../domain/symbolFocus';
@@ -34,37 +36,45 @@ function deriveComponentDiff(cmp: ComponentType): Diff | undefined {
   return undefined;
 }
 
-function internalKindLabel(kind: Internal['kind']): string {
+/** Short tag shown on a class shape's header. */
+function blockKindLabel(kind: CardBlock['kind']): string {
   switch (kind) {
     case 'iface':
       return 'iface';
     case 'class':
-      return 'class';
+      return 'struct';
     case 'func':
       return 'func';
     case 'type':
       return 'type';
-    case 'const':
+    case 'consts':
       return 'const';
-    case 'var':
+    case 'vars':
       return 'var';
-    case 'error':
+    case 'errors':
       return 'error';
     default:
       return kind;
   }
 }
 
-function memberKindLabel(kind: Member['kind']): string {
+/** Leading glyph of a body row, mirroring the kind column of a UML class. */
+function rowKindLabel(kind: CardRow['kind']): string {
   switch (kind) {
     case 'method':
       return 'fn';
     case 'prop':
       return ':';
+    case 'param':
+      return '→';
+    case 'return':
+      return '←';
     case 'const':
-      return 'const';
+      return '=';
+    case 'type':
+      return 'T';
     default:
-      return kind;
+      return '';
   }
 }
 
@@ -87,26 +97,15 @@ export interface ComponentProps {
   expanded: boolean;
   /** Callback to toggle expansion */
   onToggleExpand?: (id: string) => void;
-  /** Expanded card shows its call-sequence instead of internals */
+  /** Expanded card shows its call-sequence instead of its file containers */
   seqActive?: boolean;
-  /** Callback to flip the expanded card between internals and call-sequence */
+  /** Callback to flip the expanded card between contents and call-sequence */
   onToggleSeq?: (id: string) => void;
-  /** Set of expanded internal IDs (members visible) */
-  expandedInternals: ReadonlySet<string>;
-  /** Set of internal IDs in fit-width mode (stretched to show all member text) */
-  wideInternals: ReadonlySet<string>;
-  /** Callback to toggle an internal's fit-width mode */
-  onToggleWide?: (id: string) => void;
-  /** Callback to toggle an internal's member list open/closed */
-  onToggleInternal?: (id: string) => void;
-  /** Callback to set ALL internals of this component to/from fit-width mode */
-  onSetAllWide?: (id: string, wide: boolean) => void;
   /** Display name of the parent (bounded context); drives the header icon letter */
   parentName?: string;
   /** Whether to show diff styling */
   showDiff: boolean;
 
-  // Phase D props - stub/no-op for now
   /** Callback when component is selected (for focus mode) */
   onSelect?: (cmp: ComponentType) => void;
   /** Whether this component is focused */
@@ -119,10 +118,10 @@ export interface ComponentProps {
   commentTargets?: Set<string>;
   /** Whether this component has a manually pinned layout position */
   pinned?: boolean;
-  /** Collapsed-card presentation density */
+  /** Collapsed-card presentation density; 'compact' also hides class bodies */
   cardDensity?: CardDensity;
-  /** Whether internal/member rows show full signatures inline */
-  showInlineSignatures?: boolean;
+  /** Whether class bodies show the right-hand type column */
+  showTypes?: boolean;
   /** Canvas zoom used to convert screen-pixel drag deltas to graph coordinates */
   zoom?: number;
   /** Callback when the component is manually moved on the canvas */
@@ -136,8 +135,8 @@ export interface ComponentProps {
 }
 
 /**
- * Renders a component card with header, ports, and internals mini-canvas.
- * Supports collapsed (shows desc) and expanded (shows internals) states.
+ * Renders a package card: header, ports, and — when expanded — the package's
+ * source-file containers, each holding class shapes with two-column bodies.
  */
 export function Component({
   cmp,
@@ -145,11 +144,6 @@ export function Component({
   onToggleExpand,
   seqActive = false,
   onToggleSeq,
-  expandedInternals,
-  wideInternals,
-  onToggleWide,
-  onToggleInternal,
-  onSetAllWide,
   parentName,
   showDiff,
   onSelect,
@@ -159,7 +153,7 @@ export function Component({
   commentTargets,
   pinned = false,
   cardDensity = 'detailed',
-  showInlineSignatures = true,
+  showTypes = true,
   zoom = 1,
   onMove,
   onResetLayout,
@@ -183,12 +177,8 @@ export function Component({
   const w = cmp.w;
   const h = cmp.h;
 
-  // Full signatures fit by default. Manual fit-width controls are only useful
-  // when the toolbar is set to short-name mode.
-  const hasInternals = cmp.internals.length > 0;
   const layer = packageLayer(cmp.id);
-  const showFitControls = !showInlineSignatures;
-  const allWide = hasInternals && cmp.internals.every((it) => wideInternals.has(it.id));
+  const files = cmp.files ?? [];
 
   // Header icon shows the parent's (bounded context) initial, falling back to the
   // component's own first letter when no parent name is supplied.
@@ -279,11 +269,6 @@ export function Component({
     onToggleSeq?.(cmp.id);
   };
 
-  const handleExpandAllClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSetAllWide?.(cmp.id, !allWide);
-  };
-
   const handleResetLayoutClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onResetLayout?.(cmp.id);
@@ -311,7 +296,7 @@ export function Component({
         {/* Header */}
         <div
           className="hf-cmp-head"
-          style={{ paddingRight: expanded ? 116 : 34 }}
+          style={{ paddingRight: expanded ? 92 : 34 }}
           onClick={handleHeadClick}
           onDoubleClick={handleHeadDoubleClick}
           onPointerDown={handleDragPointerDown}
@@ -335,38 +320,28 @@ export function Component({
           </div>
         )}
 
-        {/* Internals mini-canvas (expanded only) */}
+        {/* Source-file containers (expanded only) */}
         {expanded && !seqActive && (
           <div className="hf-cmp-canvas">
-            {cmp.internals.map((internal) => (
-              <InternalCard
-                key={internal.id}
-                internal={internal}
+            {files.map((file) => (
+              <FileContainer
+                key={file.id}
+                file={file}
+                componentId={cmp.id}
                 showDiff={showDiff}
-                expanded={expandedInternals.has(internal.id)}
-                wide={wideInternals.has(internal.id)}
-                onToggleWide={() => onToggleWide?.(internal.id)}
-                onToggleExpand={() => onToggleInternal?.(internal.id)}
+                showTypes={showTypes}
                 onAddComment={onAddComment}
                 hasComment={hasComment}
-                showInlineSignatures={showInlineSignatures}
-                showFitControl={showFitControls}
-                componentId={cmp.id}
                 onSymbolFocus={onSymbolFocus}
               />
             ))}
-            <IntraPackageRelations
-              cmp={cmp}
-              relations={relations}
-              showDiff={showDiff}
-            />
+            <IntraPackageRelations cmp={cmp} relations={relations} showDiff={showDiff} />
           </div>
         )}
       </div>
 
       {/* Floating action group — kept OUTSIDE .hf-cmp-inner so the (i) popover
-          escapes the card's overflow clipping. Grouping the buttons stops the
-          (i) and expand-all buttons from overlapping each other. */}
+          escapes the card's overflow clipping. */}
       <div className="hf-cmp-actions">
         {/* Description info button — only when expanded (collapsed cards show
             the description in the body); its popover opens above the button. */}
@@ -377,25 +352,14 @@ export function Component({
           </div>
         )}
         {/* Deps|sequence toggle: flips the expanded card body between its
-            internals and the package's call-sequence, in place. */}
+            contents and the package's call-sequence, in place. */}
         {expanded && onToggleSeq && (
           <button
             className={`hf-cmp-seq-toggle${seqActive ? ' on' : ''}`}
             onClick={handleSeqClick}
-            title={seqActive ? 'Show dependencies' : 'Show call sequence'}
+            title={seqActive ? 'Show contents' : 'Show call sequence'}
           >
             ⇄
-          </button>
-        )}
-        {/* Expand-all: widens every internal so all member text shows (or resets
-            them). Only meaningful while the component is open and has internals. */}
-        {expanded && hasInternals && showFitControls && (
-          <button
-            className="hf-cmp-expand-all"
-            onClick={handleExpandAllClick}
-            title={allWide ? 'Reset all blocks width' : 'Expand all blocks to fit text'}
-          >
-            {allWide ? '»«' : '«»'}
           </button>
         )}
         {pinned && onResetLayout && (
@@ -429,6 +393,168 @@ export function Component({
   );
 }
 
+interface FileContainerProps {
+  file: CardFile;
+  componentId: string;
+  showDiff: boolean;
+  showTypes: boolean;
+  onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
+  hasComment: (id: string) => boolean;
+  onSymbolFocus?: (target: SymbolFocusTarget) => void;
+}
+
+/** One source file of the package, holding its class shapes. */
+function FileContainer({
+  file,
+  componentId,
+  showDiff,
+  showTypes,
+  onAddComment,
+  hasComment,
+  onSymbolFocus,
+}: FileContainerProps) {
+  const diffCls = showDiff && file.diff ? file.diff : '';
+  return (
+    <div
+      className={`hf-file ${diffCls}`}
+      style={{ left: file.x, top: file.y, width: file.w, height: file.h }}
+    >
+      <div className="hf-file-head" title={file.label}>
+        <span className="hf-file-name">{file.label}</span>
+      </div>
+      {file.blocks.map((block) => (
+        <ClassBlock
+          key={block.id}
+          block={block}
+          componentId={componentId}
+          showDiff={showDiff}
+          showTypes={showTypes}
+          onAddComment={onAddComment}
+          hasComment={hasComment}
+          onSymbolFocus={onSymbolFocus}
+        />
+      ))}
+    </div>
+  );
+}
+
+interface ClassBlockProps {
+  block: CardBlock;
+  componentId: string;
+  showDiff: boolean;
+  showTypes: boolean;
+  onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
+  hasComment: (id: string) => boolean;
+  onSymbolFocus?: (target: SymbolFocusTarget) => void;
+}
+
+/**
+ * A class shape: header with kind tag, name and stereotype chip, then the
+ * two-column body. Bodies are rendered whenever the layout reserved room for
+ * them — the card shows a symbol's structure without a further click.
+ */
+function ClassBlock({
+  block,
+  componentId,
+  showDiff,
+  showTypes,
+  onAddComment,
+  hasComment,
+  onSymbolFocus,
+}: ClassBlockProps) {
+  const diffCls = showDiff && block.diff ? block.diff : '';
+  // The layout reserves height for rows; when it did not, bodies are hidden.
+  const showRows = (block.h ?? 0) > CARD_LAYOUT_METRICS.BLOCK_HEADER_H && block.rows.length > 0;
+
+  const handleHeadClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (block.internalId) onSymbolFocus?.({ componentId, internalId: block.internalId });
+  };
+
+  const handleHeadDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onAddComment?.({ type: 'internal', id: block.internalId ?? block.id }, e);
+  };
+
+  return (
+    <div
+      className={`hf-block ${block.kind} ${symbolVisibilityClass(block.exported)} ${diffCls}`}
+      style={{ left: block.x, top: block.y, width: block.w, height: block.h }}
+    >
+      <div className="hf-block-head" onClick={handleHeadClick} onDoubleClick={handleHeadDoubleClick}>
+        <span className="hf-block-kind">{blockKindLabel(block.kind)}</span>
+        <span className="hf-block-name" title={block.name}>
+          {block.name}
+        </span>
+        {block.stereotype && (
+          <span className="hf-block-stereo" title={`stereotype: ${block.stereotype}`}>
+            {block.stereotype}
+          </span>
+        )}
+        {block.internalId && hasComment(block.internalId) && <span className="hf-cmt-marker sm">!</span>}
+      </div>
+      {showRows && (
+        <div className="hf-block-rows">
+          {block.rows.map((row) => (
+            <BodyRow
+              key={row.id}
+              row={row}
+              componentId={componentId}
+              showDiff={showDiff}
+              showTypes={showTypes}
+              hasComment={hasComment(row.memberId ?? row.id)}
+              onAddComment={onAddComment}
+              onSymbolFocus={onSymbolFocus}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface BodyRowProps {
+  row: CardRow;
+  componentId: string;
+  showDiff: boolean;
+  showTypes: boolean;
+  hasComment: boolean;
+  onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
+  onSymbolFocus?: (target: SymbolFocusTarget) => void;
+}
+
+/** One row of a class body: kind glyph, name (with parameters), type column. */
+function BodyRow({
+  row,
+  componentId,
+  showDiff,
+  showTypes,
+  hasComment,
+  onAddComment,
+  onSymbolFocus,
+}: BodyRowProps) {
+  const diffCls = showDiff && row.diff ? row.diff : '';
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSymbolFocus?.({ componentId, internalId: row.internalId, memberId: row.memberId });
+    onAddComment?.({ type: row.memberId ? 'member' : 'internal', id: row.memberId ?? row.internalId }, e);
+  };
+
+  return (
+    <div
+      className={`hf-row ${row.kind} ${symbolVisibilityClass(row.exported)} ${diffCls}`}
+      onClick={handleClick}
+      title={rowText(row)}
+    >
+      <span className={`hf-row-kind ${row.kind}`}>{rowKindLabel(row.kind)}</span>
+      <span className="hf-row-name">{rowLabel(row)}</span>
+      {showTypes && row.type && <span className="hf-row-type">{row.type}</span>}
+      {hasComment && <span className="hf-cmt-marker sm">!</span>}
+    </div>
+  );
+}
+
 interface IntraPackageRelationsProps {
   cmp: ComponentType;
   relations: SymbolRelation[];
@@ -441,12 +567,8 @@ interface RelationPoint {
   side: 'top' | 'right' | 'bottom' | 'left';
 }
 
-function IntraPackageRelations({
-  cmp,
-  relations,
-  showDiff,
-}: IntraPackageRelationsProps) {
-  const visibleRelations = internalRenderRelations(cmp.id, relations, cmp.internals);
+function IntraPackageRelations({ cmp, relations, showDiff }: IntraPackageRelationsProps) {
+  const visibleRelations = internalRenderRelations(cmp, relations);
   if (visibleRelations.length === 0 || cmp.w == null || cmp.h == null) return null;
   const width = cmp.w;
   const height = Math.max(0, cmp.h - 36);
@@ -501,15 +623,22 @@ function IntraPackageRelations({
   );
 }
 
-function internalRenderRelations(componentId: string, relations: SymbolRelation[], internals: Internal[]): SymbolRelation[] {
-  const internalIds = new Set(internals.map((internal) => internal.id));
+/**
+ * Same-package relations that connect two *different* class shapes. Symbols
+ * folded into the same aggregate block (constants of one file, say) have no
+ * arrow to draw between them.
+ */
+function internalRenderRelations(cmp: ComponentType, relations: SymbolRelation[]): SymbolRelation[] {
   const out = new Map<string, SymbolRelation>();
   for (const relation of relations) {
-    if (relation.fromComponentId !== componentId || relation.toComponentId !== componentId) continue;
+    if (relation.fromComponentId !== cmp.id || relation.toComponentId !== cmp.id) continue;
     if (!relation.fromInternalId || !relation.toInternalId) continue;
     if (relation.fromInternalId === relation.toInternalId) continue;
-    if (!internalIds.has(relation.fromInternalId) || !internalIds.has(relation.toInternalId)) continue;
-    const key = `${relation.kind}\u0000${relation.fromInternalId}\u0000${relation.toInternalId}`;
+    const from = blockRect(cmp, relation.fromInternalId);
+    const to = blockRect(cmp, relation.toInternalId);
+    if (!from || !to) continue;
+    if (from.x === to.x && from.y === to.y) continue;
+    const key = `${relation.kind} ${relation.fromInternalId} ${relation.toInternalId}`;
     if (!out.has(key)) out.set(key, relation);
   }
   return [...out.values()].sort((a, b) => a.id.localeCompare(b.id));
@@ -531,50 +660,44 @@ function intraRelationEndpoints(
   cmp: ComponentType,
   relation: SymbolRelation
 ): { from: RelationPoint; to: RelationPoint } | null {
-  const fromInternal = cmp.internals.find((internal) => internal.id === relation.fromInternalId);
-  const toInternal = cmp.internals.find((internal) => internal.id === relation.toInternalId);
-  if (!fromInternal || !toInternal) return null;
-
-  return intraAnchors(fromInternal, toInternal);
+  const from = blockRect(cmp, relation.fromInternalId!);
+  const to = blockRect(cmp, relation.toInternalId!);
+  if (!from || !to) return null;
+  return intraAnchors(from, to);
 }
 
-function intraAnchors(fromInternal: Internal, toInternal: Internal): { from: RelationPoint; to: RelationPoint } {
-  const from = internalBox(fromInternal);
-  const to = internalBox(toInternal);
-  const dx = to.cx - from.cx;
-  const dy = to.cy - from.cy;
+function intraAnchors(
+  from: { x: number; y: number; w: number; h: number },
+  to: { x: number; y: number; w: number; h: number }
+): { from: RelationPoint; to: RelationPoint } {
+  const fromC = { cx: from.x + from.w / 2, cy: from.y + from.h / 2 };
+  const toC = { cx: to.x + to.w / 2, cy: to.y + to.h / 2 };
+  const dx = toC.cx - fromC.cx;
+  const dy = toC.cy - fromC.cy;
 
   if (Math.abs(dy) >= Math.abs(dx) * 0.55) {
     if (dy >= 0) {
       return {
-        from: { x: from.cx, y: from.y + from.h, side: 'bottom' },
-        to: { x: to.cx, y: to.y, side: 'top' },
+        from: { x: fromC.cx, y: from.y + from.h, side: 'bottom' },
+        to: { x: toC.cx, y: to.y, side: 'top' },
       };
     }
     return {
-      from: { x: from.cx, y: from.y, side: 'top' },
-      to: { x: to.cx, y: to.y + to.h, side: 'bottom' },
+      from: { x: fromC.cx, y: from.y, side: 'top' },
+      to: { x: toC.cx, y: to.y + to.h, side: 'bottom' },
     };
   }
 
   if (dx >= 0) {
     return {
-      from: { x: from.x + from.w, y: from.cy, side: 'right' },
-      to: { x: to.x, y: to.cy, side: 'left' },
+      from: { x: from.x + from.w, y: fromC.cy, side: 'right' },
+      to: { x: to.x, y: toC.cy, side: 'left' },
     };
   }
   return {
-    from: { x: from.x, y: from.cy, side: 'left' },
-    to: { x: to.x + to.w, y: to.cy, side: 'right' },
+    from: { x: from.x, y: fromC.cy, side: 'left' },
+    to: { x: to.x + to.w, y: toC.cy, side: 'right' },
   };
-}
-
-function internalBox(internal: Internal): { x: number; y: number; w: number; h: number; cx: number; cy: number } {
-  const x = internal.x ?? 0;
-  const y = internal.y ?? 0;
-  const w = internal.w ?? 180;
-  const h = internal.h ?? 26;
-  return { x, y, w, h, cx: x + w / 2, cy: y + h / 2 };
 }
 
 function intraRelationPath(from: RelationPoint, to: RelationPoint, index: number): { path: string; label: { x: number; y: number } } {
@@ -597,151 +720,6 @@ function intraRelationPath(from: RelationPoint, to: RelationPoint, index: number
     path: `M ${from.x} ${from.y} C ${c1x} ${from.y}, ${c2x} ${to.y}, ${to.x} ${to.y}`,
     label: { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - 8 - (index % 2) * 10 },
   };
-}
-
-interface InternalCardProps {
-  internal: Internal;
-  componentId: string;
-  showDiff: boolean;
-  expanded: boolean;
-  /** Fit-width mode (card stretched to show all member text). Drives the +/− button. */
-  wide: boolean;
-  onToggleWide: () => void;
-  /** Toggles the member list open/closed (internals start collapsed). */
-  onToggleExpand: () => void;
-  onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
-  hasComment: (id: string) => boolean;
-  showInlineSignatures: boolean;
-  showFitControl: boolean;
-  onSymbolFocus?: (target: SymbolFocusTarget) => void;
-}
-
-function InternalCard({
-  internal,
-  componentId,
-  showDiff,
-  expanded,
-  wide,
-  onToggleWide,
-  onToggleExpand,
-  onAddComment,
-  hasComment,
-  showInlineSignatures,
-  showFitControl,
-  onSymbolFocus,
-}: InternalCardProps) {
-  const diffCls = showDiff && deriveInternalDiff(internal) ? deriveInternalDiff(internal) : '';
-  const internalName = displaySymbolName(internal.name, showInlineSignatures);
-  // Use layout-provided height if available, otherwise compute locally
-  // Layout sets internal.h based on expanded state at layout time
-  const memberHeight = expanded ? (internal.members?.length ?? 0) * 18 + 4 : 0;
-  const h = internal.h ?? (26 + memberHeight);
-
-  const memberCount = internal.members?.length ?? 0;
-
-  // Single click opens/closes the member list (internals start collapsed);
-  // double click keeps the drill-in flows: symbol wiring focus + comment.
-  const handleHeadClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (memberCount > 0) onToggleExpand();
-  };
-
-  const handleHeadDblClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSymbolFocus?.({ componentId, internalId: internal.id });
-    onAddComment?.({ type: 'internal', id: internal.id }, e);
-  };
-
-  const handleToggleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onToggleWide();
-  };
-
-  return (
-    <div
-      className={`hf-internal ${internal.kind} ${symbolVisibilityClass(internal.exported)} ${diffCls}`}
-      style={{
-        left: internal.x,
-        top: internal.y,
-        width: internal.w,
-        height: h,
-      }}
-    >
-      <div
-        className="hf-internal-head"
-        onClick={handleHeadClick}
-        onDoubleClick={handleHeadDblClick}
-        title={memberCount > 0 ? (expanded ? 'Hide members' : `Show ${memberCount} members`) : undefined}
-      >
-        <span className="hf-internal-kind">
-          {internalKindLabel(internal.kind)}
-        </span>
-        {memberCount > 0 && (
-          <span className={`hf-internal-chevron${expanded ? ' open' : ''}`}>▸</span>
-        )}
-        <span className="hf-internal-name" title={internal.name}>{internalName}</span>
-        {hasComment(internal.id) && <span className="hf-cmt-marker sm">!</span>}
-        {showFitControl && (
-          <span
-            className="hf-internal-toggle"
-            onClick={handleToggleClick}
-            title={wide ? 'Reset width' : 'Fit width to member text'}
-          >
-            {wide ? '−' : '+'}
-          </span>
-        )}
-      </div>
-      {expanded && (
-        <div className="hf-member-list">
-          {(internal.members ?? []).map((member) => (
-            <MemberRow
-              key={member.id}
-              member={member}
-              showDiff={showDiff}
-              hasComment={hasComment(member.id)}
-              onAddComment={onAddComment}
-              showInlineSignatures={showInlineSignatures}
-              componentId={componentId}
-              internalId={internal.id}
-              onSymbolFocus={onSymbolFocus}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface MemberRowProps {
-  member: Member;
-  showDiff: boolean;
-  hasComment: boolean;
-  onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
-  showInlineSignatures: boolean;
-  componentId: string;
-  internalId: string;
-  onSymbolFocus?: (target: SymbolFocusTarget) => void;
-}
-
-function MemberRow({ member, showDiff, hasComment, onAddComment, showInlineSignatures, componentId, internalId, onSymbolFocus }: MemberRowProps) {
-  const diffCls = showDiff && member.diff ? member.diff : '';
-  const memberName = displaySymbolName(member.name, showInlineSignatures);
-
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSymbolFocus?.({ componentId, internalId, memberId: member.id });
-    onAddComment?.({ type: 'member', id: member.id }, e);
-  };
-
-  return (
-    <div className={`hf-member ${symbolVisibilityClass(member.exported)} ${diffCls}`} onClick={handleClick} title={member.name}>
-      <span className={`hf-member-kind ${member.kind === 'method' ? 'fn' : member.kind}`}>
-        {memberKindLabel(member.kind)}
-      </span>
-      <span className="hf-member-name">{memberName}</span>
-      {hasComment && <span className="hf-cmt-marker sm">!</span>}
-    </div>
-  );
 }
 
 interface PortDotProps {

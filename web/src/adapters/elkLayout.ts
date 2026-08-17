@@ -8,8 +8,6 @@ export function createElkLayout(): LayoutPort {
     compute(graph, interaction) {
       return layout(graph, {
         expanded: new Set(interaction.expanded),
-        internalExpanded: new Set(interaction.internalExpanded),
-        internalWide: new Set(interaction.internalWide),
         seqMode: new Set(interaction.seqMode),
         cardDensity: interaction.cardDensity,
         showInlineSignatures: interaction.showInlineSignatures,

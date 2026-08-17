@@ -162,6 +162,13 @@ export class DomEnvironment implements HarnessEnvironment {
  * vi.unstubAllGlobals() in the test's afterEach.
  */
 export async function mountAppDom(graph: UIGraph): Promise<DomEnvironment> {
+  // jsdom implements no scrolling API. The viewport effect centers the canvas
+  // on a card after a relayout, and an exception there aborts the rest of the
+  // store's subscribers — including React — so the DOM would silently freeze on
+  // the pre-layout render. A no-op keeps the effect chain intact.
+  if (typeof Element.prototype.scrollTo !== 'function') {
+    Element.prototype.scrollTo = () => {};
+  }
   const okJson = (data: unknown) =>
     ({ ok: true, json: async () => data } as unknown as Response);
   vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {

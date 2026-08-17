@@ -92,7 +92,6 @@ describe('layout', () => {
     const detailed = await layout(input);
     const compact = await layout(input, {
       expanded: new Set(),
-      internalExpanded: new Set(),
       cardDensity: 'compact',
     });
 
@@ -118,7 +117,6 @@ describe('layout', () => {
     const detailed = await layout(input);
     const compact = await layout(input, {
       expanded: new Set(),
-      internalExpanded: new Set(),
       cardDensity: 'compact',
     });
 
@@ -385,7 +383,7 @@ describe('layout', () => {
 
   // --- internals layout (Problem 1) ---
 
-  it('expanded component with >=2 internals: each internal has numeric x/y/w/h and internals do not overlap', async () => {
+  it('gives every class shape geometry inside its file container, without overlap', async () => {
     const input = minimalGraph({
       boundedContexts: [{ id: 'bc1', name: 'BC One' }],
       components: [
@@ -396,71 +394,56 @@ describe('layout', () => {
           desc: '',
           bc: 'bc1',
           internals: [
-            { id: 'int1', kind: 'class', name: 'Foo', members: [] },
-            { id: 'int2', kind: 'iface', name: 'Bar', members: [] },
-            { id: 'int3', kind: 'class', name: 'Baz', members: [{ id: 'm1', kind: 'method', name: 'DoIt' }] },
+            { id: 'int1', kind: 'class', name: 'Foo', sourceFile: 'foo.go', members: [] },
+            { id: 'int2', kind: 'iface', name: 'Bar', sourceFile: 'foo.go', members: [] },
+            { id: 'int3', kind: 'class', name: 'Baz', sourceFile: 'baz.go', members: [{ id: 'm1', kind: 'method', name: 'DoIt' }] },
           ],
           ports: [],
         },
       ],
     });
 
-    const result = await layout(input, {
-      expanded: new Set(['c1']),
-      internalExpanded: new Set(['int3']), // int3 is expanded, has members
-    });
-
+    const result = await layout(input, { expanded: new Set(['c1']) });
     const cmp = result.components.find((c) => c.id === 'c1')!;
 
-    // Each internal must have numeric x, y, w, h
-    for (const internal of cmp.internals) {
-      expect(typeof internal.x, `internal ${internal.id} x`).toBe('number');
-      expect(typeof internal.y, `internal ${internal.id} y`).toBe('number');
-      expect(typeof internal.w, `internal ${internal.id} w`).toBe('number');
-      expect(typeof internal.h, `internal ${internal.id} h`).toBe('number');
-      expect(internal.x!).toBeGreaterThanOrEqual(0);
-      expect(internal.y!).toBeGreaterThanOrEqual(0);
-      expect(internal.w!).toBeGreaterThan(0);
-      expect(internal.h!).toBeGreaterThan(0);
-    }
+    expect(cmp.files?.map((f) => f.label)).toEqual(['baz.go', 'foo.go']);
 
-    // Internals must not overlap
-    const internals = cmp.internals;
-    for (let i = 0; i < internals.length; i++) {
-      for (let j = i + 1; j < internals.length; j++) {
-        const a = internals[i];
-        const b = internals[j];
-        const overlaps =
-          a.x! < b.x! + b.w! - 1 &&
-          a.x! + a.w! - 1 > b.x! &&
-          a.y! < b.y! + b.h! - 1 &&
-          a.y! + a.h! - 1 > b.y!;
-        expect(overlaps, `${a.id} and ${b.id} must not overlap`).toBe(false);
+    const placed: { id: string; x: number; y: number; w: number; h: number }[] = [];
+    for (const file of cmp.files ?? []) {
+      for (const key of ['x', 'y', 'w', 'h'] as const) {
+        expect(typeof file[key], `file ${file.label} ${key}`).toBe('number');
+      }
+      for (const block of file.blocks) {
+        for (const key of ['x', 'y', 'w', 'h'] as const) {
+          expect(typeof block[key], `block ${block.id} ${key}`).toBe('number');
+        }
+        expect(block.w!).toBeGreaterThan(0);
+        expect(block.h!).toBeGreaterThan(0);
+        // Blocks are positioned relative to their container and stay inside it.
+        expect(block.x! + block.w!).toBeLessThanOrEqual(file.w!);
+        expect(block.y! + block.h!).toBeLessThanOrEqual(file.h!);
+        placed.push({
+          id: block.id,
+          x: file.x! + block.x!,
+          y: file.y! + block.y!,
+          w: block.w!,
+          h: block.h!,
+        });
       }
     }
 
-    // Each internal must lie within the component's content box, with a
-    // CANVAS_PADDING gap on every side. Internal coords are canvas-relative
-    // (canvas = component height minus the 36px header). The top/left gap is
-    // the issue-2 fix: internals must NOT hug the top-left corner.
-    const PAD = 10; // CANVAS_PADDING in layout.ts
-    const canvasHeight = cmp.h! - 36;
-    const canvasWidth = cmp.w!;
-    for (const internal of cmp.internals) {
-      expect(internal.x!, `${internal.id} left gap (x=${internal.x})`).toBeGreaterThanOrEqual(PAD - 1);
-      expect(internal.y!, `${internal.id} top gap (y=${internal.y})`).toBeGreaterThanOrEqual(PAD - 1);
-      expect(
-        internal.x! + internal.w!,
-        `${internal.id} right inside canvas (x=${internal.x} w=${internal.w} canvasW=${canvasWidth})`
-      ).toBeLessThanOrEqual(canvasWidth - PAD + 1);
-      expect(
-        internal.y! + internal.h!,
-        `${internal.id} bottom inside canvas (y=${internal.y} h=${internal.h} canvasH=${canvasHeight})`
-      ).toBeLessThanOrEqual(canvasHeight - PAD + 1);
+    for (let i = 0; i < placed.length; i++) {
+      for (let j = i + 1; j < placed.length; j++) {
+        const a = placed[i];
+        const b = placed[j];
+        const disjoint =
+          a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+        expect(disjoint, `${a.id} overlaps ${b.id}`).toBe(true);
+      }
     }
   });
 
-  it('uses same-package symbol relations to lay out expanded internals', async () => {
+  it('uses same-package symbol relations to order class shapes', async () => {
     const input = minimalGraph({
       boundedContexts: [{ id: 'bc1', name: 'BC One' }],
       components: [
@@ -516,17 +499,18 @@ describe('layout', () => {
       ],
     });
 
-    const result = await layout(input, {
-      expanded: new Set(['eventstore']),
-      internalExpanded: new Set(),
-    });
+    const result = await layout(input, { expanded: new Set(['eventstore']) });
     const cmp = result.components[0];
-    const byID = new Map(cmp.internals.map((internal) => [internal.id, internal]));
+    const byID = new Map(
+      (cmp.files ?? []).flatMap((file) =>
+        file.blocks.map((block) => [block.id, file.y! + block.y!] as const)
+      )
+    );
 
-    expect(byID.get('eventstore.Projection')!.y!).toBeGreaterThan(byID.get('eventstore.New')!.y!);
-    expect(byID.get('eventstore.Log')!.y!).toBeGreaterThan(byID.get('eventstore.Projection')!.y!);
-    expect(byID.get('eventstore.Record')!.y!).toBeGreaterThan(byID.get('eventstore.Log')!.y!);
-    expect(byID.get('eventstore.Subject')!.y!).toBeGreaterThan(byID.get('eventstore.Record')!.y!);
+    expect(byID.get('eventstore.Projection')!).toBeGreaterThan(byID.get('eventstore.New')!);
+    expect(byID.get('eventstore.Log')!).toBeGreaterThan(byID.get('eventstore.Projection')!);
+    expect(byID.get('eventstore.Record')!).toBeGreaterThan(byID.get('eventstore.Log')!);
+    expect(byID.get('eventstore.Subject')!).toBeGreaterThan(byID.get('eventstore.Record')!);
   });
 
   it('expanded component size is derived from internal layout, not heuristic', async () => {
@@ -553,8 +537,7 @@ describe('layout', () => {
     });
 
     const result = await layout(input, {
-      expanded: new Set(['c1']),
-      internalExpanded: new Set(['int1', 'int2', 'int3', 'int4']), // All expanded
+      expanded: new Set(['c1']), // All expanded
     });
 
     const cmp = result.components.find((c) => c.id === 'c1')!;
@@ -579,106 +562,6 @@ describe('layout', () => {
   });
 
   // --- fit-width mode for internals ---
-
-  it('widens an internal in fit-width mode to fit a long member, keeps others fixed', async () => {
-    const longMember = 'VeryLongMemberNameThatNeedsExtraWidthForShortNameMode';
-    const input = minimalGraph({
-      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
-      components: [
-        {
-          id: 'c1',
-          name: 'C1',
-          tech: 'Go',
-          desc: '',
-          bc: 'bc1',
-          internals: [
-            { id: 'wide', kind: 'class', name: 'Wide', members: [{ id: 'm1', kind: 'prop', name: longMember }] },
-            { id: 'fixed', kind: 'class', name: 'Fixed', members: [{ id: 'm2', kind: 'prop', name: 'X : int' }] },
-          ],
-          ports: [],
-        },
-      ],
-    });
-
-    const opts = {
-      expanded: new Set(['c1']),
-      internalExpanded: new Set(['wide', 'fixed']),
-      showInlineSignatures: false,
-    };
-
-    const normal = await layout(input, opts);
-    const widened = await layout(input, { ...opts, internalWide: new Set(['wide']) });
-
-    const wideNormal = normal.components[0].internals.find((i) => i.id === 'wide')!;
-    const wideFit = widened.components[0].internals.find((i) => i.id === 'wide')!;
-    const fixedFit = widened.components[0].internals.find((i) => i.id === 'fixed')!;
-
-    // The fit-width internal grows past the default width…
-    expect(wideFit.w!).toBeGreaterThan(wideNormal.w!);
-    // …enough to fit the long member text (≈ 0.6em/char at 10px + chrome)…
-    expect(wideFit.w!).toBeGreaterThanOrEqual(longMember.length * 6);
-    // …while a non-wide internal keeps the fixed width.
-    expect(fixedFit.w!).toBe(wideNormal.w!);
-  });
-
-  it('fits full inline signatures by default without explicit wide mode', async () => {
-    const signature = 'MarshalJSON() ([]byte, error)';
-    const input = minimalGraph({
-      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
-      components: [
-        {
-          id: 'c1',
-          name: 'C1',
-          tech: 'Go',
-          desc: '',
-          bc: 'bc1',
-          internals: [
-            { id: 'marshal', kind: 'func', name: signature, members: [] },
-          ],
-          ports: [],
-        },
-      ],
-    });
-
-    const laid = await layout(input, {
-      expanded: new Set(['c1']),
-      internalExpanded: new Set(['marshal']),
-      showInlineSignatures: true,
-    });
-
-    expect(laid.components[0].internals[0].w!).toBeGreaterThanOrEqual(signature.length * 6);
-  });
-
-  it('uses shortened symbol names for fit-width when inline signatures are hidden', async () => {
-    const longMember = 'NewClient(ctx context.Context, cfg ClientConfig) (*Client, error)';
-    const input = minimalGraph({
-      boundedContexts: [{ id: 'bc1', name: 'BC One' }],
-      components: [
-        {
-          id: 'c1',
-          name: 'C1',
-          tech: 'Go',
-          desc: '',
-          bc: 'bc1',
-          internals: [
-            { id: 'wide', kind: 'class', name: 'ClientFactory', members: [{ id: 'm1', kind: 'method', name: longMember }] },
-          ],
-          ports: [],
-        },
-      ],
-    });
-
-    const opts = {
-      expanded: new Set(['c1']),
-      internalExpanded: new Set(['wide']),
-      internalWide: new Set(['wide']),
-    };
-
-    const full = await layout(input, opts);
-    const short = await layout(input, { ...opts, showInlineSignatures: false });
-
-    expect(short.components[0].internals[0].w!).toBeLessThan(full.components[0].internals[0].w!);
-  });
 
   // --- synthesized inbound ports (Problem 2a) ---
 
@@ -820,7 +703,6 @@ describe('layout', () => {
     const collapsed = await layout(input);
     const expanded = await layout(input, {
       expanded: new Set(['c1']),
-      internalExpanded: new Set(),
     });
 
     const collapsedCmp = collapsed.components[0];
@@ -924,8 +806,8 @@ describe('layout', () => {
 
   // --- BUG 2: internals should use multi-column layout for n>=4 ---
 
-  it('expanded component with >=4 internals uses multiple columns', async () => {
-    // Component with 4 internals should NOT stack in a single column
+  it('expanded component with >=4 source files uses multiple columns', async () => {
+    // A package of 4 source files should NOT stack in a single column
     const input = minimalGraph({
       boundedContexts: [{ id: 'bc1', name: 'BC One' }],
       components: [
@@ -936,31 +818,28 @@ describe('layout', () => {
           desc: '',
           bc: 'bc1',
           internals: [
-            { id: 'int1', kind: 'class', name: 'Foo', members: [] },
-            { id: 'int2', kind: 'class', name: 'Bar', members: [] },
-            { id: 'int3', kind: 'class', name: 'Baz', members: [] },
-            { id: 'int4', kind: 'class', name: 'Qux', members: [] },
+            { id: 'int1', kind: 'class', name: 'Foo', sourceFile: 'foo.go', members: [] },
+            { id: 'int2', kind: 'class', name: 'Bar', sourceFile: 'bar.go', members: [] },
+            { id: 'int3', kind: 'class', name: 'Baz', sourceFile: 'baz.go', members: [] },
+            { id: 'int4', kind: 'class', name: 'Qux', sourceFile: 'qux.go', members: [] },
           ],
           ports: [],
         },
       ],
     });
 
-    const result = await layout(input, {
-      expanded: new Set(['c1']),
-      internalExpanded: new Set(),
-    });
+    const result = await layout(input, { expanded: new Set(['c1']) });
 
     const cmp = result.components.find((c) => c.id === 'c1')!;
-    const internals = cmp.internals;
+    const files = cmp.files ?? [];
 
     // Count unique X positions to determine number of columns used
-    const uniqueXPositions = new Set(internals.map((int) => int.x));
+    const uniqueXPositions = new Set(files.map((file) => file.x));
 
-    // With 4 internals, should use at least 2 columns (not a single column)
+    // With one source file per symbol, containers should use at least 2 columns
     expect(
       uniqueXPositions.size,
-      `internals should use multiple columns (found ${uniqueXPositions.size} unique x positions)`
+      `file containers should use multiple columns (found ${uniqueXPositions.size} unique x positions)`
     ).toBeGreaterThan(1);
   });
 });

@@ -8,52 +8,44 @@ function internal(over: Partial<Internal> & Pick<Internal, 'id' | 'kind' | 'name
 
 describe('buildCardModel', () => {
   it('groups symbols into source-file containers ordered by name', () => {
-    const files = buildCardModel({
-      internals: [
+    const files = buildCardModel([
         internal({ id: 'p.Z', kind: 'class', name: 'Z', sourceFile: 'zeta.go' }),
         internal({ id: 'p.A', kind: 'class', name: 'A', sourceFile: 'alpha.go' }),
         internal({ id: 'p.M', kind: 'class', name: 'M', sourceFile: 'mid.go' }),
-      ],
-    });
+      ]);
 
     expect(files.map((f) => f.label)).toEqual(['alpha.go', 'mid.go', 'zeta.go']);
     expect(files[0].blocks.map((b) => b.name)).toEqual(['A']);
   });
 
   it('sorts the unknown-file bucket last', () => {
-    const files = buildCardModel({
-      internals: [
+    const files = buildCardModel([
         internal({ id: 'p.A', kind: 'class', name: 'A' }),
         internal({ id: 'p.B', kind: 'class', name: 'B', sourceFile: 'zeta.go' }),
-      ],
-    });
+      ]);
 
     expect(files.map((f) => f.label)).toEqual(['zeta.go', UNKNOWN_SOURCE_FILE]);
   });
 
   it('orders blocks within a file the way the D2 writer does', () => {
-    const files = buildCardModel({
-      internals: [
+    const files = buildCardModel([
         internal({ id: 'p.C', kind: 'const', name: 'C', sourceFile: 'a.go' }),
         internal({ id: 'p.T', kind: 'type', name: 'T', sourceFile: 'a.go' }),
         internal({ id: 'p.F', kind: 'func', name: 'F', sourceFile: 'a.go' }),
         internal({ id: 'p.S', kind: 'class', name: 'S', sourceFile: 'a.go' }),
         internal({ id: 'p.I', kind: 'iface', name: 'I', sourceFile: 'a.go' }),
-      ],
-    });
+      ]);
 
     expect(files[0].blocks.map((b) => b.kind)).toEqual(['iface', 'class', 'func', 'type', 'consts']);
   });
 
   it('folds constants, variables and errors of one file into single blocks', () => {
-    const files = buildCardModel({
-      internals: [
+    const files = buildCardModel([
         internal({ id: 'p.MaxA', kind: 'const', name: 'MaxA', type: 'int = 1', sourceFile: 'a.go' }),
         internal({ id: 'p.MaxB', kind: 'const', name: 'MaxB', type: 'int = 2', sourceFile: 'a.go' }),
         internal({ id: 'p.Reg', kind: 'var', name: 'Reg', type: '[]string', sourceFile: 'a.go' }),
         internal({ id: 'p.ErrX', kind: 'error', name: 'ErrX', type: '"boom"', sourceFile: 'a.go' }),
-      ],
-    });
+      ]);
 
     const blocks = files[0].blocks;
     expect(blocks.map((b) => b.name)).toEqual(['Constants', 'Variables', 'Errors']);
@@ -69,12 +61,10 @@ describe('buildCardModel', () => {
   });
 
   it('keeps a constant in its own file container', () => {
-    const files = buildCardModel({
-      internals: [
+    const files = buildCardModel([
         internal({ id: 'p.A', kind: 'const', name: 'A', sourceFile: 'a.go' }),
         internal({ id: 'p.B', kind: 'const', name: 'B', sourceFile: 'b.go' }),
-      ],
-    });
+      ]);
 
     expect(files.map((f) => f.label)).toEqual(['a.go', 'b.go']);
     expect(files[0].blocks[0].internalIds).toEqual(['p.A']);
@@ -82,8 +72,7 @@ describe('buildCardModel', () => {
   });
 
   it('leads a type definition body with its underlying type, then its constants', () => {
-    const files = buildCardModel({
-      internals: [
+    const files = buildCardModel([
         internal({
           id: 'p.Status',
           kind: 'type',
@@ -92,8 +81,7 @@ describe('buildCardModel', () => {
           sourceFile: 'a.go',
           members: [{ id: 'p.Status.New', kind: 'const', name: 'StatusNew' }],
         }),
-      ],
-    });
+      ]);
 
     const rows = files[0].blocks[0].rows;
     expect(rows.map((r) => [r.kind, r.name, r.type])).toEqual([
@@ -103,12 +91,10 @@ describe('buildCardModel', () => {
   });
 
   it('carries the stereotype onto the block', () => {
-    const files = buildCardModel({
-      internals: [
+    const files = buildCardModel([
         internal({ id: 'p.R', kind: 'iface', name: 'R', stereotype: 'repository', sourceFile: 'a.go' }),
         internal({ id: 'p.M', kind: 'class', name: 'M', sourceFile: 'a.go' }),
-      ],
-    });
+      ]);
 
     const blocks = files[0].blocks;
     expect(blocks.find((b) => b.name === 'R')?.stereotype).toBe('repository');
@@ -117,8 +103,7 @@ describe('buildCardModel', () => {
 
   describe('diff rollup', () => {
     it('reads a symbol as changed when only a member moved', () => {
-      const files = buildCardModel({
-        internals: [
+      const files = buildCardModel([
           internal({
             id: 'p.S',
             kind: 'class',
@@ -126,38 +111,31 @@ describe('buildCardModel', () => {
             sourceFile: 'a.go',
             members: [{ id: 'p.S.F', kind: 'prop', name: 'F', diff: 'added' }],
           }),
-        ],
-      });
+        ]);
 
       expect(files[0].blocks[0].diff).toBe('changed');
     });
 
     it('keeps a unanimous state on the file container', () => {
-      const files = buildCardModel({
-        internals: [
+      const files = buildCardModel([
           internal({ id: 'p.A', kind: 'class', name: 'A', sourceFile: 'a.go', diff: 'added' }),
           internal({ id: 'p.B', kind: 'class', name: 'B', sourceFile: 'a.go', diff: 'added' }),
-        ],
-      });
+        ]);
 
       expect(files[0].diff).toBe('added');
     });
 
     it('reads a partially changed file as changed', () => {
-      const files = buildCardModel({
-        internals: [
+      const files = buildCardModel([
           internal({ id: 'p.A', kind: 'class', name: 'A', sourceFile: 'a.go', diff: 'added' }),
           internal({ id: 'p.B', kind: 'class', name: 'B', sourceFile: 'a.go' }),
-        ],
-      });
+        ]);
 
       expect(files[0].diff).toBe('changed');
     });
 
     it('leaves an untouched file undiffed', () => {
-      const files = buildCardModel({
-        internals: [internal({ id: 'p.A', kind: 'class', name: 'A', sourceFile: 'a.go' })],
-      });
+      const files = buildCardModel([internal({ id: 'p.A', kind: 'class', name: 'A', sourceFile: 'a.go' })]);
 
       expect(files[0].diff).toBeUndefined();
     });
