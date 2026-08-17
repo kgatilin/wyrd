@@ -114,10 +114,20 @@ export interface Component {
   hx?: number;
 }
 
+export type InternalKind = 'class' | 'iface' | 'func' | 'type' | 'const' | 'var' | 'error';
+
 export interface Internal {
   id: string;
-  kind: 'class' | 'iface' | 'func' | 'type' | 'const' | 'var' | 'error';
+  kind: InternalKind;
+  /** Bare identifier, including generic type parameters. */
   name: string;
+  /**
+   * Right-hand column for leaf symbols: a type definition's underlying type,
+   * a constant's type and value, a variable's type, an error's message.
+   */
+  type?: string;
+  /** Detected DDD stereotype; absent when nothing was detected. */
+  stereotype?: string;
   sourceFile?: string;
   exported?: boolean;
   diff?: Diff;
@@ -130,10 +140,17 @@ export interface Internal {
   h?: number;
 }
 
+export type MemberKind = 'method' | 'prop' | 'const' | 'param' | 'return';
+
 export interface Member {
   id: string;
-  kind: 'method' | 'prop' | 'const';
+  kind: MemberKind;
+  /** Bare identifier. Diff-synthesized rows may carry a whole signature here. */
   name: string;
+  /** Formatted parameter list, methods only. */
+  params?: string;
+  /** Right-hand column: return types, field type, constant type. */
+  type?: string;
   sourceFile?: string;
   exported?: boolean;
   diff?: Diff;
