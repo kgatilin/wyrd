@@ -2,7 +2,7 @@ import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkNode, ElkPort, ElkExtendedEdge } from 'elkjs';
 import type { UIGraph, BoundedContext, Component, Port, Edge, SymbolRelation } from '../types';
 import { componentPathPrefix } from '../domain/componentPath';
-import { buildCardModel, type CardFile } from '../domain/cardModel';
+import { buildCardModel, isDiagramRelation, type CardFile } from '../domain/cardModel';
 import { layoutCard } from './cardLayout';
 
 // Spacing between sibling components. These MUST be set on the node that owns the
@@ -104,7 +104,8 @@ const SEQ_CARD_W = 620;
 const SEQ_CARD_H = 420;
 
 /**
- * Relations that stay inside one package — the only ones a card can draw.
+ * Relations that stay inside one package and belong on the diagram — the only
+ * ones a card can draw.
  */
 function cardRelations(componentId: string, relations: SymbolRelation[]): SymbolRelation[] {
   return relations.filter(
@@ -113,7 +114,8 @@ function cardRelations(componentId: string, relations: SymbolRelation[]): Symbol
       relation.toComponentId === componentId &&
       relation.fromInternalId &&
       relation.toInternalId &&
-      relation.fromInternalId !== relation.toInternalId
+      relation.fromInternalId !== relation.toInternalId &&
+      isDiagramRelation(relation)
   );
 }
 

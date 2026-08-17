@@ -73,6 +73,23 @@ export interface CardFile {
 export const UNKNOWN_SOURCE_FILE = '(unknown)';
 
 /**
+ * Relation kinds the diagram draws, matching what the D2 writer emits:
+ * intra-package dependencies plus implementations.
+ *
+ * `calls` is deliberately absent. It is by far the largest kind the projection
+ * produces — more than half of every relation in a real repository — and it
+ * says "this body invokes that function", which is a level of detail the
+ * structural diagram is not about. The symbol wiring overlay still shows call
+ * edges; that view is where they are the point.
+ */
+const DIAGRAM_RELATION_KINDS: ReadonlySet<string> = new Set(['uses', 'returns', 'implements', 'extends']);
+
+/** Whether a relation belongs on the diagram rather than in the wiring overlay. */
+export function isDiagramRelation(relation: { kind: string }): boolean {
+  return DIAGRAM_RELATION_KINDS.has(relation.kind);
+}
+
+/**
  * Order symbols take inside a file container, mirroring the D2 writer:
  * interfaces, structs, functions, type definitions, then the aggregated
  * constants / variables / errors blocks.

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { Component as ComponentType, Diff, Internal, Port, SymbolRelation } from '../types';
 import { componentPathPrefix } from '../domain/componentPath';
-import { rowLabel, rowText, type CardBlock, type CardFile, type CardRow } from '../domain/cardModel';
+import { isDiagramRelation, rowLabel, rowText, type CardBlock, type CardFile, type CardRow } from '../domain/cardModel';
 import { blockRect } from '../domain/cardAnchors';
 import { CARD_LAYOUT_METRICS } from '../layout/cardLayout';
 import { CardSequence } from './SequenceCanvas';
@@ -632,6 +632,7 @@ function internalRenderRelations(cmp: ComponentType, relations: SymbolRelation[]
   const out = new Map<string, SymbolRelation>();
   for (const relation of relations) {
     if (relation.fromComponentId !== cmp.id || relation.toComponentId !== cmp.id) continue;
+    if (!isDiagramRelation(relation)) continue;
     if (!relation.fromInternalId || !relation.toInternalId) continue;
     if (relation.fromInternalId === relation.toInternalId) continue;
     const from = blockRect(cmp, relation.fromInternalId);

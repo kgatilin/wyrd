@@ -23,6 +23,7 @@ import { BCGroups } from './components/BCGroups';
 import { Component } from './components/Component';
 import { EdgeLayer } from './components/EdgeLayer';
 import { RelationLayer } from './components/RelationLayer';
+import { isDiagramRelation } from './domain/cardModel';
 import { Legend } from './components/Legend';
 import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
@@ -855,7 +856,8 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
 
             <RelationLayer
               relations={(displayLaid.relations ?? []).filter(
-                (relation) => relation.fromComponentId !== relation.toComponentId
+                (relation) =>
+                  relation.fromComponentId !== relation.toComponentId && isDiagramRelation(relation)
               )}
               components={displayLaid.components}
               // Seq-mode cards don't render internals, so their symbol

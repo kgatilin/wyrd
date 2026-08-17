@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCardModel, rowLabel, rowText, UNKNOWN_SOURCE_FILE } from './cardModel';
+import { buildCardModel, isDiagramRelation, rowLabel, rowText, UNKNOWN_SOURCE_FILE } from './cardModel';
 import type { Internal } from '../types';
 
 function internal(over: Partial<Internal> & Pick<Internal, 'id' | 'kind' | 'name'>): Internal {
@@ -210,5 +210,17 @@ describe('row text', () => {
   it('renders a field as name and type', () => {
     const row = { id: 'f', kind: 'prop' as const, name: 'Paths', type: '[]string', internalId: 'p.S' };
     expect(rowText(row)).toBe('Paths []string');
+  });
+});
+
+describe('isDiagramRelation', () => {
+  it('keeps the structural kinds the D2 writer draws', () => {
+    for (const kind of ['uses', 'returns', 'implements', 'extends']) {
+      expect(isDiagramRelation({ kind }), kind).toBe(true);
+    }
+  });
+
+  it('drops call edges — the wiring overlay owns those', () => {
+    expect(isDiagramRelation({ kind: 'calls' })).toBe(false);
   });
 });
