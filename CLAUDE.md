@@ -30,11 +30,14 @@ archai/
 │   │   │   ├── stereotype.go # Stereotype detection heuristics
 │   │   │   └── writer.go     # Placeholder for future
 │   │   │
-│   │   └── d2/           # D2 diagram adapter
-│   │       ├── writer.go     # domain models → D2 files
-│   │       ├── builder.go    # D2 text generation
-│   │       ├── templates.go  # Legend template
-│   │       └── styles.go     # Color mappings
+│   │   ├── d2/           # D2 diagram adapter
+│   │   │   ├── writer.go     # domain models → D2 files
+│   │   │   ├── builder.go    # D2 text generation
+│   │   │   ├── templates.go  # Legend template
+│   │   │   └── styles.go     # Color mappings
+│   │   │
+│   │   └── git/          # Git adapter
+│   │       └── diff.go       # working-tree diff → FileStat + patches
 │   │
 │   ├── check/            # CI gates: overlay rules, policy, target drift
 │   │
@@ -284,6 +287,32 @@ All take `{package, include_subpackages}` and run on the package subgraph.
   non-blocking parse path is `MultiState.Loaded`/`ensureLoad` (`multistate.go`)
   and the `/api/mcp/tools/call` loading short-circuit in
   `internal/adapter/http/multi.go`. CLI: `cmd/archai/daemon.go`.
+
+### File diff in the review UI
+
+`Diff` in the app bar opens a magit/GitLab-style overlay: the changed-file
+list sectioned by package on the left, the selected file's patch on the
+right (both sides numbered, syntax highlighted, `j`/`k` to walk, `Esc` to
+close). It answers "what changed in the files", next to the canvas that
+answers "what changed architecturally".
+
+- Data: `GET /w/<worktree>/api/gitdiff?base=main` →
+  `internal/adapter/http/gitdiff.go` → `internal/adapter/git.Diff`.
+- **The diff is three-dot and ends at the working tree**: it starts at
+  `merge-base(base, HEAD)`, so a branch still reads correctly after the
+  base moves ahead, and uncommitted agent work shows without a commit.
+  Untracked, non-ignored files are appended as synthetic additions —
+  a review that hides new files is a trap.
+- Untracked files have no numstat, so their stats are derived from the
+  patch. Both that count and the binary check are **line-anchored**: a
+  file that merely quotes `Binary files ... differ` in its own text is
+  not a binary blob (this bit the first version).
+- UI: `web/src/domain/gitDiff.ts` (pure patch parser + grouping, tested),
+  `web/src/components/DiffOverlay.tsx` (the overlay),
+  `web/src/components/highlight.ts` (highlight.js, shared with the source
+  drawer). No diff library: the grouped rail, the theme and the
+  highlighter are ours anyway, so a component would only have brought a
+  hunk renderer plus a second highlighter and a competing stylesheet.
 
 ### Event Model
 
