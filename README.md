@@ -22,6 +22,10 @@ cd archai
 go build -o archai ./cmd/archai
 ```
 
+Tagged releases publish prebuilt binaries for linux and darwin on amd64 and
+arm64 — see [Continuous integration](#continuous-integration) for the two
+flavours.
+
 ## Usage
 
 ### Generate Diagrams
@@ -188,6 +192,47 @@ Archai follows hexagonal architecture (ports & adapters):
 - **Adapters** handle reading/writing different formats (Go code, D2 diagrams)
 - **Service layer** orchestrates operations
 - **CLI** wires dependencies via proper dependency injection
+
+## Continuous integration
+
+Two binaries ship from this repository:
+
+| Binary | Contents | Size |
+|---|---|---|
+| `archai` | Everything: code graph, MCP server, review UI, diagram generation and rendering. | ~47 MB (~36 MB stripped) |
+| `archai-check` | The architecture gates only. | ~8 MB (~6 MB stripped) |
+
+`archai-check` is what belongs in a pipeline. It links neither the D2 SVG
+renderer (a JS engine for dagre layout plus embedded fonts — roughly 30 MB
+of the full binary on its own) nor the embedded review UI, so it also
+builds without Node.js installed.
+
+```bash
+go install github.com/kgatilin/archai/cmd/archai-check@latest
+
+archai-check all       # overlay layer rules + dependency policy
+archai-check overlay   # layer rules only
+archai-check policy    # dependency policy only
+archai-check target    # drift against a locked target
+```
+
+Every command exits non-zero when its gate fails and prints the offending
+edges, one per line. The gates themselves live in `internal/check` and are
+shared with `archai overlay check`, `archai policy check` and
+`archai validate`, so the binary you run locally and the binary CI runs
+cannot disagree about what passes.
+
+A minimal GitHub Actions job:
+
+```yaml
+- uses: actions/setup-go@v5
+  with:
+    go-version-file: go.mod
+- run: go run github.com/kgatilin/archai/cmd/archai-check@latest all
+```
+
+This repository gates itself the same way; see `.github/workflows/ci.yml`
+and `make archai-check`.
 
 ## Development
 

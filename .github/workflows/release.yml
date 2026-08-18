@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and release (must already exist)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish ${{ github.event.inputs.tag || github.ref_name }}
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # archai embeds web/dist; archai-check does not, which is why the
+      # validation-only binary can be built without Node at all.
+      - name: Build review UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Test
+        run: go test ./...
+
+      - name: Gate on archai's own architecture rules
+        run: go run ./cmd/archai-check all
+
+      - name: Build release binaries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # CGO off so the binaries are static and portable across distros;
+          # -trimpath keeps build paths out of the artifact.
+          export CGO_ENABLED=0
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            GOOS="${target%/*}"
+            GOARCH="${target#*/}"
+            export GOOS GOARCH
+            for cmd in archai archai-check; do
+              stage="dist/stage/${cmd}_${VERSION}_${GOOS}_${GOARCH}"
+              mkdir -p "$stage"
+              go build \
+                -trimpath \
+                -ldflags "-s -w -X main.Version=${VERSION}" \
+                -o "$stage/$cmd" "./cmd/$cmd"
+              cp README.md "$stage/" 2>/dev/null || true
+              tar -czf "dist/${cmd}_${VERSION}_${GOOS}_${GOARCH}.tar.gz" -C "$stage" .
+            done
+          done
+          rm -rf dist/stage
+          ( cd dist && sha256sum *.tar.gz > checksums.txt )
+          ls -lh dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes=$(cat <<'NOTES'
+          ## Binaries
+
+          | Artifact | What it is |
+          |---|---|
+          | `archai_*` | Full archai: code graph, MCP server, review UI, diagram generation. |
+          | `archai-check_*` | Validation only — overlay layer rules, dependency policy, target drift. ~6x smaller, no UI or renderer linked in. Use it in CI. |
+
+          ```
+          archai-check all       # overlay + dependency-policy gates, non-zero on violations
+          archai-check overlay   # layer rules only
+          archai-check policy    # dependency policy only
+          archai-check target    # drift against a locked target
+          ```
+          NOTES
+          )
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" dist/* --clobber
+          else
+            gh release create "$VERSION" dist/* \
+              --title "$VERSION" \
+              --notes "$notes"
+          fi

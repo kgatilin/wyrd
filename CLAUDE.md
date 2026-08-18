@@ -9,6 +9,8 @@ archai/
 ├── cmd/archai/           # CLI entry point (Cobra)
 │   └── main.go           # Wires dependencies, defines commands
 │
+├── cmd/archai-check/     # Validation-only CLI shipped to CI (see below)
+│
 ├── internal/
 │   ├── domain/           # Core domain models (data containers)
 │   │   ├── package.go    # PackageModel - aggregate root
@@ -33,6 +35,8 @@ archai/
 │   │       ├── builder.go    # D2 text generation
 │   │       ├── templates.go  # Legend template
 │   │       └── styles.go     # Color mappings
+│   │
+│   ├── check/            # CI gates: overlay rules, policy, target drift
 │   │
 │   └── service/          # Business operations
 │       ├── service.go    # Service struct
@@ -321,6 +325,46 @@ generation is gated on validation; `.go` output goes through go/format
 (syntactic only). Example template + data-model reference: `docs/event-model.md`
 → Codegen.
 
+## CI gates and the two binaries
+
+The repo ships **two** binaries from the same tree:
+
+- `archai` — everything (graph, MCP, review UI, diagram rendering).
+  ~47 MB, and `make build` must run the web build first because
+  `web/dist_embed.go` embeds `web/dist`, which is not committed.
+- `archai-check` (`cmd/archai-check`) — the architecture gates only:
+  `overlay`, `policy`, `target`, `all`, `version`. 177 packages instead of
+  433, ~8 MB (~6 MB stripped), and it builds **without npm** because the
+  review UI embed is not in its dependency tree.
+
+The size split is not feature trimming: `oss.terrastruct.com/d2`'s SVG
+renderer alone — goja (a JS interpreter, for the dagre layout), embedded
+fonts, chroma — measures ~30 MB of the full binary. Not linking it is the
+whole optimization. Anything that imports `internal/adapter/d2/render.go`
+inherits those 30 MB, so keep it out of the check path.
+
+Both binaries call **`internal/check`**, which owns the gates *and their
+report wording* with the model readers injected (`check.New(source,
+specs)`). `archai overlay check` / `archai policy check` / `archai
+validate` are thin wrappers over it, so the local gate and the CI gate
+cannot drift apart. Add a new gate there, not in a `cmd/`.
+
+Workflows: `.github/workflows/ci.yml` (arch-gate job runs
+`go run ./cmd/archai-check all` with no Node; separate jobs build/test Go
+and the review UI) and `.github/workflows/release.yml` (on `v*` tags:
+cross-compiles both binaries for linux/darwin × amd64/arm64 with
+`CGO_ENABLED=0 -trimpath -ldflags "-s -w -X main.Version=$TAG"`, tars them
+with checksums, publishes via `gh release`). `make archai-check` runs the
+same gate locally.
+
+**Gotcha that made the gate a no-op for a long time:** the Go reader
+records `SymbolRef.Package` **module-relative** (`internal/adapter`), while
+`overlay.Merge` used to skip any dependency lacking the module prefix — so
+it skipped every internal edge and always reported "no violations". Merge
+now normalizes both shapes and decides module membership by
+package→layer-map membership. When touching Merge, test with
+module-relative dependency paths; fully-qualified fixtures pass either way.
+
 ## Development Rules
 
 1. **No test-only production code** - Don't add functions/parameters, types, or exported wrappers solely for testing. If you need to expose internals for testing, the architecture is wrong. Solutions:
@@ -342,5 +386,6 @@ go test ./...
 ## Building
 
 ```bash
-go build -o archai ./cmd/archai
+make build          # full archai (runs the web build first)
+make build-check    # archai-check only — no npm needed
 ```

@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  arch-gate:
+    # archai checking archai. Uses archai-check, which links neither the
+    # review UI nor the diagram renderer, so this job needs no Node and
+    # finishes long before the build job does.
+    name: Architecture gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Overlay layer rules + dependency policy
+        run: go run ./cmd/archai-check all
+
+  go:
+    name: Go build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # The archai binary embeds web/dist. That directory is not committed,
+      # so without this build the //go:embed pattern matches nothing and
+      # every package that reaches web/ fails to compile.
+      - name: Build review UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./cmd/...
+
+  web:
+    name: Review UI tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - working-directory: web
+        run: |
+          npm ci
+          npm test
