@@ -6,6 +6,8 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"io"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -52,22 +54,6 @@ func (r *reader) Read(ctx context.Context, paths []string) ([]domain.PackageMode
 		return nil, fmt.Errorf("loading packages: %w", err)
 	}
 
-	// Check for package loading errors
-	var loadErrors []string
-	for _, pkg := range pkgs {
-		for _, pkgErr := range pkg.Errors {
-			loadErrors = append(loadErrors, pkgErr.Error())
-		}
-	}
-	if len(loadErrors) > 0 {
-		return nil, fmt.Errorf("package errors: %s", strings.Join(loadErrors, "; "))
-	}
-
-	// Cache module path from first package
-	if len(pkgs) > 0 && pkgs[0].Module != nil {
-		r.modulePath = pkgs[0].Module.Path
-	}
-
 	// Sort loaded packages by import path so downstream output (the
 	// returned []PackageModel) is deterministic regardless of how the
 	// underlying go/packages loader scheduled them. The convertPackage
@@ -76,7 +62,29 @@ func (r *reader) Read(ctx context.Context, paths []string) ([]domain.PackageMode
 		return pkgs[i].PkgPath < pkgs[j].PkgPath
 	})
 
-	models, convErr := r.convertPackagesParallel(ctx, pkgs)
+	// Best-effort load: package-level errors must not discard the model for
+	// every package that loaded cleanly. go/packages still fills Syntax,
+	// Types and TypesInfo for a package it could parse and (partially)
+	// type-check, so one broken leaf — a //go:embed pattern matching a
+	// gitignored build artifact, an unresolvable import — costs at most that
+	// package's edges, not the whole module. The graph layers downstream
+	// already tolerate missing edges; a nil model is what they cannot survive.
+	usable, warnings := partitionLoadable(pkgs)
+	emitLoadWarnings(warnings)
+	if len(pkgs) > 0 && len(usable) == 0 {
+		return nil, fmt.Errorf("package errors: %s", strings.Join(collectPackageErrors(pkgs), "; "))
+	}
+
+	// Cache the module path from the first package that carries module
+	// metadata (a package that failed to load may have none).
+	for _, pkg := range pkgs {
+		if pkg.Module != nil {
+			r.modulePath = pkg.Module.Path
+			break
+		}
+	}
+
+	models, convErr := r.convertPackagesParallel(ctx, usable)
 	if convErr != nil {
 		return nil, convErr
 	}
@@ -84,13 +92,117 @@ func (r *reader) Read(ctx context.Context, paths []string) ([]domain.PackageMode
 	// Compute interface implementations across all loaded packages.
 	// This must run after all packages are loaded because implementations
 	// may cross package boundaries.
-	r.computeImplementations(pkgs, models)
+	r.computeImplementations(usable, models)
 
 	// Extract static call edges. Must run after implementations so that
 	// interface-dispatched calls can be fanned out to concrete targets.
-	r.extractCalls(pkgs, models)
+	r.extractCalls(usable, models)
 
 	return models, nil
+}
+
+// loadWarning describes one loaded package that go/packages could not fully
+// resolve. Only the first error is kept (with a count of the rest) so a
+// package whose every file fails to type-check costs one log line, not
+// hundreds.
+type loadWarning struct {
+	pkgPath string
+	first   string
+	extra   int
+	// skipped is true when the package produced nothing convertible (no
+	// parsed syntax or no type information) and was therefore dropped.
+	skipped bool
+}
+
+// loadWarnOut is where the reader reports non-fatal package load problems.
+// It is a package-level sink rather than a reader field or a widened
+// service.ModelReader signature: best-effort loading is an implementation
+// detail of this adapter, and every call site would otherwise have to learn
+// about warnings it cannot act on. Internal tests redirect it to capture the
+// emitted lines.
+var loadWarnOut io.Writer = os.Stderr
+
+// maxLoadWarnings caps how many per-package warning lines are printed before
+// the rest are collapsed into a single count.
+const maxLoadWarnings = 10
+
+// partitionLoadable splits the loaded roots into the packages archai can
+// convert (parsed syntax plus type information) and the warnings describing
+// every package that carried loader errors or produced nothing usable.
+func partitionLoadable(pkgs []*packages.Package) ([]*packages.Package, []loadWarning) {
+	usable := make([]*packages.Package, 0, len(pkgs))
+	var warnings []loadWarning
+	for _, pkg := range pkgs {
+		// convertPackage walks pkg.Types.Scope() and pkg.TypesInfo, so a
+		// package missing either is not convertible regardless of errors.
+		ok := len(pkg.Syntax) > 0 && pkg.Types != nil && pkg.TypesInfo != nil
+		if ok {
+			usable = append(usable, pkg)
+		}
+		if len(pkg.Errors) == 0 && ok {
+			continue
+		}
+		w := loadWarning{pkgPath: packageLabel(pkg), skipped: !ok}
+		if len(pkg.Errors) > 0 {
+			w.first = pkg.Errors[0].Error()
+			w.extra = len(pkg.Errors) - 1
+		} else {
+			w.first = "no parsed Go files"
+		}
+		warnings = append(warnings, w)
+	}
+	return usable, warnings
+}
+
+// collectPackageErrors flattens every package-level error, used to explain a
+// load that produced nothing at all.
+func collectPackageErrors(pkgs []*packages.Package) []string {
+	var out []string
+	for _, pkg := range pkgs {
+		for _, pkgErr := range pkg.Errors {
+			out = append(out, pkgErr.Error())
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, "no Go files parsed")
+	}
+	return out
+}
+
+// emitLoadWarnings prints one line per degraded package to loadWarnOut.
+func emitLoadWarnings(warnings []loadWarning) {
+	if len(warnings) == 0 || loadWarnOut == nil {
+		return
+	}
+	shown := warnings
+	if len(shown) > maxLoadWarnings {
+		shown = shown[:maxLoadWarnings]
+	}
+	for _, w := range shown {
+		var suffix string
+		if w.extra > 0 {
+			suffix += fmt.Sprintf(" (+%d more)", w.extra)
+		}
+		if w.skipped {
+			suffix += " [package skipped: nothing to model]"
+		}
+		fmt.Fprintf(loadWarnOut, "archai: reader: warning: %s: %s%s\n", w.pkgPath, w.first, suffix)
+	}
+	if rest := len(warnings) - len(shown); rest > 0 {
+		fmt.Fprintf(loadWarnOut, "archai: reader: warning: and %d more package(s) with load errors\n", rest)
+	}
+}
+
+// packageLabel names a package in diagnostics, falling back to the loader ID
+// when the import path could not be resolved.
+func packageLabel(pkg *packages.Package) string {
+	if pkg.PkgPath != "" {
+		return pkg.PkgPath
+	}
+	if pkg.ID != "" {
+		return pkg.ID
+	}
+	return "<unknown package>"
 }
 
 // parallelConvertThreshold is the minimum number of packages that must

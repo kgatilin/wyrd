@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kgatilin/archai/internal/domain"
@@ -229,6 +230,115 @@ func TestReader_Read_InvalidPath(t *testing.T) {
 	if err == nil {
 		t.Fatal("Read() expected error for invalid path")
 	}
+}
+
+// TestReader_Read_BestEffortOnPackageErrors pins the best-effort contract:
+// a package-level loader error (here the real-world case — a //go:embed
+// pattern pointing at a gitignored build artifact that does not exist in a
+// fresh worktree) must not discard the model for the packages that loaded
+// cleanly, must still yield a model for the erroring package's own syntax,
+// and must be reported as a warning.
+func TestReader_Read_BestEffortOnPackageErrors(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeFile := func(rel, content string) {
+		t.Helper()
+		path := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir for %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	writeFile("go.mod", "module test.example/besteffort\n\ngo 1.21\n")
+	writeFile("healthy/healthy.go", `package healthy
+
+// Widget is a perfectly fine type in a perfectly fine package.
+type Widget struct {
+	Name string
+}
+
+// NewWidget builds a Widget.
+func NewWidget(name string) *Widget {
+	return &Widget{Name: name}
+}
+`)
+	// dist/ is the build artifact that does not exist in a fresh checkout,
+	// so the embed pattern fails and go/packages attaches a package error.
+	writeFile("broken/broken.go", `package broken
+
+import _ "embed"
+
+//go:embed dist/bundle.json
+var bundle []byte
+
+// Server serves the (missing) bundle.
+type Server struct {
+	Bundle []byte
+}
+
+// NewServer builds a Server.
+func NewServer() *Server {
+	return &Server{Bundle: bundle}
+}
+`)
+
+	t.Chdir(tmpDir)
+
+	var warnings strings.Builder
+	prevWarnOut := loadWarnOut
+	loadWarnOut = &warnings
+	t.Cleanup(func() { loadWarnOut = prevWarnOut })
+
+	models, err := NewReader().Read(context.Background(), []string{"./..."})
+	if err != nil {
+		t.Fatalf("Read() error = %v, want best-effort success despite package errors", err)
+	}
+
+	byPath := make(map[string]domain.PackageModel, len(models))
+	for _, m := range models {
+		byPath[m.Path] = m
+	}
+	healthy, ok := byPath["healthy"]
+	if !ok {
+		t.Fatalf("healthy package missing from models %v", modelPaths(models))
+	}
+	if len(healthy.Structs) != 1 || healthy.Structs[0].Name != "Widget" {
+		t.Errorf("healthy package structs = %+v, want [Widget]", healthy.Structs)
+	}
+	if len(healthy.Functions) != 1 || healthy.Functions[0].Name != "NewWidget" {
+		t.Errorf("healthy package functions = %+v, want [NewWidget]", healthy.Functions)
+	}
+
+	// The erroring package still parsed, so its own syntax must be modelled
+	// too — a broken embed pattern costs edges, not the package.
+	broken, ok := byPath["broken"]
+	if !ok {
+		t.Fatalf("broken package missing from models %v", modelPaths(models))
+	}
+	if len(broken.Structs) != 1 || broken.Structs[0].Name != "Server" {
+		t.Errorf("broken package structs = %+v, want [Server]", broken.Structs)
+	}
+
+	got := warnings.String()
+	if !strings.Contains(got, "archai: reader: warning:") {
+		t.Errorf("warnings = %q, want an archai reader warning line", got)
+	}
+	if !strings.Contains(got, "broken") || !strings.Contains(got, "no matching files") {
+		t.Errorf("warnings = %q, want it to name the broken package and its embed error", got)
+	}
+	if strings.Contains(got, "healthy") {
+		t.Errorf("warnings = %q, want no warning for the healthy package", got)
+	}
+}
+
+func modelPaths(models []domain.PackageModel) []string {
+	out := make([]string, 0, len(models))
+	for _, m := range models {
+		out = append(out, m.Path)
+	}
+	return out
 }
 
 func TestReader_Read_MultiplePackages(t *testing.T) {
