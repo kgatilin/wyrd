@@ -48,16 +48,16 @@ func (c *Checker) Policy(ctx context.Context, opts PolicyOptions) (PolicyResult,
 		return PolicyResult{Defined: false}, nil
 	}
 
-	models, err := c.source.Read(ensureCtx(ctx), resolvePaths(opts.Paths))
-	if err != nil {
-		return PolicyResult{}, fmt.Errorf("reading Go packages: %w", err)
-	}
-	merged, _, err := overlayMerge(models, cfg)
+	model, err := c.readModel(ctx, cfg, opts.Paths)
 	if err != nil {
 		return PolicyResult{}, err
 	}
+	return model.policyResult(spec)
+}
 
-	violations, err := policy.Check(spec, merged, cfg)
+// policyResult evaluates spec against the already-merged model.
+func (m *mergedModel) policyResult(spec *policy.Spec) (PolicyResult, error) {
+	violations, err := policy.Check(spec, m.packages, m.cfg)
 	if err != nil {
 		return PolicyResult{}, fmt.Errorf("evaluating policy: %w", err)
 	}
@@ -81,6 +81,12 @@ func (c *Checker) RunPolicy(ctx context.Context, opts PolicyOptions, out, errOut
 		}
 		return err
 	}
+	return reportPolicy(out, res, opts)
+}
+
+// reportPolicy writes the dependency-policy report and returns the gate's
+// verdict.
+func reportPolicy(out io.Writer, res PolicyResult, opts PolicyOptions) error {
 	if !res.Defined {
 		fmt.Fprintf(out, "No policy defined in %s (add a 'policy:' block). Nothing to check.\n", opts.OverlayPath)
 		return nil

@@ -50,30 +50,50 @@ func (c *Checker) Overlay(ctx context.Context, opts OverlayOptions) (OverlayResu
 	if err != nil {
 		return OverlayResult{}, err
 	}
-
-	models, err := c.source.Read(ensureCtx(ctx), resolvePaths(opts.Paths))
-	if err != nil {
-		return OverlayResult{}, fmt.Errorf("reading Go packages: %w", err)
-	}
-
-	merged, violations, err := overlayMerge(models, cfg)
+	model, err := c.readModel(ctx, cfg, opts.Paths)
 	if err != nil {
 		return OverlayResult{}, err
 	}
+	return model.overlayResult(), nil
+}
 
+// mergedModel is the shared input of every gate: the overlay, the current
+// packages with layers assigned, and the layer-rule violations found while
+// assigning them. Reading it is the expensive part of a check — a full
+// go/packages load — so a run that evaluates several gates reads it once.
+type mergedModel struct {
+	cfg        *overlay.Config
+	packages   []domain.PackageModel
+	violations []overlay.Violation
+}
+
+// readModel reads the current packages and merges the overlay onto them.
+func (c *Checker) readModel(ctx context.Context, cfg *overlay.Config, paths []string) (*mergedModel, error) {
+	models, err := c.source.Read(ensureCtx(ctx), resolvePaths(paths))
+	if err != nil {
+		return nil, fmt.Errorf("reading Go packages: %w", err)
+	}
+	merged, violations, err := overlayMerge(models, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &mergedModel{cfg: cfg, packages: merged, violations: violations}, nil
+}
+
+// overlayResult projects the merged model into the layer-rule report.
+func (m *mergedModel) overlayResult() OverlayResult {
 	pkgLayer := make(map[string]string)
-	for _, m := range merged {
-		if m.Layer == "" {
+	for _, p := range m.packages {
+		if p.Layer == "" {
 			continue
 		}
-		rel := m.Path
-		if cfg.Module != "" {
-			rel = TrimModulePrefix(cfg.Module, m.Path)
+		rel := p.Path
+		if m.cfg.Module != "" {
+			rel = TrimModulePrefix(m.cfg.Module, p.Path)
 		}
-		pkgLayer[rel] = m.Layer
+		pkgLayer[rel] = p.Layer
 	}
-
-	return OverlayResult{Violations: violations, PkgLayer: pkgLayer}, nil
+	return OverlayResult{Violations: m.violations, PkgLayer: pkgLayer}
 }
 
 // overlayMerge merges the overlay onto models, wrapping the error the way
@@ -112,6 +132,11 @@ func (c *Checker) RunOverlay(ctx context.Context, opts OverlayOptions, out, errO
 		}
 		return err
 	}
+	return reportOverlay(out, res)
+}
+
+// reportOverlay writes the layer-rule report and returns the gate's verdict.
+func reportOverlay(out io.Writer, res OverlayResult) error {
 	if len(res.Violations) == 0 {
 		fmt.Fprintln(out, "OK: overlay is valid and no layer-rule violations found.")
 		return nil

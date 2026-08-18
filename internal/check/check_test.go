@@ -298,3 +298,58 @@ func TestResolveOverlay_NoOverlayReturnsEmpty(t *testing.T) {
 		t.Errorf("ResolveOverlay = (%q, %q), want empty", overlayPath, goModPath)
 	}
 }
+
+func TestRunAll_ReadsTheModelOnceAndRunsBothGates(t *testing.T) {
+	overlayPath, goModPath := writeProject(t, testModule, policyOverlay)
+	source := &countingReader{stubReader: stubReader{models: layeredModels(true)}}
+	c := New(source, &stubReader{})
+
+	var out, errOut bytes.Buffer
+	err := c.RunAll(context.Background(), AllOptions{
+		OverlayPath: overlayPath,
+		GoModPath:   goModPath,
+	}, &out, &errOut)
+	if err == nil {
+		t.Fatal("RunAll succeeded; want both gates to fail")
+	}
+	if got, want := err.Error(), "overlay and dependency-policy gates failed"; got != want {
+		t.Errorf("error = %q, want %q", got, want)
+	}
+	if source.reads != 1 {
+		t.Errorf("model was read %d times, want 1 — the go/packages load is the expensive part", source.reads)
+	}
+	for _, want := range []string{"layer-rule violation(s)", "dependency-policy violation(s)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("report missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestRunAll_CleanModelPasses(t *testing.T) {
+	overlayPath, goModPath := writeProject(t, testModule, policyOverlay)
+	c := New(&stubReader{models: layeredModels(false)}, &stubReader{})
+
+	var out, errOut bytes.Buffer
+	if err := c.RunAll(context.Background(), AllOptions{
+		OverlayPath: overlayPath,
+		GoModPath:   goModPath,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("RunAll returned error: %v\n%s", err, out.String())
+	}
+	for _, want := range []string{"no layer-rule violations found", "no dependency-policy violations"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("report missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// countingReader records how many times a gate asked for the model.
+type countingReader struct {
+	stubReader
+	reads int
+}
+
+func (c *countingReader) Read(ctx context.Context, paths []string) ([]domain.PackageModel, error) {
+	c.reads++
+	return c.stubReader.Read(ctx, paths)
+}

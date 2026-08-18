@@ -167,16 +167,15 @@ per line as "<op> <kind> <path>"; --target overrides the CURRENT target.`,
 	return cmd
 }
 
-// newAllCmd runs every gate that the overlay actually declares, so a CI job
-// is one command. Both gates run even when the first fails — a build log
-// that stops at the first violation hides the rest.
+// newAllCmd runs every gate the overlay declares in one pass, so CI is one
+// command and one model read.
 func newAllCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "all [packages...]",
 		Short: "Run the overlay and policy gates",
-		Long: `Run the overlay layer-rule gate and the dependency-policy gate over
-the same model. Both run even if the first reports violations; the exit code
-is non-zero when either failed.`,
+		Long: `Run the overlay layer-rule gate and the dependency-policy gate over a
+single read of the model. Both report even if the first found violations;
+the exit code is non-zero when either failed.`,
 		Args:         cobra.ArbitraryArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -184,38 +183,11 @@ is non-zero when either failed.`,
 			if err != nil {
 				return err
 			}
-			out := cmd.OutOrStdout()
-			c := newChecker()
-
-			overlayErr := c.RunOverlay(cmd.Context(), check.OverlayOptions{
+			return newChecker().RunAll(cmd.Context(), check.AllOptions{
 				OverlayPath: overlayPath,
 				GoModPath:   goModPath,
 				Paths:       args,
-			}, out, os.Stderr)
-			if overlayErr != nil {
-				fmt.Fprintf(os.Stderr, "overlay: %v\n", overlayErr)
-			}
-
-			fmt.Fprintln(out)
-
-			policyErr := c.RunPolicy(cmd.Context(), check.PolicyOptions{
-				OverlayPath: overlayPath,
-				GoModPath:   goModPath,
-				Paths:       args,
-			}, out, os.Stderr)
-			if policyErr != nil {
-				fmt.Fprintf(os.Stderr, "policy: %v\n", policyErr)
-			}
-
-			switch {
-			case overlayErr != nil && policyErr != nil:
-				return fmt.Errorf("overlay and dependency-policy gates failed")
-			case overlayErr != nil:
-				return fmt.Errorf("overlay gate failed")
-			case policyErr != nil:
-				return fmt.Errorf("dependency-policy gate failed")
-			}
-			return nil
+			}, cmd.OutOrStdout(), os.Stderr)
 		},
 	}
 }
