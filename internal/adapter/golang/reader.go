@@ -135,7 +135,13 @@ func partitionLoadable(pkgs []*packages.Package) ([]*packages.Package, []loadWar
 	for _, pkg := range pkgs {
 		// convertPackage walks pkg.Types.Scope() and pkg.TypesInfo, so a
 		// package missing either is not convertible regardless of errors.
-		ok := len(pkg.Syntax) > 0 && pkg.Types != nil && pkg.TypesInfo != nil
+		// A clean package is always modelled — even with no parsed files
+		// (a test-only directory yields an empty PackageModel, as it always
+		// has, so locked targets and diffs keep their package set). A
+		// package that carries loader errors is only worth modelling when
+		// it actually parsed something.
+		hasTypes := pkg.Types != nil && pkg.TypesInfo != nil
+		ok := hasTypes && (len(pkg.Errors) == 0 || len(pkg.Syntax) > 0)
 		if ok {
 			usable = append(usable, pkg)
 		}

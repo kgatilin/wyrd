@@ -120,7 +120,7 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 			body := map[string]any{"worktree": name, "loaded": loaded}
 			// A worktree whose load failed would otherwise look identical to
 			// one that is merely cold; say so at the first touch.
-			if loadErr, _ := s.multi.LoadError(name); loadErr != nil {
+			if _, loadErr := s.multi.LoadError(name); loadErr != nil {
 				body["error"] = loadErr.Error()
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -138,7 +138,7 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 		if rest == "/api/mcp/tools/call" {
 			state, ok := s.multi.Loaded(name)
 			if !ok {
-				if loadErr, retryAt := s.multi.LoadError(name); loadErr != nil {
+				if retryAt, loadErr := s.multi.LoadError(name); loadErr != nil {
 					writeFailedToolResult(w, name, loadErr, retryAt)
 					return
 				}

@@ -451,18 +451,18 @@ func (m *MultiState) Loaded(name string) (*State, bool) {
 	return state, true
 }
 
-// LoadError reports the most recent failed load for name: the error and the
-// time at which the load will next be retried. A zero-value return (nil, zero
-// time) means the worktree is loaded, loading, or has never been asked for.
-// Transports use it to answer "failed" instead of an eternal "parsing".
-func (m *MultiState) LoadError(name string) (error, time.Time) {
+// LoadError reports the most recent failed load for name: the time at which
+// the load will next be retried and the error. A zero-value return (zero
+// time, nil) means the worktree is loaded, loading, or has never been asked
+// for. Transports use it to answer "failed" instead of an eternal "parsing".
+func (m *MultiState) LoadError(name string) (time.Time, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	f, ok := m.failures[name]
 	if !ok {
-		return nil, time.Time{}
+		return time.Time{}, nil
 	}
-	return f.err, f.at.Add(loadRetryInterval)
+	return f.at.Add(loadRetryInterval), f.err
 }
 
 // ensureLoad guarantees a load for name is cached, in flight, or freshly

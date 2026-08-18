@@ -139,7 +139,7 @@ func TestMultiState_FailedLoadIsRecordedThrottledAndRetried(t *testing.T) {
 	}
 
 	// The failure is recorded, with a retry deadline in the future.
-	gotErr, retryAt := m.LoadError(name)
+	retryAt, gotErr := m.LoadError(name)
 	if !errors.Is(gotErr, loadErr) {
 		t.Fatalf("LoadError = %v, want %v", gotErr, loadErr)
 	}
@@ -191,7 +191,7 @@ func TestMultiState_FailedLoadIsRecordedThrottledAndRetried(t *testing.T) {
 	if got := atomic.LoadInt64(&calls); got != 2 {
 		t.Errorf("loader calls after retry window = %d, want 2", got)
 	}
-	if gotErr, _ := m.LoadError(name); gotErr != nil {
+	if _, gotErr := m.LoadError(name); gotErr != nil {
 		t.Errorf("LoadError after successful load = %v, want nil", gotErr)
 	}
 }
