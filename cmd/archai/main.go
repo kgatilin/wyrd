@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -25,6 +24,7 @@ import (
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
 	"github.com/kgatilin/archai/internal/apply"
 	"github.com/kgatilin/archai/internal/buildinfo"
+	"github.com/kgatilin/archai/internal/check"
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/overlay"
@@ -943,7 +943,7 @@ func runSequence(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("resolving cwd: %w", err)
 	}
 
-	models, err := loadCurrentModel(ctx, projectRoot)
+	models, err := newChecker().LoadCurrentModel(ctx, projectRoot)
 	if err != nil {
 		return fmt.Errorf("loading current model: %w", err)
 	}
@@ -1000,7 +1000,7 @@ func runSequencePackage(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolving cwd: %w", err)
 	}
-	models, err := loadCurrentModel(ctx, projectRoot)
+	models, err := newChecker().LoadCurrentModel(ctx, projectRoot)
 	if err != nil {
 		return fmt.Errorf("loading current model: %w", err)
 	}
@@ -1140,134 +1140,31 @@ func safeSequenceFilename(label string) string {
 	return out
 }
 
-// runOverlayCheck executes `archai overlay check`. It loads the overlay,
-// validates it against the adjacent go.mod, extracts the current Go
-// model, merges the overlay to detect layer-rule violations, and prints
-// a human-readable report. Returns a non-nil error (which Cobra turns
-// into a non-zero exit code) when validation fails or violations exist.
+// newChecker returns the CI-gate runner used by `archai overlay check`,
+// `archai policy check` and `archai validate`. The same package backs the
+// slim cmd/archai-check binary, so the local gate and the CI gate are the
+// same code and the same report wording.
+func newChecker() *check.Checker {
+	return check.New(golang.NewReader(), yamlAdapter.NewReader())
+}
+
+// runOverlayCheck executes `archai overlay check`: it loads the overlay,
+// validates it against the adjacent go.mod, extracts the current Go model
+// and reports every import that breaks a layer rule. Returns a non-nil
+// error (which Cobra turns into a non-zero exit code) when validation
+// fails or violations exist.
 func runOverlayCheck(cmd *cobra.Command, args []string) error {
 	overlayFlag, _ := cmd.Flags().GetString("overlay")
 
-	overlayPath, goModPath := resolveOverlay(overlayFlag)
+	overlayPath, goModPath := check.ResolveOverlay(overlayFlag)
 	if overlayPath == "" {
 		return fmt.Errorf("no overlay found: pass --overlay or create archai.yaml in the current directory")
 	}
 
-	cfg, err := overlay.LoadComposed(overlayPath)
-	if err != nil {
-		return fmt.Errorf("loading overlay %s: %w", overlayPath, err)
-	}
-
-	if err := overlay.Validate(cfg, goModPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Overlay validation failed:\n%v\n", err)
-		return fmt.Errorf("overlay validation failed")
-	}
-
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	// Extract current Go model. Always scan "./..." from the working
-	// directory — callers are expected to run `archai overlay check`
-	// from the project root (same directory as go.mod).
-	goReader := golang.NewReader()
-	models, err := goReader.Read(ctx, []string{"./..."})
-	if err != nil {
-		return fmt.Errorf("reading Go packages: %w", err)
-	}
-
-	mergedModels, violations, err := overlay.Merge(models, cfg)
-	if err != nil {
-		return fmt.Errorf("merging overlay: %w", err)
-	}
-
-	if len(violations) == 0 {
-		fmt.Println("OK: overlay is valid and no layer-rule violations found.")
-		return nil
-	}
-
-	// Build module-relative pkg path -> layer lookup from merged models
-	// so the report can show the imported package's layer.
-	pkgLayer := make(map[string]string)
-	for _, m := range mergedModels {
-		if m.Layer == "" {
-			continue
-		}
-		rel := m.Path
-		if cfg.Module != "" {
-			rel = trimModulePrefix(cfg.Module, m.Path)
-		}
-		pkgLayer[rel] = m.Layer
-	}
-
-	printOverlayViolations(os.Stdout, violations, pkgLayer)
-	return fmt.Errorf("%d layer-rule violation(s) found", violationCount(violations))
-}
-
-// printOverlayViolations renders a human-readable report of the given
-// violations to w. pkgLayer maps module-relative package paths to their
-// assigned layer so the "layer B" half of each line is accurate.
-func printOverlayViolations(w io.Writer, violations []overlay.Violation, pkgLayer map[string]string) {
-	total := violationCount(violations)
-	fmt.Fprintf(w, "Found %d layer-rule violation(s):\n\n", total)
-	for _, v := range violations {
-		for _, imp := range v.Imports {
-			targetLayer := pkgLayer[imp]
-			if targetLayer == "" {
-				targetLayer = "?"
-			}
-			fmt.Fprintf(w,
-				"VIOLATION: package %s (layer %s) imports package %s (layer %s) — not allowed\n",
-				v.Package, v.Layer, imp, targetLayer)
-		}
-	}
-}
-
-// trimModulePrefix returns pkgPath with the module prefix stripped, or
-// pkgPath unchanged if the prefix does not apply.
-func trimModulePrefix(module, pkgPath string) string {
-	if pkgPath == module {
-		return ""
-	}
-	if len(pkgPath) > len(module) && pkgPath[:len(module)] == module && pkgPath[len(module)] == '/' {
-		return pkgPath[len(module)+1:]
-	}
-	return pkgPath
-}
-
-// violationCount sums the forbidden-import entries across all Violation records.
-func violationCount(violations []overlay.Violation) int {
-	n := 0
-	for _, v := range violations {
-		n += len(v.Imports)
-	}
-	return n
-}
-
-// resolveOverlay determines the overlay path and accompanying go.mod
-// path used by the generate command. When explicitPath is non-empty
-// it is used verbatim (and the adjacent go.mod is looked up); when
-// empty we auto-detect ./archai.yaml in the working directory.
-// Returns empty strings when no overlay is found.
-func resolveOverlay(explicitPath string) (overlayPath, goModPath string) {
-	if explicitPath != "" {
-		dir := filepath.Dir(explicitPath)
-		gm := filepath.Join(dir, "go.mod")
-		if _, err := os.Stat(gm); err != nil {
-			gm = ""
-		}
-		return explicitPath, gm
-	}
-	candidate := "archai.yaml"
-	if _, err := os.Stat(candidate); err != nil {
-		return "", ""
-	}
-	gm := "go.mod"
-	if _, err := os.Stat(gm); err != nil {
-		gm = ""
-	}
-	return candidate, gm
+	return newChecker().RunOverlay(cmd.Context(), check.OverlayOptions{
+		OverlayPath: overlayPath,
+		GoModPath:   goModPath,
+	}, cmd.OutOrStdout(), os.Stderr)
 }
 
 func loadD2StyleConfig(overlayPath string) (d2.StyleConfig, error) {
@@ -1331,7 +1228,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 
 	// Resolve overlay path: explicit flag wins; otherwise auto-detect
 	// archai.yaml in the current working directory.
-	overlayPath, goModPath := resolveOverlay(overlayFlag)
+	overlayPath, goModPath := check.ResolveOverlay(overlayFlag)
 	d2Style, err := loadD2StyleConfig(overlayPath)
 	if err != nil {
 		return err
@@ -1632,7 +1529,7 @@ func runTargetLock(cmd *cobra.Command, args []string) error {
 			Paths:         paths,
 			FileExtension: ".yaml",
 		}
-		if overlayPath, goModPath := resolveOverlay(""); overlayPath != "" {
+		if overlayPath, goModPath := check.ResolveOverlay(""); overlayPath != "" {
 			opts.OverlayPath = overlayPath
 			opts.GoModPath = goModPath
 		}
@@ -1763,12 +1660,12 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	current, err := loadCurrentModel(ctx, projectRoot)
+	current, err := newChecker().LoadCurrentModel(ctx, projectRoot)
 	if err != nil {
 		return fmt.Errorf("loading current model: %w", err)
 	}
 
-	targetModel, err := loadTargetModel(ctx, projectRoot, targetID)
+	targetModel, err := newChecker().LoadTargetModel(ctx, projectRoot, targetID)
 	if err != nil {
 		return fmt.Errorf("loading target %q: %w", targetID, err)
 	}
@@ -1795,109 +1692,6 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// loadCurrentModel builds the "current" package model for diff. Preference
-// order:
-//  1. Per-package .arch/*.yaml specs found under projectRoot (excluding
-//     .arch/targets/).
-//  2. Fallback: parse Go sources under ./... via the Go reader.
-func loadCurrentModel(ctx context.Context, projectRoot string) ([]domain.PackageModel, error) {
-	files, err := findCurrentYAMLSpecs(projectRoot)
-	if err != nil {
-		return nil, err
-	}
-	if len(files) > 0 {
-		return yamlAdapter.NewReader().Read(ctx, files)
-	}
-
-	// Fallback to Go source parsing.
-	return golang.NewReader().Read(ctx, []string{"./..."})
-}
-
-// loadTargetModel loads the frozen model from .arch/targets/<id>/model/.
-func loadTargetModel(ctx context.Context, projectRoot, id string) ([]domain.PackageModel, error) {
-	targetDir := filepath.Join(projectRoot, ".arch", "targets", id)
-	if _, err := os.Stat(targetDir); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("target %q not found", id)
-		}
-		return nil, err
-	}
-	modelDir := filepath.Join(targetDir, "model")
-	files, err := collectYAMLFiles(modelDir)
-	if err != nil {
-		return nil, err
-	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("target %q has no model files under %s", id, modelDir)
-	}
-	return yamlAdapter.NewReader().Read(ctx, files)
-}
-
-// findCurrentYAMLSpecs walks projectRoot for package-level .arch/*.yaml
-// files. The .arch/targets tree is skipped so locked targets don't leak
-// into the "current" model.
-func findCurrentYAMLSpecs(projectRoot string) ([]string, error) {
-	var out []string
-	targetsTree := filepath.Join(projectRoot, ".arch", "targets")
-
-	err := filepath.WalkDir(projectRoot, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
-			// Skip the targets tree entirely.
-			if path == targetsTree || strings.HasPrefix(path, targetsTree+string(os.PathSeparator)) {
-				return filepath.SkipDir
-			}
-			// Skip hidden directories except `.arch` itself.
-			name := d.Name()
-			if strings.HasPrefix(name, ".") && name != ".arch" && name != "." {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if filepath.Ext(path) != ".yaml" && filepath.Ext(path) != ".yml" {
-			return nil
-		}
-		// Only include files located directly inside a .arch directory.
-		if filepath.Base(filepath.Dir(path)) != ".arch" {
-			return nil
-		}
-		out = append(out, path)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(out)
-	return out, nil
-}
-
-// collectYAMLFiles returns every *.yaml / *.yml file under root.
-func collectYAMLFiles(root string) ([]string, error) {
-	var out []string
-	if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if filepath.Ext(path) == ".yaml" || filepath.Ext(path) == ".yml" {
-			out = append(out, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(out)
-	return out, nil
 }
 
 // runDiffApply handles `archai diff apply <patch.yaml>`. It loads the patch,
@@ -1941,12 +1735,12 @@ func runDiffApply(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	current, err := loadCurrentModel(ctx, projectRoot)
+	current, err := newChecker().LoadCurrentModel(ctx, projectRoot)
 	if err != nil {
 		return fmt.Errorf("loading current model: %w", err)
 	}
 
-	targetModel, err := loadTargetModel(ctx, projectRoot, targetID)
+	targetModel, err := newChecker().LoadTargetModel(ctx, projectRoot, targetID)
 	if err != nil {
 		return fmt.Errorf("loading target %q: %w", targetID, err)
 	}
@@ -1963,8 +1757,9 @@ func runDiffApply(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runValidate handles `archai validate`. It exits 0 when current matches
-// target, non-zero otherwise. Output format is controlled by --format.
+// runValidate handles `archai validate`. It exits 0 when the current
+// model matches the target, non-zero otherwise. Output format is
+// controlled by --format.
 func runValidate(cmd *cobra.Command, args []string) error {
 	targetID, _ := cmd.Flags().GetString("target")
 	format, _ := cmd.Flags().GetString("format")
@@ -1974,59 +1769,11 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("resolving cwd: %w", err)
 	}
 
-	if targetID == "" {
-		cur, err := target.Current(projectRoot)
-		if err != nil {
-			return fmt.Errorf("reading CURRENT: %w", err)
-		}
-		if cur == "" {
-			return errors.New("no target specified and no CURRENT target set; use --target <id> or `archai target use <id>`")
-		}
-		targetID = cur
-	}
-
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	current, err := loadCurrentModel(ctx, projectRoot)
-	if err != nil {
-		return fmt.Errorf("loading current model: %w", err)
-	}
-	targetModel, err := loadTargetModel(ctx, projectRoot, targetID)
-	if err != nil {
-		return fmt.Errorf("loading target %q: %w", targetID, err)
-	}
-
-	d := diff.Compute(current, targetModel)
-	if d.IsEmpty() {
-		fmt.Printf("code matches target %q\n", targetID)
-		return nil
-	}
-
-	switch format {
-	case "", "text":
-		// CI-friendly: one violation per line, "<op> <kind> <path>".
-		for _, c := range d.Changes {
-			fmt.Printf("%s %s %s\n", c.Op, c.Kind, c.Path)
-		}
-	case "yaml":
-		out, err := diff.FormatYAML(d)
-		if err != nil {
-			return err
-		}
-		fmt.Print(out)
-	case "json":
-		out, err := diff.FormatJSON(d)
-		if err != nil {
-			return err
-		}
-		fmt.Print(out)
-	default:
-		return fmt.Errorf("unsupported format %q (use text, yaml, or json)", format)
-	}
-	return fmt.Errorf("drift detected: %d change(s) against target %q", len(d.Changes), targetID)
+	return newChecker().RunDrift(cmd.Context(), check.DriftOptions{
+		ProjectRoot: projectRoot,
+		TargetID:    targetID,
+		Format:      format,
+	}, cmd.OutOrStdout())
 }
 
 // validatePatch ensures every Change in d carries a recognized Op and Kind
@@ -2095,12 +1842,12 @@ func runListDaemons(cmd *cobra.Command, args []string) error {
 	// Build a combined list, deduplicating by PID.
 	seenPIDs := make(map[int]bool)
 	type daemonInfo struct {
-		RepoRoot   string
-		Worktrees  string
-		PID        int
-		HTTPAddr   string
-		Caps       string
-		StartedAt  time.Time
+		RepoRoot  string
+		Worktrees string
+		PID       int
+		HTTPAddr  string
+		Caps      string
+		StartedAt time.Time
 	}
 	var combined []daemonInfo
 

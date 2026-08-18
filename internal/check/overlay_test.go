@@ -1,4 +1,4 @@
-package main
+package check
 
 import (
 	"bytes"
@@ -27,7 +27,7 @@ func TestPrintOverlayViolations_FormatsHumanReadableLines(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printOverlayViolations(&buf, violations, pkgLayer)
+	FormatOverlayViolations(&buf, violations, pkgLayer)
 
 	out := buf.String()
 
@@ -59,7 +59,7 @@ func TestPrintOverlayViolations_UnknownTargetLayerRendersQuestionMark(t *testing
 	pkgLayer := map[string]string{} // empty — target layer unknown
 
 	var buf bytes.Buffer
-	printOverlayViolations(&buf, violations, pkgLayer)
+	FormatOverlayViolations(&buf, violations, pkgLayer)
 
 	want := "imports package internal/adapter/yaml (layer ?)"
 	if !strings.Contains(buf.String(), want) {
@@ -73,7 +73,7 @@ func TestViolationCount_SumsImportsAcrossViolations(t *testing.T) {
 		{Imports: []string{"c"}},
 		{Imports: nil},
 	}
-	if got, want := violationCount(v), 3; got != want {
+	if got, want := ViolationCount(v), 3; got != want {
 		t.Errorf("violationCount = %d, want %d", got, want)
 	}
 }
@@ -88,8 +88,8 @@ func TestTrimModulePrefix(t *testing.T) {
 		{"github.com/kgatilin/archai", "internal/service", "internal/service"},
 	}
 	for _, c := range cases {
-		if got := trimModulePrefix(c.module, c.pkg); got != c.want {
-			t.Errorf("trimModulePrefix(%q, %q) = %q, want %q", c.module, c.pkg, got, c.want)
+		if got := TrimModulePrefix(c.module, c.pkg); got != c.want {
+			t.Errorf("TrimModulePrefix(%q, %q) = %q, want %q", c.module, c.pkg, got, c.want)
 		}
 	}
 }

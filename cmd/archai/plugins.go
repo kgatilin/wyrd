@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kgatilin/archai/internal/check"
 	"log/slog"
 	"os"
 	"sync"
@@ -62,13 +63,13 @@ func (h *cliHost) ensureLoaded() error {
 	}
 	h.rootPath = root
 
-	pkgs, err := loadCurrentModel(context.Background(), root)
+	pkgs, err := newChecker().LoadCurrentModel(context.Background(), root)
 	if err != nil {
 		h.loadErr = fmt.Errorf("plugin host: load model: %w", err)
 		return h.loadErr
 	}
 
-	overlayPath, goModPath := resolveOverlay("")
+	overlayPath, goModPath := check.ResolveOverlay("")
 	var cfg *overlay.Config
 	module := ""
 	if overlayPath != "" {
