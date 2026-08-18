@@ -29,7 +29,7 @@ import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
 import { SourceDrawer, type SaveSourceResult, type SourceDrawerState } from './components/SourceDrawer';
 import { ArchMotifPanel } from './components/ArchMotifPanel';
-import { DiffOverlay } from './components/DiffOverlay';
+import { DiffOverlay, useDiffSession } from './components/DiffOverlay';
 import { SymbolGraphOverlay } from './components/SymbolGraphOverlay';
 import { PAN_MARGIN, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './view/viewportConstants';
 import { PinnedMarker } from './components/PinnedMarker';
@@ -214,6 +214,11 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     graph.repo?.activeWorktree ??
     graph.worktrees?.find((worktree) => worktree.current)?.name ??
     '';
+  const reviewBaseRef = graph.repo?.baseRef ?? 'main';
+  // Held here, not in the overlay: the diff survives closing it, so opening
+  // it again costs nothing and lands back on the file being read.
+  const diffSession = useDiffSession(activeWorktree, reviewBaseRef, diffOpen);
+  const reloadDiff = diffSession.reload;
   const related = useMemo(() => relatedIds(displayGraph, focusId), [displayGraph, focusId]);
 
   // Whether the collapsed "View" popover has anything to offer at all.
@@ -258,13 +263,17 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
       if (refreshTimer) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
         dispatch({ type: 'GraphRequested', worktree: activeWorktree || undefined, source: 'auto' });
+        // The working tree moved, so the cached file diff is as stale as the
+        // canvas was. Re-read it too, or the two halves of the review would
+        // start describing different working trees.
+        reloadDiff();
       }, 250);
     });
     return () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       events.close();
     };
-  }, [activeWorktree, dispatch, graph]);
+  }, [activeWorktree, dispatch, graph, reloadDiff]);
 
   // Determine if diff mode is active (semantic — raw graph)
   const showDiff = graph.pr != null;
@@ -1016,8 +1025,9 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
 
         {diffOpen && (
           <DiffOverlay
+            session={diffSession}
             worktree={activeWorktree}
-            baseRef={graph.repo?.baseRef ?? 'main'}
+            baseRef={reviewBaseRef}
             onClose={() => setDiffOpen(false)}
           />
         )}

@@ -313,6 +313,16 @@ answers "what changed architecturally".
   drawer). No diff library: the grouped rail, the theme and the
   highlighter are ours anyway, so a component would only have brought a
   hunk renderer plus a second highlighter and a competing stylesheet.
+- **The session is cached in the app, not in the overlay.** `useDiffSession`
+  (exported from `DiffOverlay.tsx`, held by `AppContent`) owns the fetched
+  diff plus the reviewer's place in it — selected file, folded sections,
+  per-file scroll — so closing the overlay costs nothing and reopening is
+  free. Nothing else caches: the endpoint has no ETag and the daemon
+  recomputes the whole diff per request, so the client is the only cache
+  there is. It is dropped when the worktree or base changes, on the
+  `Reload` button, and on the same `model-changed` SSE that reloads the
+  canvas — the file diff and the architecture diff must never end up
+  describing different working trees.
 
 ### Event Model
 

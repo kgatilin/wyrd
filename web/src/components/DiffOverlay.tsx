@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { UIEvent } from 'react';
+import { fetchGitDiff } from '../data/gitDiff';
 import {
   fileLabel,
   groupFiles,
@@ -19,7 +21,130 @@ import { highlightLine, languageForPath } from './highlight';
  */
 const MAX_HIGHLIGHT_LINES = 2000;
 
+type LoadStatus = 'loading' | 'ready' | 'error';
+
+/** Where the reviewer was inside the diff. Scroll offsets only — kept in a
+ *  ref because they change on every wheel tick and re-render nothing. */
+interface DiffScrollMemory {
+  /** Scroll offset of the file rail. */
+  files: number;
+  /** Scroll offset of the patch pane, per file path. */
+  patch: Map<string, number>;
+}
+
+/**
+ * The diff under review plus the reviewer's position in it: which file is
+ * open, which sections are folded, how far down each patch they read.
+ */
+export interface DiffSession {
+  diff: GitDiff | null;
+  status: LoadStatus;
+  error: string | null;
+  groupMode: GroupMode;
+  setGroupMode: (mode: GroupMode) => void;
+  selected: string | null;
+  select: (path: string) => void;
+  collapsed: ReadonlySet<string>;
+  toggleGroup: (key: string) => void;
+  scroll: { current: DiffScrollMemory };
+  /** Drop the cached diff and read it again — now if the overlay is open,
+   *  on its next open otherwise. */
+  reload: () => void;
+}
+
+type SessionData = { status: LoadStatus; diff: GitDiff | null; error: string | null };
+
+/**
+ * Own the diff session in the app rather than in the overlay, so closing
+ * the overlay does not throw the review away.
+ *
+ * The overlay is opened and closed constantly while reading the canvas, and
+ * each open used to remount it: a fresh `/api/gitdiff` round trip — which
+ * the daemon answers by re-shelling ~10 git commands and re-serializing
+ * every patch — plus the loss of the selected file, the folded sections and
+ * the scroll. Nothing about the review changed in between, so nothing
+ * should have been recomputed.
+ *
+ * Staleness is not left to a timeout. The cache is dropped when the
+ * reviewed worktree or base changes, and the app calls `reload` on the same
+ * model-changed signal that reloads the canvas: the file diff and the
+ * architecture diff must never disagree about which working tree they show.
+ */
+export function useDiffSession(worktree: string, baseRef: string, open: boolean): DiffSession {
+  const key = `${worktree}\n${baseRef}`;
+  const [token, setToken] = useState(0);
+  const [data, setData] = useState<SessionData>({ status: 'loading', diff: null, error: null });
+  const [groupMode, setGroupMode] = useState<GroupMode>('package');
+  const [selected, setSelected] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  const scroll = useRef<DiffScrollMemory>({ files: 0, patch: new Map() });
+  // Which diff is loaded or in flight. While this matches, the effect below
+  // is a no-op — that is what makes reopening the overlay free.
+  const loaded = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Another worktree or base is another review: the file list, and every
+    // position inside it, belonged to the previous one.
+    setSelected(null);
+    setCollapsed(new Set());
+    scroll.current = { files: 0, patch: new Map() };
+  }, [key]);
+
+  useEffect(() => {
+    if (!open) return;
+    const stamp = `${key}#${token}`;
+    if (loaded.current === stamp) return;
+    loaded.current = stamp;
+    let cancelled = false;
+    setData({ status: 'loading', diff: null, error: null });
+    fetchGitDiff(worktree, baseRef).then(
+      (diff) => {
+        if (!cancelled) setData({ status: 'ready', diff, error: null });
+      },
+      (err: unknown) => {
+        if (cancelled) return;
+        // A failed read is not a cache entry: reopening should try the
+        // daemon again instead of replaying the same error.
+        loaded.current = null;
+        setData({
+          status: 'error',
+          diff: null,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [open, key, token, worktree, baseRef]);
+
+  const toggleGroup = useCallback((groupKey: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
+      return next;
+    });
+  }, []);
+
+  const reload = useCallback(() => setToken((n) => n + 1), []);
+
+  return {
+    ...data,
+    groupMode,
+    setGroupMode,
+    selected,
+    select: setSelected,
+    collapsed,
+    toggleGroup,
+    scroll,
+    reload,
+  };
+}
+
 export interface DiffOverlayProps {
+  /** The cached session, owned by the app (see useDiffSession). */
+  session: DiffSession;
   /** Worktree whose working tree is diffed; empty = the served root. */
   worktree: string;
   /** Review base ref the diff is taken against (e.g. "main"). */
@@ -27,42 +152,19 @@ export interface DiffOverlayProps {
   onClose: () => void;
 }
 
-type LoadStatus = 'loading' | 'ready' | 'error';
-
 /**
  * The file-level diff of the reviewed branch: a grouped file list on the
  * left, the selected file's patch on the right. This is the textual
  * counterpart to the architecture canvas — same review, other altitude.
+ *
+ * It renders the session and reports back into it; it owns no diff state of
+ * its own, so it can be unmounted on close without costing anything.
  */
-export function DiffOverlay({ worktree, baseRef, onClose }: DiffOverlayProps) {
-  const [diff, setDiff] = useState<GitDiff | null>(null);
-  const [status, setStatus] = useState<LoadStatus>('loading');
-  const [error, setError] = useState<string | null>(null);
-  const [groupMode, setGroupMode] = useState<GroupMode>('package');
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  const [selected, setSelected] = useState<string | null>(null);
+export function DiffOverlay({ session, worktree, baseRef, onClose }: DiffOverlayProps) {
+  const { diff, status, error, groupMode, selected, collapsed, scroll } = session;
+  const { setGroupMode, select, toggleGroup, reload } = session;
   const patchRef = useRef<HTMLDivElement | null>(null);
-
-  const load = useCallback(async () => {
-    setStatus('loading');
-    setError(null);
-    try {
-      const res = await fetch(gitDiffURL(worktree, baseRef));
-      if (!res.ok) {
-        const message = await res.text();
-        throw new Error(message.trim() || `HTTP ${res.status}`);
-      }
-      setDiff((await res.json()) as GitDiff);
-      setStatus('ready');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setStatus('error');
-    }
-  }, [worktree, baseRef]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const filesRef = useRef<HTMLDivElement | null>(null);
 
   const files = diff?.files ?? [];
   const groups = useMemo(() => groupFiles(files, groupMode), [files, groupMode]);
@@ -75,21 +177,36 @@ export function DiffOverlay({ worktree, baseRef, onClose }: DiffOverlayProps) {
 
   useEffect(() => {
     // Keep a valid selection across reloads and grouping changes.
-    if (active && active.path !== selected) setSelected(active.path);
-  }, [active, selected]);
+    if (active && active.path !== selected) select(active.path);
+  }, [active, selected, select]);
 
   useEffect(() => {
-    if (patchRef.current) patchRef.current.scrollTop = 0;
-  }, [active?.path]);
+    // Land where this file was last read: at the top the first time, where
+    // the reviewer left off when they come back to it.
+    const pane = patchRef.current;
+    if (!pane) return;
+    pane.scrollTop = active ? scroll.current.patch.get(active.path) ?? 0 : 0;
+  }, [active?.path, diff, scroll]);
+
+  useEffect(() => {
+    if (filesRef.current) filesRef.current.scrollTop = scroll.current.files;
+  }, [diff, scroll]);
+
+  const rememberPatchScroll = (event: UIEvent<HTMLDivElement>) => {
+    if (active) scroll.current.patch.set(active.path, event.currentTarget.scrollTop);
+  };
+  const rememberFilesScroll = (event: UIEvent<HTMLDivElement>) => {
+    scroll.current.files = event.currentTarget.scrollTop;
+  };
 
   const step = useCallback(
     (delta: number) => {
       if (ordered.length === 0) return;
       const index = ordered.findIndex((file) => file.path === active?.path);
       const next = ordered[Math.min(ordered.length - 1, Math.max(0, index + delta))];
-      if (next) setSelected(next.path);
+      if (next) select(next.path);
     },
-    [ordered, active]
+    [ordered, active, select]
   );
 
   useEffect(() => {
@@ -112,15 +229,6 @@ export function DiffOverlay({ worktree, baseRef, onClose }: DiffOverlayProps) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, step]);
-
-  const toggleGroup = (key: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
 
   return (
     <div className="hf-diff-overlay" role="dialog" aria-label="File diff">
@@ -157,7 +265,7 @@ export function DiffOverlay({ worktree, baseRef, onClose }: DiffOverlayProps) {
             <option value="flat">Flat</option>
           </select>
         </label>
-        <button className="hf-btn" onClick={() => void load()} disabled={status === 'loading'}>
+        <button className="hf-btn" onClick={reload} disabled={status === 'loading'}>
           {status === 'loading' ? 'Reading...' : 'Reload'}
         </button>
         <button className="hf-diff-close" onClick={onClose} title="Close (Esc)">
@@ -175,7 +283,7 @@ export function DiffOverlay({ worktree, baseRef, onClose }: DiffOverlayProps) {
 
       {files.length > 0 && (
         <div className="hf-diff-body">
-          <div className="hf-diff-files">
+          <div className="hf-diff-files" ref={filesRef} onScroll={rememberFilesScroll}>
             {groups.map((group) => (
               <div className="hf-diff-group" key={group.key}>
                 <button
@@ -194,7 +302,7 @@ export function DiffOverlay({ worktree, baseRef, onClose }: DiffOverlayProps) {
                     <button
                       key={file.path}
                       className={`hf-diff-file ${active?.path === file.path ? 'active' : ''}`}
-                      onClick={() => setSelected(file.path)}
+                      onClick={() => select(file.path)}
                       title={file.path}
                     >
                       <span className={`badge ${statusBadge(file.status).toLowerCase()}`}>
@@ -209,7 +317,7 @@ export function DiffOverlay({ worktree, baseRef, onClose }: DiffOverlayProps) {
             ))}
           </div>
 
-          <div className="hf-diff-view" ref={patchRef}>
+          <div className="hf-diff-view" ref={patchRef} onScroll={rememberPatchScroll}>
             {active && <FilePatch file={active} />}
           </div>
         </div>
@@ -288,16 +396,4 @@ function sourceLabel(diff: GitDiff | null, worktree: string): string {
   if (!diff) return worktree || 'HEAD';
   if (diff.branch === diff.baseRef) return 'working tree';
   return diff.branch;
-}
-
-function gitDiffURL(worktree: string, baseRef: string): string {
-  const query = baseRef ? `?base=${encodeURIComponent(baseRef)}` : '';
-  if (worktree) return `/w/${encodeURIComponent(worktree)}/api/gitdiff${query}`;
-  return `${currentWorktreePrefix()}/api/gitdiff${query}`;
-}
-
-function currentWorktreePrefix(): string {
-  if (typeof window === 'undefined') return '';
-  const match = window.location.pathname.match(/^\/w\/[^/]+/);
-  return match ? match[0] : '';
 }

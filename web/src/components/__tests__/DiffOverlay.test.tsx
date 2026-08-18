@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { DiffOverlay } from '../DiffOverlay';
+import { DiffOverlay, useDiffSession } from '../DiffOverlay';
 import type { GitDiff } from '../../domain/gitDiff';
 
 const diff: GitDiff = {
@@ -29,6 +29,26 @@ const diff: GitDiff = {
   ],
 };
 
+/**
+ * The overlay is a view over a session the app owns, so the tests drive it
+ * the way the app does: through the hook, with `open` toggling the mount.
+ */
+function Harness({
+  worktree = 'feature',
+  baseRef = 'main',
+  open = true,
+  onClose = () => {},
+}: {
+  worktree?: string;
+  baseRef?: string;
+  open?: boolean;
+  onClose?: () => void;
+}) {
+  const session = useDiffSession(worktree, baseRef, open);
+  if (!open) return null;
+  return <DiffOverlay session={session} worktree={worktree} baseRef={baseRef} onClose={onClose} />;
+}
+
 function stubFetch(payload: GitDiff = diff) {
   const fetchMock = vi.fn(async (_url: string) => new Response(JSON.stringify(payload), { status: 200 }));
   vi.stubGlobal('fetch', fetchMock);
@@ -43,14 +63,14 @@ afterEach(() => {
 describe('DiffOverlay', () => {
   it('asks the daemon for the active worktree diff against the review base', async () => {
     const fetchMock = stubFetch();
-    render(<DiffOverlay worktree="feature" baseRef="main" onClose={() => {}} />);
+    render(<Harness worktree="feature" baseRef="main" onClose={() => {}} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(fetchMock.mock.calls[0][0]).toBe('/w/feature/api/gitdiff?base=main');
   });
 
   it('names the working tree when the branch under review is the base itself', async () => {
     stubFetch({ ...diff, branch: 'main' });
-    const { container } = render(<DiffOverlay worktree="archai" baseRef="main" onClose={() => {}} />);
+    const { container } = render(<Harness worktree="archai" baseRef="main" onClose={() => {}} />);
     await waitFor(() =>
       expect(container.querySelector('.hf-diff-compare .branch')?.textContent).toBe('working tree')
     );
@@ -58,13 +78,13 @@ describe('DiffOverlay', () => {
 
   it('names the merge-base revision the diff starts from', async () => {
     stubFetch();
-    const { container } = render(<DiffOverlay worktree="feature" baseRef="main" onClose={() => {}} />);
+    const { container } = render(<Harness worktree="feature" baseRef="main" onClose={() => {}} />);
     await waitFor(() => expect(container.querySelector('.hf-diff-compare')?.textContent).toContain('main@abc1234'));
   });
 
   it('sections the file list by package and shows per-group stats', async () => {
     stubFetch();
-    const { container } = render(<DiffOverlay worktree="feature" baseRef="main" onClose={() => {}} />);
+    const { container } = render(<Harness worktree="feature" baseRef="main" onClose={() => {}} />);
     await screen.findByText('internal/adapter/git');
 
     const groups = [...container.querySelectorAll('.hf-diff-group-head .label')].map((n) => n.textContent);
@@ -76,7 +96,7 @@ describe('DiffOverlay', () => {
 
   it('renders the first file by default and switches on click', async () => {
     stubFetch();
-    const { container } = render(<DiffOverlay worktree="feature" baseRef="main" onClose={() => {}} />);
+    const { container } = render(<Harness worktree="feature" baseRef="main" onClose={() => {}} />);
     // Groups sort alphabetically, so the binary asset is selected first.
     await screen.findByText('Binary file — no textual diff.');
 
@@ -89,7 +109,7 @@ describe('DiffOverlay', () => {
 
   it('numbers both sides of a modification and keeps the marker out of the text', async () => {
     stubFetch();
-    const { container } = render(<DiffOverlay worktree="feature" baseRef="main" onClose={() => {}} />);
+    const { container } = render(<Harness worktree="feature" baseRef="main" onClose={() => {}} />);
     await screen.findByText('api.go');
     fireEvent.click(screen.getByText('api.go'));
 
@@ -105,7 +125,7 @@ describe('DiffOverlay', () => {
   it('walks files with j/k and closes on Escape', async () => {
     stubFetch();
     const onClose = vi.fn();
-    const { container } = render(<DiffOverlay worktree="feature" baseRef="main" onClose={onClose} />);
+    const { container } = render(<Harness worktree="feature" baseRef="main" onClose={onClose} />);
     await screen.findByText('diff.go');
 
     fireEvent.keyDown(window, { key: 'j' });
@@ -121,7 +141,7 @@ describe('DiffOverlay', () => {
 
   it('collapses a section without losing the selection', async () => {
     stubFetch();
-    const { container } = render(<DiffOverlay worktree="feature" baseRef="main" onClose={() => {}} />);
+    const { container } = render(<Harness worktree="feature" baseRef="main" onClose={() => {}} />);
     await screen.findByText('diff.go');
 
     fireEvent.click(screen.getByText('internal/adapter/git'));
@@ -131,13 +151,65 @@ describe('DiffOverlay', () => {
 
   it('reports an empty diff rather than an empty pane', async () => {
     stubFetch({ ...diff, files: [], stats: { files: 0, insertions: 0, deletions: 0 } });
-    render(<DiffOverlay worktree="feature" baseRef="main" onClose={() => {}} />);
+    render(<Harness worktree="feature" baseRef="main" onClose={() => {}} />);
     expect(await screen.findByText('No file changes against main.')).toBeTruthy();
   });
 
   it('surfaces a server error', async () => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string) => new Response('not a git repository', { status: 500 })));
-    render(<DiffOverlay worktree="feature" baseRef="main" onClose={() => {}} />);
+    render(<Harness worktree="feature" baseRef="main" onClose={() => {}} />);
     expect(await screen.findByText('not a git repository')).toBeTruthy();
+  });
+
+  it('keeps the diff and the reading position across a close and a reopen', async () => {
+    const fetchMock = stubFetch();
+    const { container, rerender } = render(<Harness />);
+    await screen.findByText('api.go');
+    fireEvent.click(screen.getByText('api.go'));
+    await waitFor(() =>
+      expect(container.querySelector('.hf-diff-filehead .path')?.textContent).toBe(
+        'internal/adapter/http/api.go'
+      )
+    );
+
+    rerender(<Harness open={false} />);
+    expect(container.querySelector('.hf-diff-overlay')).toBeNull();
+    rerender(<Harness />);
+
+    // Back on the same file, with no second read of the working tree.
+    expect(container.querySelector('.hf-diff-filehead .path')?.textContent).toBe(
+      'internal/adapter/http/api.go'
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-reads when the reviewed worktree changes', async () => {
+    const fetchMock = stubFetch();
+    const { rerender } = render(<Harness worktree="feature" />);
+    await screen.findByText('api.go');
+
+    rerender(<Harness worktree="other" />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock.mock.calls[1][0]).toBe('/w/other/api/gitdiff?base=main');
+  });
+
+  it('re-reads on demand', async () => {
+    const fetchMock = stubFetch();
+    render(<Harness />);
+    await screen.findByText('api.go');
+
+    fireEvent.click(screen.getByText('Reload'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not cache a failed read', async () => {
+    const fetchMock = vi.fn(async (_url: string) => new Response('daemon is gone', { status: 500 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { rerender } = render(<Harness />);
+    await screen.findByText('daemon is gone');
+
+    rerender(<Harness open={false} />);
+    rerender(<Harness />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   });
 });
