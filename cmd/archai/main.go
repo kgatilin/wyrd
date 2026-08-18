@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	nethttp "net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -730,6 +731,32 @@ func bootstrapDaemonPlugins(state *serve.State) (plugin.BootstrapResult, error) 
 // a long-lived daemon running on the user's machine.
 const autoStartIdleTimeout = 15 * time.Minute
 
+// warmWorktree asks the daemon to start parsing `wtName` right away, so the
+// cold go/packages parse overlaps with the agent's first turn instead of
+// starting on its first tool call. The MCP client attaches inside whatever
+// worktree the agent is working in, which is usually NOT the daemon's default
+// worktree (the only one warmed at daemon startup).
+//
+// Fire-and-forget: the daemon answers as soon as the load is kicked off, and a
+// failure here only costs the head start, so it is logged and ignored.
+func warmWorktree(addr, wtName string) {
+	if addr == "" || wtName == "" {
+		return
+	}
+	go func() {
+		client := &nethttp.Client{Timeout: 10 * time.Second}
+		url := "http://" + addr + "/w/" + wtName + "/api/warm"
+		resp, err := client.Post(url, "application/json", nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "mcp-client: warm %s: %v\n", wtName, err)
+			return
+		}
+		defer resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		fmt.Fprintf(os.Stderr, "mcp-client: warming worktree %s (%s)\n", wtName, resp.Status)
+	}()
+}
+
 // runMCPThinClient implements the `archai serve --mcp-stdio` thin
 // client. It discovers the repo's running multi-worktree daemon
 // (auto-starting one if necessary) and runs the MCP stdio transport
@@ -775,6 +802,7 @@ func runMCPThinClient(ctx context.Context, root string) error {
 	worktreePrefix := ""
 	if rec.HasCap("multi") {
 		worktreePrefix = "/w/" + wtName
+		warmWorktree(rec.HTTPAddr, wtName)
 	}
 
 	// EndpointResolver for re-resolution on connection failure.
@@ -857,6 +885,7 @@ func runMCPSharedClient(ctx context.Context, root string) error {
 	worktreePrefix := ""
 	if rec.HasCap("multi") {
 		worktreePrefix = "/w/" + wtName
+		warmWorktree(rec.HTTPAddr, wtName)
 	}
 
 	// Re-resolve on connection failure so the client survives a daemon

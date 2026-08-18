@@ -147,8 +147,16 @@ numeric → PID, else repo basename):
   `ps` state, not just `kill -0`); restart always relaunches. Both can target a
   legacy per-worktree `serve.json` daemon, not just the global registry.
 
-Restarting bumps the model-cache version (binary stamp) ⇒ forces a full dense
-re-embed; on a large repo, watch it warm back up with `archai daemon status`.
+Rebuilding the binary bumps the model-cache stamp ⇒ the next start re-parses
+every package from scratch. Embeddings survive it: `vectors.json` is keyed by
+node id + content hash, so only nodes whose text changed are re-embedded. A
+**fresh worktree** is the expensive case — its `.archai/cache/` is empty, so
+both the parse and the whole dense pass run cold. Watch either warm up with
+`archai daemon status`.
+
+The MCP thin client pings `POST /w/<worktree>/api/warm` as soon as it attaches,
+so that cold parse starts at client startup rather than on the agent's first
+tool call. The daemon separately warms only its *default* worktree at startup.
 
 ### Analysis lenses (MCP tools)
 
@@ -293,6 +301,15 @@ folds. Consequences baked into the rules:
   `partition-mismatch`. `state` is required.
 - `types` (not `vocab`) are reusable JSON Schema definitions, `$defs`-style,
   addressed as `#/types/X` or `other-component#/types/X`.
+
+Codegen (`archai plugin events gen`) is **template-driven and language-neutral**:
+templates live in the project (`.arch/templates/*.tmpl`), archai renders them
+against a stable data model (`internal/adapter/eventmodel/gen.go`) and never
+learns the project's types. There is no `--lang` flag and adding one would
+invert the design — see design.md §4. Output names must contain `_gen.`;
+generation is gated on validation; `.go` output goes through go/format
+(syntactic only). Example template + data-model reference: `docs/event-model.md`
+→ Codegen.
 
 ## Development Rules
 

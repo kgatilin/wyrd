@@ -506,3 +506,74 @@ func TestDiscover_RealRepo(t *testing.T) {
 		t.Fatalf("want 1 entry, got %d: %+v", len(entries), entries)
 	}
 }
+
+// TestMultiServer_Warm_KicksOffLoadWithoutBlocking covers the warm hook the MCP
+// thin client pings at startup: POST /w/{name}/api/warm must answer immediately
+// (202) rather than waiting for the cold go/packages parse, and must leave the
+// worktree's model loading so a later tool call finds it warm.
+func TestMultiServer_Warm_KicksOffLoadWithoutBlocking(t *testing.T) {
+	t.Setenv("ARCHAI_RETRIEVAL_DISABLE", "1")
+	primary := buildTwoWorktreeRepo(t)
+
+	release := make(chan struct{})
+	loader := func(ctx context.Context, name, path string) (*serve.State, error) {
+		<-release // hold the load open so "non-blocking" is observable
+		st := serve.NewState(path, serve.WithReader(taggedReader{tag: name}))
+		if err := st.Load(ctx); err != nil {
+			return nil, err
+		}
+		return st, nil
+	}
+	multi := serve.NewMultiState(primary, loader)
+	if err := multi.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	srv, err := NewMultiServer(multi)
+	if err != nil {
+		t.Fatalf("NewMultiServer: %v", err)
+	}
+	mux := nethttp.NewServeMux()
+	srv.routes(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := nethttp.Post(ts.URL+"/w/beta/api/warm", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /w/beta/api/warm: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusAccepted {
+		t.Fatalf("warm status=%d body=%s, want 202", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"worktree":"beta"`) {
+		t.Errorf("warm body = %s, want it to name worktree beta", body)
+	}
+	// Not loaded yet — the point of the hook is that it returns before the parse.
+	if !strings.Contains(string(body), `"loaded":false`) {
+		t.Errorf("warm body = %s, want loaded:false while the parse is still in flight", body)
+	}
+
+	// The load really was kicked off: releasing the loader lets it complete.
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, ok := multi.Loaded("beta"); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("warm did not kick off the background load for beta")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// An unknown worktree still 404s rather than warming something arbitrary.
+	resp2, err := nethttp.Post(ts.URL+"/w/nope/api/warm", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /w/nope/api/warm: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != nethttp.StatusNotFound {
+		t.Errorf("warm unknown worktree status=%d, want 404", resp2.StatusCode)
+	}
+}

@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	nethttp "net/http"
 	"strings"
 
@@ -105,6 +106,19 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 		if s.canServeWorktreeRouteWithoutState(rest) {
 			r2 := s.rewriteWorktreeRequest(r, name, rest, nil)
 			next.ServeHTTP(w, r2)
+			return
+		}
+
+		// Warm hook: kick off this worktree's background parse and answer
+		// immediately. An MCP client that attaches inside a linked worktree
+		// pings this at startup so the cold go/packages parse overlaps with
+		// the agent's first turn, instead of starting on the first tool call.
+		// Deliberately does not wait for the load, so it never blocks.
+		if rest == "/api/warm" {
+			_, loaded := s.multi.Loaded(name)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(nethttp.StatusAccepted)
+			fmt.Fprintf(w, "{\"worktree\":%q,\"loaded\":%t}\n", name, loaded)
 			return
 		}
 
