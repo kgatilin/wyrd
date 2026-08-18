@@ -92,11 +92,14 @@ func Merge(models []domain.PackageModel, cfg *Config) ([]domain.PackageModel, []
 		}
 	}
 
-	// Build a quick lookup from pkg path -> layer for violation detection.
+	// Build a quick lookup from module-relative pkg path -> layer for
+	// violation detection. Keys are normalized because a model's Path
+	// arrives either module-relative (both readers' usual form) or
+	// fully qualified.
 	pkgLayer := make(map[string]string, len(models))
 	for _, m := range models {
 		if m.Layer != "" {
-			pkgLayer[m.Path] = m.Layer
+			pkgLayer[modulePath(cfg.Module, m.Path)] = m.Layer
 		}
 	}
 
@@ -114,22 +117,25 @@ func Merge(models []domain.PackageModel, cfg *Config) ([]domain.PackageModel, []
 		// Same-layer imports are always allowed.
 		allowSet[m.Layer] = struct{}{}
 
+		srcPath := modulePath(cfg.Module, m.Path)
 		badImports := make(map[string]struct{})
 		for _, dep := range m.Dependencies {
 			if dep.To.External {
 				continue
 			}
-			if !strings.HasPrefix(dep.To.Package, cfg.Module) {
-				// Not a package from this module — skip.
-				continue
-			}
+			// Dependency targets are recorded module-relative by the Go
+			// reader ("internal/adapter") and fully qualified by other
+			// producers ("example.com/mod/internal/adapter"); normalize
+			// both. Membership in pkgLayer — not a module-prefix test —
+			// is what proves the target belongs to this module, since a
+			// relative path carries no prefix to test.
 			relPath := modulePath(cfg.Module, dep.To.Package)
-			if relPath == "" || relPath == m.Path {
+			if relPath == "" || relPath == srcPath {
 				continue
 			}
 			targetLayer, ok := pkgLayer[relPath]
 			if !ok {
-				// Target has no layer — nothing to check.
+				// Not a package of this module, or it has no layer.
 				continue
 			}
 			if !hasRule {
@@ -150,7 +156,7 @@ func Merge(models []domain.PackageModel, cfg *Config) ([]domain.PackageModel, []
 			}
 			sort.Strings(imps)
 			violations = append(violations, Violation{
-				Package: m.Path,
+				Package: srcPath,
 				Layer:   m.Layer,
 				Imports: imps,
 			})

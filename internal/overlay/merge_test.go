@@ -117,6 +117,70 @@ func TestMerge_DetectsForbiddenCrossLayerImport(t *testing.T) {
 	}
 }
 
+// TestMerge_DetectsForbiddenImportRecordedModuleRelative pins the shape the
+// Go reader actually emits: SymbolRef.Package is module-relative, not
+// fully qualified. Merge used to require the module prefix and silently
+// skipped every such dependency, which made the whole layer-rule gate a
+// no-op on real models while the fully-qualified fixtures above passed.
+func TestMerge_DetectsForbiddenImportRecordedModuleRelative(t *testing.T) {
+	cfg := newMergeConfig()
+	models := []domain.PackageModel{
+		{
+			Path: "internal/domain",
+			Dependencies: []domain.Dependency{
+				{
+					From: domain.SymbolRef{Package: "internal/domain", Symbol: "Thing"},
+					To:   domain.SymbolRef{Package: "internal/service", Symbol: "Service"},
+					Kind: domain.DependencyUses,
+				},
+			},
+		},
+		{Path: "internal/service"},
+	}
+
+	_, violations, err := Merge(models, cfg)
+	if err != nil {
+		t.Fatalf("Merge error: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("got %d violations, want 1: %+v", len(violations), violations)
+	}
+	if got, want := violations[0].Package, "internal/domain"; got != want {
+		t.Errorf("violation package = %q, want %q", got, want)
+	}
+	if got, want := violations[0].Imports, []string{"internal/service"}; len(got) != 1 || got[0] != want[0] {
+		t.Errorf("violation imports = %v, want %v", got, want)
+	}
+}
+
+// TestMerge_ExternalDependencyIsNotAViolation guards the other side of the
+// same change: dropping the module-prefix test must not start reporting
+// third-party imports, which are filtered by layer membership instead.
+func TestMerge_ExternalDependencyIsNotAViolation(t *testing.T) {
+	cfg := newMergeConfig()
+	models := []domain.PackageModel{
+		{
+			Path: "internal/domain",
+			Dependencies: []domain.Dependency{
+				{
+					From: domain.SymbolRef{Package: "internal/domain", Symbol: "Thing"},
+					To:   domain.SymbolRef{Package: "golang.org/x/tools/go/packages", Symbol: "Package"},
+					Kind: domain.DependencyUses,
+				},
+			},
+		},
+		{Path: "internal/service"},
+	}
+
+	_, violations, err := Merge(models, cfg)
+	if err != nil {
+		t.Fatalf("Merge error: %v", err)
+	}
+	if len(violations) != 0 {
+		t.Fatalf("got %d violations, want 0: %+v", len(violations), violations)
+	}
+}
+
 func TestMerge_AllowedCrossLayerImportProducesNoViolation(t *testing.T) {
 	cfg := newMergeConfig()
 	models := []domain.PackageModel{
