@@ -56,6 +56,12 @@ describe('DiffOverlay', () => {
     );
   });
 
+  it('names the merge-base revision the diff starts from', async () => {
+    stubFetch();
+    const { container } = render(<DiffOverlay worktree="feature" baseRef="main" onClose={() => {}} />);
+    await waitFor(() => expect(container.querySelector('.hf-diff-compare')?.textContent).toContain('main@abc1234'));
+  });
+
   it('sections the file list by package and shows per-group stats', async () => {
     stubFetch();
     const { container } = render(<DiffOverlay worktree="feature" baseRef="main" onClose={() => {}} />);

@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kgatilin/archai/internal/buildinfo"
@@ -238,7 +239,16 @@ func (s *State) readPackageSet(ctx context.Context, pkgPaths []string) ([]domain
 	return s.readPackages(ctx, patterns)
 }
 
+// readPackagesMu serializes the chdir the Go reader needs. The working
+// directory is process-global, so two loads running at once — two worktrees
+// warming concurrently, or a worktree and a materialized base commit — could
+// otherwise parse each other's tree.
+var readPackagesMu sync.Mutex
+
 func (s *State) readPackages(ctx context.Context, patterns []string) ([]domain.PackageModel, error) {
+	readPackagesMu.Lock()
+	defer readPackagesMu.Unlock()
+
 	prevCwd, err := os.Getwd()
 	if err != nil {
 		return nil, err

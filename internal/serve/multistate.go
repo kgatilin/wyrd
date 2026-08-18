@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kgatilin/archai/internal/adapter/git"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/worktree"
 )
@@ -95,6 +96,11 @@ type MultiState struct {
 	// watchers tracks per-worktree closers registered by watcherHook.
 	watchers map[string]io.Closer
 
+	// baseTrees caches the materialized+parsed base commits (see
+	// ReviewBase). Created on first use so a daemon that never diffs
+	// never touches the cache directory.
+	baseTrees *baseTrees
+
 	// baseRef is the review-base git ref (e.g. "main") used for
 	// diff-scoped analysis. When non-empty, every loaded worktree State is
 	// wired with a resolver that loads this ref's models on demand. Empty
@@ -157,9 +163,10 @@ func (m *MultiState) SetReviewBaseRef(ref string) {
 }
 
 // wireBaseResolver injects (or clears) the base-model resolver on a loaded
-// State. The resolver loads the base ref's worktree State lazily and returns
-// its package snapshot; when the State being wired *is* the base worktree, it
-// resolves to nil so a diff against self is empty rather than recursive.
+// State. The resolver returns the models of the *merge base* (see
+// ReviewBase), so every consumer of a review diff — the canvas, the public
+// surface, the MCP diff tool — answers "what this branch changed" rather
+// than "how this branch differs from wherever the base has got to".
 func (m *MultiState) wireBaseResolver(name string, state *State) {
 	m.mu.Lock()
 	baseRef := m.baseRef
@@ -170,15 +177,124 @@ func (m *MultiState) wireBaseResolver(name string, state *State) {
 	}
 	thisName := name
 	state.setBaseResolver(func(ctx context.Context) ([]domain.PackageModel, error) {
-		bs, baseName, err := m.GetByRef(ctx, baseRef)
-		if err != nil || bs == nil {
+		base, err := m.ReviewBase(ctx, thisName, "")
+		if err != nil {
 			return nil, err
 		}
-		if baseName == thisName {
-			return nil, nil // this State is the base; no self-diff
-		}
-		return bs.Snapshot().Packages, nil
+		return base.Models, nil
 	})
+}
+
+// ReviewBase is the resolved answer to "what is this worktree reviewed
+// against". Models is nil when there is nothing to diff — no base ref
+// configured, the ref does not exist, or the worktree already *is* the base
+// commit with nothing uncommitted on top.
+type ReviewBase struct {
+	// Models is the package model of the base commit's tree.
+	Models []domain.PackageModel
+	// Ref is the configured review base ref (e.g. "main").
+	Ref string
+	// Rev is the merge base of Ref and the worktree's HEAD — the commit the
+	// models above were parsed from. Empty when it could not be resolved.
+	Rev string
+	// Worktree names the checkout sitting on Ref, when there is one. It is
+	// used for labels and to mark the base in the branch picker; the models
+	// come from Rev, which is often an older commit than that checkout.
+	Worktree string
+}
+
+// ReviewBase resolves the review base for the named worktree: the tree at
+// merge-base(ref, worktree HEAD). An empty ref means the daemon's configured
+// review base; callers that carry their own (the HTTP surfaces accept
+// ?base=) pass it explicitly.
+//
+// Two fast paths avoid parsing a second tree, because parsing is the whole
+// cost here:
+//
+//   - the base worktree is clean and sits exactly on the merge base (the
+//     usual state right after a rebase) — its already-loaded model is the
+//     commit's model, so reuse it;
+//   - this worktree is clean and sits on the merge base itself — there is
+//     nothing to diff.
+//
+// Otherwise the base commit is materialized and parsed once, and cached.
+func (m *MultiState) ReviewBase(ctx context.Context, name, ref string) (ReviewBase, error) {
+	baseRef := ref
+	if baseRef == "" {
+		m.mu.Lock()
+		baseRef = m.baseRef
+		m.mu.Unlock()
+	}
+	if baseRef == "" {
+		return ReviewBase{}, nil
+	}
+	entry, ok := m.Entry(name)
+	if !ok || entry.Path == "" {
+		return ReviewBase{Ref: baseRef}, nil
+	}
+
+	out := ReviewBase{Ref: baseRef}
+	if baseName, ok := m.FindRef(baseRef); ok {
+		out.Worktree = baseName
+	}
+
+	rev, ok := git.MergeBase(entry.Path, baseRef)
+	if !ok {
+		// No such ref (or unrelated histories): report the base identity we
+		// have, but never fall back to the base worktree's tip — a wrong
+		// base reads as a large, confident, backwards diff.
+		return out, nil
+	}
+	out.Rev = rev
+
+	if out.Worktree != "" && out.Worktree != name {
+		if baseEntry, ok := m.Entry(out.Worktree); ok && baseEntry.Path != "" {
+			if git.HeadRev(baseEntry.Path) == rev && git.IsClean(baseEntry.Path) {
+				state, err := m.Get(ctx, out.Worktree)
+				if err != nil {
+					return out, err
+				}
+				out.Models = state.Snapshot().Packages
+				return out, nil
+			}
+		}
+	}
+
+	if git.HeadRev(entry.Path) == rev && git.IsClean(entry.Path) {
+		return out, nil // this worktree is the base commit; nothing to diff
+	}
+
+	trees, err := m.ensureBaseTrees()
+	if err != nil {
+		return out, err
+	}
+	models, err := trees.Models(ctx, entry.Path, rev)
+	if err != nil {
+		return out, err
+	}
+	out.Models = models
+	return out, nil
+}
+
+// ensureBaseTrees lazily creates the materialized-base cache. It is keyed by
+// the repository's main worktree root so every worktree of a repo shares one
+// cache — branches off the same base commit then pay for it once.
+func (m *MultiState) ensureBaseTrees() (*baseTrees, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.baseTrees != nil {
+		return m.baseTrees, nil
+	}
+	repoRoot := m.root
+	if main, ok := worktree.RepoRoot(m.root); ok {
+		repoRoot = main
+	}
+	dir, err := BaseTreeDir(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	m.baseTrees = newBaseTrees(dir, defaultBaseTreeLimit)
+	return m.baseTrees, nil
 }
 
 // NewMultiState constructs a MultiState rooted at projectRoot, using

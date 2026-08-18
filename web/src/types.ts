@@ -28,6 +28,8 @@ export interface Repo {
   activeWorktree?: string;
   baseRef?: string;
   baseWorktree?: string;
+  /** Merge-base commit the architecture diff was computed against. */
+  baseRev?: string;
   compare?: string;
 }
 

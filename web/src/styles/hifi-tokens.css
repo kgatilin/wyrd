@@ -2324,6 +2324,7 @@ body {
 }
 .hf-diff-compare .branch { color: var(--fg-0); font-weight: 600; }
 .hf-diff-compare .sep { color: var(--fg-3); }
+.hf-diff-compare .rev { color: var(--fg-3); }
 .hf-diff-total {
   display: flex;
   align-items: center;

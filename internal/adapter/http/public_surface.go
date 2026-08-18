@@ -4,6 +4,7 @@ import (
 	nethttp "net/http"
 
 	"github.com/kgatilin/archai/internal/publicapi"
+	"github.com/kgatilin/archai/internal/serve"
 )
 
 const publicSurfaceResponseSchema = "archai.public-surface-review/v0"
@@ -20,6 +21,7 @@ type publicSurfaceRepo struct {
 	ActiveWorktree string `json:"activeWorktree,omitempty"`
 	BaseRef        string `json:"baseRef,omitempty"`
 	BaseWorktree   string `json:"baseWorktree,omitempty"`
+	BaseRev        string `json:"baseRev,omitempty"`
 	Compare        string `json:"compare,omitempty"`
 }
 
@@ -39,17 +41,17 @@ func (s *Server) handlePublicSurfaceJSON(w nethttp.ResponseWriter, r *nethttp.Re
 
 	surface := publicapi.Project(snap.Packages)
 
-	var baseWorktree string
+	var base serve.ReviewBase
 	var publicDiff *publicapi.Diff
 	if s.multiMode() && active != "" {
-		baseState, name, err := s.baseStateForReview(r, baseRef)
+		var err error
+		base, err = s.reviewBase(r, active, baseRef)
 		if err != nil {
 			nethttp.Error(w, err.Error(), nethttp.StatusInternalServerError)
 			return
 		}
-		baseWorktree = name
-		if baseState != nil && baseWorktree != "" && baseWorktree != active {
-			baseSurface := publicapi.Project(baseState.Snapshot().Packages)
+		if len(base.Models) > 0 {
+			baseSurface := publicapi.Project(base.Models)
 			d := publicapi.Compare(surface, baseSurface)
 			publicDiff = &d
 		}
@@ -63,8 +65,9 @@ func (s *Server) handlePublicSurfaceJSON(w nethttp.ResponseWriter, r *nethttp.Re
 			Root:           snap.Root,
 			ActiveWorktree: active,
 			BaseRef:        baseRef,
-			BaseWorktree:   baseWorktree,
-			Compare:        compareLabel(active, baseWorktree, baseRef),
+			BaseWorktree:   base.Worktree,
+			BaseRev:        base.Rev,
+			Compare:        compareLabel(active, base.Worktree, baseRef, base.Rev),
 		},
 	})
 }

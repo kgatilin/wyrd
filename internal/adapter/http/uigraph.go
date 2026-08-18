@@ -29,21 +29,20 @@ func (s *Server) handleUIGraphJSON(w nethttp.ResponseWriter, r *nethttp.Request)
 		baseRef = defaultReviewBaseRef
 	}
 
-	var baseWorktree string
+	var base serve.ReviewBase
 	var d *diff.Diff
 	var publicDiff *publicapi.Diff
 	if s.multiMode() && active != "" {
-		baseState, name, err := s.baseStateForReview(r, baseRef)
+		var err error
+		base, err = s.reviewBase(r, active, baseRef)
 		if err != nil {
 			nethttp.Error(w, err.Error(), nethttp.StatusInternalServerError)
 			return
 		}
-		baseWorktree = name
-		if baseState != nil && baseWorktree != "" && baseWorktree != active {
-			baseSnap := baseState.Snapshot()
-			d = diff.Compute(snap.Packages, baseSnap.Packages)
+		if len(base.Models) > 0 {
+			d = diff.Compute(snap.Packages, base.Models)
 			currentSurface := publicapi.Project(snap.Packages)
-			baseSurface := publicapi.Project(baseSnap.Packages)
+			baseSurface := publicapi.Project(base.Models)
 			pd := publicapi.Compare(currentSurface, baseSurface)
 			publicDiff = &pd
 		}
@@ -59,10 +58,11 @@ func (s *Server) handleUIGraphJSON(w nethttp.ResponseWriter, r *nethttp.Request)
 		Root:           snap.Root,
 		ActiveWorktree: active,
 		BaseRef:        baseRef,
-		BaseWorktree:   baseWorktree,
-		Compare:        compareLabel(active, baseWorktree, baseRef),
+		BaseWorktree:   base.Worktree,
+		BaseRev:        base.Rev,
+		Compare:        compareLabel(active, base.Worktree, baseRef, base.Rev),
 	}
-	g.Worktrees = s.reviewWorktrees(active, baseWorktree)
+	g.Worktrees = s.reviewWorktrees(active, base.Worktree)
 	if g.PR != nil {
 		g.PR.Title = "Architecture Review"
 		g.PR.Branch = active
@@ -75,15 +75,20 @@ func (s *Server) handleUIGraphJSON(w nethttp.ResponseWriter, r *nethttp.Request)
 	writeJSON(w, g)
 }
 
-func (s *Server) baseStateForReview(r *nethttp.Request, baseRef string) (*serve.State, string, error) {
-	if s.multi == nil || baseRef == "" {
-		return nil, "", nil
+// reviewBase resolves what the active worktree is reviewed against: the
+// models of merge-base(baseRef, HEAD). Both review surfaces go through it so
+// the architecture diff and the file diff answer the same question — the one
+// the reviewer asked, "what did this branch change", rather than "how does
+// this branch differ from wherever the base has got to".
+func (s *Server) reviewBase(r *nethttp.Request, active, baseRef string) (serve.ReviewBase, error) {
+	if s.multi == nil || baseRef == "" || active == "" {
+		return serve.ReviewBase{}, nil
 	}
-	state, name, err := s.multi.GetByRef(r.Context(), baseRef)
+	base, err := s.multi.ReviewBase(r.Context(), active, baseRef)
 	if err != nil {
-		return nil, name, fmt.Errorf("load base worktree %q: %w", name, err)
+		return base, fmt.Errorf("resolve review base %q: %w", baseRef, err)
 	}
-	return state, name, nil
+	return base, nil
 }
 
 func (s *Server) reviewWorktrees(active, base string) []uigraph.Worktree {
@@ -104,7 +109,9 @@ func (s *Server) reviewWorktrees(active, base string) []uigraph.Worktree {
 	return out
 }
 
-func compareLabel(active, baseWorktree, baseRef string) string {
+// compareLabel names the comparison, including the commit it was taken
+// from: without the revision, "feature vs main" hides which main.
+func compareLabel(active, baseWorktree, baseRef, baseRev string) string {
 	if active == "" {
 		return ""
 	}
@@ -115,5 +122,15 @@ func compareLabel(active, baseWorktree, baseRef string) string {
 	if base == "" {
 		return active
 	}
+	if baseRev != "" {
+		base += "@" + shortRev(baseRev)
+	}
 	return active + " vs " + base
+}
+
+func shortRev(rev string) string {
+	if len(rev) > 7 {
+		return rev[:7]
+	}
+	return rev
 }

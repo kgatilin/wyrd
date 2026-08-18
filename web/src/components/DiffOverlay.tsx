@@ -132,7 +132,14 @@ export function DiffOverlay({ worktree, baseRef, onClose }: DiffOverlayProps) {
               no-op rather than as the working tree. */}
           <span className="branch">{sourceLabel(diff, worktree)}</span>
           <span className="sep">&larr;</span>
-          <span>{diff?.baseRef ?? baseRef}</span>
+          {/* The revision, not just the ref: this diff starts at the merge
+              base, which is the commit the architecture canvas is compared
+              against too. Naming it is what lets a reviewer see the two
+              agree. */}
+          <span title={diff?.baseRev}>
+            {diff?.baseRef ?? baseRef}
+            {diff?.baseRev && <span className="rev">@{shortRev(diff.baseRev)}</span>}
+          </span>
         </span>
         {diff && (
           <span className="hf-diff-total">
@@ -271,6 +278,10 @@ function Hunk({ hunk, language }: { hunk: DiffHunk; language: string | undefined
       ))}
     </div>
   );
+}
+
+function shortRev(rev: string): string {
+  return rev.length > 7 ? rev.slice(0, 7) : rev;
 }
 
 function sourceLabel(diff: GitDiff | null, worktree: string): string {

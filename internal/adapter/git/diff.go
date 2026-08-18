@@ -146,22 +146,67 @@ func currentBranch(repoPath string) string {
 	return "HEAD"
 }
 
-// resolveBaseRev turns a review base ref into the revision the diff runs
-// from. The merge base — not the ref tip — is what makes the diff show
-// only this branch's work when the base has moved ahead.
-func resolveBaseRev(repoPath, baseRef string) string {
+// MergeBase returns the commit where the current branch diverged from the
+// review base — the ref itself or origin/<ref>, whichever resolves first.
+//
+// This is the single definition of "what this branch is reviewed against",
+// shared by the textual diff and by the architecture model that is diffed
+// beside it. Comparing against the base's *tip* instead would report every
+// change that landed on the base after the branch point as this branch's
+// doing, in reverse.
+func MergeBase(repoPath, baseRef string) (string, bool) {
+	cand, ok := resolveBaseCandidate(repoPath, baseRef)
+	if !ok {
+		return "", false
+	}
+	out, err := run(repoPath, "merge-base", cand, "HEAD")
+	if err != nil {
+		return "", false
+	}
+	rev := strings.TrimSpace(out)
+	return rev, rev != ""
+}
+
+// HeadRev returns the commit HEAD points at, or "" when HEAD is unborn.
+func HeadRev(repoPath string) string {
+	out, err := run(repoPath, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// IsClean reports whether the working tree has no modifications and no
+// untracked files — i.e. whether it still matches its HEAD commit. A caller
+// that wants to reuse an already-parsed worktree as a stand-in for a commit
+// needs this: a dirty checkout is not that commit.
+func IsClean(repoPath string) bool {
+	out, err := run(repoPath, "status", "--porcelain", "--untracked-files=all")
+	return err == nil && strings.TrimSpace(out) == ""
+}
+
+// resolveBaseCandidate returns the first of {ref, origin/ref} that names a
+// commit in this repository.
+func resolveBaseCandidate(repoPath, baseRef string) (string, bool) {
 	for _, cand := range baseCandidates(baseRef) {
-		if _, err := run(repoPath, "rev-parse", "--verify", "--quiet", cand+"^{commit}"); err != nil {
-			continue
+		if _, err := run(repoPath, "rev-parse", "--verify", "--quiet", cand+"^{commit}"); err == nil {
+			return cand, true
 		}
-		if mb, err := run(repoPath, "merge-base", cand, "HEAD"); err == nil {
-			if rev := strings.TrimSpace(mb); rev != "" {
-				return rev
-			}
-		}
+	}
+	return "", false
+}
+
+// resolveBaseRev turns a review base ref into the revision the diff runs
+// from: the merge base, falling back to the ref itself when histories are
+// unrelated, then to HEAD (or the empty tree) when the ref does not exist.
+func resolveBaseRev(repoPath, baseRef string) string {
+	if rev, ok := MergeBase(repoPath, baseRef); ok {
+		return rev
+	}
+	if cand, ok := resolveBaseCandidate(repoPath, baseRef); ok {
 		return cand
 	}
-	if _, err := run(repoPath, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"); err != nil {
+	if HeadRev(repoPath) == "" {
 		return emptyTreeRev // unborn HEAD: everything is an addition
 	}
 	return "HEAD"

@@ -41,7 +41,10 @@ type Repo struct {
 	ActiveWorktree string `json:"activeWorktree,omitempty"`
 	BaseRef        string `json:"baseRef,omitempty"`
 	BaseWorktree   string `json:"baseWorktree,omitempty"`
-	Compare        string `json:"compare,omitempty"`
+	// BaseRev is the merge-base commit the diff was actually computed
+	// against — not the base worktree's tip, which may have moved on.
+	BaseRev string `json:"baseRev,omitempty"`
+	Compare string `json:"compare,omitempty"`
 }
 
 type Worktree struct {
