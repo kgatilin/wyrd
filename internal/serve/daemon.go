@@ -94,6 +94,12 @@ type Options struct {
 	// daemon would construct for itself. The CLI passes one in so
 	// every State shares a single reader instance.
 	Reader service.ModelReader
+
+	// VectorCache, when non-nil, is the repo-level vector cache the
+	// single-State path hands to its State. In multi-worktree mode the
+	// StateLoader is what carries the cache to each worktree, so this
+	// field is unused there.
+	VectorCache VectorCacheProvider
 }
 
 // HTTPTransport is the minimal contract the serve daemon needs from an
@@ -147,6 +153,9 @@ func Serve(ctx context.Context, opts Options) error {
 		var stateOpts []StateOption
 		if opts.Reader != nil {
 			stateOpts = append(stateOpts, WithReader(opts.Reader))
+		}
+		if opts.VectorCache != nil {
+			stateOpts = append(stateOpts, WithVectorCache(opts.VectorCache))
 		}
 		state = NewState(absRoot, stateOpts...)
 		if err := state.Load(ctx); err != nil {

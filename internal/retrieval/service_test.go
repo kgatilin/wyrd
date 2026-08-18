@@ -449,6 +449,11 @@ func (idx *testVectorIndex) GetHash(id string) string {
 	return idx.hashes[id]
 }
 
+func (idx *testVectorIndex) Vector(id string) ([]float32, bool) {
+	vec, ok := idx.vectors[id]
+	return vec, ok
+}
+
 func (idx *testVectorIndex) IDs() []string {
 	ids := make([]string, 0, len(idx.vectors))
 	for id := range idx.vectors {

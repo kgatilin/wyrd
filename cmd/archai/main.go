@@ -540,14 +540,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 			Debug:           debug,
 			PluginBootstrap: bootstrapDaemonPlugins,
 			Reader:          assembleServeReader(),
+			VectorCache:     assembleVectorCache(root),
 		})
 	}
 
-	// Build the reader once and share it across every State the daemon
-	// may construct (single-state and per-worktree multi-state loads
-	// alike).
+	// Build the reader and the shared vector cache once, then share them
+	// across every State the daemon may construct (single-state and
+	// per-worktree multi-state loads alike).
 	serveReader := assembleServeReader()
-	stateLoader := newServeStateLoader(serveReader)
+	serveVecCache := assembleVectorCache(root)
+	stateLoader := newServeStateLoader(serveReader, serveVecCache)
 
 	// The review UI is the daemon's browser surface: whenever there is an
 	// HTTP listener, it is mounted. Resolving it here (rather than behind
@@ -568,6 +570,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Debug:       debug,
 		IdleTimeout: idleTimeout,
 		Reader:      serveReader,
+		VectorCache: serveVecCache,
 	}
 
 	if multi {

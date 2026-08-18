@@ -29,6 +29,11 @@ type Service struct {
 	// lindex is the BM25 lexical index.
 	lindex LexicalIndex
 
+	// vcache is the repo-level, content-addressed vector cache shared with
+	// the other worktrees of this repository. Consulted before the embedder;
+	// nil disables sharing (every worktree embeds for itself).
+	vcache VectorCache
+
 	// graph holds the adjacency map for expand/neighbor operations.
 	graph *Graph
 
@@ -151,11 +156,23 @@ type lexicalIndexWithPersist interface {
 	Load(path string) error
 }
 
+// Option configures optional Service dependencies.
+type Option func(*Service)
+
+// WithVectorCache injects the repo-level, content-addressed vector cache the
+// service consults before calling the embedder. Vectors are keyed by content
+// hash alone, so the cache can be shared by every worktree of a repository:
+// a new branch only pays the embedder for the nodes whose text actually
+// changed. Omitting it (or passing nil) keeps the previous behaviour.
+func WithVectorCache(c VectorCache) Option {
+	return func(s *Service) { s.vcache = c }
+}
+
 // NewService creates a new retrieval service with the given dependencies.
 // Pass nil for vindex or lindex to disable that search mode.
-func NewService(root string, emb Embedder, vidx vectorIndexWithHash, lidx lexicalIndexWithPersist) *Service {
+func NewService(root string, emb Embedder, vidx vectorIndexWithHash, lidx lexicalIndexWithPersist, opts ...Option) *Service {
 	cacheDir := filepath.Join(root, ".archai", "cache")
-	return &Service{
+	s := &Service{
 		root:           root,
 		embedder:       emb,
 		vindex:         vidx,
@@ -164,6 +181,10 @@ func NewService(root string, emb Embedder, vidx vectorIndexWithHash, lidx lexica
 		vectorsPath:    filepath.Join(cacheDir, "vectors.json"),
 		lexicalPath:    filepath.Join(cacheDir, "bm25.json"),
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Load restores both indexes from disk.
@@ -172,6 +193,7 @@ func (s *Service) Load() error {
 		if err := s.vindex.Load(s.vectorsPath); err != nil {
 			return fmt.Errorf("loading vector index: %w", err)
 		}
+		s.seedVectorCache()
 	}
 	if lidx, ok := s.lindex.(lexicalIndexWithPersist); ok {
 		if err := lidx.Load(s.lexicalPath); err != nil {
@@ -179,6 +201,32 @@ func (s *Service) Load() error {
 		}
 	}
 	return nil
+}
+
+// seedVectorCache publishes the vectors this worktree already has on disk to
+// the shared cache, so the first worktree to load hands its work to all the
+// others. This doubles as the migration path for indexes written before the
+// cache existed: no special-cased import, just Put of every (hash, vector)
+// pair, which is idempotent and therefore free on later starts.
+func (s *Service) seedVectorCache() {
+	if s.vcache == nil {
+		return
+	}
+	// Not every VectorIndex can hand a vector back by id; one that cannot
+	// simply leaves the cache cold rather than blocking the load.
+	lookup, ok := s.vindex.(VectorIndexWithLookup)
+	if !ok {
+		return
+	}
+	for _, id := range s.vindex.IDs() {
+		hash := s.vindex.GetHash(id)
+		if hash == "" {
+			continue
+		}
+		if vec, ok := lookup.Vector(id); ok {
+			s.vcache.Put(hash, vec)
+		}
+	}
 }
 
 // Save persists both indexes to disk.
@@ -325,7 +373,12 @@ func (s *Service) Refresh(ctx context.Context, nodes []Node, removedIDs []string
 // embedNodes embeds the given nodes and updates the vector index.
 // For oversized nodes, multiple chunks are embedded and mean-pooled
 // into a single vector to preserve the "one node = one vector" invariant.
+//
+// Nodes whose content hash is already in the shared vector cache never reach
+// the embedder: their vector is copied straight into the index. When every
+// node hits, the embedder is not called at all.
 func (s *Service) embedNodes(ctx context.Context, nodes []Node, hashes map[string]string) error {
+	nodes = s.takeCachedVectors(nodes, hashes)
 	if len(nodes) == 0 {
 		return nil
 	}
@@ -385,9 +438,30 @@ func (s *Service) embedNodes(ctx context.Context, nodes []Node, hashes map[strin
 		}
 
 		s.vindex.UpsertWithHash(node.ID, pooled, hashes[node.ID])
+		if s.vcache != nil {
+			s.vcache.Put(hashes[node.ID], pooled)
+		}
 	}
 
 	return nil
+}
+
+// takeCachedVectors moves every node whose content hash is already in the
+// shared cache straight into the vector index, and returns the nodes that
+// still need embedding. Without a cache it returns nodes unchanged.
+func (s *Service) takeCachedVectors(nodes []Node, hashes map[string]string) []Node {
+	if s.vcache == nil || len(nodes) == 0 {
+		return nodes
+	}
+	pending := make([]Node, 0, len(nodes))
+	for _, node := range nodes {
+		if vec, ok := s.vcache.Get(hashes[node.ID]); ok {
+			s.vindex.UpsertWithHash(node.ID, vec, hashes[node.ID])
+			continue
+		}
+		pending = append(pending, node)
+	}
+	return pending
 }
 
 // DenseAvailable reports whether dense (vector) search is operational.

@@ -7,8 +7,30 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
+
+// EmbedRecipeVersion identifies the recipe that turns a node into embedder
+// input. Bump it whenever that text changes: buildHeader, readSpanBody,
+// EmbedTextBudget, BuildChunks/splitBodyIntoChunks, truncateToSignatureHeader,
+// MeanPoolVectors/l2Normalize.
+//
+// It exists because freshness and reuse are hashed over different things: the
+// content hash covers FullTextForHash (the whole node text), while what is
+// actually embedded is the chunked, pooled output of BuildChunks. Without a
+// recipe version in the cache key, a change to chunking would silently reuse
+// vectors produced by the old recipe under an unchanged content hash.
+const EmbedRecipeVersion = 1
+
+// VectorCacheNamespace returns the cache namespace for an embedder. Vectors
+// only interchange between worktrees that agree on both the model and the
+// recipe, so the namespace carries both. The embedder's dimension is
+// deliberately absent: it is derived from the model, and adapters may report
+// it lazily (0 until the first embed).
+func VectorCacheNamespace(embedderID string) string {
+	return embedderID + "@r" + strconv.Itoa(EmbedRecipeVersion)
+}
 
 // Chunk represents a text segment for embedding. Normal nodes produce
 // exactly one chunk; oversized nodes (body > EmbedTextBudget) are split

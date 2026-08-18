@@ -150,9 +150,19 @@ numeric → PID, else repo basename):
 Rebuilding the binary bumps the model-cache stamp ⇒ the next start re-parses
 every package from scratch. Embeddings survive it: `vectors.json` is keyed by
 node id + content hash, so only nodes whose text changed are re-embedded. A
-**fresh worktree** is the expensive case — its `.archai/cache/` is empty, so
-both the parse and the whole dense pass run cold. Watch either warm up with
-`archai daemon status`.
+**fresh worktree** still re-parses (its `.archai/cache/` is empty) but no
+longer re-embeds: vectors are also cached repo-wide, content-addressed, at
+`~/.arch/embeddings/<repo-key>/<embedder>@r<N>.vec` (`ARCHAI_HOME` honoured;
+repo key = the daemon-registry hash of the **main** worktree root). One
+`vecstore.Store` is shared by every worktree `State` in the daemon and
+consulted *before* the embedder, so a new branch only embeds the nodes whose
+text nothing has embedded yet. `Service.Load` pushes an existing
+`vectors.json` into it, which is also the (zero-code) migration. `r<N>` is
+`retrieval.EmbedRecipeVersion` — **bump it whenever the text fed to the
+embedder changes** (`buildHeader`, `readSpanBody`, `EmbedTextBudget`,
+`BuildChunks`, `MeanPoolVectors`, …), since the freshness hash covers the full
+node text, not the chunked/pooled text actually embedded. Watch either phase
+warm up with `archai daemon status`.
 
 The MCP thin client pings `POST /w/<worktree>/api/warm` as soon as it attaches,
 so that cold parse starts at client startup rather than on the agent's first

@@ -77,6 +77,10 @@ type State struct {
 	// May be nil if retrieval is disabled.
 	retrieval *retrieval.Service
 
+	// vecCache is the repo-level vector cache shared with the daemon's other
+	// worktree States. Set once at construction; nil disables sharing.
+	vecCache VectorCacheProvider
+
 	// retrievalReady is closed when the initial retrieval indexing completes.
 	// Nil if retrieval is disabled.
 	retrievalReady chan struct{}
@@ -191,6 +195,14 @@ type StateOption func(*State)
 // reader instance.
 func WithReader(r service.ModelReader) StateOption {
 	return func(s *State) { s.reader = r }
+}
+
+// WithVectorCache shares a repo-level vector cache with this State. Every
+// State the daemon builds for the same repo should receive the same provider
+// so a fresh worktree reuses the vectors its siblings already computed
+// instead of re-embedding identical code.
+func WithVectorCache(p VectorCacheProvider) StateOption {
+	return func(s *State) { s.vecCache = p }
 }
 
 // WithRetrieval sets a pre-configured retrieval service. Used in tests
@@ -316,10 +328,21 @@ func (s *State) initRetrievalLocked(ctx context.Context, models []domain.Package
 	vidx := brute.New(emb.ID(), emb.Dim())
 	lidx := bm25.New()
 
-	// Create service
-	svc := retrieval.NewService(s.root, emb, vidx, lidx)
+	// Share the repo-level vector cache, namespaced by embedder and recipe so
+	// a model or chunking change starts cold instead of resurrecting vectors
+	// from a different recipe.
+	vecCache := s.vecCache
+	var svcOpts []retrieval.Option
+	if vecCache != nil {
+		svcOpts = append(svcOpts, retrieval.WithVectorCache(
+			vecCache.Namespace(retrieval.VectorCacheNamespace(emb.ID()))))
+	}
 
-	// Try to load persisted indexes
+	// Create service
+	svc := retrieval.NewService(s.root, emb, vidx, lidx, svcOpts...)
+
+	// Try to load persisted indexes. This also publishes whatever vectors
+	// this worktree already has to the shared cache.
 	if err := svc.Load(); err != nil {
 		fmt.Fprintf(os.Stderr, "serve: loading retrieval indexes: %v\n", err)
 	}
@@ -340,6 +363,11 @@ func (s *State) initRetrievalLocked(ctx context.Context, models []domain.Package
 
 		if err := svc.Save(); err != nil {
 			fmt.Fprintf(os.Stderr, "serve: saving retrieval indexes: %v\n", err)
+		}
+		if vecCache != nil {
+			if err := vecCache.Save(); err != nil {
+				fmt.Fprintf(os.Stderr, "serve: saving shared vector cache: %v\n", err)
+			}
 		}
 	}()
 }
@@ -470,6 +498,11 @@ func (s *State) refreshRetrievalLocked(ctx context.Context, changedNodes []retri
 	}
 	if err := s.retrieval.Save(); err != nil {
 		fmt.Fprintf(os.Stderr, "serve: saving retrieval indexes: %v\n", err)
+	}
+	if s.vecCache != nil {
+		if err := s.vecCache.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "serve: saving shared vector cache: %v\n", err)
+		}
 	}
 	// Rebuild the graph from the full model for expand/search_graph operations
 	allModels := mapValues(s.packages)
