@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // newGitRepo creates a minimal git repo with a go.mod and one commit,
@@ -80,6 +82,117 @@ func TestMultiState_RefreshAndGet(t *testing.T) {
 	// Unknown worktree returns an error.
 	if _, err := m.Get(context.Background(), "nope"); err == nil {
 		t.Errorf("Get(nope) expected error")
+	}
+}
+
+// lockedBuffer is a concurrency-safe log sink: MultiState logs failures from
+// the background load goroutine while the test reads them.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// TestMultiState_FailedLoadIsRecordedThrottledAndRetried covers the failure
+// path a broken worktree takes: a load that fails caches no State, so without
+// a recorded failure it is invisible (transports keep answering "parsing")
+// and every poll restarts the doomed load. The failure must therefore be
+// remembered, logged, and throttled — and forgotten once a load succeeds.
+func TestMultiState_FailedLoadIsRecordedThrottledAndRetried(t *testing.T) {
+	root := newGitRepo(t)
+
+	loadErr := errors.New("package errors: pattern dist/bundle.json: no matching files found")
+	var calls int64
+	loader := func(_ context.Context, _, path string) (*State, error) {
+		if atomic.AddInt64(&calls, 1) == 1 {
+			return nil, loadErr
+		}
+		return NewState(path), nil
+	}
+
+	m := NewMultiState(root, loader)
+	logs := &lockedBuffer{}
+	m.SetLogOut(logs)
+	if err := m.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	name := m.Names()[0]
+
+	// A failing load reports the error and caches nothing.
+	st, err := m.Get(context.Background(), name)
+	if st != nil || !errors.Is(err, loadErr) {
+		t.Fatalf("Get on failing loader = (%v, %v), want (nil, %v)", st, err, loadErr)
+	}
+	if st, ok := m.Loaded(name); ok || st != nil {
+		t.Fatalf("Loaded after failure = (%v, %v), want (nil, false)", st, ok)
+	}
+
+	// The failure is recorded, with a retry deadline in the future.
+	gotErr, retryAt := m.LoadError(name)
+	if !errors.Is(gotErr, loadErr) {
+		t.Fatalf("LoadError = %v, want %v", gotErr, loadErr)
+	}
+	if !retryAt.After(time.Now()) {
+		t.Errorf("LoadError retryAt = %v, want a deadline in the future", retryAt)
+	}
+
+	// Polling within the retry window must not re-run the loader: the HTTP
+	// layer asks every couple of seconds and the load is expensive.
+	for i := 0; i < 5; i++ {
+		if _, ok := m.Loaded(name); ok {
+			t.Fatalf("Loaded reported success on attempt %d", i)
+		}
+	}
+	if _, err := m.Get(context.Background(), name); !errors.Is(err, loadErr) {
+		t.Fatalf("Get within retry window = %v, want the recorded %v", err, loadErr)
+	}
+	if got := atomic.LoadInt64(&calls); got != 1 {
+		t.Fatalf("loader calls within retry window = %d, want 1 (throttled)", got)
+	}
+
+	// The failure is logged exactly once — the load handle is discarded, so
+	// nothing else in the daemon would ever mention it.
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(logs.String(), "loading worktree") {
+		if time.Now().After(deadline) {
+			t.Fatalf("failure was never logged; log = %q", logs.String())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	logged := logs.String()
+	if n := strings.Count(logged, "loading worktree"); n != 1 {
+		t.Errorf("failure logged %d times, want 1: %q", n, logged)
+	}
+	if !strings.Contains(logged, name) || !strings.Contains(logged, "no matching files found") {
+		t.Errorf("log = %q, want it to name the worktree and the loader error", logged)
+	}
+
+	// Once the retry window elapses the loader runs again, and a load that
+	// succeeds clears the recorded failure.
+	prev := loadRetryInterval
+	loadRetryInterval = time.Nanosecond
+	t.Cleanup(func() { loadRetryInterval = prev })
+
+	st, err = m.Get(context.Background(), name)
+	if err != nil || st == nil {
+		t.Fatalf("Get after retry window = (%v, %v), want a loaded state", st, err)
+	}
+	if got := atomic.LoadInt64(&calls); got != 2 {
+		t.Errorf("loader calls after retry window = %d, want 2", got)
+	}
+	if gotErr, _ := m.LoadError(name); gotErr != nil {
+		t.Errorf("LoadError after successful load = %v, want nil", gotErr)
 	}
 }
 

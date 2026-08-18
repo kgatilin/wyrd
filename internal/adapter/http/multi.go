@@ -6,6 +6,7 @@ import (
 	"fmt"
 	nethttp "net/http"
 	"strings"
+	"time"
 
 	"github.com/kgatilin/archai/internal/adapter/mcp"
 	"github.com/kgatilin/archai/internal/serve"
@@ -116,9 +117,15 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 		// Deliberately does not wait for the load, so it never blocks.
 		if rest == "/api/warm" {
 			_, loaded := s.multi.Loaded(name)
+			body := map[string]any{"worktree": name, "loaded": loaded}
+			// A worktree whose load failed would otherwise look identical to
+			// one that is merely cold; say so at the first touch.
+			if loadErr, _ := s.multi.LoadError(name); loadErr != nil {
+				body["error"] = loadErr.Error()
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(nethttp.StatusAccepted)
-			fmt.Fprintf(w, "{\"worktree\":%q,\"loaded\":%t}\n", name, loaded)
+			_ = json.NewEncoder(w).Encode(body)
 			return
 		}
 
@@ -131,6 +138,10 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 		if rest == "/api/mcp/tools/call" {
 			state, ok := s.multi.Loaded(name)
 			if !ok {
+				if loadErr, retryAt := s.multi.LoadError(name); loadErr != nil {
+					writeFailedToolResult(w, name, loadErr, retryAt)
+					return
+				}
 				writeLoadingToolResult(w)
 				return
 			}
@@ -160,6 +171,35 @@ func writeLoadingToolResult(w nethttp.ResponseWriter) {
 		"phase":  "parsing",
 		"message": "Daemon is parsing the project model (cold start); analysis tools aren't ready yet. " +
 			"Call `status` to watch progress and retry shortly.",
+	})
+	res := mcp.ToolResult{Content: []mcp.ToolResultContent{{Type: "text", Text: string(payload)}}}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+// writeFailedToolResult answers a tools/call for a worktree whose background
+// load failed. It mirrors writeLoadingToolResult's shape so the CLI and MCP
+// client render it uniformly, but reports phase "failed" plus the loader error
+// — the caller must know the daemon is not going to become ready on its own,
+// instead of polling an eternal "parsing".
+func writeFailedToolResult(w nethttp.ResponseWriter, name string, loadErr error, retryAt time.Time) {
+	retry := "shortly"
+	if !retryAt.IsZero() {
+		if d := time.Until(retryAt); d > 0 {
+			retry = "in " + d.Round(time.Second).String()
+		} else {
+			retry = "on the next request"
+		}
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"ready":  false,
+		"status": "failed",
+		"phase":  "failed",
+		"error":  loadErr.Error(),
+		"message": fmt.Sprintf(
+			"Daemon failed to load worktree %q; analysis tools are unavailable for it. "+
+				"The load is retried %s — fix the reported error (see the daemon log) and retry.",
+			name, retry),
 	})
 	res := mcp.ToolResult{Content: []mcp.ToolResultContent{{Type: "text", Text: string(payload)}}}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

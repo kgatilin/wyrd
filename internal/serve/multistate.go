@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -72,6 +73,17 @@ type MultiState struct {
 	// expensive go/packages load more than once and discard the loser.
 	loading map[string]*stateLoad
 
+	// failures records the most recent failed load per worktree. A failed
+	// load caches nothing, so without this the failure would be invisible
+	// (transports keep reporting "parsing") and every poll would restart
+	// the doomed load. Cleared when a load for that name succeeds or when
+	// the retry window expires.
+	failures map[string]loadFailure
+
+	// logOut receives load diagnostics. nil means os.Stderr; the daemon
+	// wires its own log sink via SetLogOut.
+	logOut io.Writer
+
 	// loader is the factory that builds a fresh State for a worktree.
 	loader StateLoader
 
@@ -106,6 +118,20 @@ type MultiState struct {
 // running `git worktree list` again, so repeatedly requesting a name that
 // truly does not exist cannot stampede git.
 const refreshDebounce = 2 * time.Second
+
+// loadRetryInterval bounds how often a worktree whose load failed is retried.
+// A failed load installs no fsnotify watcher, so nothing in the worktree can
+// trigger a reload — this window is the only recovery path short of a daemon
+// restart, which is why it is short. It is also what stops a transport that
+// polls every couple of seconds from re-running the (slow, doomed) load on
+// every request. A var, not a const, so package-internal tests can shrink it.
+var loadRetryInterval = 30 * time.Second
+
+// loadFailure is the recorded outcome of a background load that failed.
+type loadFailure struct {
+	err error
+	at  time.Time
+}
 
 // SetReviewBaseRef configures the review-base ref injected into every
 // worktree State as its base-model resolver. Safe to call once at daemon
@@ -172,9 +198,29 @@ func NewMultiState(projectRoot string, loader StateLoader) *MultiState {
 		entries:  make(map[string]worktree.Entry),
 		states:   make(map[string]*State),
 		loading:  make(map[string]*stateLoad),
+		failures: make(map[string]loadFailure),
 		loader:   loader,
 		watchers: make(map[string]io.Closer),
 	}
+}
+
+// SetLogOut directs load diagnostics (failed worktree loads) at w. The daemon
+// passes its own log sink so a broken worktree shows up in the same stream as
+// the rest of the daemon's output instead of on a bare os.Stderr.
+func (m *MultiState) SetLogOut(w io.Writer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logOut = w
+}
+
+func (m *MultiState) logf(format string, args ...any) {
+	m.mu.Lock()
+	out := m.logOut
+	m.mu.Unlock()
+	if out == nil {
+		out = os.Stderr
+	}
+	fmt.Fprintf(out, format, args...)
 }
 
 // SetWatcherHook installs a WatcherHook that will be invoked the next
@@ -243,6 +289,14 @@ func (m *MultiState) Refresh() error {
 				toClose = append(toClose, c)
 			}
 			delete(m.watchers, name)
+		}
+	}
+	// Forget failures for worktrees that no longer exist, so a worktree
+	// removed and re-created is retried immediately rather than inheriting
+	// the old checkout's throttled failure.
+	for name := range m.failures {
+		if _, ok := next[name]; !ok {
+			delete(m.failures, name)
 		}
 	}
 	m.mu.Unlock()
@@ -397,12 +451,31 @@ func (m *MultiState) Loaded(name string) (*State, bool) {
 	return state, true
 }
 
+// LoadError reports the most recent failed load for name: the error and the
+// time at which the load will next be retried. A zero-value return (nil, zero
+// time) means the worktree is loaded, loading, or has never been asked for.
+// Transports use it to answer "failed" instead of an eternal "parsing".
+func (m *MultiState) LoadError(name string) (error, time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	f, ok := m.failures[name]
+	if !ok {
+		return nil, time.Time{}
+	}
+	return f.err, f.at.Add(loadRetryInterval)
+}
+
 // ensureLoad guarantees a load for name is cached, in flight, or freshly
 // started. It returns either the cached State (load complete) or the
 // in-flight stateLoad handle to wait on — never both. The expensive load
 // runs in a background goroutine under a process-lifetime context, decoupled
 // from any request context so indexing is not cancelled when the triggering
 // request returns.
+//
+// A worktree whose last load failed inside loadRetryInterval short-circuits
+// with the recorded error rather than starting another load: nothing about
+// the worktree has changed, and the transports poll far faster than the load
+// takes.
 func (m *MultiState) ensureLoad(name string) (*State, *stateLoad, error) {
 	m.mu.Lock()
 	entry, ok := m.entries[name]
@@ -417,6 +490,15 @@ func (m *MultiState) ensureLoad(name string) (*State, *stateLoad, error) {
 	if load, ok := m.loading[name]; ok {
 		m.mu.Unlock()
 		return nil, load, nil
+	}
+	if f, ok := m.failures[name]; ok {
+		if time.Since(f.at) < loadRetryInterval {
+			m.mu.Unlock()
+			return nil, nil, f.err
+		}
+		// Retry window elapsed: drop the record before starting the new
+		// load so callers see "loading" again rather than a stale failure.
+		delete(m.failures, name)
 	}
 	load := &stateLoad{done: make(chan struct{})}
 	m.loading[name] = load
@@ -475,15 +557,31 @@ func (m *MultiState) runLoad(name string, entry worktree.Entry, load *stateLoad)
 	m.finishLoad(name, load, loaded, nil)
 }
 
+// finishLoad resolves load and records the outcome. A load that produced no
+// State is a failure: it is remembered (so LoadError can report it and
+// ensureLoad can throttle the retry) and logged once, because nothing else in
+// the daemon would ever mention it — the handle is discarded here.
 func (m *MultiState) finishLoad(name string, load *stateLoad, state *State, err error) {
 	m.mu.Lock()
 	if m.loading[name] == load {
 		delete(m.loading, name)
 	}
+	failed := state == nil && err != nil
+	if failed {
+		m.failures[name] = loadFailure{err: err, at: time.Now()}
+	} else {
+		// A State that loaded but whose watcher hook failed still carries a
+		// non-nil err; it is usable, so it must not be recorded as a failure.
+		delete(m.failures, name)
+	}
 	load.state = state
 	load.err = err
 	close(load.done)
 	m.mu.Unlock()
+
+	if failed {
+		m.logf("serve: loading worktree %q failed: %v (retrying in at most %s)\n", name, err, loadRetryInterval)
+	}
 }
 
 type stateLoad struct {

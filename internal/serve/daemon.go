@@ -168,6 +168,9 @@ func Serve(ctx context.Context, opts Options) error {
 		names := opts.MultiState.Names()
 		fmt.Fprintf(logOut, "serve: multi-worktree mode, %d worktree(s) discovered: %v\n",
 			len(names), names)
+		// Per-worktree loads run in the background; their failures have no
+		// other reporting path, so point them at the daemon's log sink.
+		opts.MultiState.SetLogOut(logOut)
 		// Install a per-worktree fsnotify hook: each State gets its own
 		// watcher the first time it is loaded. The watchers are closed
 		// when Refresh drops a worktree or when the daemon shuts down.

@@ -2,6 +2,8 @@ package http
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	nethttp "net/http"
 	"net/http/httptest"
@@ -14,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kgatilin/archai/internal/adapter/mcp"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/serve"
 	"github.com/kgatilin/archai/internal/worktree"
@@ -374,6 +377,105 @@ func TestMultiServer_MCPToolsCall_UsesWorktreeState(t *testing.T) {
 	}
 	if got := call("beta"); !strings.Contains(got, "pkg/beta") || strings.Contains(got, "pkg/alpha") {
 		t.Errorf("/w/beta list_packages = %s, want it to contain pkg/beta and not pkg/alpha", got)
+	}
+}
+
+// TestMultiServer_FailedWorktreeLoad_ReportsFailure pins the transport side
+// of a broken worktree: once its background load has failed, tools/call must
+// stop answering "parsing" (which a client polls forever) and report a
+// terminal "failed" payload carrying the loader error, and /api/warm must
+// surface the same failure at attach time.
+func TestMultiServer_FailedWorktreeLoad_ReportsFailure(t *testing.T) {
+	t.Setenv("ARCHAI_RETRIEVAL_DISABLE", "1")
+	primary := buildTwoWorktreeRepo(t)
+
+	loadErr := errors.New("package errors: pattern dist/archgraph.sample.json: no matching files found")
+	multi := serve.NewMultiState(primary, func(context.Context, string, string) (*serve.State, error) {
+		return nil, loadErr
+	})
+	multi.SetLogOut(io.Discard) // the failure log is asserted in the serve package
+	if err := multi.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	srv, err := NewMultiServer(multi)
+	if err != nil {
+		t.Fatalf("NewMultiServer: %v", err)
+	}
+	mux := nethttp.NewServeMux()
+	srv.routes(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	// The first call kicks the load off and legitimately answers "loading";
+	// poll until the (fast, failing) load has been recorded.
+	var payload map[string]any
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		resp, err := nethttp.Post(ts.URL+"/w/beta/api/mcp/tools/call",
+			"application/json", strings.NewReader(`{"name":"list_packages","arguments":{}}`))
+		if err != nil {
+			t.Fatalf("POST tools/call: %v", err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != nethttp.StatusOK {
+			t.Fatalf("tools/call status=%d body=%s", resp.StatusCode, body)
+		}
+		var res mcp.ToolResult
+		if err := json.Unmarshal(body, &res); err != nil || len(res.Content) == 0 {
+			t.Fatalf("decode ToolResult from %s: %v", body, err)
+		}
+		payload = nil
+		if err := json.Unmarshal([]byte(res.Content[0].Text), &payload); err != nil {
+			t.Fatalf("decode readiness payload from %q: %v", res.Content[0].Text, err)
+		}
+		if payload["status"] != "loading" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("tools/call still reports %v after the load failed", payload)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if payload["status"] != "failed" || payload["phase"] != "failed" {
+		t.Errorf("tools/call payload = %v, want status/phase failed", payload)
+	}
+	if ready, _ := payload["ready"].(bool); ready {
+		t.Errorf("tools/call payload = %v, want ready=false", payload)
+	}
+	errText, _ := payload["error"].(string)
+	if !strings.Contains(errText, "no matching files found") {
+		t.Errorf("tools/call payload error = %q, want the loader error", errText)
+	}
+	msg, _ := payload["message"].(string)
+	if !strings.Contains(msg, "failed to load worktree") || !strings.Contains(msg, "beta") {
+		t.Errorf("tools/call payload message = %q, want it to name the failed worktree", msg)
+	}
+
+	// The load is throttled, so the warm hook still sees the recorded failure.
+	resp, err := nethttp.Post(ts.URL+"/w/beta/api/warm", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /w/beta/api/warm: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusAccepted {
+		t.Fatalf("warm status=%d body=%s, want 202", resp.StatusCode, body)
+	}
+	var warm map[string]any
+	if err := json.Unmarshal(body, &warm); err != nil {
+		t.Fatalf("decode warm body %s: %v", body, err)
+	}
+	if warm["worktree"] != "beta" {
+		t.Errorf("warm body = %v, want worktree beta", warm)
+	}
+	if loaded, _ := warm["loaded"].(bool); loaded {
+		t.Errorf("warm body = %v, want loaded=false", warm)
+	}
+	warmErr, _ := warm["error"].(string)
+	if !strings.Contains(warmErr, "no matching files found") {
+		t.Errorf("warm body error = %q, want the loader error", warmErr)
 	}
 }
 
