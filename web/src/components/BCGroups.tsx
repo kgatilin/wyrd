@@ -6,8 +6,6 @@ export interface BCGroupsProps {
   boundedContexts: BoundedContext[];
   /** Whether to show the BC groups (false hides them) */
   show?: boolean;
-  /** Whether to show group text labels */
-  showLabels?: boolean;
   /** Canvas zoom used to convert screen-pixel drag deltas to graph coordinates */
   zoom?: number;
   /** Callback when a group is manually moved; deltas are in graph coordinates */
@@ -25,7 +23,6 @@ export interface BCGroupsProps {
 export function BCGroups({
   boundedContexts,
   show = true,
-  showLabels = true,
   zoom = 1,
   onMoveGroup,
   pinnedGroupIds,
@@ -100,24 +97,22 @@ export function BCGroups({
             onPointerUp={handlePointerEnd}
             onPointerCancel={handlePointerEnd}
           >
-            {(showLabels || canResetGroup) && (
-              <span className={`hf-bc-label ${showLabels ? '' : 'icon-only'}`}>
-                {showLabels && bc.name}
-                {canResetGroup && (
-                  <button
-                    className="hf-bc-reset-layout"
-                    title="Reset this group layout"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onResetGroupLayout(bc.id);
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                  >
-                    ↺
-                  </button>
-                )}
-              </span>
-            )}
+            <span className="hf-bc-label">
+              {bc.name}
+              {canResetGroup && (
+                <button
+                  className="hf-bc-reset-layout"
+                  title="Reset this group layout"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onResetGroupLayout(bc.id);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  ↺
+                </button>
+              )}
+            </span>
           </div>
         );
       })}

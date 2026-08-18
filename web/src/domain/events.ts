@@ -19,10 +19,9 @@ export type Event =
   | { type: 'GraphLoadFailed'; error: string }
   // chrome
   | { type: 'ThemeToggled' }
-  | { type: 'LevelChanged'; level: number }
   | { type: 'LeftTabChanged'; tab: 'changes' | 'tree' }
   | { type: 'LeftCollapsedToggled' }
-  | { type: 'RightCollapsedToggled' }
+  | { type: 'ArchMotifToggled' }
   | { type: 'ZoomChanged'; zoom: number }
   | { type: 'ZoomFitRequested' }
   | { type: 'ReviewViewChanged'; id: string }
@@ -33,7 +32,6 @@ export type Event =
   | { type: 'UnchangedNeighborsToggled' }
   | { type: 'ChangedDetailsOnlyToggled' }
   | { type: 'ReviewDefaultsLoaded'; key: string; defaults: ReviewDefaults }
-  | { type: 'GroupLabelsToggled' }
   | { type: 'CardDensityChanged'; density: CardDensity }
   | { type: 'InlineSignaturesToggled' }
   | { type: 'WorktreeChanged'; name: string }

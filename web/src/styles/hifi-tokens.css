@@ -351,6 +351,42 @@ body {
   margin: 0;
   accent-color: var(--accent);
 }
+/* Collapsed review knobs: one "View" button in the bar, the selects in a
+   popover so the review opens on the diagram, not on a wall of dropdowns. */
+.hf-reviewbar-options { position: relative; display: inline-flex; }
+.hf-reviewbar-toggle {
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  color: var(--fg-1);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font: 500 12px 'Inter', sans-serif;
+  cursor: pointer;
+}
+.hf-reviewbar-toggle:hover { color: var(--fg-0); border-color: var(--accent); }
+.hf-reviewbar-toggle.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.hf-reviewbar-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 12px 14px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+}
+.hf-reviewbar-popover label { display: contents; }
+.hf-reviewbar-popover select { justify-self: stretch; max-width: none; }
+
 .hf-reviewbar-meta {
   color: var(--fg-3);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -2126,3 +2162,46 @@ body {
 .hifi.embed .hf-appbar,
 .hifi.embed .hf-prheader,
 .hifi.embed .hf-side { display: none !important; }
+
+/* ───────────── ArchMotif overlay ───────────── */
+/* Opened from the app bar; floats over the canvas instead of holding a
+   permanent column of stage width. */
+.hf-motif-overlay {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: 380px;
+  max-width: calc(100% - 24px);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.45);
+}
+.hf-motif-overlay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-1);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--fg-2);
+}
+.hf-motif-overlay-close {
+  background: none;
+  border: none;
+  color: var(--fg-3);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.hf-motif-overlay-close:hover { color: var(--fg-0); }
+.hf-motif-overlay .hf-motif-panel { flex: 1; min-height: 0; overflow-y: auto; }

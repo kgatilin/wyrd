@@ -8,38 +8,55 @@ import type { ViewportPort } from '../domain/ports';
  * `TreeFocusRequested` re-lay out (they may expand a component), so their scroll
  * is DEFERRED to the next `LayoutComputed` — landing on the final geometry. A bare
  * `ScrollToComponentRequested` scrolls immediately. `ZoomFitRequested` → fit zoom.
+ *
+ * Gestures that put one package in focus (selecting a card, expanding it, or
+ * picking it in the tree) additionally `fit` it: the zoom is chosen so the whole
+ * card is visible and it lands in the middle of the viewport.
  */
 export function createViewportEffect(port: ViewportPort): Effect<AppState, Event> {
-  let pendingScrollId: string | null = null;
+  let pending: { id: string; fit: boolean } | null = null;
   return (event, getState, dispatch) => {
     const state = getState();
     const laid = state.geometry.laid;
 
     switch (event.type) {
-      case 'LayoutComputed':
-        if (pendingScrollId && state.geometry.laid) {
-          port.scrollToComponent(pendingScrollId, state.geometry.laid);
-          pendingScrollId = null;
+      case 'LayoutComputed': {
+        if (!pending || !state.geometry.laid) return;
+        const { id, fit } = pending;
+        pending = null;
+        if (fit) {
+          const zoom = port.focusComponent(id, state.geometry.laid);
+          if (zoom != null) dispatch({ type: 'ZoomChanged', zoom });
+        } else {
+          port.scrollToComponent(id, state.geometry.laid);
         }
         return;
+      }
       case 'LayoutFailed':
-        pendingScrollId = null;
+        pending = null;
         return;
       case 'ChangeActivated':
-        pendingScrollId = event.change.cmp;
+        // Stepping through the change list: centre it, but keep the reviewer's
+        // zoom so consecutive changes don't rescale the canvas under them.
+        pending = { id: event.change.cmp, fit: false };
         return;
       case 'TreeFocusRequested':
-        pendingScrollId = event.target.componentId;
+        pending = { id: event.target.componentId, fit: true };
+        return;
+      // Selecting a card focuses and expands it (see focusedPackageView) — bring
+      // the whole expanded card into view, centred.
+      case 'ComponentSelected':
+        if (state.ui.focusId === event.id) pending = { id: event.id, fit: true };
         return;
       // Expanding a card (or flipping it to its sequence view) resizes and
-      // shifts the whole graph — center on it once the relayout lands. The
+      // shifts the whole graph — centre on it once the relayout lands. The
       // reducer has already run, so state reflects the post-toggle expansion.
       case 'ComponentToggled':
-        if (state.ui.expanded.has(event.id)) pendingScrollId = event.id;
+        if (state.ui.expanded.has(event.id)) pending = { id: event.id, fit: true };
         return;
       case 'ComponentSeqToggled':
         if (state.ui.seqMode.has(event.id) && state.ui.expanded.has(event.id)) {
-          pendingScrollId = event.id;
+          pending = { id: event.id, fit: true };
         }
         return;
       case 'ScrollToComponentRequested':

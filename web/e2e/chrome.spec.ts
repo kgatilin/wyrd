@@ -35,27 +35,6 @@ test('theme toggle flips the root theme class', async ({ page }) => {
   expect(await app.themeName()).toBe(before);
 });
 
-// ── 2. Level segmented control ────────────────────────────────────────────────
-
-test('level segmented control moves the active button', async ({ page }) => {
-  const app = await loadDiff(page);
-
-  // Initial active level is 2 (L3 / Component) per domain state.
-  expect(await app.activeLevelIndex()).toBe(2);
-
-  await app.setLevel(0);
-  await app.env.waitUntil(async () => (await app.activeLevelIndex()) === 0, {
-    message: 'level did not switch to index 0',
-  });
-  expect(await app.activeLevelIndex()).toBe(0);
-
-  await app.setLevel(1);
-  await app.env.waitUntil(async () => (await app.activeLevelIndex()) === 1, {
-    message: 'level did not switch to index 1',
-  });
-  expect(await app.activeLevelIndex()).toBe(1);
-});
-
 // ── 3. Left panel collapse ────────────────────────────────────────────────────
 
 test('left panel collapse shows vertical label; expand restores', async ({ page }) => {
@@ -77,16 +56,4 @@ test('left panel collapse shows vertical label; expand restores', async ({ page 
     message: 'left panel did not expand',
   });
   expect(await app.isLeftCollapsed()).toBe(false);
-});
-
-// ── 4. Submit-review badge equals marker count ────────────────────────────────
-
-test('submit-review badge equals the marker count', async ({ page }) => {
-  const app = await loadDiff(page);
-
-  const markers = await app.markerCount();
-  const badge = await app.submitReviewCount();
-
-  expect(badge).toBe(markers);
-  expect(badge).toBeGreaterThanOrEqual(1);
 });

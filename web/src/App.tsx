@@ -110,12 +110,11 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   const zoom = useStore((s) => s.ui.zoom);
   const theme = useStore((s) => s.ui.theme);
   const load = useStore((s) => s.load);
-  const level = useStore((s) => s.ui.level);
   const expanded = useStore((s) => s.ui.expanded);
   const seqMode = useStore((s) => s.ui.seqMode);
   const focusId = useStore((s) => s.ui.focusId);
   const leftCollapsed = useStore((s) => s.ui.leftCollapsed);
-  const rightCollapsed = useStore((s) => s.ui.rightCollapsed);
+  const archMotifOpen = useStore((s) => s.ui.archMotifOpen);
   const markers = useStore((s) => s.markers);
   const activeMarkerId = useStore((s) => s.ui.activeMarkerId);
   const reviewViewId = useStore((s) => s.ui.reviewViewId);
@@ -127,7 +126,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   const changedDetailsOnly = useStore((s) => s.ui.changedDetailsOnly);
   const reviewDefaultsKey = useStore((s) => s.ui.reviewDefaultsKey);
   const reviewDefaults = useStore((s) => s.ui.reviewDefaults);
-  const showGroupLabels = useStore((s) => s.ui.showGroupLabels);
   const cardDensity = useStore((s) => s.ui.cardDensity);
   const showInlineSignatures = useStore((s) => s.ui.showInlineSignatures);
   const layoutPins = useStore((s) => s.ui.layoutPins);
@@ -170,6 +168,9 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     [laid, activeLayoutPins]
   );
   const [sourceViewer, setSourceViewer] = useState<SourceDrawerState | null>(null);
+  // Review knobs are collapsed by default: opening a review should just show
+  // the review, not a bar of selectors.
+  const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
   const [symbolFocus, setSymbolFocus] = useState<SymbolFocusTarget | null>(null);
   const sourceRequestSeq = useRef(0);
   const pinnedCount = Object.keys(activeLayoutPins).length;
@@ -186,6 +187,13 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     graph.worktrees?.find((worktree) => worktree.current)?.name ??
     '';
   const related = useMemo(() => relatedIds(displayGraph, focusId), [displayGraph, focusId]);
+
+  // Whether the collapsed "View" popover has anything to offer at all.
+  const hasViewOptions =
+    (graph.reviewViews?.length ?? 0) > 0 ||
+    (graph.reviewScopes?.length ?? 0) > 0 ||
+    groupingOptions.length > 1 ||
+    graph.pr != null;
 
   useEffect(() => {
     dispatch({
@@ -515,10 +523,10 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     dispatch({ type: 'GraphRequested', worktree: activeWorktree || undefined });
   };
 
-  const openArchMotifPanel = () => {
+  const toggleArchMotifPanel = () => {
     setSourceViewer(null);
     setSymbolFocus(null);
-    if (rightCollapsed) dispatch({ type: 'RightCollapsedToggled' });
+    dispatch({ type: 'ArchMotifToggled' });
   };
 
   const openSourceFile = (path: string) => {
@@ -612,6 +620,9 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
       el: canvasWrapRef.current!,
       getZoom: () => storeApi.getState().ui.zoom,
       getCanvasDimensions: () => canvasDimensions,
+      scheduleScroll: (target) => {
+        pendingScrollRef.current = target;
+      },
     });
     return () => viewport.bind(null);
   }, [viewport, storeApi, canvasDimensions]);
@@ -623,14 +634,11 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     >
       {/* AppBar uses repo-level PR data; PrHeader stats reflect the active review projection. */}
       <AppBar
-        level={level}
-        onLevelChange={(l) => dispatch({ type: 'LevelChanged', level: l })}
         theme={theme}
         onThemeToggle={() => dispatch({ type: 'ThemeToggled' })}
         onRefresh={refreshGraph}
         refreshing={load.status === 'loading'}
-        onMetrics={openArchMotifPanel}
-        commentCount={markers.length}
+        onMetrics={toggleArchMotifPanel}
         pr={graph.pr}
       />
 
@@ -639,6 +647,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
       )}
 
       {(
+        ((graph.worktrees?.length ?? 0) > 0) ||
         ((graph.reviewViews?.length ?? 0) > 0) ||
         ((graph.reviewScopes?.length ?? 0) > 0) ||
         ((graph.reviewGroupings?.length ?? 0) > 0)
@@ -660,94 +669,109 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
               </select>
             </label>
           )}
-          {graph.reviewViews && graph.reviewViews.length > 0 && (
-            <label title="Package set for this review slice.">
-              <span>Packages</span>
-              <select
-                value={reviewViewId ?? ''}
-                onChange={(e) => dispatch({ type: 'ReviewViewChanged', id: e.target.value })}
+          {hasViewOptions && (
+            <div className="hf-reviewbar-options">
+              <button
+                className={`hf-reviewbar-toggle ${viewOptionsOpen ? 'on' : ''}`}
+                title="Packages, surface, grouping and change filters"
+                onClick={() => setViewOptionsOpen((open) => !open)}
               >
-                {graph.reviewViews.map((view) => (
-                  <option key={view.id} value={view.id}>
-                    {view.title} ({view.componentCount})
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {graph.reviewScopes && graph.reviewScopes.length > 0 && (
-            <label title="Symbol visibility inside selected packages.">
-              <span>Surface</span>
-              <select
-                value={reviewScopeId ?? ''}
-                onChange={(e) => dispatch({ type: 'ReviewScopeChanged', id: e.target.value })}
-              >
-                {graph.reviewScopes.map((scope) => (
-                  <option key={scope.id} value={scope.id}>
-                    {scope.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {groupingOptions.length > 1 && (
-            <label title="Group visible packages on the canvas.">
-              <span>Group by</span>
-              <select
-                value={reviewGroupingId ?? ''}
-                onChange={(e) => dispatch({ type: 'ReviewGroupingChanged', id: e.target.value })}
-              >
-                {groupingOptions.map((grouping) => (
-                  <option key={grouping.id} value={grouping.id}>
-                    {reviewGroupingLabel(grouping)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {graph.pr && (
-            <>
-              <label title="How far to expand from changed packages.">
-                <span>Focus</span>
-                <select
-                  value={reviewImpactMode}
-                  onChange={(e) => dispatch({ type: 'ReviewImpactModeChanged', mode: e.target.value as typeof reviewImpactMode })}
-                >
-                  <option value="changed_only">Changed packages</option>
-                  <option value="changed_neighbors">Changed + linked packages</option>
-                  <option value="containing_group">Changed package groups</option>
-                  <option value="review_view">Whole view</option>
-                  <option value="repository">Whole repo</option>
-                </select>
-              </label>
-              <label title="Which change kinds are visible.">
-                <span>Changes</span>
-                <select
-                  value={reviewChangeFilter}
-                  onChange={(e) => dispatch({ type: 'ReviewChangeFilterChanged', filter: e.target.value as typeof reviewChangeFilter })}
-                >
-                  <option value="all">All changes</option>
-                  <option value="added">Additions</option>
-                  <option value="removed">Removals</option>
-                  <option value="changed">Changed signatures</option>
-                  <option value="dependency">Dependency changes</option>
-                  <option value="policy">Policy/grouping</option>
-                </select>
-              </label>
-              <label title="How much package detail to show for visible packages.">
-                <span>Details</span>
-                <select
-                  value={changedDetailsOnly ? 'changed' : 'full'}
-                  onChange={(e) => {
-                    const next = e.target.value === 'changed';
-                    if (next !== changedDetailsOnly) dispatch({ type: 'ChangedDetailsOnlyToggled' });
-                  }}
-                >
-                  <option value="changed">Changed symbols</option>
-                  <option value="full">Full package</option>
-                </select>
-              </label>
-            </>
+                View {viewOptionsOpen ? '\u25B4' : '\u25BE'}
+              </button>
+              {viewOptionsOpen && (
+                <div className="hf-reviewbar-popover">
+                  {graph.reviewViews && graph.reviewViews.length > 0 && (
+                    <label title="Package set for this review slice.">
+                      <span>Packages</span>
+                      <select
+                        value={reviewViewId ?? ''}
+                        onChange={(e) => dispatch({ type: 'ReviewViewChanged', id: e.target.value })}
+                      >
+                        {graph.reviewViews.map((view) => (
+                          <option key={view.id} value={view.id}>
+                            {view.title} ({view.componentCount})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {graph.reviewScopes && graph.reviewScopes.length > 0 && (
+                    <label title="Symbol visibility inside selected packages.">
+                      <span>Surface</span>
+                      <select
+                        value={reviewScopeId ?? ''}
+                        onChange={(e) => dispatch({ type: 'ReviewScopeChanged', id: e.target.value })}
+                      >
+                        {graph.reviewScopes.map((scope) => (
+                          <option key={scope.id} value={scope.id}>
+                            {scope.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {groupingOptions.length > 1 && (
+                    <label title="Group visible packages on the canvas.">
+                      <span>Group by</span>
+                      <select
+                        value={reviewGroupingId ?? ''}
+                        onChange={(e) => dispatch({ type: 'ReviewGroupingChanged', id: e.target.value })}
+                      >
+                        {groupingOptions.map((grouping) => (
+                          <option key={grouping.id} value={grouping.id}>
+                            {reviewGroupingLabel(grouping)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {graph.pr && (
+                    <>
+                      <label title="How far to expand from changed packages.">
+                        <span>Focus</span>
+                        <select
+                          value={reviewImpactMode}
+                          onChange={(e) => dispatch({ type: 'ReviewImpactModeChanged', mode: e.target.value as typeof reviewImpactMode })}
+                        >
+                          <option value="changed_only">Changed packages</option>
+                          <option value="changed_neighbors">Changed + linked packages</option>
+                          <option value="containing_group">Changed package groups</option>
+                          <option value="review_view">Whole view</option>
+                          <option value="repository">Whole repo</option>
+                        </select>
+                      </label>
+                      <label title="Which change kinds are visible.">
+                        <span>Changes</span>
+                        <select
+                          value={reviewChangeFilter}
+                          onChange={(e) => dispatch({ type: 'ReviewChangeFilterChanged', filter: e.target.value as typeof reviewChangeFilter })}
+                        >
+                          <option value="all">All changes</option>
+                          <option value="added">Additions</option>
+                          <option value="removed">Removals</option>
+                          <option value="changed">Changed signatures</option>
+                          <option value="dependency">Dependency changes</option>
+                          <option value="policy">Policy/grouping</option>
+                        </select>
+                      </label>
+                      <label title="How much package detail to show for visible packages.">
+                        <span>Details</span>
+                        <select
+                          value={changedDetailsOnly ? 'changed' : 'full'}
+                          onChange={(e) => {
+                            const next = e.target.value === 'changed';
+                            if (next !== changedDetailsOnly) dispatch({ type: 'ChangedDetailsOnlyToggled' });
+                          }}
+                        >
+                          <option value="changed">Changed symbols</option>
+                          <option value="full">Full package</option>
+                        </select>
+                      </label>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           )}
           <span className="hf-reviewbar-meta">
             {displayGraph.components.length} packages
@@ -837,7 +861,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
             <BCGroups
               boundedContexts={displayLaid.boundedContexts}
               show={true}
-              showLabels={showGroupLabels}
               zoom={zoom}
               onMoveGroup={handleMoveGroup}
               pinnedGroupIds={pinnedGroupIds}
@@ -923,8 +946,6 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
             pinnedCount={pinnedCount}
             onResetLayout={pinnedCount > 0 ? () => dispatch({ type: 'LayoutPinsReset' }) : undefined}
             onResetRepoLayout={handleResetRepoLayout}
-            showGroupLabels={showGroupLabels}
-            onToggleGroupLabels={() => dispatch({ type: 'GroupLabelsToggled' })}
             cardDensity={cardDensity}
             onToggleCardDensity={() => dispatch({
               type: 'CardDensityChanged',
@@ -945,30 +966,23 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
           )}
         </div>
 
-        {/* RIGHT PANE - analysis tools (collapsible) */}
-        <div
-          className={`hf-side right hf-collapsible ${rightCollapsed ? 'collapsed' : ''}`}
-        >
-          <button
-            className="hf-side-toggle right"
-            onClick={() => dispatch({ type: 'RightCollapsedToggled' })}
-          >
-            {rightCollapsed ? '‹' : '›'}
-          </button>
-
-          {rightCollapsed ? (
-            <span className="hf-side-vlabel">ARCHMOTIF</span>
-          ) : (
-            <>
-              <div className="hf-tabs" style={{ flexShrink: 0 }}>
-                <button className="on">
-                  ARCHMOTIF<span className="count">{displayGraph.components.length}</span>
-                </button>
-              </div>
-              <ArchMotifPanel worktree={activeWorktree} />
-            </>
-          )}
-        </div>
+        {/* ArchMotif metrics — an overlay over the canvas, opened from the app
+            bar, instead of a permanent right rail eating canvas width. */}
+        {archMotifOpen && (
+          <div className="hf-motif-overlay">
+            <div className="hf-motif-overlay-head">
+              <span>ARCHMOTIF</span>
+              <button
+                className="hf-motif-overlay-close"
+                title="Close ArchMotif"
+                onClick={() => dispatch({ type: 'ArchMotifToggled' })}
+              >
+                ×
+              </button>
+            </div>
+            <ArchMotifPanel worktree={activeWorktree} />
+          </div>
+        )}
         <SourceDrawer source={sourceViewer} onClose={() => setSourceViewer(null)} onSave={saveSourceFile} />
       </div>
     </div>

@@ -104,15 +104,12 @@ test('comment button is disabled until text is typed', async ({ page }) => {
   await app.env.waitUntil(async () => !(await popover.isOpen()), { message: 'popover did not close' });
 });
 
-// ── Submit creates marker + panel card + increments badges ───────────────────
+// ── Submit creates a marker, and makes it the active one ─────────────────────
 
-test('submit creates marker, panel card, increments badges, new marker active', async ({ page }) => {
+test('submit creates a marker and makes it active', async ({ page }) => {
   const app = await loadDiff(page);
-  const panel = app.commentsPanel();
 
   const baselineMarkers = await app.markerCount();
-  const baselineSubmit = await app.submitReviewCount();
-  const baselineCards = await panel.cardCount();
 
   const cmp = await (await app.diagram()).component('OrderService');
   await cmp.commentOnHeader();
@@ -125,13 +122,8 @@ test('submit creates marker, panel card, increments badges, new marker active', 
     message: 'marker count did not increment',
   });
 
-  expect(await app.submitReviewCount()).toBe(baselineSubmit + 1);
-  expect(await panel.cardCount()).toBe(baselineCards + 1);
-
-  const newN = String(baselineMarkers + 1);
-  const newMarker = await app.markerByNumber(newN);
+  const newMarker = await app.markerByNumber(String(baselineMarkers + 1));
   expect(await newMarker.isActive()).toBe(true);
-  expect(await panel.isCardActiveByNumber(newN)).toBe(true);
 });
 
 // ── Cancel closes popover, no marker ─────────────────────────────────────────
@@ -194,36 +186,4 @@ test('clicking a marker pill on canvas makes it active', async ({ page }) => {
   await marker1.click();
   await app.env.waitUntil(async () => marker1.isActive(), { message: 'marker 1 did not become active' });
   expect(await marker1.isActive()).toBe(true);
-});
-
-// ── Click right-panel card → corresponding marker activates ──────────────────
-
-test('clicking a comment card activates the corresponding marker', async ({ page }) => {
-  const app = await loadDiff(page);
-  const panel = app.commentsPanel();
-  await panel.clickCardByNumber('2');
-  await app.env.waitUntil(async () => (await app.markerByNumber('2')).isActive(), {
-    message: 'marker 2 did not become active after card click',
-  });
-  expect(await (await app.markerByNumber('2')).isActive()).toBe(true);
-});
-
-// ── Right panel collapse / expand ─────────────────────────────────────────────
-
-test('right panel collapse shows "COMMENTS - N" vertical label; expand restores', async ({ page }) => {
-  const app = await loadDiff(page);
-  const panel = app.commentsPanel();
-  const count = await app.markerCount();
-
-  await panel.collapse();
-  await app.env.waitUntil(async () => panel.isCollapsed(), { message: 'panel did not collapse' });
-  expect(await panel.isCollapsed()).toBe(true);
-
-  const label = await panel.collapsedLabel();
-  expect(label).toContain('COMMENTS');
-  expect(label).toContain(String(count));
-
-  await panel.expand();
-  await app.env.waitUntil(async () => !(await panel.isCollapsed()), { message: 'panel did not expand' });
-  expect(await panel.isCollapsed()).toBe(false);
 });

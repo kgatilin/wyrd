@@ -39,7 +39,6 @@ export interface Interaction {
 }
 
 export interface AppUI {
-  level: number;
   theme: 'dark' | 'light';
   focusId: string | null;
   expanded: ReadonlySet<string>;
@@ -47,7 +46,8 @@ export interface AppUI {
   seqMode: ReadonlySet<string>;
   leftTab: 'changes' | 'tree';
   leftCollapsed: boolean;
-  rightCollapsed: boolean;
+  /** ArchMotif metrics panel is open as an overlay over the canvas. */
+  archMotifOpen: boolean;
   activeChangeId: string | null;
   activeMarkerId: string | null;
   zoom: number;
@@ -60,7 +60,6 @@ export interface AppUI {
   changedDetailsOnly: boolean;
   reviewDefaultsKey: string | null;
   reviewDefaults: ReviewDefaults;
-  showGroupLabels: boolean;
   cardDensity: CardDensity;
   showInlineSignatures: boolean;
   layoutPinScopeKey: string | null;
@@ -79,14 +78,13 @@ export interface AppState {
 export const initialState: AppState = {
   graph: null,
   ui: {
-    level: 2,
     theme: 'dark',
     focusId: null,
     expanded: new Set(),
     seqMode: new Set(),
     leftTab: 'tree',
     leftCollapsed: false,
-    rightCollapsed: true,
+    archMotifOpen: false,
     activeChangeId: null,
     activeMarkerId: null,
     zoom: 1,
@@ -99,7 +97,6 @@ export const initialState: AppState = {
     changedDetailsOnly: true,
     reviewDefaultsKey: null,
     reviewDefaults: {},
-    showGroupLabels: true,
     cardDensity: 'detailed',
     showInlineSignatures: true,
     layoutPinScopeKey: null,

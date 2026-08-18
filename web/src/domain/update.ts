@@ -115,14 +115,12 @@ function chromeSlice(state: AppState, event: Event): AppState {
   switch (event.type) {
     case 'ThemeToggled':
       return { ...state, ui: { ...state.ui, theme: state.ui.theme === 'dark' ? 'light' : 'dark' } };
-    case 'LevelChanged':
-      return { ...state, ui: { ...state.ui, level: event.level } };
     case 'LeftTabChanged':
       return { ...state, ui: { ...state.ui, leftTab: event.tab } };
     case 'LeftCollapsedToggled':
       return { ...state, ui: { ...state.ui, leftCollapsed: !state.ui.leftCollapsed } };
-    case 'RightCollapsedToggled':
-      return { ...state, ui: { ...state.ui, rightCollapsed: !state.ui.rightCollapsed } };
+    case 'ArchMotifToggled':
+      return { ...state, ui: { ...state.ui, archMotifOpen: !state.ui.archMotifOpen } };
     case 'ZoomChanged':
       return { ...state, ui: { ...state.ui, zoom: event.zoom } };
     case 'ReviewViewChanged': {
@@ -223,14 +221,6 @@ function chromeSlice(state: AppState, event: Event): AppState {
       };
     case 'ReviewDefaultsLoaded':
       return applyReviewDefaults(state, event.key, event.defaults);
-    case 'GroupLabelsToggled':
-      return {
-        ...state,
-        ui: {
-          ...state.ui,
-          showGroupLabels: !state.ui.showGroupLabels,
-        },
-      };
     case 'CardDensityChanged':
       return {
         ...state,

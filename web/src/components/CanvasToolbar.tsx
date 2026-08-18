@@ -19,10 +19,6 @@ export interface CanvasToolbarProps {
   onResetLayout?: () => void;
   /** Reset every saved layout for this repo. */
   onResetRepoLayout?: () => void;
-  /** Whether group labels are currently visible. */
-  showGroupLabels?: boolean;
-  /** Toggle group labels on the canvas. */
-  onToggleGroupLabels?: () => void;
   /** Current collapsed-card density. */
   cardDensity?: CardDensity;
   /** Toggle collapsed-card density. */
@@ -48,8 +44,6 @@ export function CanvasToolbar({
   pinnedCount = 0,
   onResetLayout,
   onResetRepoLayout,
-  showGroupLabels = true,
-  onToggleGroupLabels,
   cardDensity = 'detailed',
   onToggleCardDensity,
   showInlineSignatures = true,
@@ -80,15 +74,6 @@ export function CanvasToolbar({
           onClick={onToggleInlineSignatures}
         >
           S()
-        </button>
-      )}
-      {onToggleGroupLabels && (
-        <button
-          className={showGroupLabels ? 'on' : ''}
-          title={showGroupLabels ? 'Hide group labels' : 'Show group labels'}
-          onClick={onToggleGroupLabels}
-        >
-          Aa
         </button>
       )}
       {pinnedCount > 0 && (

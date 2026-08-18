@@ -166,16 +166,13 @@ describe('update — chrome + zoom slice', () => {
     const s = update(withGraph(), { type: 'ThemeToggled' });
     expect(s.ui.theme).toBe('light');
   });
-  it('LevelChanged sets the level', () => {
-    expect(update(withGraph(), { type: 'LevelChanged', level: 1 }).ui.level).toBe(1);
-  });
   it('LeftTabChanged / collapse toggles', () => {
     let s = update(withGraph(), { type: 'LeftTabChanged', tab: 'changes' });
     expect(s.ui.leftTab).toBe('changes');
     s = update(s, { type: 'LeftCollapsedToggled' });
     expect(s.ui.leftCollapsed).toBe(true);
-    s = update(s, { type: 'RightCollapsedToggled' });
-    expect(s.ui.rightCollapsed).toBe(false);
+    s = update(s, { type: 'ArchMotifToggled' });
+    expect(s.ui.archMotifOpen).toBe(true);
   });
   it('ZoomChanged sets the zoom level', () => {
     expect(update(withGraph(), { type: 'ZoomChanged', zoom: 0.5 }).ui.zoom).toBe(0.5);
@@ -315,13 +312,6 @@ describe('update — chrome + zoom slice', () => {
     expect(s.ui.activeChangeId).toBeNull();
     s = update(s, { type: 'ChangedDetailsOnlyToggled' });
     expect(s.ui.changedDetailsOnly).toBe(true);
-  });
-
-  it('GroupLabelsToggled flips group label visibility', () => {
-    let s = update(withGraph(), { type: 'GroupLabelsToggled' });
-    expect(s.ui.showGroupLabels).toBe(false);
-    s = update(s, { type: 'GroupLabelsToggled' });
-    expect(s.ui.showGroupLabels).toBe(true);
   });
 
   it('CardDensityChanged switches card presentation density', () => {

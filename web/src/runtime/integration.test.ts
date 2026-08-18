@@ -23,7 +23,7 @@ const fakeLayout: LayoutPort = {
     Promise.resolve({ ...g, components: g.components.map((c) => ({ ...c, x: interaction.expanded.has(c.id) ? 100 : 0 })) }),
 };
 const fakeGraphSource: GraphSourcePort = { load: () => Promise.resolve(graph) };
-const fakeViewport: ViewportPort = { scrollToComponent: () => {}, fitZoom: () => null };
+const fakeViewport: ViewportPort = { scrollToComponent: () => {}, focusComponent: () => null, fitZoom: () => null };
 
 describe('integration: load → layout → toggle', () => {
   it('loads a graph, lays it out, and re-lays out on expand', async () => {

@@ -5,7 +5,6 @@ import { LegendHarness } from './legend.harness';
 import { ChangesPanelHarness } from './changes-panel.harness';
 import { ContextTreeHarness } from './context-tree.harness';
 import { CommentPopoverHarness } from './comment-popover.harness';
-import { CommentsPanelHarness } from './comments-panel.harness';
 import { MarkerHarness } from './marker.harness';
 
 /** Top-level harness rooted at `.hifi`. Entry point: env.load(AppHarness). */
@@ -98,10 +97,6 @@ export class AppHarness extends ComponentHarness {
     return new CommentPopoverHarness(this.root, this.env);
   }
 
-  commentsPanel(): CommentsPanelHarness {
-    return new CommentsPanelHarness(this.root, this.env);
-  }
-
   async markers(): Promise<MarkerHarness[]> {
     const els = await this.env.rootLocator('.hf-pin-marker').all();
     return els.map((el) => new MarkerHarness(el, this.env));
@@ -118,11 +113,6 @@ export class AppHarness extends ComponentHarness {
     throw new Error(`marker with number "${n}" not found`);
   }
 
-  async submitReviewCount(): Promise<number> {
-    const text = await (await this.env.rootLocator('.hf-appbar .hf-btn.primary .count').first()).text();
-    return parseInt(text, 10);
-  }
-
   // ── Chrome: theme ─────────────────────────────────────────────────────────
   async themeName(): Promise<'dark' | 'light'> {
     const el = await this.env.rootLocator('.hifi').first();
@@ -134,26 +124,15 @@ export class AppHarness extends ComponentHarness {
   }
 
   // ── Chrome: level segmented control ──────────────────────────────────────
-  async activeLevelIndex(): Promise<number> {
-    const buttons = await this.env.rootLocator('.hf-appbar .hf-seg button').all();
-    for (let i = 0; i < buttons.length; i++) {
-      if (await buttons[i].hasClass('on')) return i;
-    }
-    return -1;
-  }
-  async setLevel(index: number): Promise<void> {
-    await (await this.env.rootLocator('.hf-appbar .hf-seg button').nth(index)).click();
-  }
-
   // ── Chrome: left panel collapse ───────────────────────────────────────────
   async isLeftCollapsed(): Promise<boolean> {
-    return (await this.env.rootLocator('.hf-side:not(.right).collapsed').count()) > 0;
+    return (await this.env.rootLocator('.hf-side.collapsed').count()) > 0;
   }
   async toggleLeftPanel(): Promise<void> {
     await (await this.env.rootLocator('.hf-side-toggle.left').first()).click();
   }
   async leftCollapsedLabel(): Promise<string> {
-    return (await this.env.rootLocator('.hf-side:not(.right) .hf-side-vlabel').first()).text();
+    return (await this.env.rootLocator('.hf-side .hf-side-vlabel').first()).text();
   }
 
   async commentOnFirstEdge(): Promise<void> {
