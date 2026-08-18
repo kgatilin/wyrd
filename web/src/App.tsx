@@ -29,6 +29,7 @@ import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
 import { SourceDrawer, type SaveSourceResult, type SourceDrawerState } from './components/SourceDrawer';
 import { ArchMotifPanel } from './components/ArchMotifPanel';
+import { DiffOverlay } from './components/DiffOverlay';
 import { SymbolGraphOverlay } from './components/SymbolGraphOverlay';
 import { PAN_MARGIN, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './view/viewportConstants';
 import { PinnedMarker } from './components/PinnedMarker';
@@ -172,6 +173,9 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   // the review, not a bar of selectors.
   const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
   const [symbolFocus, setSymbolFocus] = useState<SymbolFocusTarget | null>(null);
+  // The file diff is a viewer over the same review, opened on demand — like
+  // the source drawer, it is not part of the canvas state machine.
+  const [diffOpen, setDiffOpen] = useState(false);
   const sourceRequestSeq = useRef(0);
   const pinnedCount = Object.keys(activeLayoutPins).length;
   const pinnedGroupIds = useMemo(() => {
@@ -639,6 +643,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
         onRefresh={refreshGraph}
         refreshing={load.status === 'loading'}
         onMetrics={toggleArchMotifPanel}
+        onDiff={() => setDiffOpen(true)}
         pr={graph.pr}
       />
 
@@ -984,6 +989,14 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
           </div>
         )}
         <SourceDrawer source={sourceViewer} onClose={() => setSourceViewer(null)} onSave={saveSourceFile} />
+
+        {diffOpen && (
+          <DiffOverlay
+            worktree={activeWorktree}
+            baseRef={graph.repo?.baseRef ?? 'main'}
+            onClose={() => setDiffOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

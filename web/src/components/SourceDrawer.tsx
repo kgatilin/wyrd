@@ -1,24 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { basicSetup, EditorView } from 'codemirror';
 import { go as goLanguage } from '@codemirror/lang-go';
-import hljs from 'highlight.js/lib/core';
-import bash from 'highlight.js/lib/languages/bash';
-import go from 'highlight.js/lib/languages/go';
-import javascript from 'highlight.js/lib/languages/javascript';
-import json from 'highlight.js/lib/languages/json';
-import markdown from 'highlight.js/lib/languages/markdown';
-import typescript from 'highlight.js/lib/languages/typescript';
-import xml from 'highlight.js/lib/languages/xml';
-import yaml from 'highlight.js/lib/languages/yaml';
-
-hljs.registerLanguage('bash', bash);
-hljs.registerLanguage('go', go);
-hljs.registerLanguage('javascript', javascript);
-hljs.registerLanguage('json', json);
-hljs.registerLanguage('markdown', markdown);
-hljs.registerLanguage('typescript', typescript);
-hljs.registerLanguage('xml', xml);
-hljs.registerLanguage('yaml', yaml);
+import { highlightedLines } from './highlight';
 
 export interface SourceDrawerState {
   path: string;
@@ -206,32 +189,4 @@ function CodeEditor({ path, value, onChange }: { path: string; value: string; on
   }, [value]);
 
   return <div className="hf-source-cm" ref={hostRef} />;
-}
-
-function highlightedLines(path: string, content: string): string[] {
-  const language = languageForPath(path);
-  return content
-    .replace(/\n$/, '')
-    .split('\n')
-    .map((line) => {
-      if (line === '') return '';
-      return language
-        ? hljs.highlight(line, { language, ignoreIllegals: true }).value
-        : hljs.highlightAuto(line).value;
-    });
-}
-
-function languageForPath(path: string): string | undefined {
-  const lower = path.toLowerCase();
-  if (lower.endsWith('.go')) return 'go';
-  if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return 'typescript';
-  if (lower.endsWith('.js') || lower.endsWith('.jsx') || lower.endsWith('.mjs') || lower.endsWith('.cjs')) {
-    return 'javascript';
-  }
-  if (lower.endsWith('.json')) return 'json';
-  if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return 'yaml';
-  if (lower.endsWith('.sh') || lower.endsWith('.bash') || lower.endsWith('.zsh')) return 'bash';
-  if (lower.endsWith('.html') || lower.endsWith('.xml') || lower.endsWith('.svg')) return 'xml';
-  if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'markdown';
-  return undefined;
 }

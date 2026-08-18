@@ -1785,50 +1785,75 @@ body {
   color: inherit;
 }
 .hf-source-code .hljs-keyword,
+.hf-diff-line .hljs-keyword,
 .hf-source-code .hljs-selector-tag,
-.hf-source-code .hljs-subst {
+.hf-diff-line .hljs-selector-tag,
+.hf-source-code .hljs-subst,
+.hf-diff-line .hljs-subst {
   color: #c4a7ff;
   font-weight: 600;
 }
 .hf-source-code .hljs-title,
+.hf-diff-line .hljs-title,
 .hf-source-code .hljs-title.function_,
+.hf-diff-line .hljs-title.function_,
 .hf-source-code .hljs-title.class_,
-.hf-source-code .hljs-name {
+.hf-diff-line .hljs-title.class_,
+.hf-source-code .hljs-name,
+.hf-diff-line .hljs-name {
   color: #7dd3fc;
 }
 .hf-source-code .hljs-type,
+.hf-diff-line .hljs-type,
 .hf-source-code .hljs-built_in,
-.hf-source-code .hljs-symbol {
+.hf-diff-line .hljs-built_in,
+.hf-source-code .hljs-symbol,
+.hf-diff-line .hljs-symbol {
   color: #fbbf24;
 }
 .hf-source-code .hljs-string,
+.hf-diff-line .hljs-string,
 .hf-source-code .hljs-regexp,
-.hf-source-code .hljs-template-variable {
+.hf-diff-line .hljs-regexp,
+.hf-source-code .hljs-template-variable,
+.hf-diff-line .hljs-template-variable {
   color: #8bdc7d;
 }
 .hf-source-code .hljs-number,
-.hf-source-code .hljs-literal {
+.hf-diff-line .hljs-number,
+.hf-source-code .hljs-literal,
+.hf-diff-line .hljs-literal {
   color: #67e8f9;
 }
 .hf-source-code .hljs-comment,
-.hf-source-code .hljs-quote {
+.hf-diff-line .hljs-comment,
+.hf-source-code .hljs-quote,
+.hf-diff-line .hljs-quote {
   color: var(--fg-3);
   font-style: italic;
 }
 .hf-source-code .hljs-attr,
+.hf-diff-line .hljs-attr,
 .hf-source-code .hljs-attribute,
+.hf-diff-line .hljs-attribute,
 .hf-source-code .hljs-variable,
-.hf-source-code .hljs-property {
+.hf-diff-line .hljs-variable,
+.hf-source-code .hljs-property,
+.hf-diff-line .hljs-property {
   color: #93c5fd;
 }
 .hf-source-code .hljs-meta,
-.hf-source-code .hljs-doctag {
+.hf-diff-line .hljs-meta,
+.hf-source-code .hljs-doctag,
+.hf-diff-line .hljs-doctag {
   color: #fb923c;
 }
-.hf-source-code .hljs-deletion {
+.hf-source-code .hljs-deletion,
+.hf-diff-line .hljs-deletion {
   color: var(--rem-fg);
 }
-.hf-source-code .hljs-addition {
+.hf-source-code .hljs-addition,
+.hf-diff-line .hljs-addition {
   color: var(--add-fg);
 }
 .hf-card {
@@ -2205,3 +2230,256 @@ body {
 }
 .hf-motif-overlay-close:hover { color: var(--fg-0); }
 .hf-motif-overlay .hf-motif-panel { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* ── File diff overlay ─────────────────────────────────────────────── */
+/* Covers the whole stage: reading a patch is a full-attention activity,
+   and a narrow rail would wrap every line of code. */
+.hf-diff-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-0);
+}
+
+.hf-diff-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-1);
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+.hf-diff-tag {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--fg-2);
+}
+.hf-diff-compare {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+.hf-diff-compare .branch { color: var(--fg-0); font-weight: 600; }
+.hf-diff-compare .sep { color: var(--fg-3); }
+.hf-diff-total {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--fg-2);
+}
+.hf-diff-total .add, .hf-diff-file .add, .hf-diff-group-head .add, .hf-diff-filehead .add {
+  color: var(--add-fg);
+}
+.hf-diff-total .rem, .hf-diff-file .rem, .hf-diff-group-head .rem, .hf-diff-filehead .rem {
+  color: var(--rem-fg);
+}
+.hf-diff-groupsel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--fg-2);
+}
+.hf-diff-groupsel select {
+  background: var(--bg-2);
+  color: var(--fg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
+.hf-diff-close {
+  background: none;
+  border: none;
+  color: var(--fg-3);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.hf-diff-close:hover { color: var(--fg-0); }
+
+.hf-diff-note {
+  padding: 14px 16px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+.hf-diff-note.error { color: var(--rem-fg); }
+
+.hf-diff-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── file list rail ── */
+.hf-diff-files {
+  width: 320px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--line-1);
+  background: var(--bg-1);
+  padding-bottom: 12px;
+}
+.hf-diff-group { border-bottom: 1px solid var(--line-1); }
+.hf-diff-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--bg-2);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--fg-1);
+}
+.hf-diff-group-head:hover { background: var(--bg-hover); }
+.hf-diff-group-head .caret { color: var(--fg-3); width: 10px; }
+.hf-diff-group-head .label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.hf-diff-group-head .count {
+  color: var(--fg-3);
+  background: var(--bg-3);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+
+.hf-diff-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 10px 5px 18px;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--fg-1);
+}
+.hf-diff-file:hover { background: var(--bg-hover); }
+.hf-diff-file.active {
+  background: var(--bg-active);
+  border-left-color: var(--accent);
+  color: var(--fg-0);
+}
+.hf-diff-file .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hf-diff-file .add, .hf-diff-file .rem { font-size: 10px; }
+
+/* status badge: A added, D deleted, R renamed, everything else modified */
+.hf-diff-file .badge, .hf-diff-filehead .badge {
+  flex-shrink: 0;
+  width: 15px;
+  text-align: center;
+  border-radius: 3px;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 15px;
+  color: var(--chg-fg);
+  background: var(--chg-bg);
+}
+.hf-diff-file .badge.a, .hf-diff-filehead .badge.a { color: var(--add-fg); background: var(--add-bg); }
+.hf-diff-file .badge.d, .hf-diff-filehead .badge.d { color: var(--rem-fg); background: var(--rem-bg); }
+.hf-diff-file .badge.r, .hf-diff-file .badge.c,
+.hf-diff-filehead .badge.r, .hf-diff-filehead .badge.c { color: var(--accent); background: var(--accent-bg); }
+
+/* ── patch pane ── */
+.hf-diff-view {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: var(--bg-0);
+}
+.hf-diff-filehead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-1);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--fg-0);
+}
+.hf-diff-filehead .path { font-weight: 600; }
+.hf-diff-filehead .kind, .hf-diff-filehead .from { color: var(--fg-3); font-size: 10.5px; }
+
+.hf-diff-hunk { border-bottom: 1px solid var(--line-1); }
+.hf-diff-hunk-head {
+  display: flex;
+  gap: 10px;
+  padding: 4px 12px;
+  background: var(--bg-2);
+  border-top: 1px solid var(--line-1);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--fg-3);
+}
+.hf-diff-hunk-head .section { color: var(--fg-2); }
+
+.hf-diff-line {
+  display: flex;
+  align-items: flex-start;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre;
+}
+.hf-diff-line.add { background: var(--add-bg); }
+.hf-diff-line.del { background: var(--rem-bg); }
+.hf-diff-line.meta { background: var(--bg-1); }
+.hf-diff-line .ln {
+  flex-shrink: 0;
+  width: 44px;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--fg-3);
+  user-select: none;
+  background: var(--bg-1);
+  border-right: 1px solid var(--line-1);
+}
+.hf-diff-line.add .ln { background: rgba(46, 160, 67, 0.08); }
+.hf-diff-line.del .ln { background: rgba(248, 81, 73, 0.08); }
+.hf-diff-line .sign {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  user-select: none;
+  color: var(--fg-3);
+}
+.hf-diff-line.add .sign { color: var(--add-fg); }
+.hf-diff-line.del .sign { color: var(--rem-fg); }
+.hf-diff-line .text {
+  flex: 1;
+  min-width: 0;
+  padding-right: 16px;
+  color: var(--fg-1);
+  overflow-wrap: normal;
+}
+.hf-diff-line .text.meta { color: var(--fg-3); font-style: italic; }

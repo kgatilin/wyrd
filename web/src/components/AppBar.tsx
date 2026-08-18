@@ -10,6 +10,8 @@ export interface AppBarProps {
   refreshing?: boolean;
   /** Open the ArchMotif analysis panel */
   onMetrics?: () => void;
+  /** Open the file-level diff of the reviewed branch */
+  onDiff?: () => void;
   /** PR data for crumbs (optional - use defaults if absent) */
   pr?: PR;
 }
@@ -20,6 +22,7 @@ export function AppBar({
   onRefresh,
   refreshing = false,
   onMetrics,
+  onDiff,
   pr,
 }: AppBarProps) {
   const branch = pr?.branch ?? 'main';
@@ -46,6 +49,13 @@ export function AppBar({
         title="Toggle theme"
       >
         {theme === 'dark' ? '☾' : '☀'}
+      </button>
+      <button
+        className="hf-btn"
+        onClick={onDiff}
+        title="Show the file diff against the review base"
+      >
+        Diff
       </button>
       <button
         className="hf-btn"
