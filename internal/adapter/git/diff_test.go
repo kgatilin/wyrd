@@ -170,6 +170,33 @@ func TestDiff(t *testing.T) {
 	}
 }
 
+// A file whose *content* mentions a binary-diff marker must still be
+// treated as text: the marker only counts when git emits it unprefixed,
+// since real content lines in a patch carry a "+" prefix. This bit the
+// review UI the first time it was pointed at archai's own worktree.
+func TestSummarizePatchIgnoresMarkerInContent(t *testing.T) {
+	patch := strings.Join([]string{
+		"diff --git a/x_test.go b/x_test.go",
+		"--- /dev/null",
+		"+++ b/x_test.go",
+		"@@ -0,0 +1,2 @@",
+		`+	want := "Binary files differ"`,
+		"+	_ = want",
+	}, "\n")
+
+	insertions, binary := summarizePatch(patch)
+	if binary {
+		t.Error("a text file quoting the binary marker was reported as binary")
+	}
+	if insertions != 2 {
+		t.Errorf("insertions = %d, want 2 (the +++ header must not count)", insertions)
+	}
+
+	if _, binary := summarizePatch("diff --git a/x.png b/x.png\nBinary files a/x.png and b/x.png differ\n"); !binary {
+		t.Error("a real binary marker was missed")
+	}
+}
+
 // TestDiffUnknownBaseFallsBackToEmptyTree: a repo without the review base
 // ref — and without any commit — still yields the working tree rather than
 // an error.

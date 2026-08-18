@@ -193,24 +193,29 @@ func untrackedFiles(repoPath string) []FileStat {
 			continue
 		}
 		f := FileStat{Path: path, Status: "A", Untracked: true}
-		f.Binary = strings.Contains(patch, "Binary files ")
-		if !f.Binary {
-			f.Insertions = countAddedLines(patch)
-		}
+		f.Insertions, f.Binary = summarizePatch(patch)
 		f.Patch, f.Truncated = capPatch(patch)
 		files = append(files, f)
 	}
 	return files
 }
 
-func countAddedLines(patch string) int {
-	n := 0
+// summarizePatch derives the stats git does not report for an untracked
+// file. Both checks are line-anchored on purpose: a patch's own content
+// lines carry a "+" prefix, so a file that merely *mentions* "Binary
+// files ... differ" is not mistaken for a binary blob.
+func summarizePatch(patch string) (insertions int, binary bool) {
 	for _, line := range strings.Split(patch, "\n") {
-		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
-			n++
+		switch {
+		case strings.HasPrefix(line, "+++"):
+			// The header's target path, not content.
+		case strings.HasPrefix(line, "+"):
+			insertions++
+		case strings.HasPrefix(line, "Binary files "):
+			binary = true
 		}
 	}
-	return n
+	return insertions, binary
 }
 
 // capPatch trims a patch to maxPatchBytes on a line boundary.
