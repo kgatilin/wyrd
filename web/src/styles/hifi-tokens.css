@@ -52,6 +52,10 @@
   --layer-internal-bg: rgba(210, 168, 255, 0.12);
   --layer-internal-line: rgba(210, 168, 255, 0.42);
 
+  /* scrollbars */
+  --scroll-thumb: #363d47;
+  --scroll-thumb-hover: #4a535f;
+
   --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
   --shadow-lg: 0 12px 32px rgba(0,0,0,0.5);
 }
@@ -143,11 +147,63 @@
   --layer-internal-bg: rgba(130, 80, 223, 0.10);
   --layer-internal-line: rgba(130, 80, 223, 0.4);
 
+  --scroll-thumb: #c9d1da;
+  --scroll-thumb-hover: #a8b1bb;
+
   --shadow-md: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
 }
 
 * { box-sizing: border-box; }
+
+/* ── Scrollbars ────────────────────────────────────────────────────────
+   Chrome's default scrollbar is a bright slab that ignores the theme and
+   cuts across every dark panel. Declaring color-scheme is what makes the
+   browser's own chrome (scrollbars, select popups, form controls) follow
+   the active theme; the ::-webkit- rules then shape the bar itself.
+
+   The standard scrollbar-color/-width form is deliberately behind
+   @supports: setting it unconditionally would take precedence over the
+   ::-webkit- rules in Chrome 121+ and throw away the shaping below. This
+   way WebKit gets the tailored bar and Firefox the two-color one. */
+.theme-dark { color-scheme: dark; }
+.theme-light { color-scheme: light; }
+
+.hifi ::-webkit-scrollbar,
+.hifi::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+.hifi ::-webkit-scrollbar-track,
+.hifi::-webkit-scrollbar-track,
+.hifi ::-webkit-scrollbar-corner,
+.hifi::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.hifi ::-webkit-scrollbar-thumb,
+.hifi::-webkit-scrollbar-thumb {
+  /* A padding-box background inset by a transparent border keeps the
+     grabbable area full-width while the visible bar stays slim. */
+  background-color: var(--scroll-thumb);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 8px;
+}
+.hifi ::-webkit-scrollbar-thumb:hover,
+.hifi::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scroll-thumb-hover);
+}
+.hifi ::-webkit-scrollbar-thumb:active,
+.hifi::-webkit-scrollbar-thumb:active {
+  background-color: var(--fg-3);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .hifi, .hifi * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) transparent;
+  }
+}
 
 html,
 body,
