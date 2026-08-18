@@ -493,6 +493,16 @@ Arguments: none
 
 Returns validation findings as text (same format as the CLI).
 
+**gen**
+
+```
+archai plugin events gen [--root PATH] [--templates DIR] [--out DIR]
+                         [--component ID] [--dry-run] [--force] [--no-format]
+```
+
+Renders each component's declaration through project-supplied templates. See
+[Codegen](#codegen) below.
+
 ### HTTP
 
 `GET /api/plugins/events/model` returns the composed model and projected graph
@@ -516,6 +526,109 @@ The model projects to a bipartite graph:
 
 `health: ambiguous` is reserved for exclusive kinds with more than one
 receiver. A broadcast kind with many receivers is `ok`.
+
+## Codegen
+
+archai owns the declaration format, its validation and its graph. **The project
+owns the binding.** Templates live in the project, archai never learns the
+project's types, and nothing archai produces is a runtime dependency of the
+generated code.
+
+There is deliberately **no `--lang` flag**. A language generator built into
+archai would invert that split: archai would have to know your types, and would
+become a dependency of your build. Instead it renders your template against a
+stable data model.
+
+### Running it
+
+```
+archai plugin events gen [--root PATH] [--templates DIR] [--out DIR]
+                         [--component ID] [--dry-run] [--force] [--no-format]
+```
+
+- Templates come from `<root>/.arch/templates/*.tmpl` unless `--templates`
+  points elsewhere. Each template is rendered **once per component**.
+- The output name is the template name minus `.tmpl`, and it must contain
+  `_gen.` — so `contract_gen.go.tmpl` produces `contract_gen.go`. A template
+  that would write a plausibly-handwritten name is rejected before anything is
+  generated: a generator that can clobber hand-edits will not be re-run.
+- Output lands next to the component's `.arch` directory, or under
+  `<out>/<component>/` with `--out`.
+- The model is **validated first**. Generating from a set with errors produces
+  code that is wrong in ways the compiler cannot catch — colliding constants
+  from a `kind-role-conflict`, a subscription keyed on the wrong slot from a
+  `partition-mismatch`. `--force` overrides.
+- Generated `.go` files are run through gofmt. This is syntactic only — it is
+  not archai learning your types — and it exists because generated files are
+  committed: unformatted output makes every diff noisy, and a template emitting
+  invalid Go fails here rather than at compile time. `--no-format` skips it;
+  other extensions always pass through verbatim.
+
+A starting template ships at
+`docs/features/event-model/templates/contract_gen.go.tmpl`. Copy it into your
+project's `.arch/templates/` and edit it — it is an example, not a contract.
+
+### Template data model
+
+This is the contract. Templates live in projects, so these names are stable.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `.Component` | string | Component id |
+| `.Owns` | string | Owned namespace, `""` if none |
+| `.Description` | string | |
+| `.Extra` | map | The declaration's opaque passthrough block |
+| `.Receives` `.Emits` | []Slot | In declaration order |
+| `.Folds` | []Fold | In declaration order |
+| `.Types` | []Type | `{Name, Schema}`, sorted by name |
+| `.ForeignEmits` `.ForeignReceives` | []Slot | The subsets whose kind falls outside `.Owns` — the component's cross-namespace coupling |
+| `.Kinds` | []string | Sorted unique kinds across both ports; the natural input for a constant block |
+
+**Slot**: `.Kind`, `.Role`, `.Delivery`, `.Description`, `.Exposure`,
+`.Schema`, `.Extra`, and `.Exclusive` (a method, so `{{if .Exclusive}}` works).
+`.Delivery` is normalized — it is `"broadcast"` when the declaration omitted it,
+so templates never special-case the empty string.
+
+**Fold**: `.Name`, `.Subjects`, `.PartitionKey`, `.Consumes`, `.State`,
+`.Extra`.
+
+`.Schema` and `.State` are the raw JSON-Schema-as-YAML trees (maps, slices,
+scalars) or nil. Render them with `jsonRaw` / `jsonIndent` rather than walking
+them by hand.
+
+Everything map-backed is flattened into a sorted slice, so re-running the
+generator does not churn the diff.
+
+### Helper functions
+
+| Helper | Does |
+|--------|------|
+| `goIdent s` | Exported Go identifier: `billing.invoice.issued` → `BillingInvoiceIssued` |
+| `unexported s` | Same, lowercased first rune |
+| `quote s` | Go string literal |
+| `jsonRaw v` / `jsonIndent v` | Schema node as compact / indented JSON |
+| `indent n s` | Prefix every non-empty line with n spaces |
+| `docComment s` | Wrap text as `//` lines; empty in, empty out |
+| `hasPrefix` `trimPrefix` `join` | The `strings` equivalents |
+| `sortedKeys m` | A map's keys in sorted order |
+
+**The wire name is authoritative.** `goIdent` produces a Go *name*; the value it
+labels must always be the declared kind string, emitted verbatim. A durable log
+is not refactorable, so never derive a wire name from an identifier.
+
+**Missing keys are errors.** Templates run with `missingkey=error`: reaching for
+`.Extra.whatever` when the declaration never set it fails at generation time
+rather than silently emitting an empty string. Use `index` as the presence test:
+
+```
+{{ with index .Extra "go_package" }}{{ . }}{{ else }}{{ unexported $.Component }}{{ end }}
+```
+
+### Keeping it honest
+
+Generated files are committed. Wire it up with
+`//go:generate archai plugin events gen` plus `go generate ./... && git diff
+--exit-code` in CI, and drift becomes a build failure rather than a discovery.
 
 ## Worked Example
 

@@ -435,16 +435,39 @@ a production binary — not as a library, not at runtime.
 **project-supplied template** (`.arch/templates/*.tmpl`) into the component's
 package. Generated files import only project types.
 
-Template data model (a stable archai contract, versioned alongside the format):
+There is deliberately no `--lang` flag. A language generator built into archai
+would invert the split this whole section rests on: archai would have to know
+the project's types, and would become a dependency of its build.
+
+Template data model (a stable archai contract, versioned alongside the format —
+templates live in projects, so renaming a field breaks every project reading it):
 
 ```
 .Component .Owns .Description .Extra
 .Receives[] .Emits[]   {Kind, Role, Delivery, Description, Exposure, Schema, Extra}
+                       + .Exclusive (method)  ·  Delivery normalized to "broadcast"
 .Folds[]               {Name, Subjects, PartitionKey, Consumes, State, Extra}
-.Types{}               {Name, Schema, GoType?}
-.Foreign[]             derived: emits/receives where kind ∉ owns
-+ helpers: goIdent, constName, quote, jsonRaw, indent, docComment
+.Types[]               {Name, Schema}          sorted by name
+.ForeignEmits[] .ForeignReceives[]             derived: kind ∉ owns
+.Kinds[]                                       sorted union of both ports
++ helpers: goIdent, unexported, quote, jsonRaw, jsonIndent, indent, docComment,
+           hasPrefix, trimPrefix, join, sortedKeys
 ```
+
+Map-backed fields are flattened into sorted slices so re-running the generator
+does not churn the diff. Templates run with `missingkey=error`: reaching for a
+key the declaration never set fails at generation time rather than silently
+emitting an empty string, and `index` remains available as the presence test.
+
+Generation is gated on validation: a `kind-role-conflict` yields colliding
+constants and a `partition-mismatch` yields a subscription keyed on the wrong
+slot, neither of which the compiler catches. `--force` overrides.
+
+Generated `.go` output is passed through `go/format`. That is syntactic only —
+not archai learning the project's types — and it earns its place because
+generated files are committed: unformatted output makes every diff noisy, and a
+template emitting invalid Go fails at generation time rather than at compile
+time. Other extensions pass through verbatim.
 
 Generation tiers, adopt in order:
 
@@ -548,9 +571,15 @@ Bipartite projection; GraphML export; uigraph adapter; canvas event map, kind
 detail, deprecation lens; Mermaid export. This is the payload of the whole
 feature and should land before anything in §4.
 
-**Iteration 3 — codegen tiers 1–2.**
-Template data model; `archai plugin events gen`; example templates. Project-side
-enforcement (wiring, log guard) is demonstrated, not shipped by archai.
+**Iteration 3 — codegen tiers 1–2.** *(tier 1 shipped)*
+Template data model, `archai plugin events gen` and an example template are in
+place: a project copies `docs/features/event-model/templates/contract_gen.go.tmpl`
+into its `.arch/templates/` and gets kind constants plus the mechanical surface
+(port lists, foreign kinds, exclusive kinds, fold subjects/partition keys,
+schema literals). Tier 2 — a subject address book, constructors, decoders — is
+a richer template over the same data model, and lives in the project.
+Project-side enforcement (wiring, log guard) is demonstrated, not shipped by
+archai.
 
 **Iteration 4 — payload binding.**
 Bindings file; struct generation (tier 3); `verify_only` checking against the

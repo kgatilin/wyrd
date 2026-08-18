@@ -15,9 +15,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	gofmt "go/format"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -53,12 +55,13 @@ func (p *Plugin) Init(_ context.Context, host plugin.Host, _ string) error {
 	return nil
 }
 
-// CLICommands implements plugin.Plugin. Contributes validate and graph
+// CLICommands implements plugin.Plugin. Contributes validate, graph and gen
 // subcommands under `archai plugin events`.
 func (p *Plugin) CLICommands() []plugin.CLICommand {
 	return []plugin.CLICommand{
 		{Cmd: p.validateCmd()},
 		{Cmd: p.graphCmd()},
+		{Cmd: p.genCmd()},
 	}
 }
 
@@ -276,6 +279,250 @@ Supported formats:
 	cmd.Flags().StringVar(&root, "root", "", "Root directory to scan (default: repo root)")
 
 	return cmd
+}
+
+// generatedMarker is the substring every generated file name must contain.
+// The generator writes only to files carrying it and never touches anything
+// else: a generator that can clobber hand-edits will not be re-run.
+const generatedMarker = "_gen."
+
+// templatesDirName is the conventional location of a project's codegen
+// templates, relative to the generation root.
+const templatesDirName = ".arch/templates"
+
+// genCmd returns the `gen` subcommand.
+func (p *Plugin) genCmd() *cobra.Command {
+	var root string
+	var templatesDir string
+	var outDir string
+	var componentID string
+	var dryRun bool
+	var force bool
+	var noFormat bool
+
+	cmd := &cobra.Command{
+		Use:   "gen [--root PATH]",
+		Short: "Render event declarations through project templates",
+		Long: `Render each component's event declaration through project-supplied
+templates.
+
+archai owns the declaration format, its validation and its graph; the PROJECT
+owns the binding. Templates live in the project (default: .arch/templates/*.tmpl
+under the root), archai never learns the project's types, and nothing archai
+produces is a runtime dependency of the generated code. There is deliberately no
+--lang flag: a language generator built into archai would invert that split.
+
+Each template is rendered once per component. The output file name is the
+template name minus its .tmpl suffix, and it must contain "` + generatedMarker + `" —
+so contract_gen.go.tmpl produces contract_gen.go. The generator writes only to
+those files and never touches handwritten code.
+
+Output goes next to the component's .arch directory, or under --out/<component>
+when --out is given. Generated .go files are run through gofmt (syntactic only)
+so committed output has stable diffs and a template emitting invalid Go fails
+here rather than at compile time; --no-format skips it.
+
+The model is validated first: generating from a declaration set with errors
+produces broken code. Use --force to generate anyway.
+
+Template data model and helper functions: see docs/event-model.md.`,
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			resolvedRoot := root
+			if resolvedRoot == "" {
+				resolvedRoot = p.host.RepoRoot()
+			}
+			if resolvedRoot == "" {
+				return fmt.Errorf("events: repo root unavailable")
+			}
+
+			model, err := p.loadModel(resolvedRoot)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if len(model.Components) == 0 {
+				fmt.Fprintln(out, "No event declarations found.")
+				return nil
+			}
+
+			if err := p.checkGenerable(out, model, force); err != nil {
+				return err
+			}
+
+			if templatesDir == "" {
+				templatesDir = filepath.Join(resolvedRoot, filepath.FromSlash(templatesDirName))
+			}
+			templates, err := loadTemplates(templatesDir)
+			if err != nil {
+				return err
+			}
+			if len(templates) == 0 {
+				return fmt.Errorf("no *.tmpl templates found in %s; codegen is template-driven, so the project supplies them", templatesDir)
+			}
+
+			ids := make([]string, 0, len(model.Components))
+			for id := range model.Components {
+				if componentID != "" && id != componentID {
+					continue
+				}
+				ids = append(ids, id)
+			}
+			if componentID != "" && len(ids) == 0 {
+				return fmt.Errorf("component %q not found", componentID)
+			}
+			sort.Strings(ids)
+
+			written := 0
+			for _, id := range ids {
+				comp := model.Components[id]
+				data := adapterem.BuildTemplateData(comp)
+				destDir, err := generationDir(comp, outDir)
+				if err != nil {
+					return err
+				}
+				for _, tpl := range templates {
+					content, err := adapterem.RenderTemplate(tpl.name, tpl.text, data)
+					if err != nil {
+						return fmt.Errorf("component %s: %w", id, err)
+					}
+					if !noFormat {
+						content, err = formatGenerated(tpl.outputName, content)
+						if err != nil {
+							return fmt.Errorf("component %s, template %s: %w", id, tpl.name, err)
+						}
+					}
+					dest := filepath.Join(destDir, tpl.outputName)
+					if dryRun {
+						fmt.Fprintf(out, "would write %s (%d bytes)\n", dest, len(content))
+						written++
+						continue
+					}
+					if err := os.MkdirAll(destDir, 0o755); err != nil {
+						return fmt.Errorf("creating %s: %w", destDir, err)
+					}
+					if err := os.WriteFile(dest, content, 0o644); err != nil {
+						return fmt.Errorf("writing %s: %w", dest, err)
+					}
+					fmt.Fprintf(out, "wrote %s\n", dest)
+					written++
+				}
+			}
+
+			fmt.Fprintf(out, "\n%d file(s) from %d template(s) across %d component(s).\n",
+				written, len(templates), len(ids))
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&root, "root", "", "Root directory to scan (default: repo root)")
+	cmd.Flags().StringVar(&templatesDir, "templates", "", "Template directory (default: <root>/"+templatesDirName+")")
+	cmd.Flags().StringVar(&outDir, "out", "", "Write under <out>/<component>/ instead of next to each component")
+	cmd.Flags().StringVar(&componentID, "component", "", "Generate for one component only")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Report what would be written without writing it")
+	cmd.Flags().BoolVar(&force, "force", false, "Generate even when validation reports errors")
+	cmd.Flags().BoolVar(&noFormat, "no-format", false, "Skip gofmt of generated .go files")
+
+	return cmd
+}
+
+// formatGenerated canonicalizes generated Go before it is written.
+//
+// This is not archai learning the project's types — go/format is purely
+// syntactic. It is here because generated files are committed: unformatted
+// output makes every diff noisy, and a template that emits invalid Go should
+// fail at generation time rather than at compile time. Files of any other
+// extension pass through untouched.
+func formatGenerated(name string, content []byte) ([]byte, error) {
+	if filepath.Ext(name) != ".go" {
+		return content, nil
+	}
+	formatted, err := gofmt.Source(content)
+	if err != nil {
+		return nil, fmt.Errorf("produced invalid Go: %w", err)
+	}
+	return formatted, nil
+}
+
+// checkGenerable refuses to generate from a model that does not validate.
+// A kind declared with two roles, or a fold whose subjects disagree on the
+// partition key, yields generated code that is wrong in ways the compiler
+// cannot catch — colliding constants, a subscription keyed on the wrong slot.
+func (p *Plugin) checkGenerable(out io.Writer, model *eventmodel.Model, force bool) error {
+	var errs []eventmodel.Finding
+	for _, f := range eventmodel.Validate(model) {
+		if f.Severity == eventmodel.SeverityError {
+			errs = append(errs, f)
+		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	for _, f := range errs {
+		loc := f.Component
+		if f.Location != "" {
+			loc += ":" + f.Location
+		}
+		fmt.Fprintf(out, "ERROR [%s] %s: %s\n", f.Kind, loc, f.Message)
+	}
+	if force {
+		fmt.Fprintf(out, "\n%d error(s); generating anyway (--force)\n\n", len(errs))
+		return nil
+	}
+	return fmt.Errorf("%d validation error(s); fix them or pass --force", len(errs))
+}
+
+// projectTemplate is one loaded template file.
+type projectTemplate struct {
+	name       string // file name, for diagnostics
+	outputName string // name minus the .tmpl suffix
+	text       string
+}
+
+// loadTemplates reads *.tmpl files from dir, rejecting any whose output name
+// would not be recognizably generated.
+func loadTemplates(dir string) ([]projectTemplate, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading templates from %s: %w", dir, err)
+	}
+
+	var out []projectTemplate
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".tmpl") {
+			continue
+		}
+		outputName := strings.TrimSuffix(e.Name(), ".tmpl")
+		if !strings.Contains(outputName, generatedMarker) {
+			return nil, fmt.Errorf("template %s would write %q, which does not contain %q; "+
+				"name it like contract%sgo.tmpl so generated files are never mistaken for handwritten ones",
+				e.Name(), outputName, generatedMarker, generatedMarker)
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("reading template %s: %w", e.Name(), err)
+		}
+		out = append(out, projectTemplate{name: e.Name(), outputName: outputName, text: string(data)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	return out, nil
+}
+
+// generationDir resolves where a component's generated files go: next to its
+// .arch directory by default, or under <outDir>/<component> when redirected.
+func generationDir(comp *eventmodel.Component, outDir string) (string, error) {
+	if outDir != "" {
+		return filepath.Join(outDir, comp.ID), nil
+	}
+	if comp.SourceFile == "" {
+		return "", fmt.Errorf("component %s has no source file; pass --out to choose a destination", comp.ID)
+	}
+	// SourceFile is <component>/.arch/events.yaml.
+	return filepath.Dir(filepath.Dir(comp.SourceFile)), nil
 }
 
 // handleEventModel is the MCP handler for event_model.
