@@ -121,7 +121,7 @@ describe('update — graph loading slice', () => {
     const s = { ...withGraph(), load: { status: 'loading' as const, error: null } };
     const next = update(s, { type: 'GraphUnchanged' });
     expect(next.graph).toBe(s.graph);
-    expect(next.load).toEqual({ status: 'ready', error: null });
+    expect(next.load).toEqual({ status: 'ready', error: null, pendingWorktree: null });
   });
 });
 
@@ -403,6 +403,33 @@ describe('update — load + geometry slice', () => {
   it('GraphRequested sets load status to loading', () => {
     const s = update({ ...initialState, load: { status: 'ready', error: null } }, { type: 'GraphRequested' });
     expect(s.load.status).toBe('loading');
+  });
+
+  it('WorktreeChanged names the worktree the load is waiting on', () => {
+    // The canvas is covered by the loading screen only for a switch, so the
+    // reducer has to distinguish it from a plain refresh of the same graph.
+    const s = update(withGraph(), { type: 'WorktreeChanged', name: 'feature' });
+    expect(s.load).toMatchObject({ status: 'loading', pendingWorktree: 'feature' });
+    const refreshed = update(withGraph(), { type: 'GraphRequested' });
+    expect(refreshed.load.pendingWorktree ?? null).toBeNull();
+  });
+
+  it('clears the pending worktree once its graph arrives', () => {
+    let s = update(withGraph(), { type: 'WorktreeChanged', name: 'feature' });
+    s = update(s, { type: 'GraphLoaded', graph });
+    expect(s.load.pendingWorktree).toBeNull();
+  });
+
+  it('clears the pending worktree when the switch lands on an identical graph', () => {
+    let s = update(withGraph(), { type: 'WorktreeChanged', name: 'feature' });
+    s = update(s, { type: 'GraphUnchanged' });
+    expect(s.load).toMatchObject({ status: 'ready', pendingWorktree: null });
+  });
+
+  it('keeps the pending worktree on failure so the switch reports it', () => {
+    let s = update(withGraph(), { type: 'WorktreeChanged', name: 'feature' });
+    s = update(s, { type: 'GraphLoadFailed', error: 'boom' });
+    expect(s.load).toMatchObject({ status: 'error', error: 'boom', pendingWorktree: 'feature' });
   });
 
   it('GraphLoaded stores the graph, marks ready, and seeds initial expansion', () => {

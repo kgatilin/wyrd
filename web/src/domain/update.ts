@@ -311,7 +311,7 @@ function loadGeometrySlice(state: AppState, event: Event): AppState {
       if (event.source === 'auto' && state.graph) return state;
       return { ...state, load: { status: 'loading', error: null } };
     case 'WorktreeChanged':
-      return { ...state, load: { status: 'loading', error: null } };
+      return { ...state, load: { status: 'loading', error: null, pendingWorktree: event.name } };
     case 'GraphLoaded': {
       const graph = event.graph;
       const leftTab = graph.pr != null ? 'changes' : state.ui.leftTab;
@@ -340,7 +340,7 @@ function loadGeometrySlice(state: AppState, event: Event): AppState {
       return {
         ...state,
         graph,
-        load: { status: 'ready', error: null },
+        load: { status: 'ready', error: null, pendingWorktree: null },
         ui: {
           ...state.ui,
           leftTab,
@@ -354,10 +354,13 @@ function loadGeometrySlice(state: AppState, event: Event): AppState {
       };
     }
     case 'GraphUnchanged':
-      if (state.load.status === 'ready') return state;
-      return { ...state, load: { status: 'ready', error: null } };
+      if (state.load.status === 'ready' && !state.load.pendingWorktree) return state;
+      return { ...state, load: { status: 'ready', error: null, pendingWorktree: null } };
     case 'GraphLoadFailed':
-      return { ...state, load: { status: 'error', error: event.error } };
+      // pendingWorktree survives a failure on purpose: a switch that failed
+      // must say so, not silently drop the reviewer back on the previous
+      // worktree's canvas while the URL already points at the new one.
+      return { ...state, load: { ...state.load, status: 'error', error: event.error } };
     case 'LayoutComputed':
       return { ...state, geometry: { laid: event.laid, status: 'ready', error: null } };
     case 'LayoutFailed':

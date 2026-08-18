@@ -72,7 +72,17 @@ export interface AppState {
   markers: Marker[];
   pendingComment: PendingComment | null;
   geometry: { laid: UIGraph | null; status: 'idle' | 'ready' | 'error'; error: string | null };
-  load: { status: 'loading' | 'ready' | 'error'; error: string | null };
+  load: {
+    status: 'loading' | 'ready' | 'error';
+    error: string | null;
+    /**
+     * The worktree a switch is waiting on, or null/absent when the load in
+     * flight is a plain (re)load of the one already shown. A switch replaces
+     * the whole graph, so the UI covers it with the loading screen instead of
+     * leaving a stale canvas on screen; a refresh does not.
+     */
+    pendingWorktree?: string | null;
+  };
 }
 
 export const initialState: AppState = {

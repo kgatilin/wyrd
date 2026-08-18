@@ -66,28 +66,52 @@ function AppRoot({ viewport }: { viewport: DomViewport }) {
   const load = useStore((s) => s.load);
   const graph = useStore((s) => s.graph);
 
-  if (load.status === 'error' && !graph) {
+  // Switching worktrees re-parses a whole other checkout in the daemon,
+  // which takes seconds. Cover it with the same screen the cold start uses:
+  // the previous worktree's canvas left on screen looks like a hung app.
+  const pending = load.pendingWorktree ?? null;
+
+  if (load.status === 'error' && (!graph || pending)) {
     return (
-      <LoadingScreen theme={theme} error={load.error ?? 'Failed to load architecture graph.'} />
+      <LoadingScreen
+        theme={theme}
+        worktree={pending}
+        error={load.error ?? 'Failed to load architecture graph.'}
+      />
     );
   }
-  if (!graph) {
-    return <LoadingScreen theme={theme} />;
+  if (!graph || pending) {
+    return <LoadingScreen theme={theme} worktree={pending} />;
   }
   return <AppContent graph={graph} viewport={viewport} />;
 }
 
-function LoadingScreen({ theme, error }: { theme: 'dark' | 'light'; error?: string }) {
+function LoadingScreen({
+  theme,
+  error,
+  worktree,
+}: {
+  theme: 'dark' | 'light';
+  error?: string;
+  worktree?: string | null;
+}) {
+  const title = error
+    ? worktree
+      ? `Worktree ${worktree} failed to load`
+      : 'Architecture graph failed to load'
+    : worktree
+      ? `Reading ${worktree}`
+      : 'Reading architecture graph';
+  const subtitle =
+    error ?? (worktree
+      ? 'Parsing this worktree\u2019s packages in the daemon...'
+      : 'Parsing source packages and preparing the review canvas...');
   return (
     <div className={`hifi v4 theme-${theme} hf-load-screen`}>
       <div className={`hf-load-card ${error ? 'error' : ''}`}>
         {!error && <div className="hf-load-spinner" aria-hidden="true" />}
-        <div className="hf-load-title">
-          {error ? 'Architecture graph failed to load' : 'Reading architecture graph'}
-        </div>
-        <div className="hf-load-subtitle">
-          {error ?? 'Parsing source packages and preparing the review canvas...'}
-        </div>
+        <div className="hf-load-title">{title}</div>
+        <div className="hf-load-subtitle">{subtitle}</div>
       </div>
     </div>
   );
