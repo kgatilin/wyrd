@@ -408,6 +408,36 @@ produced a hairball of crossing curves.
   nothing. While the panel is up it owns the keyboard — `Esc` dismisses
   it, not the diff, and `j`/`k` stop walking the file list behind it.
 
+### Sequence diagrams in the review UI
+
+An expanded card can flip to its call-sequence view: `GET /api/sequence` →
+`internal/adapter/http/sequence_api.go` → `internal/adapter/mermaid` emits a
+strict Mermaid `sequenceDiagram` subset (`participant pN as Label`, `pA->>pB:
+label`) that `web/src/components/SequenceCanvas.tsx` parses and draws itself in
+hf-* tokens. Lifelines are types (a method maps to its receiver); one column per
+callee, ordered by first appearance in the DFS.
+
+- **A sequence's width is the whole readability problem.** One uniform column
+  gap sized to the longest label put `internal/adapter/mcp`'s `Dispatch` entry at
+  68,000px inside a 620px card. Its 191 right-to-left messages *were* drawn — you
+  just never saw one, because a backward arrow spans most of that width and both
+  its ends sit off the viewport. Gaps are now solved per column pair (shortest
+  span first, deficit split across the gaps the label must cross), so one long
+  adjacent label no longer sets the scale for every other column.
+- **The package prefix is dropped from lifeline headers.** It repeats on nearly
+  every column, so what still carries one is exactly the cross-package lifeline —
+  accent-bordered, same convention as the wiring panel. The prefix is read off
+  the root participant (the entry point the diagram was built from).
+- Backward messages carry their own colour + arrow marker, and past
+  `LABEL_MID_MAX` the label rides next to the caller rather than at a midpoint
+  thousands of pixels from either end.
+- `SEQ_CARD_W/H` (`web/src/layout/layout.ts`) is a *fixed* frame — layout must
+  not depend on async-fetched sequence content — so it is deliberately much
+  larger than an expanded class card. The diagram scrolls inside it.
+- Deep fan-out is a data shape, not a layout bug: `depth` defaults to 4 and
+  package-level helper functions each become a lifeline, which is how one entry
+  point reaches 165 columns. `&depth=<n>` on the endpoint is the lever.
+
 ### Ask in the review UI
 
 `Ask` in the app bar (or the `ASK` tab in the left rail) puts a question to
