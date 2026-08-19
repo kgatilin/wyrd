@@ -368,6 +368,14 @@ answers "what changed architecturally".
   is unchanged instead of falling back to the first file in the list** —
   answering "open controller.go" with someone else's patch reads as that
   file's diff.
+- **Next to it, `<>` just reads the file.** The same header carries a
+  `hf-file-src` button that opens the source drawer at
+  `sourceFilePath(componentId, file.path)` — the drawer `Tree.tsx` already
+  opens, so a file has one viewer whichever surface names it. Unlike `±` it is
+  on **every** file panel the card draws: a card reached by `Ask` or by
+  browsing has no diff at all, and "search → look at the canvas → read the
+  code" is the reason the button exists. Both live in a `hf-file-acts` group so
+  the always-present one keeps its place when the patch button is absent.
 - **The session is cached in the app, not in the overlay.** `useDiffSession`
   (exported from `DiffOverlay.tsx`, held by `AppContent`) owns the fetched
   diff plus the reviewer's place in it — selected file, folded sections,

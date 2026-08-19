@@ -172,6 +172,11 @@ export interface MountOptions {
    * which is itself a state worth testing.
    */
   gitDiff?: () => unknown;
+  /**
+   * Answers GET /api/source. Without it the source drawer reports a read
+   * error, which is itself a state worth testing.
+   */
+  source?: (path: string) => { path?: string; content: string; hash?: string };
 }
 
 export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promise<DomEnvironment> {
@@ -188,6 +193,10 @@ export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promi
     const url = String(input);
     if (url.includes('/api/uigraph')) return okJson(graph);
     if (url.includes('/api/gitdiff') && options?.gitDiff) return okJson(options.gitDiff());
+    if (url.includes('/api/source') && options?.source) {
+      const file = new URLSearchParams(url.split('?')[1] ?? '').get('file') ?? '';
+      return okJson({ path: file, ...options.source(file) });
+    }
     if (url.includes('/api/search') && options?.search) {
       const body = JSON.parse(String(init?.body ?? '{}')) as { query?: string; k?: number };
       return okJson(options.search(body.query ?? '', body.k ?? 0));

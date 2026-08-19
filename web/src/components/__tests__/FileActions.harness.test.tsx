@@ -75,8 +75,16 @@ const diff: GitDiff = {
   ],
 };
 
+const sources: Record<string, string> = {
+  'controllers/llm/controller.go': 'package llm\n\n// wired here\nfunc New() {}\n',
+  'controllers/llm/config.go': 'package llm\n\ntype Config struct{}\n',
+};
+
 async function mount() {
-  const env = await mountAppDom(graph, { gitDiff: () => diff });
+  const env = await mountAppDom(graph, {
+    gitDiff: () => diff,
+    source: (path) => ({ content: sources[path] ?? '' }),
+  });
   const app = await env.load(AppHarness);
   await app.waitForLoaded();
   const diagram = await app.diagram();
@@ -116,5 +124,33 @@ describe('open a card file in the diff', () => {
       message: 'diff overlay never showed a patch',
     });
     expect(await fileDiff.activePath()).toBe('controllers/llm/controller.go');
+  });
+});
+
+describe('show a card file\'s code', () => {
+  it('offers the button on every file the card draws, changed or not', async () => {
+    const { env, app, card } = await mount();
+    await app.setViewOption('Details', 'full');
+    await env.waitUntil(async () => (await card.fileCount()) === 2, {
+      message: 'card never drew its unchanged file',
+    });
+
+    expect(await (await card.file('controller.go')).hasOpenSource()).toBe(true);
+    // The file the branch never touched: no patch to open, code still readable.
+    const untouched = await card.file('config.go');
+    expect(await untouched.hasOpenSource()).toBe(true);
+    expect(await untouched.hasOpenDiff()).toBe(false);
+  });
+
+  it('opens the source viewer at the clicked file', async () => {
+    const { env, app, card } = await mount();
+    await (await card.file('controller.go')).openSource();
+
+    const drawer = app.sourceDrawer();
+    await env.waitUntil(async () => (await drawer.path()) != null, {
+      message: 'source drawer never opened',
+    });
+    expect(await drawer.path()).toBe('controllers/llm/controller.go');
+    expect((await drawer.lines()).join('\n')).toContain('func New()');
   });
 });

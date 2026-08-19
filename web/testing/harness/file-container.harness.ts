@@ -15,6 +15,14 @@ export class FileContainerHarness extends ComponentHarness {
   async openDiff(): Promise<void> {
     await (await this.root.locator('.hf-file-diff').first()).click();
   }
+  /** True when the header offers "show this file's code". */
+  async hasOpenSource(): Promise<boolean> {
+    return (await this.root.locator('.hf-file-src').count()) > 0;
+  }
+  /** Open this file in the source viewer. */
+  async openSource(): Promise<void> {
+    await (await this.root.locator('.hf-file-src').first()).click();
+  }
   async diffState(): Promise<DiffState | null> {
     return diffStateFromClasses(await this.root.classes());
   }

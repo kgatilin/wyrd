@@ -1150,10 +1150,15 @@ body {
 .hf-file.removed .hf-file-head,
 .hf-file.changed .hf-file-head { background: transparent; }
 .hf-file-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Open this file in the diff overlay. Muted until the file is hovered so a
-   card full of file containers is not a card full of buttons. */
-.hf-file-diff {
+/* Per-file actions: read the code, open the patch. Muted until the
+   file is hovered so a card full of file containers is not a card full of
+   buttons. */
+.hf-file-acts {
   margin-left: auto;
+  flex: none;
+  display: flex; align-items: center; gap: 2px;
+}
+.hf-file-act {
   flex: none;
   width: 16px; height: 16px;
   display: flex; align-items: center; justify-content: center;
@@ -1168,8 +1173,9 @@ body {
   cursor: pointer;
   opacity: 0.55;
 }
-.hf-file:hover .hf-file-diff { opacity: 1; color: var(--fg-1); }
-.hf-file-diff:hover { background: var(--bg-3); border-color: var(--line-2); color: var(--accent); }
+.hf-file-src { font-size: 9.5px; letter-spacing: -0.5px; }
+.hf-file:hover .hf-file-act { opacity: 1; color: var(--fg-1); }
+.hf-file-act:hover { background: var(--bg-3); border-color: var(--line-2); color: var(--accent); }
 
 /* Class shape: header + two-column body, the browser twin of a D2 class. */
 .hf-block {

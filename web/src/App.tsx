@@ -1012,6 +1012,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                 onResetLayout={(id) => dispatch({ type: 'LayoutPinReset', id })}
                 onSymbolFocus={setSymbolFocus}
                 onOpenFileDiff={openFileDiff}
+                onOpenSourceFile={openSourceFile}
               />
             ))}
 

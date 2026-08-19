@@ -135,6 +135,8 @@ export interface ComponentProps {
   onSymbolFocus?: (target: SymbolFocusTarget) => void;
   /** Opens the file diff at one of the card's source files. */
   onOpenFileDiff?: (path: string) => void;
+  /** Opens the source viewer at one of the card's source files. */
+  onOpenSourceFile?: (path: string) => void;
 }
 
 /**
@@ -163,6 +165,7 @@ export function Component({
   relations = [],
   onSymbolFocus,
   onOpenFileDiff,
+  onOpenSourceFile,
 }: ComponentProps) {
   const [dragging, setDragging] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -338,6 +341,7 @@ export function Component({
                 hasComment={hasComment}
                 onSymbolFocus={onSymbolFocus}
                 onOpenFileDiff={onOpenFileDiff}
+                onOpenSourceFile={onOpenSourceFile}
               />
             ))}
             <IntraPackageRelations cmp={cmp} relations={relations} showDiff={showDiff} />
@@ -407,6 +411,7 @@ interface FileContainerProps {
   hasComment: (id: string) => boolean;
   onSymbolFocus?: (target: SymbolFocusTarget) => void;
   onOpenFileDiff?: (path: string) => void;
+  onOpenSourceFile?: (path: string) => void;
 }
 
 /** One source file of the package, holding its class shapes. */
@@ -419,12 +424,17 @@ function FileContainer({
   hasComment,
   onSymbolFocus,
   onOpenFileDiff,
+  onOpenSourceFile,
 }: FileContainerProps) {
   const diffCls = showDiff && file.diff ? file.diff : '';
+  // The file this panel stands for. Reading it is always on offer — a card
+  // reached by search or by browsing is as good a place to open code from as a
+  // review is.
+  const srcPath = sourceFilePath(componentId, file.path);
   // The card says which symbols changed; the patch says what the change was.
   // Only on the files the review marks as changed — elsewhere there is no
   // patch to open.
-  const diffPath = diffCls ? sourceFilePath(componentId, file.path) : null;
+  const diffPath = diffCls ? srcPath : null;
   return (
     <div
       className={`hf-file ${diffCls}`}
@@ -432,18 +442,32 @@ function FileContainer({
     >
       <div className="hf-file-head" title={file.label}>
         <span className="hf-file-name">{file.label}</span>
-        {onOpenFileDiff && diffPath && (
-          <button
-            className="hf-file-diff"
-            title={`Open ${diffPath} in the file diff`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenFileDiff(diffPath);
-            }}
-          >
-            &plusmn;
-          </button>
-        )}
+        <div className="hf-file-acts">
+          {onOpenSourceFile && srcPath && (
+            <button
+              className="hf-file-act hf-file-src"
+              title={`Show the code of ${srcPath}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenSourceFile(srcPath);
+              }}
+            >
+              {'<>'}
+            </button>
+          )}
+          {onOpenFileDiff && diffPath && (
+            <button
+              className="hf-file-act hf-file-diff"
+              title={`Open ${diffPath} in the file diff`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenFileDiff(diffPath);
+              }}
+            >
+              &plusmn;
+            </button>
+          )}
+        </div>
       </div>
       {file.blocks.map((block) => (
         <ClassBlock
