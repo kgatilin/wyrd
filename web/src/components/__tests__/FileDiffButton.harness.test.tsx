@@ -5,9 +5,25 @@ import { AppHarness } from '../../../testing/harness/app.harness';
 import type { GitDiff } from '../../domain/gitDiff';
 import type { UIGraph } from '../../types';
 
-/** One package with two files: one the branch touched, one it did not. */
+/** One package under review: one file the branch changed, one it did not. */
 const graph: UIGraph = {
   schema: 'archai.uigraph/v0',
+  pr: {
+    title: 'Wire the llm controller',
+    branch: 'feature',
+    agent: 'agent',
+    summary: '',
+    stats: { added: 0, removed: 0, changed: 1, comments: 0 },
+  },
+  reviewViews: [
+    {
+      id: 'changed',
+      title: 'Changed packages',
+      defaultScope: 'everything',
+      componentIds: ['controllers/llm'],
+      componentCount: 1,
+    },
+  ],
   boundedContexts: [{ id: 'root', name: 'Root' }],
   components: [
     {
@@ -23,6 +39,7 @@ const graph: UIGraph = {
           name: 'New',
           exported: true,
           sourceFile: 'controller.go',
+          diff: 'changed',
           members: [],
         },
         {
@@ -65,7 +82,7 @@ async function mount() {
   const diagram = await app.diagram();
   const card = await diagram.component('llm');
   if (!(await card.isExpanded())) await card.toggleExpand();
-  await env.waitUntil(async () => (await card.fileCount()) === 2, {
+  await env.waitUntil(async () => (await card.fileCount()) >= 1, {
     message: 'card never expanded into its file containers',
   });
   return { env, app, card };
@@ -77,6 +94,19 @@ afterEach(() => {
 });
 
 describe('open a card file in the diff', () => {
+  it('offers the button only on the files the review marks as changed', async () => {
+    const { env, app, card } = await mount();
+    // "Full package" draws the untouched files of a changed package too —
+    // they are the ones that must NOT offer a patch.
+    await app.setViewOption('Details', 'full');
+    await env.waitUntil(async () => (await card.fileCount()) === 2, {
+      message: 'card never drew its unchanged file',
+    });
+
+    expect(await (await card.file('controller.go')).hasOpenDiff()).toBe(true);
+    expect(await (await card.file('config.go')).hasOpenDiff()).toBe(false);
+  });
+
   it('opens the file diff at the patch of the clicked file', async () => {
     const { env, app, card } = await mount();
     await (await card.file('controller.go')).openDiff();
@@ -86,24 +116,5 @@ describe('open a card file in the diff', () => {
       message: 'diff overlay never showed a patch',
     });
     expect(await fileDiff.activePath()).toBe('controllers/llm/controller.go');
-  });
-
-  it("says a file is unchanged rather than showing another file's patch", async () => {
-    const { env, app, card } = await mount();
-    await (await card.file('config.go')).openDiff();
-
-    const fileDiff = app.fileDiff();
-    await env.waitUntil(async () => (await fileDiff.note()) != null, {
-      message: 'diff overlay never answered',
-    });
-    expect(await fileDiff.note()).toContain('controllers/llm/config.go');
-    expect(await fileDiff.note()).toContain('unchanged');
-    expect(await fileDiff.activePath()).toBeNull();
-  });
-
-  it('offers the button on every file the card can name', async () => {
-    const { card } = await mount();
-    expect(await (await card.file('controller.go')).hasOpenDiff()).toBe(true);
-    expect(await (await card.file('config.go')).hasOpenDiff()).toBe(true);
   });
 });

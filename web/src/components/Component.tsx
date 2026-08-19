@@ -422,10 +422,9 @@ function FileContainer({
 }: FileContainerProps) {
   const diffCls = showDiff && file.diff ? file.diff : '';
   // The card says which symbols changed; the patch says what the change was.
-  // Offered on every file, not only the ones the projection flagged: a change
-  // that touches no signature (a call moved, a body rewritten) leaves the card
-  // unmarked and is exactly the case a reviewer needs the text for.
-  const diffPath = sourceFilePath(componentId, file.path);
+  // Only on the files the review marks as changed — elsewhere there is no
+  // patch to open.
+  const diffPath = diffCls ? sourceFilePath(componentId, file.path) : null;
   return (
     <div
       className={`hf-file ${diffCls}`}

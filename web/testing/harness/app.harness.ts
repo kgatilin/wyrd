@@ -51,6 +51,23 @@ export class AppHarness extends ComponentHarness {
     return new DiffOverlayHarness(this.root, this.env);
   }
 
+  // ── Review bar "View" popover ───────────────────────────────────────────
+  async openViewOptions(): Promise<void> {
+    if ((await this.env.rootLocator('.hf-reviewbar-popover').count()) > 0) return;
+    await (await this.env.rootLocator('.hf-reviewbar-toggle').first()).click();
+  }
+  /** Set one of the popover's selects by its label ("Details", "Focus", ...). */
+  async setViewOption(label: string, value: string): Promise<void> {
+    await this.openViewOptions();
+    for (const row of await this.env.rootLocator('.hf-reviewbar-popover label').all()) {
+      if ((await (await row.locator('span').first()).text()) === label) {
+        await (await row.locator('select').first()).fill(value);
+        return;
+      }
+    }
+    throw new Error(`review view option "${label}" not found`);
+  }
+
   // ── Left panel review tree ──────────────────────────────────────────────
   async hasReviewTab(): Promise<boolean> {
     return (await this.env.rootLocator('.hf-tabs button').filterByText('REVIEW').count()) > 0;

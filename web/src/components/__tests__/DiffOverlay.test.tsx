@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { DiffOverlay, useDiffSession } from '../DiffOverlay';
@@ -89,13 +90,20 @@ function Harness({
   baseRef = 'main',
   open = true,
   onClose = () => {},
+  select,
 }: {
   worktree?: string;
   baseRef?: string;
   open?: boolean;
   onClose?: () => void;
+  /** A file asked for from outside, the way a card's ± button does. */
+  select?: string;
 }) {
   const session = useDiffSession(worktree, baseRef, open);
+  const choose = session.select;
+  useEffect(() => {
+    if (select) choose(select);
+  }, [select, choose]);
   if (!open) return null;
   return (
     <DiffOverlay session={session} graph={graph} worktree={worktree} baseRef={baseRef} onClose={onClose} />
@@ -158,6 +166,18 @@ describe('DiffOverlay', () => {
       'internal/adapter/git/diff.go'
     ));
     expect(container.querySelector('.hf-diff-line.add .text')?.textContent).toBe('package git');
+  });
+
+  it('reports a file the diff does not contain instead of showing another one', async () => {
+    stubFetch();
+    const { container } = render(<Harness select="controllers/llm/config.go" onClose={() => {}} />);
+    await waitFor(() =>
+      expect(container.querySelector('.hf-diff-note')?.textContent).toContain(
+        'controllers/llm/config.go is unchanged against main'
+      )
+    );
+    // No patch at all, rather than the first file's under a name it is not.
+    expect(container.querySelector('.hf-diff-filehead')).toBeNull();
   });
 
   it('numbers both sides of a modification and keeps the marker out of the text', async () => {
