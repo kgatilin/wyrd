@@ -493,9 +493,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// parsing the worktree overlay here only adds a failure mode (e.g. a
 	// worktree whose archai.yaml uses a newer schema than this binary).
 	if !httpAddrFromFlag && !mcpStdio {
-		overlayAddr, err := loadServeHTTPAddrFromOverlay(root)
+		overlayAddr, err := overlay.ServeHTTPAddr(root)
 		if err != nil {
-			return err
+			return fmt.Errorf("serve: %w", err)
 		}
 		if overlayAddr != "" {
 			httpAddr = overlayAddr
@@ -676,44 +676,6 @@ func reviewUIDistExists(dir string) bool {
 		return false
 	}
 	return true
-}
-
-// loadServeHTTPAddrFromOverlay reads <root>/archai.yaml (if present) and
-// returns its serve.http_addr value. A missing overlay returns ("", nil)
-// so callers fall back to the flag default. A malformed serve block is
-// reported as a hard error so misconfigurations surface immediately
-// instead of silently using the default.
-func loadServeHTTPAddrFromOverlay(root string) (string, error) {
-	if root == "" {
-		root = "."
-	}
-	overlayPath := filepath.Join(root, "archai.yaml")
-	if _, err := os.Stat(overlayPath); err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", fmt.Errorf("serve: stat %s: %w", overlayPath, err)
-	}
-	cfg, err := overlay.Load(overlayPath)
-	if err != nil {
-		return "", fmt.Errorf("serve: load %s: %w", overlayPath, err)
-	}
-	// Validate just the serve block in isolation so a partially-formed
-	// archai.yaml (missing module / layers) does not block --http
-	// resolution; downstream consumers run full validation themselves.
-	probe := &overlay.Config{
-		Module: "serve.http_addr-probe",
-		Layers: map[string][]string{"_probe": {"_probe/..."}},
-		Serve:  cfg.Serve,
-	}
-	if vErr := overlay.Validate(probe, ""); vErr != nil {
-		for _, line := range strings.Split(vErr.Error(), "\n") {
-			if strings.Contains(line, "serve.http_addr") {
-				return "", fmt.Errorf("serve: %s: %s", overlayPath, line)
-			}
-		}
-	}
-	return cfg.Serve.HTTPAddr, nil
 }
 
 // bootstrapDaemonPlugins runs plugin Init against the live serve.Host
@@ -1909,7 +1871,7 @@ func runListDaemons(cmd *cobra.Command, args []string) error {
 			repo = "..." + repo[len(repo)-37:]
 		}
 		fmt.Printf("%-40s  %-15s  %-7d  %-22s  %-12s  %s\n",
-			repo, d.Worktrees, d.PID, "http://"+d.HTTPAddr, d.Caps, uptime)
+			repo, d.Worktrees, d.PID, daemonOrigin(d.HTTPAddr), d.Caps, uptime)
 	}
 	return nil
 }

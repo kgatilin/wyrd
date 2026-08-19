@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	nethttp "net/http"
 	"os"
 	"os/exec"
@@ -203,16 +204,43 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("resolving cwd: %w", err)
 	}
 	idle, _ := cmd.Flags().GetDuration("idle-timeout")
-	rec, _, err := serve.AutoStartRepoDaemon(serve.AutoStartOptions{
+	rec, wtName, err := serve.AutoStartRepoDaemon(serve.AutoStartOptions{
 		Root:        cwd,
 		IdleTimeout: idle,
 	})
 	if err != nil {
 		return fmt.Errorf("start daemon: %w", err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Daemon for %s: http://%s (pid %d).\n",
-		filepath.Base(rec.RepoRoot), rec.HTTPAddr, rec.PID)
+	fmt.Fprintf(cmd.OutOrStdout(), "Daemon for %s: %s (pid %d).\n",
+		filepath.Base(rec.RepoRoot), reviewURL(rec.HTTPAddr, wtName), rec.PID)
 	return nil
+}
+
+// reviewURL is the page to open for a worktree — the whole address, not
+// just the origin, so it can be pasted or bookmarked as printed. Pin the
+// port with serve.http_addr in archai.yaml and it stays valid across
+// restarts.
+func reviewURL(addr, worktree string) string {
+	origin := daemonOrigin(addr)
+	if worktree == "" {
+		return origin + "/"
+	}
+	return origin + "/w/" + worktree + "/review/"
+}
+
+// daemonOrigin turns a listener address into one a browser can open. A
+// daemon that binds every interface registers as "0.0.0.0:PORT" or
+// "[::]:PORT", neither of which is a host you can visit — the reachable
+// name for the machine that started it is loopback.
+func daemonOrigin(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "http://" + addr
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
 
 func newDaemonListCmd() *cobra.Command {
@@ -465,13 +493,14 @@ func runDaemonRestart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	newRec, _, err := serve.AutoStartRepoDaemon(serve.AutoStartOptions{
+	newRec, wtName, err := serve.AutoStartRepoDaemon(serve.AutoStartOptions{
 		Root:        repoRoot,
 		IdleTimeout: idle,
 	})
 	if err != nil {
 		return fmt.Errorf("restart: starting new daemon for %s: %w", name, err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Restarted daemon for %s: http://%s (pid %d).\n", name, newRec.HTTPAddr, newRec.PID)
+	fmt.Fprintf(cmd.OutOrStdout(), "Restarted daemon for %s: %s (pid %d).\n",
+		name, reviewURL(newRec.HTTPAddr, wtName), newRec.PID)
 	return nil
 }

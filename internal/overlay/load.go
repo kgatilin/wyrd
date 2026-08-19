@@ -261,3 +261,47 @@ func modulePackage(module, pkgPath string) string {
 	}
 	return module + "/" + pkgPath
 }
+
+// FileName is the name of the project overlay document, at the project
+// (or repository) root.
+const FileName = "archai.yaml"
+
+// ServeHTTPAddr reads <root>/archai.yaml and returns its
+// serve.http_addr — the address the project pins its review daemon to,
+// so the URL survives a restart and can be bookmarked.
+//
+// A missing overlay returns ("", nil) so callers fall back to their own
+// default (a kernel-assigned port). A malformed serve block is a hard
+// error: silently binding a random port instead of the configured one is
+// exactly the surprise the setting exists to remove. Only the serve
+// block is validated, so a partially-formed archai.yaml (no module, no
+// layers) still yields an address.
+func ServeHTTPAddr(root string) (string, error) {
+	if root == "" {
+		root = "."
+	}
+	path := filepath.Join(root, FileName)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("overlay: stat %s: %w", path, err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		return "", err
+	}
+	probe := &Config{
+		Module: "serve.http_addr-probe",
+		Layers: map[string][]string{"_probe": {"_probe/..."}},
+		Serve:  cfg.Serve,
+	}
+	if vErr := Validate(probe, ""); vErr != nil {
+		for _, line := range strings.Split(vErr.Error(), "\n") {
+			if strings.Contains(line, "serve.http_addr") {
+				return "", fmt.Errorf("overlay: %s: %s", path, line)
+			}
+		}
+	}
+	return cfg.Serve.HTTPAddr, nil
+}

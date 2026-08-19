@@ -1,10 +1,12 @@
 package serve
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -261,4 +263,231 @@ func goBuild(t *testing.T, srcDir, out string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// TestAutoStartRepoDaemon_PinsAddrFromOverlay proves the setting a
+// project writes down actually reaches the daemon it starts. Auto-start
+// passes --http explicitly, so the spawned process never reads
+// archai.yaml itself — if the resolution here regressed, every project
+// would silently be back on a kernel-assigned port and every bookmarked
+// review URL would break after a restart.
+func TestAutoStartRepoDaemon_PinsAddrFromOverlay(t *testing.T) {
+	repo := autoStartTempRepo(t)
+	writeServeOverlay(t, repo, "127.0.0.1:47811")
+
+	rec := runFakeRepoDaemon(t, repo, "")
+	if rec.HTTPAddr != "127.0.0.1:47811" {
+		t.Errorf("registered addr = %q, want the pinned 127.0.0.1:47811", rec.HTTPAddr)
+	}
+	if got := spawnArg(t, repo, "--http"); got != "127.0.0.1:47811" {
+		t.Errorf("--http = %q, want the pinned 127.0.0.1:47811", got)
+	}
+}
+
+// An explicit address still wins: the overlay is the project default,
+// not an override of what a caller asked for.
+func TestAutoStartRepoDaemon_ExplicitAddrBeatsOverlay(t *testing.T) {
+	repo := autoStartTempRepo(t)
+	writeServeOverlay(t, repo, "127.0.0.1:47811")
+
+	runFakeRepoDaemon(t, repo, "127.0.0.1:47822")
+	if got := spawnArg(t, repo, "--http"); got != "127.0.0.1:47822" {
+		t.Errorf("--http = %q, want the caller's 127.0.0.1:47822", got)
+	}
+}
+
+// With nothing pinned the kernel picks the port, as before.
+func TestAutoStartRepoDaemon_NoOverlayKeepsDynamicPort(t *testing.T) {
+	repo := autoStartTempRepo(t)
+
+	runFakeRepoDaemon(t, repo, "")
+	if got := spawnArg(t, repo, "--http"); got != "127.0.0.1:0" {
+		t.Errorf("--http = %q, want the dynamic 127.0.0.1:0", got)
+	}
+}
+
+func TestAutoStartRepoDaemon_MalformedOverlayIsAnError(t *testing.T) {
+	repo := autoStartTempRepo(t)
+	writeServeOverlay(t, repo, "127.0.0.1:not-a-port")
+
+	if _, _, err := AutoStartRepoDaemon(AutoStartOptions{
+		ExePath:      buildFakeRepoDaemon(t, repo),
+		Root:         repo,
+		WaitTimeout:  3 * time.Second,
+		PollInterval: 20 * time.Millisecond,
+	}); err == nil {
+		t.Fatal("expected an error for a malformed serve.http_addr, got nil")
+	}
+}
+
+// autoStartTempRepo returns a directory outside any git repository, with
+// the global daemon registry redirected into it.
+func autoStartTempRepo(t *testing.T) string {
+	t.Helper()
+	// Not t.TempDir(): that lives under the surrounding git repo on some
+	// hosts, and RepoRoot would then resolve somewhere unexpected.
+	repo, err := os.MkdirTemp("", "archai-autostart-pin-*")
+	if err != nil {
+		t.Fatalf("mkdirtemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(repo) })
+	t.Setenv("ARCHAI_HOME", filepath.Join(repo, "home"))
+	t.Setenv("FAKE_DAEMON_PID", strconv.Itoa(os.Getpid()))
+	return repo
+}
+
+func writeServeOverlay(t *testing.T, repo, addr string) {
+	t.Helper()
+	doc := "module: github.com/example/app\n\nlayers:\n  domain:\n    - internal/domain/...\n\nlayer_rules:\n  domain: []\n\nserve:\n  http_addr: \"" + addr + "\"\n"
+	if err := os.WriteFile(filepath.Join(repo, "archai.yaml"), []byte(doc), 0o644); err != nil {
+		t.Fatalf("write archai.yaml: %v", err)
+	}
+}
+
+func runFakeRepoDaemon(t *testing.T, repo, addr string) *DaemonRecord {
+	t.Helper()
+	rec, _, err := AutoStartRepoDaemon(AutoStartOptions{
+		ExePath:      buildFakeRepoDaemon(t, repo),
+		Root:         repo,
+		HTTPAddr:     addr,
+		WaitTimeout:  5 * time.Second,
+		PollInterval: 20 * time.Millisecond,
+		Stderr:       os.Stderr,
+		Multi:        true,
+	})
+	if err != nil {
+		t.Fatalf("AutoStartRepoDaemon: %v", err)
+	}
+	return rec
+}
+
+// spawnArg reads the argv the fake daemon recorded and returns the value
+// that followed `flag`.
+func spawnArg(t *testing.T, repo, flag string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(repo, "spawn.args"))
+	if err != nil {
+		t.Fatalf("read spawn.args: %v", err)
+	}
+	args := strings.Split(strings.TrimSpace(string(data)), "\n")
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	t.Fatalf("%s not found in spawned argv %q", flag, args)
+	return ""
+}
+
+// buildFakeRepoDaemon compiles a stand-in for `archai serve --multi`: it
+// records the argv it was given and registers itself in the global
+// registry the way a real daemon does, then exits.
+func buildFakeRepoDaemon(t *testing.T, repo string) string {
+	t.Helper()
+
+	src := `package main
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+)
+
+func main() {
+	args := os.Args[1:]
+	repo, addr := "", ""
+	for i, a := range args {
+		if a == "--repo" && i+1 < len(args) {
+			repo = args[i+1]
+		}
+		if a == "--http" && i+1 < len(args) {
+			addr = args[i+1]
+		}
+	}
+	if repo == "" {
+		os.Exit(2)
+	}
+	_ = os.WriteFile(filepath.Join(repo, "spawn.args"), []byte(strings.Join(args, "\n")), 0o644)
+
+	pid := os.Getpid()
+	if env := os.Getenv("FAKE_DAEMON_PID"); env != "" {
+		if parsed, err := strconv.Atoi(env); err == nil {
+			pid = parsed
+		}
+	}
+	abs, _ := filepath.Abs(repo)
+	sum := sha256.Sum256([]byte(filepath.Clean(abs)))
+	dir := filepath.Join(os.Getenv("ARCHAI_HOME"), "daemons")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		os.Exit(1)
+	}
+	rec := map[string]any{
+		"repo_root":  repo,
+		"http_addr":  addr,
+		"pid":        pid,
+		"caps":       []string{"mcp", "ui", "multi"},
+		"started_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	b, _ := json.Marshal(rec)
+	_ = os.WriteFile(filepath.Join(dir, hex.EncodeToString(sum[:])[:16]+".json"), b, 0o644)
+}
+`
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(srcPath, []byte(src), 0o644); err != nil {
+		t.Fatalf("write fake daemon: %v", err)
+	}
+	exe := filepath.Join(dir, "fake-repo-daemon")
+	build := exec.Command("go", "build", "-o", exe, srcPath)
+	build.Env = append(os.Environ(), "GOFLAGS=")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build fake daemon: %v\n%s", err, out)
+	}
+	return exe
+}
+
+// TestDetachStdio_HandsTheChildFiles guards the difference between
+// /dev/null and io.Discard. io.Discard is not an *os.File, so os/exec
+// gives the child a pipe drained by the parent — and a detached daemon
+// outlives its parent by design, so the first log line after the parent
+// exits raises SIGPIPE and the Go runtime kills the daemon. It would
+// register, then vanish, leaving a stale record and a dead URL.
+func TestDetachStdio_HandsTheChildFiles(t *testing.T) {
+	cmd := exec.Command("true")
+	devNull, err := detachStdio(cmd, nil)
+	if err != nil {
+		t.Fatalf("detachStdio: %v", err)
+	}
+	defer devNull.Close()
+
+	if _, ok := cmd.Stdout.(*os.File); !ok {
+		t.Errorf("stdout = %T, want *os.File (a pipe dies with the parent)", cmd.Stdout)
+	}
+	if _, ok := cmd.Stderr.(*os.File); !ok {
+		t.Errorf("stderr = %T, want *os.File (a pipe dies with the parent)", cmd.Stderr)
+	}
+	if cmd.Stdin != nil {
+		t.Errorf("stdin = %v, want nil so exec opens /dev/null itself", cmd.Stdin)
+	}
+}
+
+// A caller that asks for the child's stderr still gets it — that is how
+// the tests above read what a spawned daemon reported.
+func TestDetachStdio_KeepsAnExplicitStderr(t *testing.T) {
+	cmd := exec.Command("true")
+	var sink bytes.Buffer
+	devNull, err := detachStdio(cmd, &sink)
+	if err != nil {
+		t.Fatalf("detachStdio: %v", err)
+	}
+	defer devNull.Close()
+
+	if cmd.Stderr != &sink {
+		t.Errorf("stderr = %v, want the writer the caller passed", cmd.Stderr)
+	}
 }

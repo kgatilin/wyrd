@@ -154,6 +154,28 @@ numeric → PID, else repo basename):
   `ps` state, not just `kill -0`); restart always relaunches. Both can target a
   legacy per-worktree `serve.json` daemon, not just the global registry.
 
+**Pin the port, or the URL is unbookmarkable.** `serve.http_addr` in
+`archai.yaml` is read by *every* start path — `archai serve`, `archai
+daemon start/restart`, and the MCP client's auto-start — so
+`http://127.0.0.1:<port>/w/<worktree>/review/` survives restarts.
+Without it the kernel assigns a fresh port each time. `--http` still
+wins over the file; a pinned address that cannot be bound fails with
+that diagnosis instead of silently falling back. The host half is
+honoured as written, so a wildcard host really does bind every
+interface — the loopback-only guarantee auto-start used to have applies
+only to the unpinned default. `overlay.ServeHTTPAddr` owns the read;
+`daemon start`/`restart` print the full review URL (wildcard hosts
+normalized to loopback so the printed URL is openable).
+
+**A detached daemon must get `/dev/null`, never `io.Discard`.**
+`io.Discard` is not an `*os.File`, so `os/exec` hands the child a pipe
+drained by the parent; a daemon outlives its parent by design, so the
+first log line after the parent exits raises SIGPIPE on fd 2 and the Go
+runtime kills it — the daemon registers, then vanishes, leaving a stale
+record and a dead URL. This is why `archai daemon start` used to appear
+to do nothing. `detachStdio` (`internal/serve/autostart.go`) is the one
+place that wires it.
+
 Rebuilding the binary bumps the model-cache stamp ⇒ the next start re-parses
 every package from scratch. Embeddings survive it: `vectors.json` is keyed by
 node id + content hash, so only nodes whose text changed are re-embedded. A

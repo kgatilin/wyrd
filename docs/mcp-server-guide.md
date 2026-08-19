@@ -120,9 +120,31 @@ launched with `--idle-timeout 15m` so an orphaned MCP client does not
 leave a daemon running indefinitely. User-started `archai serve`
 defaults to `--idle-timeout 0` (no timeout).
 
-Auto-started daemons always bind `127.0.0.1:0` — auto-start never
-exposes the daemon on the LAN. To bind a non-loopback interface,
-launch `archai serve` yourself with an explicit `--http` address.
+Auto-started daemons bind `127.0.0.1:0` by default — a kernel-assigned
+loopback port, so auto-start does not expose the daemon on the LAN.
+
+A project can pin the address instead, so the review URL survives a
+restart and can be bookmarked:
+
+```yaml
+# archai.yaml
+serve:
+  http_addr: "127.0.0.1:47823"
+```
+
+Every way of starting a repo daemon reads it — `archai serve`, `archai
+daemon start/restart`, and the auto-start the MCP client performs — so
+`http://127.0.0.1:47823/w/<worktree>/review/` stays the address for the
+life of the project. An explicit `--http` still wins over the file.
+
+The host half is honoured as written: a project that pins `0.0.0.0:PORT`
+is asking to be reachable from other machines (a container publishing
+the port, for instance), and auto-start will bind every interface too.
+Write a loopback host unless that is what you want.
+
+If the daemon cannot take the pinned address — usually because another
+process already holds the port — start fails with that diagnosis rather
+than quietly falling back to a random one.
 
 ---
 

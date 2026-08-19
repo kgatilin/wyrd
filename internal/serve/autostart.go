@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kgatilin/archai/internal/overlay"
 	"github.com/kgatilin/archai/internal/worktree"
 )
 
@@ -80,8 +81,9 @@ type AutoStartOptions struct {
 	Root string
 
 	// HTTPAddr is the listen address passed to `archai serve --http`.
-	// Empty falls back to "127.0.0.1:0" so the kernel picks a free
-	// port and the auto-started daemon stays on the loopback interface.
+	// Empty means "ask the repo": the project's archai.yaml
+	// serve.http_addr if it pins one, else "127.0.0.1:0" so the kernel
+	// picks a free port and the daemon stays on the loopback interface.
 	HTTPAddr string
 
 	// WaitTimeout is the maximum time to wait for serve.json to appear
@@ -180,13 +182,11 @@ func AutoStartDaemon(opts AutoStartOptions) (*worktree.ServeRecord, error) {
 		args = append(args, "--multi")
 	}
 	cmd := exec.Command(exePath, args...)
-	cmd.Stdin = nil
-	cmd.Stdout = io.Discard
-	if opts.Stderr != nil {
-		cmd.Stderr = opts.Stderr
-	} else {
-		cmd.Stderr = io.Discard
+	devNull, err := detachStdio(cmd, opts.Stderr)
+	if err != nil {
+		return nil, err
 	}
+	defer devNull.Close()
 	detachProcess(cmd)
 
 	if err := cmd.Start(); err != nil {
@@ -239,7 +239,21 @@ func AutoStartRepoDaemon(opts AutoStartOptions) (*DaemonRecord, string, error) {
 			exePath = exe
 		}
 	}
+	// A repo may pin its daemon to a fixed address so the review URL is
+	// stable enough to bookmark. Auto-start is the path that would
+	// otherwise always hand out a fresh kernel-assigned port, since it
+	// passes --http explicitly and the spawned daemon therefore never
+	// consults the overlay itself.
 	httpAddr := opts.HTTPAddr
+	pinned := false
+	if httpAddr == "" {
+		configured, cErr := overlay.ServeHTTPAddr(repoRoot)
+		if cErr != nil {
+			return nil, "", fmt.Errorf("autostart: %w", cErr)
+		}
+		httpAddr = configured
+		pinned = configured != ""
+	}
 	if httpAddr == "" {
 		httpAddr = "127.0.0.1:0"
 	}
@@ -281,13 +295,11 @@ func AutoStartRepoDaemon(opts AutoStartOptions) (*DaemonRecord, string, error) {
 		args = append(args, "--idle-timeout", opts.IdleTimeout.String())
 	}
 	cmd := exec.Command(exePath, args...)
-	cmd.Stdin = nil
-	cmd.Stdout = io.Discard
-	if opts.Stderr != nil {
-		cmd.Stderr = opts.Stderr
-	} else {
-		cmd.Stderr = io.Discard
+	devNull, err := detachStdio(cmd, opts.Stderr)
+	if err != nil {
+		return nil, "", err
 	}
+	defer devNull.Close()
 	detachProcess(cmd)
 
 	if err := cmd.Start(); err != nil {
@@ -305,5 +317,41 @@ func AutoStartRepoDaemon(opts AutoStartOptions) (*DaemonRecord, string, error) {
 		}
 		time.Sleep(pollInterval)
 	}
+	if pinned {
+		// The overwhelmingly likely cause: something else already holds
+		// the configured port, so the daemon died on bind instead of
+		// registering. Say so — the fallback is silence.
+		return nil, "", fmt.Errorf(
+			"autostart: daemon (pid %d) did not register within %s; it was pinned to %s by serve.http_addr in %s/archai.yaml — is that address already in use?",
+			childPID, waitTimeout, httpAddr, repoRoot)
+	}
 	return nil, "", fmt.Errorf("autostart: daemon (pid %d) did not register within %s", childPID, waitTimeout)
+}
+
+// detachStdio points a spawned daemon's stdout (and stderr, unless the
+// caller wants it) at /dev/null — a real file, not io.Discard.
+//
+// This distinction is the whole function. io.Discard is not an *os.File,
+// so os/exec hands the child a pipe and copies it in the parent; when the
+// parent exits — which is the entire point of a detached daemon, and what
+// `archai daemon start` does immediately — the read end closes and the
+// daemon's next log line raises SIGPIPE on fd 2, which the Go runtime
+// turns into process death. The daemon would come up, register, answer
+// nothing, and leave a stale record behind.
+//
+// Returns the file so the caller can close its own copy after Start; the
+// child holds a dup of the descriptor.
+func detachStdio(cmd *exec.Cmd, stderr io.Writer) (*os.File, error) {
+	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		return nil, fmt.Errorf("autostart: open %s: %w", os.DevNull, err)
+	}
+	cmd.Stdin = nil
+	cmd.Stdout = devNull
+	if stderr != nil {
+		cmd.Stderr = stderr
+	} else {
+		cmd.Stderr = devNull
+	}
+	return devNull, nil
 }
