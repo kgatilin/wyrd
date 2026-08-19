@@ -167,6 +167,15 @@ only to the unpinned default. `overlay.ServeHTTPAddr` owns the read;
 `daemon start`/`restart` print the full review URL (wildcard hosts
 normalized to loopback so the printed URL is openable).
 
+**A daemon that cannot bind must exit.** Both wait loops in `Serve`
+block until the context is cancelled, so a transport that failed on
+startup used to leave a daemon running with no listener and no registry
+record — invisible to `daemon list`, unreachable, and never stopped by
+`restart` (which only stops what is registered). Harmless while every
+daemon bound port 0; the moment ports are pinned, "address already in
+use" is the normal collision and the orphans pile up. `Serve` now
+selects on `httpErrCh` alongside the watcher / context wait.
+
 **A detached daemon must get `/dev/null`, never `io.Discard`.**
 `io.Discard` is not an `*os.File`, so `os/exec` hands the child a pipe
 drained by the parent; a daemon outlives its parent by design, so the

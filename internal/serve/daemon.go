@@ -394,11 +394,33 @@ func Serve(ctx context.Context, opts Options) error {
 		return nil
 	}
 
+	// A dead listener has to end the daemon. Both waits below block until
+	// the context is cancelled, so without watching httpErrCh a transport
+	// that failed on startup — "address already in use" is the one that
+	// actually happens, now that a project can pin its port — would leave
+	// a daemon running forever with nothing listening and no registry
+	// record, while whoever spawned it waited for a registration that can
+	// never arrive.
+	httpDied := func(err error) error {
+		httpStarted = false
+		if err != nil {
+			return fmt.Errorf("serve: http transport: %w", err)
+		}
+		fmt.Fprintln(logOut, "serve: http transport closed; shutting down")
+		return nil
+	}
+
 	if watcher != nil {
 		fmt.Fprintln(logOut, "serve: watching for changes (Ctrl-C to stop)")
-		watchErr := watcher.Run(runCtx, handler)
-		if watchErr != nil && !errors.Is(watchErr, context.Canceled) {
-			return watchErr
+		watchDone := make(chan error, 1)
+		go func() { watchDone <- watcher.Run(runCtx, handler) }()
+		select {
+		case watchErr := <-watchDone:
+			if watchErr != nil && !errors.Is(watchErr, context.Canceled) {
+				return watchErr
+			}
+		case err := <-httpErrCh:
+			return httpDied(err)
 		}
 	} else {
 		// Multi mode: per-worktree watchers are spun up lazily as each
@@ -407,7 +429,11 @@ func Serve(ctx context.Context, opts Options) error {
 		// idle-timeout monitor cancels; the deferred MultiState.Close
 		// stops every registered watcher on exit.
 		fmt.Fprintln(logOut, "serve: multi-worktree mode (Ctrl-C to stop)")
-		<-runCtx.Done()
+		select {
+		case <-runCtx.Done():
+		case err := <-httpErrCh:
+			return httpDied(err)
+		}
 	}
 
 	// Wait for the HTTP goroutine to unwind (if one was started) so we

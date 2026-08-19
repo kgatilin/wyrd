@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,6 +20,10 @@ type fakeHTTPTransport struct {
 	boundAddr string
 	readyCh   chan string
 
+	// serveErr, when non-nil, is returned immediately instead of
+	// binding — the shape of a real "address already in use".
+	serveErr error
+
 	// observer, when non-nil, is the activity observer installed via
 	// SetActivityObserver. Guarded by mu so idle-timeout tests can
 	// safely read it from a separate goroutine under -race.
@@ -35,6 +40,10 @@ func (f *fakeHTTPTransport) getObserver() func() {
 }
 
 func (f *fakeHTTPTransport) Serve(ctx context.Context, addr string, ready func(boundAddr string)) error {
+	if f.serveErr != nil {
+		// A failed bind never calls ready, so nothing is ever recorded.
+		return f.serveErr
+	}
 	// Simulate a port-0 bind by picking a synthetic addr.
 	bound := f.boundAddr
 	if bound == "" {
@@ -303,5 +312,64 @@ func TestServe_IdleTimeoutResetsOnActivity(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Serve did not exit within 2s of ticks stopping")
+	}
+}
+
+// TestServe_ExitsWhenTheListenerFails covers the daemon that cannot take
+// its address. Both wait loops block until the context is cancelled, so
+// a transport that died on startup used to leave a daemon running with
+// nothing listening and no registry record — invisible to `daemon list`,
+// unreachable by URL, and still holding a slot in `ps`. With a pinned
+// serve.http_addr that is the normal collision, not an exotic one.
+func TestServe_ExitsWhenTheListenerFails(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		multi bool
+	}{
+		{name: "single worktree", multi: false},
+		{name: "multi worktree", multi: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "go.mod"),
+				[]byte("module example.com/bind\n\ngo 1.21\n"), 0o644); err != nil {
+				t.Fatalf("write go.mod: %v", err)
+			}
+
+			bindErr := errors.New("listen tcp 127.0.0.1:47824: bind: address already in use")
+			fake := &fakeHTTPTransport{serveErr: bindErr}
+			opts := Options{
+				Root:     root,
+				HTTPAddr: "127.0.0.1:47824",
+				HTTPServerFactory: func(*State) (HTTPTransport, error) {
+					return fake, nil
+				},
+				LogOut: io.Discard,
+			}
+			if tc.multi {
+				opts.MultiState = NewMultiState(root, nil)
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- Serve(ctx, opts) }()
+
+			select {
+			case err := <-done:
+				if err == nil || !errors.Is(err, bindErr) {
+					t.Fatalf("Serve error = %v, want it to carry %v", err, bindErr)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("Serve never returned: a daemon with a dead listener is still running")
+			}
+
+			// Nothing was ever reachable, so nothing may claim to be.
+			if rec, err := worktree.ReadServe(root, worktree.Name(root)); err != nil {
+				t.Fatalf("ReadServe: %v", err)
+			} else if rec != nil {
+				t.Errorf("serve.json written for a daemon that never bound: %+v", rec)
+			}
+		})
 	}
 }
