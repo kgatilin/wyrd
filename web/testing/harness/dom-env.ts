@@ -161,7 +161,15 @@ export class DomEnvironment implements HarnessEnvironment {
  * first), render <App/>, and return a DomEnvironment. Call cleanup() and
  * vi.unstubAllGlobals() in the test's afterEach.
  */
-export async function mountAppDom(graph: UIGraph): Promise<DomEnvironment> {
+export interface MountOptions {
+  /**
+   * Answers POST /api/search. Without it the ask panel's requests fail, which
+   * is itself a state worth testing.
+   */
+  search?: (query: string, k: number) => { results: unknown[]; dense: boolean };
+}
+
+export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promise<DomEnvironment> {
   // jsdom implements no scrolling API. The viewport effect centers the canvas
   // on a card after a relayout, and an exception there aborts the rest of the
   // store's subscribers — including React — so the DOM would silently freeze on
@@ -171,9 +179,13 @@ export async function mountAppDom(graph: UIGraph): Promise<DomEnvironment> {
   }
   const okJson = (data: unknown) =>
     ({ ok: true, json: async () => data } as unknown as Response);
-  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes('/api/uigraph')) return okJson(graph);
+    if (url.includes('/api/search') && options?.search) {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { query?: string; k?: number };
+      return okJson(options.search(body.query ?? '', body.k ?? 0));
+    }
     return { ok: false, json: async () => ({}) } as unknown as Response;
   });
   render(React.createElement(App));

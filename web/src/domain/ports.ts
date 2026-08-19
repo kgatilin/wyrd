@@ -1,4 +1,5 @@
 import type { UIGraph } from '../types';
+import type { RawAskHit } from './ask';
 import type { Interaction } from './state';
 
 export interface LayoutPort {
@@ -7,6 +8,10 @@ export interface LayoutPort {
 
 export interface GraphSourcePort {
   load(worktree?: string): Promise<UIGraph>;
+}
+
+export interface SearchPort {
+  search(query: string, options: { k: number; worktree?: string }): Promise<{ hits: RawAskHit[]; dense: boolean }>;
 }
 
 export interface NavigationPort {

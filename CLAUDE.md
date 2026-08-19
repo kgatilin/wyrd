@@ -397,6 +397,46 @@ produced a hairball of crossing curves.
   nothing. While the panel is up it owns the keyboard — `Esc` dismisses
   it, not the diff, and `j`/`k` stop walking the file list behind it.
 
+### Ask in the review UI
+
+`Ask` in the app bar (or the `ASK` tab in the left rail) puts a question to
+the same retrieval index the MCP `search` tool queries, and answers it on
+the canvas: the ranked hits list in the rail, and the packages those hits
+live in drawn as cards narrowed to the matched symbols. It answers "where
+is X handled" as architecture instead of as a file list.
+
+- Data: `POST /w/<worktree>/api/search` → `internal/adapter/http/retrieval.go`
+  → `retrieval.Service.Search` — hybrid dense (embeddings) + BM25, fused
+  with RRF. No new endpoint; the review UI and the MCP tool share one.
+- **Node ids are the join.** A retrieval `node_id` *is* uigraph's
+  `Internal.id` (`{package}.{Symbol}`) and its package is the component id,
+  so a hit is a card-row lookup with no translation. `retrieval.Result` also
+  carries `package`/`name` explicitly: package paths contain dots, so a
+  client splitting the id would be guessing. `web/src/domain/ask.ts` still
+  keeps a longest-component-prefix fallback and resolves against the loaded
+  graph, so a hit that cannot be drawn is *flagged*, never dropped.
+- **An ask replaces the review selection, not just filters it.** The `ask`
+  option on `selectReviewGraph` overrides the review view's package
+  allowlist *and* skips the diff projection: a question is asked of the
+  repository, so a matched package draws whether or not the branch touched
+  it. Diff badges on those cards survive.
+- `askProjectionOf(ask)` is the one place the projection is derived —
+  `AppContent` and the layout effect both call it, so the drawn canvas and
+  the laid-out graph cannot disagree about what the answer is. Ask events
+  are in `LAYOUT_TRIGGERS` for the same reason.
+- An answer expands the packages it matched (a collapsed card would hide
+  the symbols asked about); `Clear` restores the expansion the review had
+  before the first ask (`AskState.expandedBefore`).
+- **Depth is a count, never a score cutoff.** Fused RRF scores carry no
+  absolute relevance, so the panel offers `Hits 10/20/50` and no threshold.
+  The response's `dense` flag is reported as `semantic` vs `lexical only` —
+  a recall difference worth saying out loud, not a failure.
+- Model: `web/src/domain/ask.ts` (pure, tested). View:
+  `components/AskPanel.tsx`. Effect: `effects/ask.ts` over a `SearchPort`
+  (`data/search.ts` + `adapters/httpSearchSource.ts`). Specs go through
+  `testing/harness/ask-panel.harness.ts`; `mountAppDom` takes a `search`
+  responder so the DOM specs answer without a daemon.
+
 ### Event Model
 
 Declarative event-driven architecture declarations (`.arch/events.yaml`) with

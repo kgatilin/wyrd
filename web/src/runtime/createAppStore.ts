@@ -5,6 +5,7 @@ import { update } from '../domain/update';
 import { createEffects } from '../effects';
 import { createElkLayout } from '../adapters/elkLayout';
 import { createHttpGraphSource } from '../adapters/httpGraphSource';
+import { createHttpSearchSource } from '../adapters/httpSearchSource';
 import { createDomViewport, type DomViewport } from '../adapters/domViewport';
 import { createBrowserNavigation } from '../adapters/browserNavigation';
 
@@ -17,6 +18,7 @@ export function createAppStore(): { store: AppStore; viewport: DomViewport } {
   const viewport = createDomViewport();
   const effects = createEffects({
     graphSource: createHttpGraphSource(),
+    search: createHttpSearchSource(),
     navigation: createBrowserNavigation(),
     layout: createElkLayout(),
     viewport,

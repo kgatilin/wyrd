@@ -3,6 +3,7 @@ import type { UIGraph, Component as ComponentType, ReviewGrouping } from './type
 import { createAppStore } from './runtime/createAppStore';
 import { StoreProvider, useStore, useDispatch, useStoreApi } from './runtime/react';
 import type { DomViewport } from './adapters/domViewport';
+import { askProjectionOf, groupAskHits } from './domain/ask';
 import { relatedIds, deriveChanges, deriveChangeStats, selectReviewGraph, type ReviewSelectionOptions } from './domain/derive';
 import {
   applyLayoutPins,
@@ -29,6 +30,7 @@ import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
 import { SourceDrawer, type SaveSourceResult, type SourceDrawerState } from './components/SourceDrawer';
 import { ArchMotifPanel } from './components/ArchMotifPanel';
+import { AskPanel } from './components/AskPanel';
 import { DiffOverlay, useDiffSession } from './components/DiffOverlay';
 import { SymbolGraphOverlay } from './components/SymbolGraphOverlay';
 import { PAN_MARGIN, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './view/viewportConstants';
@@ -139,6 +141,8 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   const seqMode = useStore((s) => s.ui.seqMode);
   const focusId = useStore((s) => s.ui.focusId);
   const leftCollapsed = useStore((s) => s.ui.leftCollapsed);
+  const leftTab = useStore((s) => s.ui.leftTab);
+  const ask = useStore((s) => s.ask);
   const archMotifOpen = useStore((s) => s.ui.archMotifOpen);
   const markers = useStore((s) => s.markers);
   const activeMarkerId = useStore((s) => s.ui.activeMarkerId);
@@ -157,6 +161,10 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   const layoutPinScopeKey = useStore((s) => s.ui.layoutPinScopeKey);
   const laid = useStore((s) => s.geometry.laid);
   const layoutError = useStore((s) => (s.geometry.status === 'error' ? s.geometry.error : null));
+  // An answered question replaces the review's package selection; while one is
+  // in flight (or matched nothing drawable) the review stays on screen.
+  const askProjection = useMemo(() => askProjectionOf(ask), [ask]);
+  const askGroups = useMemo(() => groupAskHits(ask.hits), [ask.hits]);
   const displayGraph = useMemo(
     () => selectReviewGraph(graph, reviewViewId, reviewScopeId, reviewGroupingId, {
       impactMode: reviewImpactMode,
@@ -164,8 +172,9 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
       hideUnchangedNeighbors,
       changedDetailsOnly,
       focusedPackageId: focusId,
+      ask: askProjection,
     }),
-    [graph, reviewViewId, reviewScopeId, reviewGroupingId, reviewImpactMode, reviewChangeFilter, hideUnchangedNeighbors, changedDetailsOnly, focusId]
+    [graph, reviewViewId, reviewScopeId, reviewGroupingId, reviewImpactMode, reviewChangeFilter, hideUnchangedNeighbors, changedDetailsOnly, focusId, askProjection]
   );
   const groupingOptions = useMemo(
     () => visibleReviewGroupings(graph, reviewViewId, reviewScopeId, reviewGroupingId, {
@@ -677,6 +686,11 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
         refreshing={load.status === 'loading'}
         onMetrics={toggleArchMotifPanel}
         onDiff={() => setDiffOpen(true)}
+        onAsk={() => {
+          if (leftCollapsed) dispatch({ type: 'LeftCollapsedToggled' });
+          dispatch({ type: 'LeftTabChanged', tab: 'ask' });
+        }}
+        asking={askProjection != null}
         pr={graph.pr}
       />
 
@@ -685,6 +699,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
       )}
 
       {(
+        askProjection != null ||
         ((graph.worktrees?.length ?? 0) > 0) ||
         ((graph.reviewViews?.length ?? 0) > 0) ||
         ((graph.reviewScopes?.length ?? 0) > 0) ||
@@ -814,6 +829,18 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
           <span className="hf-reviewbar-meta">
             {displayGraph.components.length} packages
           </span>
+          {askProjection && (
+            <span className="hf-reviewbar-ask" title={`Answering: ${ask.query}`}>
+              ask: {ask.query}
+              <button
+                className="hf-reviewbar-ask-clear"
+                onClick={() => dispatch({ type: 'AskCleared' })}
+                title="Back to the review"
+              >
+                ✕
+              </button>
+            </span>
+          )}
           {graph.repo?.compare && (
             <span className="hf-reviewbar-meta">
               {graph.repo.compare}
@@ -834,26 +861,51 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
 
           {leftCollapsed ? (
             <span className="hf-side-vlabel">
-              REVIEW
+              {leftTab === 'ask' ? 'ASK' : 'REVIEW'}
             </span>
           ) : (
             <>
               <div className="hf-tabs" style={{ flexShrink: 0 }}>
-                <button className="on">
+                <button
+                  className={leftTab === 'review' ? 'on' : ''}
+                  onClick={() => dispatch({ type: 'LeftTabChanged', tab: 'review' })}
+                >
                   REVIEW<span className="count">{showDiff ? changes.length : displayGraph.components.length}</span>
+                </button>
+                <button
+                  className={leftTab === 'ask' ? 'on' : ''}
+                  onClick={() => dispatch({ type: 'LeftTabChanged', tab: 'ask' })}
+                >
+                  ASK{ask.hits.length > 0 && <span className="count">{ask.hits.length}</span>}
                 </button>
               </div>
 
-              <div className="hf-list" style={{ paddingTop: 6 }}>
-                <Tree
-                  boundedContexts={displayGraph.boundedContexts}
-                  components={displayGraph.components}
-                  showDiff={showDiff}
-                  activeId={focusId}
-                  onFocus={focusFromTree}
-                  onOpenFile={openSourceFile}
+              {leftTab === 'ask' ? (
+                <AskPanel
+                  ask={ask}
+                  groups={askGroups}
+                  packageCount={askProjection ? askProjection.componentIds.size : 0}
+                  onSubmit={(query) => dispatch({ type: 'AskSubmitted', query })}
+                  onClear={() => dispatch({ type: 'AskCleared' })}
+                  onHitClick={(hit) => dispatch({ type: 'AskHitActivated', hit })}
+                  onDetailOnlyToggle={() => dispatch({ type: 'AskDetailOnlyToggled' })}
+                  onDepthChange={(k) => {
+                    dispatch({ type: 'AskDepthChanged', k });
+                    if (ask.query) dispatch({ type: 'AskSubmitted', query: ask.query });
+                  }}
                 />
-              </div>
+              ) : (
+                <div className="hf-list" style={{ paddingTop: 6 }}>
+                  <Tree
+                    boundedContexts={displayGraph.boundedContexts}
+                    components={displayGraph.components}
+                    showDiff={showDiff}
+                    activeId={focusId}
+                    onFocus={focusFromTree}
+                    onOpenFile={openSourceFile}
+                  />
+                </div>
+              )}
             </>
           )}
         </div>

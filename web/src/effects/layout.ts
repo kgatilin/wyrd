@@ -2,6 +2,7 @@ import type { Effect } from '../runtime/store';
 import type { AppState } from '../domain/state';
 import type { Event } from '../domain/events';
 import type { LayoutPort } from '../domain/ports';
+import { askProjectionOf } from '../domain/ask';
 import { selectReviewGraph, toInteraction } from '../domain/derive';
 
 const LAYOUT_TRIGGERS: ReadonlySet<Event['type']> = new Set([
@@ -24,6 +25,11 @@ const LAYOUT_TRIGGERS: ReadonlySet<Event['type']> = new Set([
   'ChangedDetailsOnlyToggled',
   'CardDensityChanged',
   'InlineSignaturesToggled',
+  // An answered question re-selects the packages on the canvas.
+  'AskResultsLoaded',
+  'AskCleared',
+  'AskDetailOnlyToggled',
+  'AskHitActivated',
 ]);
 
 export function createLayoutEffect(port: LayoutPort): Effect<AppState, Event> {
@@ -43,6 +49,7 @@ export function createLayoutEffect(port: LayoutPort): Effect<AppState, Event> {
         hideUnchangedNeighbors: state.ui.hideUnchangedNeighbors,
         changedDetailsOnly: state.ui.changedDetailsOnly,
         focusedPackageId: state.ui.focusId,
+        ask: askProjectionOf(state.ask),
       }
     );
     const mySeq = ++seq;

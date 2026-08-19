@@ -43,6 +43,11 @@ export function createViewportEffect(port: ViewportPort): Effect<AppState, Event
       case 'TreeFocusRequested':
         pending = { id: event.target.componentId, fit: true };
         return;
+      // Picking a hit out of an answer expands its package — land on it once
+      // the relayout settles, the same way the review tree does.
+      case 'AskHitActivated':
+        if (event.hit.inGraph) pending = { id: event.hit.packageId, fit: true };
+        return;
       // Selecting a card focuses and expands it (see focusedPackageView) — bring
       // the whole expanded card into view, centred.
       case 'ComponentSelected':

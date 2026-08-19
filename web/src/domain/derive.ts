@@ -1,4 +1,5 @@
 import type { UIGraph, Diff, Component as ComponentDef, SymbolRelation } from '../types';
+import type { AskProjection } from './ask';
 import type { AppUI, Interaction, Marker, ReviewChangeFilter, ReviewImpactMode } from './state';
 
 export interface ReviewSelectionOptions {
@@ -7,6 +8,13 @@ export interface ReviewSelectionOptions {
   hideUnchangedNeighbors?: boolean;
   changedDetailsOnly?: boolean;
   focusedPackageId?: string | null;
+  /**
+   * An active question's answer. It replaces both the review view's package
+   * allowlist and the diff projection: an ask is a question about the whole
+   * repository, so the packages it matched are the ones to draw, whether or
+   * not the branch touched them.
+   */
+  ask?: AskProjection | null;
 }
 
 /** Focused component + its direct edge neighbours; null when nothing is focused. */
@@ -45,8 +53,13 @@ export function selectReviewGraph(
     ? graph.reviewViews?.find((v) => v.id === reviewViewId)
     : graph.reviewViews?.[0];
   const impactMode = options?.impactMode ?? 'changed_only';
+  const ask = options?.ask ?? null;
   const wholeRepository = impactMode === 'repository';
-  const allowedComponents = !wholeRepository && view ? new Set(view.componentIds) : null;
+  const allowedComponents = ask
+    ? new Set(ask.componentIds)
+    : !wholeRepository && view
+      ? new Set(view.componentIds)
+      : null;
   const scope = scopeId ?? view?.defaultScope ?? graph.reviewScopes?.[0]?.id ?? 'everything';
   const publicOnly = scope === 'top_level_public_api' || scope === 'all_public_api';
   const internalOnly = scope === 'internal_implementation';
@@ -108,7 +121,12 @@ export function selectReviewGraph(
   const scopedEdges = edges;
   const scopedRelations = relations;
 
-  if (graph.pr != null) {
+  if (ask) {
+    components = applyAskDetails(components, ask);
+    relations = filterRelationsToVisibleDetails(relations, components);
+  }
+
+  if (graph.pr != null && !ask) {
     const projected = selectDiffImpact(
       graph,
       components,
@@ -125,7 +143,7 @@ export function selectReviewGraph(
     relations = projected.relations;
   }
 
-  if (graph.pr != null && options?.changedDetailsOnly) {
+  if (graph.pr != null && !ask && options?.changedDetailsOnly) {
     const detailChangeFilter = options?.changeFilter ?? 'all';
     const visibleIds = new Set(components.map((component) => component.id));
     const policyViolations = filterPolicyViolations(graph.policyViolations, visibleIds);
@@ -440,6 +458,42 @@ function filterComponentDetailsToChanges(
       .filter((internal) => matchesDiffFilter(internal.diff, changeFilter) || (internal.members ?? []).length > 0),
     ports: component.ports.filter((port) => matchesDetailPort(port, changeFilter)),
   }));
+}
+
+/**
+ * Narrow each matched package's card to the symbols the question hit. The
+ * package's ports stay: they are the wiring that makes the answer readable as
+ * architecture rather than as a symbol list.
+ */
+function applyAskDetails(components: ComponentDef[], ask: AskProjection): ComponentDef[] {
+  if (!ask.detailOnly) return components;
+  return components.map((component) => ({
+    ...component,
+    internals: component.internals.filter((internal) => ask.internalIds.has(internal.id)),
+  }));
+}
+
+/** Drop relations whose endpoints are no longer drawn on a card. */
+function filterRelationsToVisibleDetails(
+  relations: SymbolRelation[],
+  components: ComponentDef[]
+): SymbolRelation[] {
+  const componentIds = new Set(components.map((component) => component.id));
+  const internalIds = new Set<string>();
+  const memberIds = new Set<string>();
+  for (const component of components) {
+    for (const internal of component.internals) {
+      internalIds.add(internal.id);
+      for (const member of internal.members ?? []) memberIds.add(member.id);
+    }
+  }
+  return relations.filter((relation) => {
+    if (!componentIds.has(relation.fromComponentId) || !componentIds.has(relation.toComponentId)) return false;
+    return (
+      relationEndpointVisible(relation.fromInternalId, relation.fromMemberId, internalIds, memberIds) &&
+      relationEndpointVisible(relation.toInternalId, relation.toMemberId, internalIds, memberIds)
+    );
+  });
 }
 
 function matchesDetailPort(port: ComponentDef['ports'][number], changeFilter: ReviewChangeFilter): boolean {

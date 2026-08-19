@@ -21,8 +21,13 @@ const (
 
 // Result represents a search result with scoring and context.
 type Result struct {
-	NodeID  string  `json:"node_id"`
-	Kind    string  `json:"kind"`
+	NodeID string `json:"node_id"`
+	Kind   string `json:"kind"`
+	// Package and Name split NodeID back into its parts. Both are carried
+	// explicitly because a node id is "{package}.{Symbol}" and package paths
+	// contain dots of their own — a client that split the id would guess.
+	Package string  `json:"package"`
+	Name    string  `json:"name"`
 	File    string  `json:"file"`
 	Line    int     `json:"line"`
 	Doc     string  `json:"doc"`
@@ -131,6 +136,8 @@ func (s *Service) Search(ctx context.Context, query string, k int, filters Filte
 		result := Result{
 			NodeID:  node.ID,
 			Kind:    node.Kind,
+			Package: node.Package,
+			Name:    node.Name,
 			File:    node.Span.File,
 			Line:    node.Span.StartLine,
 			Doc:     truncateString(node.Doc, 200),

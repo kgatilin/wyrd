@@ -48,8 +48,8 @@ test('left panel collapse shows vertical label; expand restores', async ({ page 
   });
   expect(await app.isLeftCollapsed()).toBe(true);
 
-  // diffGraph has a PR → GraphLoaded forces leftTab to 'changes' → vlabel = 'CHANGES'
-  expect(await app.leftCollapsedLabel()).toBe('CHANGES');
+  // The rail's two tabs are REVIEW and ASK; collapsed, it names the active one.
+  expect(await app.leftCollapsedLabel()).toBe('REVIEW');
 
   await app.toggleLeftPanel();
   await app.env.waitUntil(async () => !(await app.isLeftCollapsed()), {

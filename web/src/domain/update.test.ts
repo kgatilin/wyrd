@@ -167,8 +167,8 @@ describe('update — chrome + zoom slice', () => {
     expect(s.ui.theme).toBe('light');
   });
   it('LeftTabChanged / collapse toggles', () => {
-    let s = update(withGraph(), { type: 'LeftTabChanged', tab: 'changes' });
-    expect(s.ui.leftTab).toBe('changes');
+    let s = update(withGraph(), { type: 'LeftTabChanged', tab: 'ask' });
+    expect(s.ui.leftTab).toBe('ask');
     s = update(s, { type: 'LeftCollapsedToggled' });
     expect(s.ui.leftCollapsed).toBe(true);
     s = update(s, { type: 'ArchMotifToggled' });
@@ -512,10 +512,11 @@ describe('update — load + geometry slice', () => {
     expect([...s.ui.expanded]).toEqual([]);
   });
 
-  it('GraphLoaded selects the changes tab when the graph carries a PR', () => {
+  it('GraphLoaded leaves the left tab where the reviewer put it', () => {
     const prGraph = { ...graph, pr: { title: 't', branch: 'b', agent: 'x', summary: '', stats: { added: 0, removed: 0, changed: 0, comments: 0 } } };
-    const s = update(initialState, { type: 'GraphLoaded', graph: prGraph });
-    expect(s.ui.leftTab).toBe('changes');
+    const asking = update(initialState, { type: 'LeftTabChanged', tab: 'ask' });
+    const s = update(asking, { type: 'GraphLoaded', graph: prGraph });
+    expect(s.ui.leftTab).toBe('ask');
   });
 
   it('GraphLoadFailed records the error', () => {
@@ -571,5 +572,86 @@ describe('update — comments slice', () => {
     const markers = [{ id: 'seed-0', n: 1, x: 1, y: 2, target: { type: 'component', id: 'a' }, body: 'b', author: '@you', when: '2m' }];
     const s = update(withGraph(), { type: 'MarkersSeeded', markers });
     expect(s.markers).toBe(markers);
+  });
+});
+
+
+describe('update — ask slice', () => {
+  const hits = [
+    { node_id: 'b.i', kind: 'class', package: 'b', name: 'Bi', file: 'b/b.go', line: 3, doc: '', score: 0.03 },
+  ];
+
+  function asked(state = withTwoComponentGraph()) {
+    let s = update(state, { type: 'AskSubmitted', query: '  where is auth  ' });
+    s = update(s, { type: 'AskResultsLoaded', query: 'where is auth', hits, dense: true });
+    return s;
+  }
+
+  it('trims the query and marks the ask in flight', () => {
+    const s = update(withTwoComponentGraph(), { type: 'AskSubmitted', query: '  where is auth  ' });
+    expect(s.ask.query).toBe('where is auth');
+    expect(s.ask.status).toBe('loading');
+  });
+
+  it('resolves the answer against the loaded graph', () => {
+    const s = asked();
+    expect(s.ask.status).toBe('ready');
+    expect(s.ask.dense).toBe(true);
+    expect(s.ask.hits[0]).toMatchObject({ packageId: 'b', inGraph: true, symbolInGraph: true });
+  });
+
+  it('expands the packages the answer matched', () => {
+    expect([...asked().ui.expanded]).toEqual(['b']);
+  });
+
+  it('drops an answer to a question the reviewer has already replaced', () => {
+    let s = update(withTwoComponentGraph(), { type: 'AskSubmitted', query: 'first' });
+    s = update(s, { type: 'AskSubmitted', query: 'second' });
+    s = update(s, { type: 'AskResultsLoaded', query: 'first', hits, dense: true });
+    expect(s.ask.status).toBe('loading');
+    expect(s.ask.hits).toHaveLength(0);
+  });
+
+  it('restores the expansion the review had before the ask', () => {
+    const before = update(withTwoComponentGraph(), { type: 'ComponentToggled', id: 'a' });
+    const cleared = update(asked(before), { type: 'AskCleared' });
+    expect([...cleared.ui.expanded]).toEqual([...before.ui.expanded]);
+    expect(cleared.ask.query).toBe('');
+    expect(cleared.ask.hits).toHaveLength(0);
+  });
+
+  it('keeps depth and detail settings across a clear', () => {
+    let s = update(asked(), { type: 'AskDepthChanged', k: 50 });
+    s = update(s, { type: 'AskDetailOnlyToggled' });
+    s = update(s, { type: 'AskCleared' });
+    expect(s.ask.k).toBe(50);
+    expect(s.ask.detailOnly).toBe(false);
+  });
+
+  it('an empty question clears instead of searching', () => {
+    const s = update(asked(), { type: 'AskSubmitted', query: '   ' });
+    expect(s.ask.query).toBe('');
+    expect(s.ask.status).toBe('idle');
+  });
+
+  it('activating a hit expands its package without narrowing the answer', () => {
+    const s = update(asked(), { type: 'AskHitActivated', hit: asked().ask.hits[0] });
+    expect(s.ask.activeHitId).toBe('b.i');
+    expect(s.ui.focusId).toBeNull();
+    expect(s.ui.expanded.has('b')).toBe(true);
+  });
+
+  it('re-checks the answer when the model reloads', () => {
+    const s = asked();
+    const withoutB: UIGraph = { ...s.graph!, components: s.graph!.components.filter((c) => c.id !== 'b') };
+    const reloaded = update(s, { type: 'GraphLoaded', graph: withoutB });
+    expect(reloaded.ask.hits[0].inGraph).toBe(false);
+  });
+
+  it('records the failure against the question that failed', () => {
+    let s = update(withTwoComponentGraph(), { type: 'AskSubmitted', query: 'q' });
+    s = update(s, { type: 'AskFailed', query: 'q', error: 'retrieval not initialized' });
+    expect(s.ask.status).toBe('error');
+    expect(s.ask.error).toBe('retrieval not initialized');
   });
 });

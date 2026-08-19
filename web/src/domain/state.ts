@@ -1,4 +1,5 @@
 import type { Diff, UIGraph } from '../types';
+import type { AskHit } from './ask';
 import type { LayoutPins } from './layoutPins';
 import type { ReviewDefaults } from './reviewDefaults';
 
@@ -44,7 +45,7 @@ export interface AppUI {
   expanded: ReadonlySet<string>;
   /** Expanded components currently flipped to their call-sequence view. */
   seqMode: ReadonlySet<string>;
-  leftTab: 'changes' | 'tree';
+  leftTab: 'review' | 'ask';
   leftCollapsed: boolean;
   /** ArchMotif metrics panel is open as an overlay over the canvas. */
   archMotifOpen: boolean;
@@ -66,9 +67,55 @@ export interface AppUI {
   layoutPins: LayoutPins;
 }
 
+/**
+ * A semantic question asked of the indexed code. The answer is a ranked hit
+ * list; the canvas is projected down to the packages those hits live in, so
+ * "where is X handled" is answered as architecture, not as a list of files.
+ */
+export interface AskState {
+  /** The submitted query. Empty means no ask is active and the review shows. */
+  query: string;
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  error: string | null;
+  hits: AskHit[];
+  /**
+   * The vector layer contributed to this ranking. False means the answer is
+   * BM25-only — worth saying, because that is a recall difference, not a
+   * failure.
+   */
+  dense: boolean;
+  /**
+   * How many hits to ask for. A count, never a score cutoff: the daemon's
+   * scores are fused RRF ranks, which carry no absolute relevance.
+   */
+  k: number;
+  /** Cards show only the matched symbols; false shows the whole package. */
+  detailOnly: boolean;
+  activeHitId: string | null;
+  /**
+   * The card expansion the review had before the first ask. An answer expands
+   * the packages it matched; clearing it puts the reviewer back where they
+   * were instead of on a collapsed canvas.
+   */
+  expandedBefore: ReadonlySet<string> | null;
+}
+
+export const initialAsk: AskState = {
+  query: '',
+  status: 'idle',
+  error: null,
+  hits: [],
+  dense: false,
+  k: 20,
+  detailOnly: true,
+  activeHitId: null,
+  expandedBefore: null,
+};
+
 export interface AppState {
   graph: UIGraph | null;
   ui: AppUI;
+  ask: AskState;
   markers: Marker[];
   pendingComment: PendingComment | null;
   geometry: { laid: UIGraph | null; status: 'idle' | 'ready' | 'error'; error: string | null };
@@ -92,7 +139,7 @@ export const initialState: AppState = {
     focusId: null,
     expanded: new Set(),
     seqMode: new Set(),
-    leftTab: 'tree',
+    leftTab: 'review',
     leftCollapsed: false,
     archMotifOpen: false,
     activeChangeId: null,
@@ -112,6 +159,7 @@ export const initialState: AppState = {
     layoutPinScopeKey: null,
     layoutPins: {},
   },
+  ask: initialAsk,
   markers: [],
   pendingComment: null,
   geometry: { laid: null, status: 'idle', error: null },

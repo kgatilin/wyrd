@@ -1,5 +1,6 @@
 import type { AppState } from './state';
 import type { Event } from './events';
+import { resolveAskHits, reresolveAskHits } from './ask';
 import { initialExpanded, selectReviewGraph } from './derive';
 import {
   defaultsWithGrouping,
@@ -314,7 +315,6 @@ function loadGeometrySlice(state: AppState, event: Event): AppState {
       return { ...state, load: { status: 'loading', error: null, pendingWorktree: event.name } };
     case 'GraphLoaded': {
       const graph = event.graph;
-      const leftTab = graph.pr != null ? 'changes' : state.ui.leftTab;
       const reviewViewId = validReviewView(graph, state.ui.reviewViewId)
         ? state.ui.reviewViewId
         : graph.defaultReviewView ?? graph.reviewViews?.[0]?.id ?? null;
@@ -343,7 +343,6 @@ function loadGeometrySlice(state: AppState, event: Event): AppState {
         load: { status: 'ready', error: null, pendingWorktree: null },
         ui: {
           ...state.ui,
-          leftTab,
           reviewViewId,
           reviewScopeId,
           reviewGroupingId,
@@ -368,6 +367,75 @@ function loadGeometrySlice(state: AppState, event: Event): AppState {
     default:
       return state;
   }
+}
+
+function askSlice(state: AppState, event: Event): AppState {
+  switch (event.type) {
+    case 'AskSubmitted': {
+      const query = event.query.trim();
+      if (!query) return clearedAsk(state);
+      // Hits stay on screen while the next answer is in flight: dropping them
+      // would relayout the canvas back to the review and then away again.
+      const expandedBefore = state.ask.query === '' ? state.ui.expanded : state.ask.expandedBefore;
+      return {
+        ...state,
+        ask: { ...state.ask, query, status: 'loading', error: null, activeHitId: null, expandedBefore },
+      };
+    }
+    case 'AskResultsLoaded': {
+      if (event.query !== state.ask.query) return state;
+      const hits = resolveAskHits(state.graph, event.hits);
+      // The matched packages open: a collapsed card would hide the very
+      // symbols the question was asked about.
+      const expanded = new Set(hits.filter((hit) => hit.inGraph).map((hit) => hit.packageId));
+      return {
+        ...state,
+        ask: { ...state.ask, status: 'ready', error: null, dense: event.dense, hits },
+        ui: { ...state.ui, expanded },
+      };
+    }
+    case 'AskFailed': {
+      if (event.query !== state.ask.query) return state;
+      return { ...state, ask: { ...state.ask, status: 'error', error: event.error } };
+    }
+    case 'AskCleared':
+      return clearedAsk(state);
+    case 'AskDetailOnlyToggled':
+      return { ...state, ask: { ...state.ask, detailOnly: !state.ask.detailOnly } };
+    case 'AskDepthChanged':
+      return { ...state, ask: { ...state.ask, k: event.k } };
+    case 'AskHitActivated': {
+      const next = { ...state, ask: { ...state.ask, activeHitId: event.hit.nodeId } };
+      // Expanded, not focused: focusing a package narrows the canvas to it,
+      // which would throw away the rest of the answer.
+      if (!event.hit.inGraph) return next;
+      return expandComponent(next, event.hit.packageId);
+    }
+    case 'GraphLoaded': {
+      if (state.ask.hits.length === 0) return state;
+      return { ...state, ask: { ...state.ask, hits: reresolveAskHits(event.graph, state.ask.hits) } };
+    }
+    default:
+      return state;
+  }
+}
+
+/** Drop the answer, keep the reviewer's ask settings (depth, detail). */
+function clearedAsk(state: AppState): AppState {
+  return {
+    ...state,
+    ask: {
+      ...state.ask,
+      query: '',
+      status: 'idle',
+      error: null,
+      hits: [],
+      dense: false,
+      activeHitId: null,
+      expandedBefore: null,
+    },
+    ui: { ...state.ui, expanded: state.ask.expandedBefore ?? state.ui.expanded },
+  };
 }
 
 function commentsSlice(state: AppState, event: Event): AppState {
@@ -405,6 +473,7 @@ export function update(state: AppState, event: Event): AppState {
   next = expansionSlice(next, event);
   next = chromeSlice(next, event);
   next = loadGeometrySlice(next, event);
+  next = askSlice(next, event);
   next = commentsSlice(next, event);
   return next;
 }

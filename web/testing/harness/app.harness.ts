@@ -7,6 +7,7 @@ import { ContextTreeHarness } from './context-tree.harness';
 import { CommentPopoverHarness } from './comment-popover.harness';
 import { MarkerHarness } from './marker.harness';
 import { SymbolWiringHarness } from './symbol-wiring.harness';
+import { AskPanelHarness } from './ask-panel.harness';
 
 /** Top-level harness rooted at `.hifi`. Entry point: env.load(AppHarness). */
 export class AppHarness extends ComponentHarness {
@@ -38,6 +39,10 @@ export class AppHarness extends ComponentHarness {
   async branchCrumb(): Promise<string | null> {
     if ((await this.env.rootLocator('.hf-crumbs .branch').count()) === 0) return null;
     return (await this.env.rootLocator('.hf-crumbs .branch').first()).text();
+  }
+
+  ask(): AskPanelHarness {
+    return new AskPanelHarness(this.root, this.env);
   }
 
   // ── Left panel review tree ──────────────────────────────────────────────

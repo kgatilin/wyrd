@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { UIGraph } from '../types';
 import { relatedIds, deriveChanges, deriveChangeStats, addInternalsOfExpanded, initialExpanded, seedMarkers, selectReviewGraph } from './derive';
+import type { AskProjection } from './ask';
 
 function graph(overrides?: Partial<UIGraph>): UIGraph {
   return {
@@ -1137,5 +1138,79 @@ describe('seedMarkers', () => {
     expect(markers).toHaveLength(1);
     expect(markers[0].x).toBe(80);
     expect(markers[0].y).toBe(30);
+  });
+});
+
+
+describe('selectReviewGraph — ask projection', () => {
+  function askGraph(): UIGraph {
+    return graph({
+      components: [
+        {
+          id: 'a',
+          name: 'A',
+          tech: '',
+          desc: '',
+          bc: 'bc1',
+          internals: [
+            { id: 'a.Hit', kind: 'func', name: 'Hit', members: [] },
+            { id: 'a.Other', kind: 'func', name: 'Other', members: [] },
+          ],
+          ports: [],
+        },
+        { id: 'b', name: 'B', tech: '', desc: '', bc: 'bc1', internals: [{ id: 'b.Hit', kind: 'func', name: 'Hit', members: [] }], ports: [] },
+        { id: 'c', name: 'C', tech: '', desc: '', bc: 'bc1', internals: [{ id: 'c.Cold', kind: 'func', name: 'Cold', members: [] }], ports: [] },
+      ],
+      edges: [{ id: 'e1', from: 'a', to: 'b', fromPort: '', toPort: '', label: '' }],
+      relations: [
+        { id: 'r1', kind: 'calls', fromComponentId: 'a', fromInternalId: 'a.Hit', toComponentId: 'b', toInternalId: 'b.Hit' },
+        { id: 'r2', kind: 'calls', fromComponentId: 'a', fromInternalId: 'a.Other', toComponentId: 'b', toInternalId: 'b.Hit' },
+      ],
+    });
+  }
+
+  const ask: AskProjection = {
+    componentIds: new Set(['a', 'b']),
+    internalIds: new Set(['a.Hit', 'b.Hit']),
+    detailOnly: true,
+  };
+
+  it('draws only the packages the answer matched', () => {
+    const out = selectReviewGraph(askGraph(), null, 'everything', null, { ask });
+    expect(out.components.map((component) => component.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('narrows each card to the matched symbols', () => {
+    const out = selectReviewGraph(askGraph(), null, 'everything', null, { ask });
+    expect(out.components.find((component) => component.id === 'a')!.internals.map((i) => i.id)).toEqual(['a.Hit']);
+  });
+
+  it('keeps the whole package when the reviewer asks for it', () => {
+    const out = selectReviewGraph(askGraph(), null, 'everything', null, { ask: { ...ask, detailOnly: false } });
+    expect(out.components.find((component) => component.id === 'a')!.internals).toHaveLength(2);
+  });
+
+  it('drops relations whose endpoint is no longer drawn', () => {
+    const out = selectReviewGraph(askGraph(), null, 'everything', null, { ask });
+    expect((out.relations ?? []).map((relation) => relation.id)).toEqual(['r1']);
+  });
+
+  it('overrides the review view allowlist — an ask is about the whole repo', () => {
+    const g = askGraph();
+    g.reviewViews = [{ id: 'v', title: 'V', defaultScope: 'everything', componentIds: ['c'], componentCount: 1 }];
+    const out = selectReviewGraph(g, 'v', 'everything', null, { ask });
+    expect(out.components.map((component) => component.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('ignores the diff projection so unchanged answers still draw', () => {
+    const g = askGraph();
+    g.pr = { title: 't', branch: 'b', agent: 'x', summary: '', stats: { added: 0, removed: 0, changed: 0, comments: 0 } };
+    const out = selectReviewGraph(g, null, 'everything', null, {
+      ask,
+      impactMode: 'changed_only',
+      changedDetailsOnly: true,
+    });
+    expect(out.components.map((component) => component.id).sort()).toEqual(['a', 'b']);
+    expect(out.components.find((component) => component.id === 'a')!.internals.map((i) => i.id)).toEqual(['a.Hit']);
   });
 });

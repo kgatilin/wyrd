@@ -1,4 +1,5 @@
 import type { UIGraph } from '../types';
+import type { AskHit, RawAskHit } from './ask';
 import type { ChangeEntry } from './derive';
 import type { LayoutPins } from './layoutPins';
 import type { ReviewDefaults } from './reviewDefaults';
@@ -19,7 +20,7 @@ export type Event =
   | { type: 'GraphLoadFailed'; error: string }
   // chrome
   | { type: 'ThemeToggled' }
-  | { type: 'LeftTabChanged'; tab: 'changes' | 'tree' }
+  | { type: 'LeftTabChanged'; tab: 'review' | 'ask' }
   | { type: 'LeftCollapsedToggled' }
   | { type: 'ArchMotifToggled' }
   | { type: 'ZoomChanged'; zoom: number }
@@ -55,6 +56,14 @@ export type Event =
   | { type: 'TreeFocusRequested'; target: TreeFocusTarget }
   | { type: 'ScrollToComponentRequested'; id: string }
   | { type: 'MarkerActivated'; id: string }
+  // ask
+  | { type: 'AskSubmitted'; query: string }
+  | { type: 'AskResultsLoaded'; query: string; hits: RawAskHit[]; dense: boolean }
+  | { type: 'AskFailed'; query: string; error: string }
+  | { type: 'AskCleared' }
+  | { type: 'AskDetailOnlyToggled' }
+  | { type: 'AskDepthChanged'; k: number }
+  | { type: 'AskHitActivated'; hit: AskHit }
   // comments
   | { type: 'CommentStarted'; target: { type: string; id: string }; anchor: { x: number; y: number } }
   | { type: 'CommentSubmitted'; text: string }

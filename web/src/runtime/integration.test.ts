@@ -5,7 +5,7 @@ import { initialState, type AppState } from '../domain/state';
 import type { Event } from '../domain/events';
 import { update } from '../domain/update';
 import { createEffects } from '../effects';
-import type { GraphSourcePort, LayoutPort, ViewportPort } from '../domain/ports';
+import type { GraphSourcePort, LayoutPort, SearchPort, ViewportPort } from '../domain/ports';
 
 const graph: UIGraph = {
   schema: 'archai.uigraph/v0',
@@ -23,11 +23,12 @@ const fakeLayout: LayoutPort = {
     Promise.resolve({ ...g, components: g.components.map((c) => ({ ...c, x: interaction.expanded.has(c.id) ? 100 : 0 })) }),
 };
 const fakeGraphSource: GraphSourcePort = { load: () => Promise.resolve(graph) };
+const fakeSearch: SearchPort = { search: () => Promise.resolve({ hits: [], dense: false }) };
 const fakeViewport: ViewportPort = { scrollToComponent: () => {}, focusComponent: () => null, fitZoom: () => null };
 
 describe('integration: load → layout → toggle', () => {
   it('loads a graph, lays it out, and re-lays out on expand', async () => {
-    const effects = createEffects({ graphSource: fakeGraphSource, layout: fakeLayout, viewport: fakeViewport });
+    const effects = createEffects({ graphSource: fakeGraphSource, search: fakeSearch, layout: fakeLayout, viewport: fakeViewport });
     const store = createStore<AppState, Event>(initialState, update, effects);
 
     store.dispatch({ type: 'GraphRequested' });

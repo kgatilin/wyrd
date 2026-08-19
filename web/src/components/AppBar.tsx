@@ -12,6 +12,10 @@ export interface AppBarProps {
   onMetrics?: () => void;
   /** Open the file-level diff of the reviewed branch */
   onDiff?: () => void;
+  /** Open the ask panel and put the cursor in its question box */
+  onAsk?: () => void;
+  /** An answer is currently projecting the canvas */
+  asking?: boolean;
   /** PR data for crumbs (optional - use defaults if absent) */
   pr?: PR;
 }
@@ -23,6 +27,8 @@ export function AppBar({
   refreshing = false,
   onMetrics,
   onDiff,
+  onAsk,
+  asking = false,
   pr,
 }: AppBarProps) {
   const branch = pr?.branch ?? 'main';
@@ -49,6 +55,13 @@ export function AppBar({
         title="Toggle theme"
       >
         {theme === 'dark' ? '☾' : '☀'}
+      </button>
+      <button
+        className={`hf-btn ${asking ? 'on' : ''}`}
+        onClick={onAsk}
+        title="Ask a question about this code and draw the packages that answer it"
+      >
+        Ask
       </button>
       <button
         className="hf-btn"
