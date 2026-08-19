@@ -3,6 +3,7 @@ import type { BoundedContext, Component, Internal, Diff } from '../types';
 export type { TreeFocusTarget } from '../domain/events';
 import type { TreeFocusTarget } from '../domain/events';
 import { SignatureDiff } from './SignatureDiff';
+import { sourceFilePath } from '../domain/sourcePath';
 
 export interface TreeProps {
   /** Bounded contexts to display */
@@ -306,7 +307,7 @@ interface FileGroup {
 function internalsByFile(internals: Internal[]): FileGroup[] {
   const groups = new Map<string, Internal[]>();
   for (const internal of internals) {
-    const path = sourceFilePath(internal.sourceFile);
+    const path = sourceFileOrUnknown(internal.sourceFile);
     groups.set(path, [...(groups.get(path) ?? []), internal]);
   }
   return [...groups.entries()]
@@ -316,7 +317,7 @@ function internalsByFile(internals: Internal[]): FileGroup[] {
 
 const UNKNOWN_FILE = '(unknown file)';
 
-function sourceFilePath(sourceFile?: string): string {
+function sourceFileOrUnknown(sourceFile?: string): string {
   return sourceFile || UNKNOWN_FILE;
 }
 
@@ -327,13 +328,7 @@ function fileLabel(sourceFile: string): string {
 
 function sourcePathForComponent(componentId: string, sourceFile: string): string | null {
   if (sourceFile === UNKNOWN_FILE) return null;
-  return sourcePath(componentId, sourceFile);
-}
-
-function sourcePath(componentId: string, sourceFile: string): string {
-  if (sourceFile.includes('/')) return sourceFile;
-  if (!componentId || componentId === '.') return sourceFile;
-  return `${componentId}/${sourceFile}`;
+  return sourceFilePath(componentId, sourceFile);
 }
 
 interface FileNodeProps {

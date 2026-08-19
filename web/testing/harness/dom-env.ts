@@ -167,6 +167,11 @@ export interface MountOptions {
    * is itself a state worth testing.
    */
   search?: (query: string, k: number) => { results: unknown[]; dense: boolean };
+  /**
+   * Answers GET /api/gitdiff. Without it the file diff reports a read error,
+   * which is itself a state worth testing.
+   */
+  gitDiff?: () => unknown;
 }
 
 export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promise<DomEnvironment> {
@@ -182,6 +187,7 @@ export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promi
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes('/api/uigraph')) return okJson(graph);
+    if (url.includes('/api/gitdiff') && options?.gitDiff) return okJson(options.gitDiff());
     if (url.includes('/api/search') && options?.search) {
       const body = JSON.parse(String(init?.body ?? '{}')) as { query?: string; k?: number };
       return okJson(options.search(body.query ?? '', body.k ?? 0));

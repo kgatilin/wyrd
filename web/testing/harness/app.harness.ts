@@ -8,6 +8,7 @@ import { CommentPopoverHarness } from './comment-popover.harness';
 import { MarkerHarness } from './marker.harness';
 import { SymbolWiringHarness } from './symbol-wiring.harness';
 import { AskPanelHarness } from './ask-panel.harness';
+import { DiffOverlayHarness } from './diff-overlay.harness';
 
 /** Top-level harness rooted at `.hifi`. Entry point: env.load(AppHarness). */
 export class AppHarness extends ComponentHarness {
@@ -43,6 +44,11 @@ export class AppHarness extends ComponentHarness {
 
   ask(): AskPanelHarness {
     return new AskPanelHarness(this.root, this.env);
+  }
+
+  /** The file-diff overlay (whether or not it is open). */
+  fileDiff(): DiffOverlayHarness {
+    return new DiffOverlayHarness(this.root, this.env);
   }
 
   // ── Left panel review tree ──────────────────────────────────────────────

@@ -7,6 +7,7 @@ import { CARD_LAYOUT_METRICS } from '../layout/cardLayout';
 import { CardSequence } from './SequenceCanvas';
 import type { CardDensity } from '../domain/state';
 import type { SymbolFocusTarget } from '../domain/symbolFocus';
+import { sourceFilePath } from '../domain/sourcePath';
 
 /**
  * Effective diff state of an internal: its own flag if set, otherwise "changed"
@@ -132,6 +133,8 @@ export interface ComponentProps {
   relations?: SymbolRelation[];
   /** Opens the symbol wiring graph for a function/type/method. */
   onSymbolFocus?: (target: SymbolFocusTarget) => void;
+  /** Opens the file diff at one of the card's source files. */
+  onOpenFileDiff?: (path: string) => void;
 }
 
 /**
@@ -159,6 +162,7 @@ export function Component({
   onResetLayout,
   relations = [],
   onSymbolFocus,
+  onOpenFileDiff,
 }: ComponentProps) {
   const [dragging, setDragging] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -333,6 +337,7 @@ export function Component({
                 onAddComment={onAddComment}
                 hasComment={hasComment}
                 onSymbolFocus={onSymbolFocus}
+                onOpenFileDiff={onOpenFileDiff}
               />
             ))}
             <IntraPackageRelations cmp={cmp} relations={relations} showDiff={showDiff} />
@@ -401,6 +406,7 @@ interface FileContainerProps {
   onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
   hasComment: (id: string) => boolean;
   onSymbolFocus?: (target: SymbolFocusTarget) => void;
+  onOpenFileDiff?: (path: string) => void;
 }
 
 /** One source file of the package, holding its class shapes. */
@@ -412,8 +418,14 @@ function FileContainer({
   onAddComment,
   hasComment,
   onSymbolFocus,
+  onOpenFileDiff,
 }: FileContainerProps) {
   const diffCls = showDiff && file.diff ? file.diff : '';
+  // The card says which symbols changed; the patch says what the change was.
+  // Offered on every file, not only the ones the projection flagged: a change
+  // that touches no signature (a call moved, a body rewritten) leaves the card
+  // unmarked and is exactly the case a reviewer needs the text for.
+  const diffPath = sourceFilePath(componentId, file.path);
   return (
     <div
       className={`hf-file ${diffCls}`}
@@ -421,6 +433,18 @@ function FileContainer({
     >
       <div className="hf-file-head" title={file.label}>
         <span className="hf-file-name">{file.label}</span>
+        {onOpenFileDiff && diffPath && (
+          <button
+            className="hf-file-diff"
+            title={`Open ${diffPath} in the file diff`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenFileDiff(diffPath);
+            }}
+          >
+            &plusmn;
+          </button>
+        )}
       </div>
       {file.blocks.map((block) => (
         <ClassBlock

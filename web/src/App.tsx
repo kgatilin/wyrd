@@ -601,6 +601,12 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
       });
   };
 
+  // Jump from a file container on the canvas straight into that file's patch.
+  const openFileDiff = (path: string) => {
+    diffSession.select(path);
+    setDiffOpen(true);
+  };
+
   const saveSourceFile = async (path: string, content: string, baseHash: string): Promise<SaveSourceResult> => {
     const res = await fetch(sourceAPIURL(path, activeWorktree), {
       method: 'PUT',
@@ -1005,6 +1011,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
                 onMove={handleMoveComponent}
                 onResetLayout={(id) => dispatch({ type: 'LayoutPinReset', id })}
                 onSymbolFocus={setSymbolFocus}
+                onOpenFileDiff={openFileDiff}
               />
             ))}
 

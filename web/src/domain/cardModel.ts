@@ -61,6 +61,13 @@ export interface CardFile {
   id: string;
   /** File name as shown in the container header, e.g. "options.go". */
   label: string;
+  /**
+   * Source path as the graph recorded it — a bare name for most symbols, a
+   * path for some. Absent for the unknown-file bucket, which names no file.
+   * Resolve it against the package id with `sourceFilePath` before handing it
+   * to the daemon.
+   */
+  path?: string;
   diff?: Diff;
   blocks: CardBlock[];
   x?: number;
@@ -278,6 +285,9 @@ export function buildCardModel(internals: Internal[]): CardFile[] {
     return {
       id: label,
       label,
+      // Files group by base name, and a package is one directory, so every
+      // internal in the bucket recorded the same path.
+      path: internals.find((internal) => internal.sourceFile?.trim())?.sourceFile,
       diff: aggregateDiff(blocks.map((block) => block.diff)),
       blocks,
     };

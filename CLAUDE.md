@@ -355,6 +355,18 @@ answers "what changed architecturally".
   drawer). No diff library: the grouped rail, the theme and the
   highlighter are ours anyway, so a component would only have brought a
   hunk renderer plus a second highlighter and a competing stylesheet.
+- **Every file container on a card opens its own patch.** The `±` button in
+  a file panel's header (`hf-file-diff`) opens the overlay straight at that
+  file. It is offered on *every* file, not only the ones the projection
+  flagged: a change that touches no signature (a body rewritten, a call
+  moved) leaves the card unmarked and is exactly when the reviewer needs the
+  text. A path the diff does not contain is therefore normal, and the
+  overlay **says the file is unchanged instead of falling back to the first
+  file in the list** — answering "open controller.go" with someone else's
+  patch reads as that file's diff. The path is `sourceFilePath(componentId,
+  file.path)` (`web/src/domain/sourcePath.ts`), the same package-id +
+  `sourceFile` convention the source drawer uses, so the two cannot disagree
+  about which file a card names.
 - **The session is cached in the app, not in the overlay.** `useDiffSession`
   (exported from `DiffOverlay.tsx`, held by `AppContent`) owns the fetched
   diff plus the reviewer's place in it — selected file, folded sections,

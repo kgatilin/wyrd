@@ -199,14 +199,20 @@ export function DiffOverlay({ session, graph, worktree, baseRef, onClose }: Diff
   const groups = useMemo(() => groupFiles(files, groupMode), [files, groupMode]);
   // Group order is the navigation order, so j/k walks the list as it reads.
   const ordered = useMemo(() => groups.flatMap((group) => group.files), [groups]);
+  // A named selection the diff does not contain is reported as such, never
+  // swapped for another file's patch: the canvas opens this overlay at a file
+  // that the branch may not have touched at all, and answering that with the
+  // first file in the list reads as "here is your diff" for someone else's.
   const active = useMemo(
-    () => ordered.find((file) => file.path === selected) ?? ordered[0] ?? null,
+    () =>
+      ordered.find((file) => file.path === selected) ?? (selected == null ? ordered[0] ?? null : null),
     [ordered, selected]
   );
+  const missing = selected != null && active == null && status === 'ready';
 
   useEffect(() => {
-    // Keep a valid selection across reloads and grouping changes.
-    if (active && active.path !== selected) select(active.path);
+    // Land on the first file when nothing has been asked for yet.
+    if (!selected && active) select(active.path);
   }, [active, selected, select]);
 
   useEffect(() => {
@@ -366,6 +372,11 @@ export function DiffOverlay({ session, graph, worktree, baseRef, onClose }: Diff
             onClick={openSymbol}
           >
             {active && <FilePatch file={active} lookup={lookup} />}
+            {missing && (
+              <div className="hf-diff-note">
+                <code>{selected}</code> is unchanged against {diff?.baseRef ?? baseRef}.
+              </div>
+            )}
           </div>
         </div>
       )}
