@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { UIEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent, UIEvent } from 'react';
 import { fetchGitDiff } from '../data/gitDiff';
 import {
   fileLabel,
@@ -14,6 +14,10 @@ import {
   type GroupMode,
 } from '../domain/gitDiff';
 import { highlightLine, languageForPath } from './highlight';
+import { SymbolGraphOverlay } from './SymbolGraphOverlay';
+import { buildSymbolLookup, markSymbols, type SymbolLookup } from '../domain/codeSymbols';
+import type { SymbolFocusTarget } from '../domain/symbolFocus';
+import type { UIGraph } from '../types';
 
 /**
  * Past this many lines a single file renders without syntax highlighting.
@@ -160,6 +164,12 @@ export function useDiffSession(worktree: string, baseRef: string, open: boolean)
 export interface DiffOverlayProps {
   /** The cached session, owned by the app (see useDiffSession). */
   session: DiffSession;
+  /**
+   * The reviewed architecture. The diff shows the source of a change; the
+   * graph is what turns a name in that source into "and here is what uses
+   * it" without leaving the patch.
+   */
+  graph: UIGraph;
   /** Worktree whose working tree is diffed; empty = the served root. */
   worktree: string;
   /** Review base ref the diff is taken against (e.g. "main"). */
@@ -175,11 +185,15 @@ export interface DiffOverlayProps {
  * It renders the session and reports back into it; it owns no diff state of
  * its own, so it can be unmounted on close without costing anything.
  */
-export function DiffOverlay({ session, worktree, baseRef, onClose }: DiffOverlayProps) {
+export function DiffOverlay({ session, graph, worktree, baseRef, onClose }: DiffOverlayProps) {
   const { diff, status, error, groupMode, selected, collapsed, scroll } = session;
   const { setGroupMode, select, toggleGroup, reload } = session;
   const patchRef = useRef<HTMLDivElement | null>(null);
   const filesRef = useRef<HTMLDivElement | null>(null);
+  // The wiring panel opened from a name in the patch. Local to the diff: it
+  // is a detour inside this reading, not a change of what the canvas shows.
+  const [symbolFocus, setSymbolFocus] = useState<SymbolFocusTarget | null>(null);
+  const lookup = useMemo(() => buildSymbolLookup(graph), [graph]);
 
   const files = diff?.files ?? [];
   const groups = useMemo(() => groupFiles(files, groupMode), [files, groupMode]);
@@ -229,6 +243,9 @@ export function DiffOverlay({ session, worktree, baseRef, onClose }: DiffOverlay
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      // While the wiring panel is up it owns the keyboard: Esc dismisses it,
+      // and j/k must not walk the file list hidden behind it.
+      if (symbolFocus) return;
       if (event.key === 'Escape') {
         onClose();
       } else if (event.key === 'j' || event.key === 'ArrowDown') {
@@ -243,7 +260,17 @@ export function DiffOverlay({ session, worktree, baseRef, onClose }: DiffOverlay
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, step]);
+  }, [onClose, step, symbolFocus]);
+
+  // One delegated handler for the whole patch: a file's worth of marked
+  // identifiers is thousands of spans, and none of them needs its own.
+  const openSymbol = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const el = (event.target as HTMLElement | null)?.closest('.hf-code-sym');
+    const name = el?.getAttribute('data-sym');
+    if (!name || !active) return;
+    const target = lookup.resolve(name, active.path);
+    if (target) setSymbolFocus(target);
+  };
 
   return (
     <div className="hf-diff-overlay" role="dialog" aria-label="File diff">
@@ -332,22 +359,44 @@ export function DiffOverlay({ session, worktree, baseRef, onClose }: DiffOverlay
             ))}
           </div>
 
-          <div className="hf-diff-view" ref={patchRef} onScroll={rememberPatchScroll}>
-            {active && <FilePatch file={active} />}
+          <div
+            className="hf-diff-view"
+            ref={patchRef}
+            onScroll={rememberPatchScroll}
+            onClick={openSymbol}
+          >
+            {active && <FilePatch file={active} lookup={lookup} />}
           </div>
         </div>
+      )}
+
+      {symbolFocus && (
+        <SymbolGraphOverlay graph={graph} target={symbolFocus} onClose={() => setSymbolFocus(null)} />
       )}
     </div>
   );
 }
 
-function FilePatch({ file }: { file: DiffFile }) {
+function FilePatch({ file, lookup }: { file: DiffFile; lookup: SymbolLookup }) {
   const hunks = useMemo(() => parseHunks(file.patch), [file.patch]);
   const lineCount = useMemo(
     () => hunks.reduce((total, hunk) => total + hunk.lines.length, 0),
     [hunks]
   );
   const language = lineCount <= MAX_HIGHLIGHT_LINES ? languageForPath(file.path) : undefined;
+  // Resolution is per (name, file), and a patch repeats the same names on
+  // line after line — decide once per name and reuse it down the file.
+  const known = useMemo(() => {
+    if (lookup.size === 0) return null;
+    const cache = new Map<string, boolean>();
+    return (name: string) => {
+      const hit = cache.get(name);
+      if (hit !== undefined) return hit;
+      const resolved = lookup.resolve(name, file.path) !== null;
+      cache.set(name, resolved);
+      return resolved;
+    };
+  }, [lookup, file.path]);
 
   return (
     <>
@@ -357,6 +406,7 @@ function FilePatch({ file }: { file: DiffFile }) {
         <span className="kind">{statusLabel(file)}</span>
         {file.oldPath && <span className="from">from {file.oldPath}</span>}
         <span className="hf-spacer" />
+        {known && <span className="hint">click a symbol for its wiring</span>}
         <span className="add">+{file.insertions}</span>
         <span className="rem">&minus;{file.deletions}</span>
       </div>
@@ -367,7 +417,7 @@ function FilePatch({ file }: { file: DiffFile }) {
       )}
 
       {hunks.map((hunk, index) => (
-        <Hunk key={index} hunk={hunk} language={language} />
+        <Hunk key={index} hunk={hunk} language={language} known={known} />
       ))}
 
       {file.truncated && (
@@ -377,7 +427,15 @@ function FilePatch({ file }: { file: DiffFile }) {
   );
 }
 
-function Hunk({ hunk, language }: { hunk: DiffHunk; language: string | undefined }) {
+function Hunk({
+  hunk,
+  language,
+  known,
+}: {
+  hunk: DiffHunk;
+  language: string | undefined;
+  known: ((name: string) => boolean) | null;
+}) {
   return (
     <div className="hf-diff-hunk">
       <div className="hf-diff-hunk-head">
@@ -394,13 +452,23 @@ function Hunk({ hunk, language }: { hunk: DiffHunk; language: string | undefined
           ) : (
             <code
               className="text"
-              dangerouslySetInnerHTML={{ __html: highlightLine(line.text, language) }}
+              dangerouslySetInnerHTML={{ __html: codeHTML(line.text, language, known) }}
             />
           )}
         </div>
       ))}
     </div>
   );
+}
+
+/** Highlighted line, with the identifiers the graph knows made clickable. */
+function codeHTML(
+  text: string,
+  language: string | undefined,
+  known: ((name: string) => boolean) | null
+): string {
+  const html = highlightLine(text, language);
+  return known ? markSymbols(html, known) : html;
 }
 
 function shortRev(rev: string): string {

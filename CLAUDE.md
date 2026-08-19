@@ -353,6 +353,18 @@ produced a hairball of crossing curves.
   synthesizes the method-level `implements` pairs the graph only records
   between struct and interface. View: `SymbolGraphOverlay.tsx`. Specs go
   through `testing/harness/symbol-wiring.harness.ts`, never raw selectors.
+- **The file diff opens it too.** Every identifier in a patch that the
+  graph can resolve is clickable (`hf-code-sym`, underlined on hover); the
+  wiring panel opens over the diff, so "what uses this?" is answered
+  without leaving the file. Resolution is nearest-scope — the file being
+  read, then its package, then a graph-wide unique name — and a name that
+  stays ambiguous is left unmarked rather than guessed at
+  (`web/src/domain/codeSymbols.ts`, tested). Marking works on the
+  highlighter's HTML string, never the DOM, so a line is still one
+  `dangerouslySetInnerHTML`; the resolve-per-name result is cached per
+  file. Only Go symbols exist in the graph, so a TypeScript patch marks
+  nothing. While the panel is up it owns the keyboard — `Esc` dismisses
+  it, not the diff, and `j`/`k` stop walking the file list behind it.
 
 ### Event Model
 

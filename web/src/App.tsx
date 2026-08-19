@@ -1026,6 +1026,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
         {diffOpen && (
           <DiffOverlay
             session={diffSession}
+            graph={graph}
             worktree={activeWorktree}
             baseRef={reviewBaseRef}
             onClose={() => setDiffOpen(false)}

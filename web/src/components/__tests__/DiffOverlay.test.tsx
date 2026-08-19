@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { DiffOverlay, useDiffSession } from '../DiffOverlay';
 import type { GitDiff } from '../../domain/gitDiff';
+import type { UIGraph } from '../../types';
 
 const diff: GitDiff = {
   schema: 'archai.gitdiff/1',
@@ -29,6 +30,56 @@ const diff: GitDiff = {
   ],
 };
 
+/** Two packages, one calling the other, declared in the diffed files. */
+const graph: UIGraph = {
+  schema: 'archai.uigraph/v0',
+  boundedContexts: [],
+  comments: [],
+  edges: [],
+  components: [
+    {
+      id: 'internal/adapter/http',
+      name: 'http',
+      tech: 'Go',
+      desc: '',
+      bc: 'root',
+      ports: [],
+      internals: [
+        {
+          id: 'internal/adapter/http.Handle',
+          kind: 'func',
+          name: 'Handle',
+          exported: true,
+          sourceFile: 'api.go',
+          members: [],
+        },
+      ],
+    },
+    {
+      id: 'internal/serve',
+      name: 'serve',
+      tech: 'Go',
+      desc: '',
+      bc: 'root',
+      ports: [],
+      internals: [
+        { id: 'internal/serve.Serve', kind: 'func', name: 'Serve', exported: true, sourceFile: 'serve.go', members: [] },
+      ],
+    },
+  ],
+  relations: [
+    {
+      id: 'r:calls',
+      kind: 'calls',
+      fromComponentId: 'internal/serve',
+      fromInternalId: 'internal/serve.Serve',
+      toComponentId: 'internal/adapter/http',
+      toInternalId: 'internal/adapter/http.Handle',
+      toLabel: 'Handle',
+    },
+  ],
+};
+
 /**
  * The overlay is a view over a session the app owns, so the tests drive it
  * the way the app does: through the hook, with `open` toggling the mount.
@@ -46,7 +97,9 @@ function Harness({
 }) {
   const session = useDiffSession(worktree, baseRef, open);
   if (!open) return null;
-  return <DiffOverlay session={session} worktree={worktree} baseRef={baseRef} onClose={onClose} />;
+  return (
+    <DiffOverlay session={session} graph={graph} worktree={worktree} baseRef={baseRef} onClose={onClose} />
+  );
 }
 
 function stubFetch(payload: GitDiff = diff) {
@@ -200,6 +253,52 @@ describe('DiffOverlay', () => {
 
     fireEvent.click(screen.getByText('Reload'));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('opens the wiring of a symbol clicked in the patch', async () => {
+    stubFetch();
+    const { container } = render(<Harness />);
+    await screen.findByText('api.go');
+    fireEvent.click(screen.getByText('api.go'));
+    await waitFor(() =>
+      expect(container.querySelector('.hf-diff-filehead .path')?.textContent).toBe(
+        'internal/adapter/http/api.go'
+      )
+    );
+
+    // `Handle` is declared in this very file, so the patch marks it.
+    const marked = container.querySelectorAll('.hf-diff-view .hf-code-sym[data-sym="Handle"]');
+    expect(marked.length).toBeGreaterThan(0);
+    // `mux` is not a symbol the graph knows — nothing to open, nothing marked.
+    expect(container.querySelector('.hf-code-sym[data-sym="mux"]')).toBeNull();
+
+    fireEvent.click(marked[0]);
+    const panel = container.querySelector('.hf-symbol-overlay');
+    expect(panel).toBeTruthy();
+    expect(panel?.querySelector('.hf-symbol-title')?.textContent).toContain('Handle');
+    // The caller lives in another package, which is the whole point.
+    expect(within(panel as HTMLElement).getByText('Serve')).toBeTruthy();
+    expect(panel?.querySelector('.hf-symbol-group.cross')).toBeTruthy();
+  });
+
+  it('lets Escape dismiss the wiring panel without closing the diff', async () => {
+    stubFetch();
+    const onClose = vi.fn();
+    const { container } = render(<Harness onClose={onClose} />);
+    await screen.findByText('api.go');
+    fireEvent.click(screen.getByText('api.go'));
+    await waitFor(() => expect(container.querySelector('.hf-code-sym[data-sym="Handle"]')).toBeTruthy());
+
+    fireEvent.click(container.querySelector('.hf-code-sym[data-sym="Handle"]') as HTMLElement);
+    expect(container.querySelector('.hf-symbol-overlay')).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(container.querySelector('.hf-symbol-overlay')).toBeNull());
+    expect(onClose).not.toHaveBeenCalled();
+
+    // With the panel gone the diff takes the keyboard back.
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('does not cache a failed read', async () => {
