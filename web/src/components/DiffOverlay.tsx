@@ -5,6 +5,7 @@ import {
   fileLabel,
   groupFiles,
   parseHunks,
+  sameDiff,
   statusBadge,
   statusLabel,
   type DiffFile,
@@ -47,8 +48,8 @@ export interface DiffSession {
   collapsed: ReadonlySet<string>;
   toggleGroup: (key: string) => void;
   scroll: { current: DiffScrollMemory };
-  /** Drop the cached diff and read it again — now if the overlay is open,
-   *  on its next open otherwise. */
+  /** Read the diff again — now if the overlay is open, on its next open
+   *  otherwise. The diff already on screen stays until the new one differs. */
   reload: () => void;
 }
 
@@ -94,18 +95,32 @@ export function useDiffSession(worktree: string, baseRef: string, open: boolean)
     if (!open) return;
     const stamp = `${key}#${token}`;
     if (loaded.current === stamp) return;
+    // A reload of the same review is a refresh, not a new read: the diff on
+    // screen stays there while the daemon is asked again. Blanking it to a
+    // spinner for an answer that is usually byte-identical is what made the
+    // overlay flicker under a chatty model-changed stream.
+    const refreshing = loaded.current !== null && loaded.current.startsWith(`${key}#`);
     loaded.current = stamp;
     let cancelled = false;
-    setData({ status: 'loading', diff: null, error: null });
+    if (!refreshing) setData({ status: 'loading', diff: null, error: null });
     fetchGitDiff(worktree, baseRef).then(
       (diff) => {
-        if (!cancelled) setData({ status: 'ready', diff, error: null });
+        if (cancelled) return;
+        // Keep the previous object when the bytes match, so the selected
+        // file and every scroll position survive the refresh untouched.
+        setData((prev) =>
+          prev.diff && sameDiff(prev.diff, diff) ? prev : { status: 'ready', diff, error: null }
+        );
       },
       (err: unknown) => {
         if (cancelled) return;
         // A failed read is not a cache entry: reopening should try the
         // daemon again instead of replaying the same error.
         loaded.current = null;
+        // A refresh that fails leaves the review readable — the diff on
+        // screen is the last one the daemon actually answered — instead of
+        // trading it for an error page.
+        if (refreshing) return;
         setData({
           status: 'error',
           diff: null,

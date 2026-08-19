@@ -109,6 +109,20 @@ func (w *Watcher) Run(ctx context.Context, handler EventHandler) error {
 				flush()
 				return nil
 			}
+			// An attribute-only event is not an edit. macOS kqueue
+			// reports NOTE_ATTRIB (fsnotify Chmod) for files that were
+			// merely inspected — `git diff` and `git status` raise it on
+			// every file that differs from the index — so treating it as
+			// a content change closed a loop through the review UI: the
+			// UI reads /api/gitdiff, the daemon shells git, git trips
+			// NOTE_ATTRIB on the changed files, the watcher calls that an
+			// edit, the daemon re-parses and publishes model-changed, and
+			// the UI reloads and reads the diff again. Contents cannot
+			// change without Create/Write/Remove/Rename, so dropping the
+			// bare Chmod costs nothing.
+			if ev.Op&^fsnotify.Chmod == 0 {
+				continue
+			}
 			// If the event is the creation of a new directory, start
 			// watching it too so nested edits are picked up.
 			if ev.Op&fsnotify.Create != 0 {

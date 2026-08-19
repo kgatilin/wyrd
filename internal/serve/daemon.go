@@ -552,8 +552,18 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 
 		var reloaded []string
 		for pkg := range pkgReloads {
-			if err := state.ReloadPackage(ctx, pkg); err != nil {
+			changed, err := state.ReloadPackage(ctx, pkg)
+			if err != nil {
 				fmt.Fprintf(logOut, "serve: reload %s: %v\n", pkg, err)
+				continue
+			}
+			if !changed {
+				// The file moved but the model did not. Broadcasting here
+				// would tell every review client to throw its canvas and
+				// file diff away and read them again for nothing.
+				if debug {
+					fmt.Fprintf(logOut, "serve: package %s unchanged\n", pkg)
+				}
 				continue
 			}
 			reloaded = append(reloaded, pkg)

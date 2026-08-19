@@ -141,7 +141,8 @@ func (s *Server) reloadSourceOwner(ctx context.Context, r *nethttp.Request, abs 
 	if pkg == "" {
 		return nil
 	}
-	if err := state.ReloadPackage(ctx, pkg); err != nil {
+	changed, err := state.ReloadPackage(ctx, pkg)
+	if err != nil || !changed {
 		return nil
 	}
 	state.PublishPackageReload([]string{pkg})

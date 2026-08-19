@@ -129,3 +129,54 @@ func TestWatcherIgnoresTargetsSubtree(t *testing.T) {
 		t.Fatalf("expected 0 batches for ignored subtree, got %d", batches)
 	}
 }
+
+// TestWatcherIgnoresAttributeOnlyEvents verifies that a chmod raises no
+// batch. macOS kqueue reports NOTE_ATTRIB for files that were only
+// inspected — `git diff` does it for every file that differs from the
+// index — so reacting to it made the daemon re-parse and broadcast on
+// its own review clients' reads.
+func TestWatcherIgnoresAttributeOnlyEvents(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "f.go")
+	if err := os.WriteFile(file, []byte("package p\n"), 0o644); err != nil {
+		t.Fatalf("writefile: %v", err)
+	}
+
+	w, err := NewWatcher(root, 30*time.Millisecond)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	var (
+		mu      sync.Mutex
+		batches int
+	)
+	handler := func(paths []string) {
+		mu.Lock()
+		batches++
+		mu.Unlock()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runErr := make(chan error, 1)
+	go func() { runErr <- w.Run(ctx, handler) }()
+
+	time.Sleep(20 * time.Millisecond)
+	if err := os.Chmod(file, 0o600); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	// Wait well past the debounce window.
+	time.Sleep(120 * time.Millisecond)
+
+	cancel()
+	<-runErr
+
+	mu.Lock()
+	defer mu.Unlock()
+	if batches != 0 {
+		t.Fatalf("expected 0 batches for an attribute-only change, got %d", batches)
+	}
+}

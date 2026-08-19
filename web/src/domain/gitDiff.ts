@@ -197,3 +197,15 @@ export function statusLabel(file: DiffFile): string {
       return 'modified';
   }
 }
+
+/**
+ * Whether two reads of the diff describe the same working tree.
+ *
+ * The daemon recomputes the whole diff per request and has no ETag, so the
+ * client is the only place that can tell a refresh that found nothing from
+ * one that found an edit. Structural equality over the payload is exact
+ * here: the diff is plain JSON the daemon serializes in a fixed order.
+ */
+export function sameDiff(a: GitDiff, b: GitDiff): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}

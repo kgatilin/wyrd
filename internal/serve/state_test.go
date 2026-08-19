@@ -122,12 +122,27 @@ type Second struct{ X int }
 func New() *Thing { return &Thing{} }
 `)
 
-	if err := st.ReloadPackage(ctx, "internal/foo"); err != nil {
+	changed, err := st.ReloadPackage(ctx, "internal/foo")
+	if err != nil {
 		t.Fatalf("ReloadPackage: %v", err)
+	}
+	if !changed {
+		t.Fatal("ReloadPackage reported no change after an edit that adds a struct")
 	}
 	after := countStructs(t, st, "internal/foo")
 	if after <= initial {
 		t.Fatalf("expected struct count to grow after reload (initial=%d after=%d)", initial, after)
+	}
+
+	// A second reload with nothing edited in between must report no change:
+	// this is what keeps a bare file-attribute event from broadcasting a
+	// model-changed to every review client.
+	changed, err = st.ReloadPackage(ctx, "internal/foo")
+	if err != nil {
+		t.Fatalf("ReloadPackage (no edit): %v", err)
+	}
+	if changed {
+		t.Fatal("ReloadPackage reported a change for an untouched package")
 	}
 }
 

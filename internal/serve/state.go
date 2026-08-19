@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -427,17 +428,26 @@ func (s *State) RetrievalReady() <-chan struct{} {
 // module-relative path (e.g. "internal/serve") and splices the result
 // into the in-memory model. A package that no longer exists is removed.
 // Also refreshes the retrieval indexes for changed/removed nodes.
-func (s *State) ReloadPackage(ctx context.Context, pkgPath string) error {
+//
+// The bool reports whether the model actually moved. A file event does not
+// prove an edit — an editor rewriting identical bytes, or a `go:generate`
+// run that reproduces its output, both re-parse to the same model — and a
+// no-op reload is expensive downstream: it rewrites the model, BM25 and
+// vector caches (hundreds of MB on a large repo) and makes every subscribed
+// review client reload itself. Callers publish model-changed only when this
+// is true.
+func (s *State) ReloadPackage(ctx context.Context, pkgPath string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if pkgPath == "" {
-		return fmt.Errorf("serve: empty package path")
+		return false, fmt.Errorf("serve: empty package path")
 	}
 
 	// Collect old node IDs for this package (to detect removals)
+	oldPkg, hadOldPkg := s.packages[pkgPath]
 	var oldNodeIDs []string
-	if oldPkg, ok := s.packages[pkgPath]; ok {
+	if hadOldPkg {
 		oldNodes := retrieval.BuildNodes([]domain.PackageModel{oldPkg})
 		for _, n := range oldNodes {
 			oldNodeIDs = append(oldNodeIDs, n.ID)
@@ -449,12 +459,24 @@ func (s *State) ReloadPackage(ctx context.Context, pkgPath string) error {
 		// Package may have been removed; drop it and return no error so
 		// the watcher loop stays alive.
 		delete(s.packages, pkgPath)
+		if !hadOldPkg {
+			// Nothing was dropped, so nothing moved: an unreadable path
+			// that was never in the model is not a change.
+			return false, nil
+		}
 		if err := s.writeModelCache(mapValues(s.packages)); err != nil {
 			fmt.Fprintf(os.Stderr, "serve: write model cache: %v\n", err)
 		}
 		// Refresh retrieval: all old nodes are now removed
 		s.refreshRetrievalLocked(ctx, nil, oldNodeIDs)
-		return nil
+		return true, nil
+	}
+
+	// An identical re-parse is the common case behind a file event, so it
+	// is answered before any of the expensive writes below.
+	if hadOldPkg && len(models) == 1 && models[0].Path == pkgPath &&
+		reflect.DeepEqual(oldPkg, models[0]) {
+		return false, nil
 	}
 
 	// Remove the old entry so stale data cannot leak if the reader
@@ -483,7 +505,7 @@ func (s *State) ReloadPackage(ctx context.Context, pkgPath string) error {
 	}
 
 	s.refreshRetrievalLocked(ctx, newNodes, removedIDs)
-	return nil
+	return true, nil
 }
 
 // refreshRetrievalLocked updates the retrieval indexes for changed nodes.
