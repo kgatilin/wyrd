@@ -311,3 +311,46 @@ func TestCompute_StableOrderingByPath(t *testing.T) {
 		}
 	}
 }
+
+// Compute normalizes symbols before comparing them, dropping the fields that
+// are noise for a diff (spans, call edges). The daemon hands it the live model
+// it also serves, so normalizing in place silently stripped every method's
+// calls and span from the review graph.
+func TestCompute_LeavesInputModelsIntact(t *testing.T) {
+	model := func() domain.PackageModel {
+		m := pkg("internal/app", "app")
+		m.Structs = []domain.StructDef{{
+			Name:       "Plugin",
+			SourceFile: "plugin.go",
+			Methods: []domain.MethodDef{{
+				Name:  "Run",
+				Span:  domain.Span{StartLine: 10, EndLine: 20},
+				Calls: []domain.CallEdge{{To: domain.SymbolRef{Package: "internal/ingress", Symbol: "NewAdmission"}}},
+			}},
+		}}
+		m.Interfaces = []domain.InterfaceDef{{
+			Name:       "Runner",
+			SourceFile: "runner.go",
+			Methods: []domain.MethodDef{{
+				Name: "Run",
+				Span: domain.Span{StartLine: 3, EndLine: 5},
+			}},
+		}}
+		return m
+	}
+
+	cur := []domain.PackageModel{model()}
+	base := []domain.PackageModel{model()}
+	Compute(cur, base)
+
+	method := cur[0].Structs[0].Methods[0]
+	if len(method.Calls) != 1 {
+		t.Fatalf("Structs[0].Methods[0].Calls = %+v, want the call edge preserved", method.Calls)
+	}
+	if method.Span.StartLine != 10 {
+		t.Errorf("Structs[0].Methods[0].Span = %+v, want the source span preserved", method.Span)
+	}
+	if got := cur[0].Interfaces[0].Methods[0].Span.StartLine; got != 3 {
+		t.Errorf("Interfaces[0].Methods[0].Span.StartLine = %d, want 3", got)
+	}
+}

@@ -282,6 +282,17 @@ All take `{package, include_subpackages}` and run on the package subgraph.
 - **Model cache** (`internal/serve/model_cache.go`) is keyed on the binary's
   build version + executable stamp. After `make install`, restart the daemon and
   `refresh`, or a parser-logic change is masked by a stale cache.
+- **`diff.Compute` must not touch the model it is handed.** Its normalizers
+  drop the fields that are diff noise (spans, call edges) from a *copy* of each
+  symbol — but a `Methods` slice shares its backing array with the caller, so
+  writing normalized methods back in place stripped `Calls` and `Span` from the
+  live daemon model. Every method's outgoing calls disappeared from the review
+  graph, and with them every symbol's *incoming* wiring from a method: the
+  wiring panel read `0 in` for a factory the code plainly calls. It reproduced
+  only through the daemon, because `Project` alone is clean — the mutation
+  happens in the `diff.Compute` the review handler runs first. Package-level
+  functions were untouched, which is exactly why the graph looked half-right.
+  `normalizeMethods` in `internal/diff/compute.go` owns the copy.
 - **Readiness is gated, not blocked.** A cold daemon goes through two slow
   phases: *parsing* the model (`go/packages`) then building *dense embeddings*
   (Ollama). Neither blocks the MCP transport. `MultiState` backgrounds the parse

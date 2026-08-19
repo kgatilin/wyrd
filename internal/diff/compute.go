@@ -357,9 +357,7 @@ func normalizeInterface(v domain.InterfaceDef) domain.InterfaceDef {
 	v.SourceFile = ""
 	v.Span = domain.Span{}
 	v.Doc = ""
-	for i := range v.Methods {
-		v.Methods[i] = normalizeMethod(v.Methods[i])
-	}
+	v.Methods = normalizeMethods(v.Methods)
 	return v
 }
 
@@ -367,10 +365,25 @@ func normalizeStruct(v domain.StructDef) domain.StructDef {
 	v.SourceFile = ""
 	v.Span = domain.Span{}
 	v.Doc = ""
-	for i := range v.Methods {
-		v.Methods[i] = normalizeMethod(v.Methods[i])
-	}
+	v.Methods = normalizeMethods(v.Methods)
 	return v
+}
+
+// normalizeMethods copies before normalizing. The enclosing value is passed by
+// value, but a slice field shares its backing array with the caller's model —
+// writing normalized methods back in place stripped Calls and Span from the
+// *live* model the daemon serves, which is why a method's outgoing calls (and
+// so every symbol's incoming wiring from a method) vanished the moment a review
+// diff was computed.
+func normalizeMethods(methods []domain.MethodDef) []domain.MethodDef {
+	if methods == nil {
+		return nil
+	}
+	out := make([]domain.MethodDef, len(methods))
+	for i, method := range methods {
+		out[i] = normalizeMethod(method)
+	}
+	return out
 }
 
 func normalizeFunction(v domain.FunctionDef) domain.FunctionDef {
