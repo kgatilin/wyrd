@@ -324,6 +324,36 @@ answers "what changed architecturally".
   canvas — the file diff and the architecture diff must never end up
   describing different working trees.
 
+### Symbol wiring in the review UI
+
+Clicking a symbol on a card opens the wiring panel: **that symbol's
+first-level relations only**, rendered as package blocks — incoming
+(who depends on this) on the left, outgoing (what this depends on) on
+the right, each side grouped into the package the neighbour lives in.
+It replaced a BFS-over-the-whole-graph node/edge canvas that reliably
+produced a hairball of crossing curves.
+
+- **Depth is walked, not drawn.** A neighbour row re-anchors the panel on
+  itself and pushes onto a back stack (`<` in the header, `Esc` closes).
+  One hop at a time stays readable where a transitive closure never does.
+- **Cross-package is the finding.** Blocks whose package differs from the
+  anchor's are accent-bordered, tagged, and sorted ahead of the anchor's
+  own package; the header carries a cross-package count and a
+  `cross-package only` filter that survives a walk.
+- **Focusing a type rolls its members up.** Relations recorded on a
+  method/field of the focused type count as the type's, with the member
+  named in the row's `via`. Focusing a member scopes to that member alone.
+  Wiring where both ends are inside the anchor is dropped — the card
+  already shows it.
+- Relations to endpoints outside the loaded graph are still listed (from
+  the relation's own label/component), just dimmed and unwalkable. A
+  cross-package edge must never vanish because its target package is out
+  of view.
+- Model: `web/src/domain/symbolNeighborhood.ts` (pure, tested) — it also
+  synthesizes the method-level `implements` pairs the graph only records
+  between struct and interface. View: `SymbolGraphOverlay.tsx`. Specs go
+  through `testing/harness/symbol-wiring.harness.ts`, never raw selectors.
+
 ### Event Model
 
 Declarative event-driven architecture declarations (`.arch/events.yaml`) with

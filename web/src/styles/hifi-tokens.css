@@ -1362,38 +1362,46 @@ body {
   border-left: 1px solid var(--line-1);
 }
 
-/* symbol wiring overlay */
+/* symbol wiring overlay — first-level neighbours as package blocks */
 .hf-symbol-overlay {
   position: absolute;
   inset: 58px 48px 72px 48px;
   z-index: 28;
   pointer-events: none;
   display: flex;
-  align-items: stretch;
+  /* Size to the wiring, not to the viewport: a symbol with three neighbours
+     gets a small panel, a hub gets a tall one that stops at the canvas edge. */
+  align-items: flex-start;
   justify-content: center;
 }
 .hf-symbol-panel {
   pointer-events: auto;
-  width: min(980px, 100%);
-  min-height: 280px;
+  width: min(1080px, 100%);
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line-2);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-1) 94%, transparent);
+  background: color-mix(in srgb, var(--bg-1) 96%, transparent);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 .hf-symbol-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--line-1);
   background: var(--bg-2);
 }
+.hf-symbol-ident {
+  min-width: 0;
+  flex: 1;
+}
 .hf-symbol-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 13px;
   font-weight: 700;
   color: var(--fg-0);
@@ -1405,7 +1413,30 @@ body {
   color: var(--fg-2);
   font-family: 'JetBrains Mono', monospace;
 }
+.hf-symbol-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.hf-symbol-stat {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-2);
+  background: var(--bg-3);
+  border: 1px solid var(--line-1);
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.hf-symbol-stat.cross.live {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-bg);
+}
+.hf-symbol-back,
 .hf-symbol-close {
+  flex: none;
   width: 24px;
   height: 24px;
   display: grid;
@@ -1417,74 +1448,188 @@ body {
   cursor: pointer;
   font-family: 'JetBrains Mono', monospace;
 }
+.hf-symbol-back:hover,
 .hf-symbol-close:hover {
   color: var(--fg-0);
   border-color: var(--accent);
 }
-.hf-symbol-stage-wrap {
-  flex: 1;
-  overflow: auto;
-  background:
-    radial-gradient(circle, rgba(139, 148, 158, 0.16) 1px, transparent 1px) 0 0 / 28px 28px,
-    var(--bg-0);
-}
-.hf-symbol-stage {
-  position: relative;
-  min-width: 100%;
-  min-height: 100%;
-}
-.hf-symbol-edges {
-  position: absolute;
-  inset: 0;
-  overflow: visible;
-  pointer-events: none;
-}
-.hf-symbol-edge {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.7px;
-}
-.hf-symbol-edge.calls { stroke: var(--syn-fn); }
-.hf-symbol-edge.returns { stroke: var(--syn-var); }
-.hf-symbol-edge.implements {
-  stroke: var(--layer-internal-fg);
-  stroke-dasharray: 5 3;
-}
-.hf-symbol-arrow { fill: var(--accent); }
-.hf-symbol-edge-label {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  fill: var(--fg-2);
-  paint-order: stroke;
-  stroke: var(--bg-0);
-  stroke-width: 4px;
-}
-.hf-symbol-node {
-  position: absolute;
-  width: 178px;
-  height: 46px;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-rows: auto auto;
-  column-gap: 7px;
-  row-gap: 2px;
-  align-content: center;
-  padding: 6px 8px;
+.hf-symbol-filter {
+  flex: none;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 5px;
   border: 1px solid var(--line-2);
-  border-radius: 6px;
-  background: var(--bg-2);
-  box-shadow: var(--shadow-sm);
+  background: var(--bg-3);
+  color: var(--fg-2);
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.hf-symbol-filter:hover { color: var(--fg-0); }
+.hf-symbol-filter.on {
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.hf-symbol-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--fg-2);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  background: var(--bg-0);
+}
+
+/* two columns: callers on the left, dependencies on the right */
+.hf-symbol-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--bg-0);
+}
+.hf-symbol-col {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.hf-symbol-col.out { border-left: 1px solid var(--line-1); }
+.hf-symbol-col-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line-1);
+  background: var(--bg-1);
   font-family: 'JetBrains Mono', monospace;
 }
-.hf-symbol-node.selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-bg), var(--shadow-sm);
+.hf-symbol-col-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-1);
 }
-.hf-symbol-node.symbol-public { box-shadow: inset 3px 0 0 var(--layer-public-line), var(--shadow-sm); }
-.hf-symbol-node.symbol-internal { box-shadow: inset 3px 0 0 var(--layer-internal-line), var(--shadow-sm); }
-.hf-symbol-node-kind {
-  grid-row: 1 / span 2;
-  align-self: start;
+.hf-symbol-col-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 9px;
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hf-symbol-col-count {
+  font-size: 10px;
+  color: var(--fg-2);
+}
+.hf-symbol-col-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hf-symbol-none {
+  color: var(--fg-2);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 4px 2px;
+}
+
+/* one block per package the neighbours live in */
+.hf-symbol-group {
+  border: 1px solid var(--line-1);
+  border-radius: 6px;
+  background: var(--bg-1);
+  overflow: hidden;
+}
+.hf-symbol-group.cross {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line-2));
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.hf-symbol-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  border-bottom: 1px solid var(--line-1);
+  background: var(--bg-2);
+  font-family: 'JetBrains Mono', monospace;
+}
+.hf-symbol-group-pkg {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fg-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hf-symbol-group.cross .hf-symbol-group-pkg { color: var(--accent); }
+.hf-symbol-group-path {
+  font-weight: 400;
+  color: var(--fg-2);
+}
+.hf-symbol-group-tag {
+  font-size: 9px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.hf-symbol-group-count {
+  font-size: 10px;
+  color: var(--fg-2);
+}
+.hf-symbol-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.hf-symbol-link {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  border-top: 1px solid color-mix(in srgb, var(--line-1) 55%, transparent);
+  font-family: 'JetBrains Mono', monospace;
+}
+.hf-symbol-link:first-child { border-top: none; }
+.hf-symbol-link.walkable { cursor: pointer; }
+.hf-symbol-link.walkable:hover { background: var(--bg-2); }
+.hf-symbol-link:not(.walkable) { opacity: 0.62; }
+.hf-symbol-link-kinds {
+  /* Fixed gutter so the symbol names line up down the block instead of being
+     ragged behind one- vs two-chip relation lists. */
+  flex: none;
+  min-width: 84px;
+  display: flex;
+  gap: 3px;
+}
+.hf-symbol-rel {
+  font-size: 9px;
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: var(--bg-0);
+  background: var(--accent);
+}
+.hf-symbol-rel.calls { background: var(--syn-fn); }
+.hf-symbol-rel.returns { background: var(--syn-var); }
+.hf-symbol-rel.uses { background: var(--fg-2); }
+.hf-symbol-rel.implements {
+  background: transparent;
+  color: var(--layer-internal-fg);
+  border: 1px dashed var(--layer-internal-line);
+  padding: 0 3px;
+}
+.hf-symbol-kind {
+  flex: none;
   color: var(--fg-2);
   background: var(--bg-3);
   border-radius: 3px;
@@ -1492,16 +1637,17 @@ body {
   font-size: 9px;
   font-weight: 700;
 }
-.hf-symbol-node.symbol-public .hf-symbol-node-kind {
+.hf-symbol-kind.symbol-public {
   color: var(--layer-public-fg);
   background: var(--layer-public-bg);
 }
-.hf-symbol-node.symbol-internal .hf-symbol-node-kind {
+.hf-symbol-kind.symbol-internal {
   color: var(--layer-internal-fg);
   background: var(--layer-internal-bg);
 }
-.hf-symbol-node-label {
+.hf-symbol-link-name {
   min-width: 0;
+  flex: 1;
   color: var(--fg-0);
   font-size: 11px;
   font-weight: 600;
@@ -1509,14 +1655,17 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.hf-symbol-node-pkg {
-  min-width: 0;
-  color: var(--fg-2);
+.hf-symbol-link-via {
+  flex: none;
   font-size: 9px;
+  color: var(--fg-2);
+  max-width: 45%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.hf-symbol-link.diff-added .hf-symbol-link-name { color: var(--diff-add-fg, var(--fg-0)); }
+.hf-symbol-link.diff-removed .hf-symbol-link-name { text-decoration: line-through; }
 
 .hf-canvas-legend {
   position: absolute;

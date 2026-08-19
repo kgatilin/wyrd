@@ -6,6 +6,7 @@ import { ChangesPanelHarness } from './changes-panel.harness';
 import { ContextTreeHarness } from './context-tree.harness';
 import { CommentPopoverHarness } from './comment-popover.harness';
 import { MarkerHarness } from './marker.harness';
+import { SymbolWiringHarness } from './symbol-wiring.harness';
 
 /** Top-level harness rooted at `.hifi`. Entry point: env.load(AppHarness). */
 export class AppHarness extends ComponentHarness {
@@ -84,6 +85,11 @@ export class AppHarness extends ComponentHarness {
     const viewport = await this.env.rootLocator('.hf-canvas-viewport').first();
     return new CanvasHarness(viewport, this.env);
   }
+  /** The symbol wiring overlay, opened by focusing a symbol on a card. */
+  symbolWiring(): SymbolWiringHarness {
+    return new SymbolWiringHarness(this.root, this.env);
+  }
+
   legend(): LegendHarness {
     return new LegendHarness(this.root, this.env);
   }

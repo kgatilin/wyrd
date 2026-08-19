@@ -5,6 +5,57 @@ import { AppHarness } from '../../../testing/harness/app.harness';
 import { diffGraph, nonDiffGraph } from '../../../testing/fixtures';
 import type { UIGraph } from '../../types';
 
+/** One function whose dependencies straddle a package boundary. */
+const crossPackageGraph: UIGraph = {
+  schema: 'archai.uigraph/v0',
+  boundedContexts: [{ id: 'root', name: 'Root' }],
+  components: [
+    {
+      id: 'svc',
+      name: 'svc',
+      tech: 'Go',
+      desc: '',
+      bc: 'root',
+      internals: [
+        { id: 'svc.Handle', kind: 'func', name: 'Handle', exported: true, members: [] },
+        { id: 'svc.helper', kind: 'func', name: 'helper', exported: false, members: [] },
+      ],
+      ports: [],
+    },
+    {
+      id: 'store',
+      name: 'store',
+      tech: 'Go',
+      desc: '',
+      bc: 'root',
+      internals: [{ id: 'store.Put', kind: 'func', name: 'Put', exported: true, members: [] }],
+      ports: [],
+    },
+  ],
+  edges: [],
+  relations: [
+    {
+      id: 'r:calls:svc.Handle->svc.helper',
+      kind: 'calls',
+      fromComponentId: 'svc',
+      fromInternalId: 'svc.Handle',
+      toComponentId: 'svc',
+      toInternalId: 'svc.helper',
+      toLabel: 'helper',
+    },
+    {
+      id: 'r:calls:svc.Handle->store.Put',
+      kind: 'calls',
+      fromComponentId: 'svc',
+      fromInternalId: 'svc.Handle',
+      toComponentId: 'store',
+      toInternalId: 'store.Put',
+      toLabel: 'Put',
+    },
+  ],
+  comments: [],
+};
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -278,7 +329,7 @@ describe('harness smoke (jsdom) — diffGraph', () => {
     expect(await (await app.diagram()).edgeCount()).toBe(1);
   });
 
-  it('clicking a symbol opens a wiring graph including interface implementations', async () => {
+  it('clicking a symbol opens its first-level wiring grouped by package', async () => {
     const graph: UIGraph = {
       schema: 'archai.uigraph/v0',
       boundedContexts: [{ id: 'root', name: 'Root' }],
@@ -360,21 +411,70 @@ describe('harness smoke (jsdom) — diffGraph', () => {
     const store = await (await (await app.diagram()).component('api')).block('Store');
     await (await store.row('Save')).focusSymbol();
 
-    await app.env.waitUntil(async () => (await env.rootLocator('.hf-symbol-overlay').count()) === 1, {
+    const wiring = app.symbolWiring();
+    await app.env.waitUntil(() => wiring.isPresent(), {
       message: 'symbol wiring overlay never opened',
     });
-    const labels = await Promise.all(
-      (await env.rootLocator('.hf-symbol-node-label').all()).map((node) => node.text())
-    );
-    const edgeLabels = await Promise.all(
-      (await env.rootLocator('.hf-symbol-edge-label').all()).map((node) => node.text())
-    );
-    expect(labels).toContain('Save(ctx context.Context) error');
-    expect(labels).toContain('Run(ctx context.Context) error');
-    expect(edgeLabels).toContain('calls');
-    expect(edgeLabels).toContain('implements');
-    expect(await env.rootLocator('.hf-symbol-node.symbol-public').count()).toBeGreaterThan(0);
-    expect(await env.rootLocator('.hf-symbol-node.symbol-internal').count()).toBeGreaterThan(0);
+
+    expect(await wiring.anchorName()).toContain('Save(ctx context.Context) error');
+    expect(await wiring.anchorPackage()).toBe('api');
+    expect(await wiring.stats()).toEqual(['2 in', '0 out', '2 cross-package']);
+
+    // Both neighbours live outside `api`, so both blocks are flagged as crossing
+    // the package boundary — the caller and the implementation.
+    const incoming = wiring.incoming();
+    // Blocks carry the full package path — basenames collide across roots.
+    expect(await incoming.packages()).toEqual(['app', 'internal/repo']);
+    expect(await incoming.crossPackages()).toEqual(['app', 'internal/repo']);
+    expect(await incoming.linkNames()).toEqual([
+      'Run(ctx context.Context) error',
+      'Save(ctx context.Context) error',
+    ]);
+
+    const caller = await incoming.link('Run(ctx context.Context) error');
+    expect(await caller.relations()).toEqual(['calls']);
+    expect(await caller.symbolVisibility()).toBe('public');
+    const impl = await incoming.link('Save(ctx context.Context) error');
+    expect(await impl.relations()).toEqual(['implements']);
+    expect(await impl.symbolVisibility()).toBe('internal');
+
+    // Nothing flows out of an interface method declaration.
+    expect(await wiring.outgoing().isEmpty()).toBe(true);
+
+    // Only first-level relations are shown; depth comes from walking one hop.
+    expect(await wiring.hasBack()).toBe(false);
+    await caller.walk();
+    await app.env.waitUntil(async () => (await wiring.anchorName()).includes('Run(ctx'), {
+      message: 'walking to a neighbour never re-anchored the panel',
+    });
+    expect(await wiring.anchorPackage()).toBe('app');
+    expect(await wiring.outgoing().linkNames()).toEqual(['Save(ctx context.Context) error']);
+
+    await wiring.back();
+    await app.env.waitUntil(async () => (await wiring.anchorPackage()) === 'api', {
+      message: 'back never returned to the previous symbol',
+    });
+  });
+
+  it('hides same-package neighbours when cross-package only is on', async () => {
+    const env = await mountAppDom(crossPackageGraph);
+    const app = await env.load(AppHarness);
+    await app.waitForLoaded();
+    const svc = await (await (await app.diagram()).component('svc')).block('Handle');
+    await svc.focusSymbol();
+
+    const wiring = app.symbolWiring();
+    await app.env.waitUntil(() => wiring.isPresent(), {
+      message: 'symbol wiring overlay never opened',
+    });
+    expect(await wiring.outgoing().packages()).toEqual(['store', 'svc']);
+
+    await wiring.toggleCrossPackageOnly();
+    await app.env.waitUntil(async () => (await wiring.outgoing().packages()).length === 1, {
+      message: 'cross-package filter never applied',
+    });
+    expect(await wiring.outgoing().packages()).toEqual(['store']);
+    expect(await wiring.outgoing().count()).toBe('1 / 2');
   });
 });
 
