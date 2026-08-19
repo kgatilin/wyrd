@@ -59,9 +59,9 @@ const ACTOR_H = 26;
 const ACTOR_CHAR_W = 6.8;
 const ACTOR_PAD_W = 24;
 const ACTOR_MIN_W = 72;
-const ACTOR_MAX_W = 260;
+const ACTOR_MAX_W = 220;
+const ACTOR_MAX_CHARS = 28;
 const COL_GAP = 26;
-const MAX_COL_GAP = 320;
 const SIDE_PAD = 18;
 const TOP_PAD = 12;
 const MSG_ROW_H = 26;
@@ -69,43 +69,133 @@ const MSG_START_GAP = 20;
 const BOTTOM_PAD = 18;
 const SELF_LOOP_W = 26;
 const MSG_CHAR_W = 6.0;
+const MSG_LABEL_PAD = 16;
+const MSG_MAX_CHARS = 34;
+// Past this span the midpoint of an arrow is nowhere near either end of it, so
+// the label rides next to the caller instead of floating in empty canvas.
+const LABEL_MID_MAX = 420;
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
+function elide(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
+interface SeqActor {
+  id: string;
+  /** What the column header shows — the package prefix stripped when it is the diagram's own. */
+  label: string;
+  /** The lifeline name as the daemon emitted it, kept for the tooltip. */
+  full: string;
+  /** Lives in a different package than the entry point this diagram starts from. */
+  external: boolean;
+}
+
+interface SeqMessage {
+  from: string;
+  to: string;
+  label: string;
+  full: string;
+}
+
+interface SeqView {
+  actors: SeqActor[];
+  messages: SeqMessage[];
+}
+
+/**
+ * The diagram's own package prefix repeats on nearly every lifeline and costs
+ * roughly a third of the canvas width, so it is dropped from the headers. What
+ * is left carrying a prefix is exactly the cross-package lifeline — the one
+ * worth noticing. The prefix comes off the root participant, which is the entry
+ * point the sequence was built from.
+ */
+function buildView(parsed: ParsedSequence): SeqView {
+  const root = parsed.participants[0]?.label ?? '';
+  const dot = root.indexOf('.');
+  const prefix = dot > 0 ? root.slice(0, dot + 1) : '';
+  const actors = parsed.participants.map((p) => {
+    const own = prefix !== '' && p.label.startsWith(prefix) && p.label.length > prefix.length;
+    return {
+      id: p.id,
+      label: elide(own ? p.label.slice(prefix.length) : p.label, ACTOR_MAX_CHARS),
+      full: p.label,
+      external: prefix !== '' && !own,
+    };
+  });
+  const messages = parsed.messages.map((m) => ({
+    from: m.from,
+    to: m.to,
+    label: elide(m.label, MSG_MAX_CHARS),
+    full: m.label,
+  }));
+  return { actors, messages };
+}
+
+interface SeqGeometry {
+  widths: number[];
+  centers: number[];
+  width: number;
+  height: number;
+  centerById: Map<string, number>;
+}
+
+/**
+ * Column positions. Each gap is widened only by the labels that actually have
+ * to span it, shortest span first — a single long label between two adjacent
+ * columns must not set the scale for all the others, which is what one uniform
+ * gap did (it blew a 12-lifeline flow out to several thousand pixels and pushed
+ * every right-to-left arrow off the visible canvas entirely).
+ */
+function solveGeometry(view: SeqView): SeqGeometry {
+  const { actors, messages } = view;
+  const n = actors.length;
+  const indexById = new Map(actors.map((a, i) => [a.id, i]));
+  const widths = actors.map((a) =>
+    clamp(a.label.length * ACTOR_CHAR_W + ACTOR_PAD_W, ACTOR_MIN_W, ACTOR_MAX_W)
+  );
+  const gaps = new Array(Math.max(n - 1, 0)).fill(COL_GAP);
+
+  const spans: { lo: number; hi: number; need: number }[] = [];
+  for (const m of messages) {
+    const a = indexById.get(m.from);
+    const b = indexById.get(m.to);
+    if (a == null || b == null || a === b) continue;
+    spans.push({
+      lo: Math.min(a, b),
+      hi: Math.max(a, b),
+      need: m.label.length * MSG_CHAR_W + MSG_LABEL_PAD,
+    });
+  }
+  spans.sort((p, q) => p.hi - p.lo - (q.hi - q.lo));
+  for (const s of spans) {
+    let have = (widths[s.lo] + widths[s.hi]) / 2;
+    for (let i = s.lo; i < s.hi; i++) have += gaps[i];
+    for (let i = s.lo + 1; i < s.hi; i++) have += widths[i];
+    const deficit = s.need - have;
+    if (deficit <= 0) continue;
+    const share = deficit / (s.hi - s.lo);
+    for (let i = s.lo; i < s.hi; i++) gaps[i] += share;
+  }
+
+  const centers: number[] = [];
+  let x = SIDE_PAD;
+  for (let i = 0; i < n; i++) {
+    centers.push(x + widths[i] / 2);
+    x += widths[i] + (gaps[i] ?? 0);
+  }
+  const width = Math.max(x + SIDE_PAD, 240);
+  const height = TOP_PAD + ACTOR_H + MSG_START_GAP + messages.length * MSG_ROW_H + BOTTOM_PAD;
+  const centerById = new Map(actors.map((a, i) => [a.id, centers[i]]));
+  return { widths, centers, width, height, centerById };
+}
+
 function SequenceDiagram({ parsed }: { parsed: ParsedSequence }) {
   const markerId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
-
-  const geo = useMemo(() => {
-    const indexById = new Map(parsed.participants.map((p, i) => [p.id, i]));
-
-    // Widen the uniform column gap so message labels between near columns fit:
-    // a label spanning k columns needs ~labelW/k per gap.
-    let gap = COL_GAP;
-    for (const m of parsed.messages) {
-      const a = indexById.get(m.from);
-      const b = indexById.get(m.to);
-      if (a == null || b == null || a === b) continue;
-      const k = Math.abs(a - b);
-      gap = clamp((m.label.length * MSG_CHAR_W + 16) / k, gap, MAX_COL_GAP);
-    }
-
-    const widths = parsed.participants.map((p) =>
-      clamp(p.label.length * ACTOR_CHAR_W + ACTOR_PAD_W, ACTOR_MIN_W, ACTOR_MAX_W)
-    );
-    const centers: number[] = [];
-    let x = SIDE_PAD;
-    widths.forEach((w) => {
-      centers.push(x + w / 2);
-      x += w + gap;
-    });
-    const width = Math.max(x - gap + SIDE_PAD, 240);
-    const height =
-      TOP_PAD + ACTOR_H + MSG_START_GAP + parsed.messages.length * MSG_ROW_H + BOTTOM_PAD;
-    const centerById = new Map(parsed.participants.map((p, i) => [p.id, centers[i]]));
-    return { widths, centers, width, height, centerById };
-  }, [parsed]);
+  const view = useMemo(() => buildView(parsed), [parsed]);
+  const geo = useMemo(() => solveGeometry(view), [view]);
 
   return (
     <div className="hf-seq-stage" style={{ width: geo.width, height: geo.height }}>
@@ -122,10 +212,21 @@ function SequenceDiagram({ parsed }: { parsed: ParsedSequence }) {
           >
             <path d="M 0 0 L 10 5 L 0 10 z" className="hf-seq-arrow" />
           </marker>
+          <marker
+            id={`seq-arr-back-${markerId}`}
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" className="hf-seq-arrow-back" />
+          </marker>
         </defs>
-        {parsed.participants.map((p, i) => (
+        {view.actors.map((a, i) => (
           <line
-            key={p.id}
+            key={a.id}
             className="hf-seq-life"
             x1={geo.centers[i]}
             y1={TOP_PAD + ACTOR_H}
@@ -133,7 +234,7 @@ function SequenceDiagram({ parsed }: { parsed: ParsedSequence }) {
             y2={geo.height - 6}
           />
         ))}
-        {parsed.messages.map((m, i) => {
+        {view.messages.map((m, i) => {
           const y = TOP_PAD + ACTOR_H + MSG_START_GAP + i * MSG_ROW_H + MSG_ROW_H / 2;
           const x1 = geo.centerById.get(m.from);
           const x2 = geo.centerById.get(m.to);
@@ -144,12 +245,20 @@ function SequenceDiagram({ parsed }: { parsed: ParsedSequence }) {
               <g key={i}>
                 <path d={path} className="hf-seq-msg" markerEnd={`url(#seq-arr-${markerId})`} />
                 <text x={x1 + SELF_LOOP_W + 6} y={y + 4} className="hf-seq-label" textAnchor="start">
+                  <title>{m.full}</title>
                   {m.label}
                 </text>
               </g>
             );
           }
-          const dir = x2 > x1 ? 1 : -1;
+          // A call back to a lifeline that already appeared reads right-to-left.
+          // It gets its own colour so the direction is legible even when the
+          // arrowhead is thousands of pixels away, off the scrolled viewport.
+          const back = x2 < x1;
+          const dir = back ? -1 : 1;
+          const far = Math.abs(x2 - x1) > LABEL_MID_MAX;
+          const lx = far ? x1 + dir * 10 : (x1 + x2) / 2;
+          const anchor = far ? (back ? 'end' : 'start') : 'middle';
           return (
             <g key={i}>
               <line
@@ -157,29 +266,35 @@ function SequenceDiagram({ parsed }: { parsed: ParsedSequence }) {
                 y1={y}
                 x2={x2 - dir * 3}
                 y2={y}
-                className="hf-seq-msg"
-                markerEnd={`url(#seq-arr-${markerId})`}
+                className={back ? 'hf-seq-msg hf-seq-msg-back' : 'hf-seq-msg'}
+                markerEnd={`url(#seq-arr-${back ? 'back-' : ''}${markerId})`}
               />
-              <text x={(x1 + x2) / 2} y={y - 6} className="hf-seq-label" textAnchor="middle">
+              <text
+                x={lx}
+                y={y - 6}
+                className={back ? 'hf-seq-label hf-seq-label-back' : 'hf-seq-label'}
+                textAnchor={anchor}
+              >
+                <title>{m.full}</title>
                 {m.label}
               </text>
             </g>
           );
         })}
       </svg>
-      {parsed.participants.map((p, i) => (
+      {view.actors.map((a, i) => (
         <div
-          key={p.id}
-          className="hf-seq-actor"
+          key={a.id}
+          className={a.external ? 'hf-seq-actor hf-seq-actor-ext' : 'hf-seq-actor'}
           style={{
             left: geo.centers[i] - geo.widths[i] / 2,
             top: TOP_PAD,
             width: geo.widths[i],
             height: ACTOR_H,
           }}
-          title={p.label}
+          title={a.full}
         >
-          {p.label}
+          {a.label}
         </div>
       ))}
     </div>

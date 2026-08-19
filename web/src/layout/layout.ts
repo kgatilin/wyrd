@@ -99,9 +99,12 @@ export interface LayoutOptions {
 }
 
 // Fixed frame for a card in sequence mode; the diagram scrolls inside it, so
-// layout stays independent of the (async-fetched) sequence content.
-const SEQ_CARD_W = 620;
-const SEQ_CARD_H = 420;
+// layout stays independent of the (async-fetched) sequence content. A sequence
+// is wide by nature (one column per lifeline), so this frame is deliberately
+// much larger than an expanded class card — at 620px only two lifelines fit and
+// the flow is unreadable.
+const SEQ_CARD_W = 1120;
+const SEQ_CARD_H = 700;
 
 /**
  * Relations that stay inside one package and belong on the diagram — the only

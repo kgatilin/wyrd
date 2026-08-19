@@ -944,6 +944,16 @@ body {
 .hf-seq-life { stroke: var(--line-2); stroke-dasharray: 3 4; }
 .hf-seq-msg { stroke: var(--fg-3); stroke-width: 1.25px; fill: none; }
 .hf-seq-arrow { fill: var(--fg-3); }
+/* A right-to-left message: a call back into a lifeline that already appeared.
+   Coloured so its direction reads even when the arrowhead is off-screen. */
+.hf-seq-msg-back { stroke: var(--chg-fg); }
+.hf-seq-arrow-back { fill: var(--chg-fg); }
+/* A lifeline from another package than the entry point's. */
+.hf-seq-actor-ext {
+  box-shadow: inset 3px 0 0 var(--layer-internal-line);
+  border-color: var(--layer-internal-line);
+  color: var(--layer-internal-fg);
+}
 .hf-seq-label {
   font: 9.5px 'JetBrains Mono', monospace;
   fill: var(--fg-1);
@@ -951,6 +961,7 @@ body {
   stroke: var(--bg-0);
   stroke-width: 4px;
 }
+.hf-seq-label-back { fill: var(--chg-fg); }
 .hf-seq-status {
   display: flex; align-items: center; justify-content: center;
   height: 100%;
