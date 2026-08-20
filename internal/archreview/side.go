@@ -24,9 +24,9 @@ const (
 	kindPrefixPkg    = "pkg:"
 )
 
-// dependsOnKind is the coarse package-to-package edge the exporter emits and
-// the package-level trophic solve runs on. It is not in trophic's default
-// (symbol-level) edge set, so it has to be named explicitly.
+// dependsOnKind is the coarse package-to-package edge the exporter emits, and
+// the one the group-level trophic solve runs on. It is not in trophic's
+// default (symbol-level) edge set, so it has to be named explicitly.
 const dependsOnKind = "dependsOn"
 
 // symbol is one graph-visible declaration. Constants, variables and struct
@@ -97,7 +97,6 @@ type side struct {
 	viaIface map[string]bool           // method node ids reached through an implemented interface
 
 	symTrophic trophic.Result
-	pkgTrophic trophic.Result
 	pkgComps   components.Result
 	files      filestats.Result
 
@@ -108,8 +107,6 @@ type side struct {
 	// computes: rounding it to an int here would let the growth section
 	// flag a file the god-file section calls ordinary.
 	fileCutoff float64
-	// levelOf is each package's integer trophic layer.
-	levelOf map[string]int
 }
 
 // newSide measures one model set. A graph that cannot be built yields a nil
@@ -131,7 +128,6 @@ func newSide(models []domain.PackageModel, cfg *overlay.Config) (*side, error) {
 		inFrom:      map[string]map[string]int{},
 		viaIface:    map[string]bool{},
 		declsByFile: map[string]int{},
-		levelOf:     map[string]int{},
 	}
 	for _, m := range models {
 		if m.Path == "" {
@@ -285,10 +281,10 @@ func isFlowKind(kind string) bool {
 	return false
 }
 
-// runLenses hands the graph to archmotif's analyses. The package-level trophic
-// solve runs on a second, package-only graph built through the same public
-// import shim, because the symbol projection would otherwise drown the coarse
-// dependsOn edges the package layering is read from.
+// runLenses hands the graph to archmotif's analyses. Components run on a
+// second, package-only graph built through the same public import shim,
+// because the symbol projection would otherwise drown the coarse dependsOn
+// edges a package-granular question is asked of.
 func (s *side) runLenses() {
 	var fileNodes []string
 	for _, n := range s.graph.Nodes() {
@@ -319,16 +315,7 @@ func (s *side) runLenses() {
 
 	pkgGraph, pkgNodes := s.packageGraph()
 	if pkgGraph != nil && len(pkgNodes) > 0 {
-		s.pkgTrophic = trophic.Analyze(pkgGraph, trophic.Options{
-			NodeIDs:   pkgNodes,
-			EdgeKinds: []string{dependsOnKind},
-		})
 		s.pkgComps = components.Analyze(pkgGraph, pkgNodes)
-		for _, layer := range s.pkgTrophic.Layers {
-			for _, member := range layer.Members {
-				s.levelOf[strings.TrimPrefix(member, kindPrefixPkg)] = layer.Level
-			}
-		}
 	}
 }
 
@@ -346,8 +333,8 @@ func godFileCutoff(median float64) float64 {
 func (s *side) cutoffDeclarations() int { return int(math.Ceil(s.fileCutoff)) }
 
 // packageGraph builds a package-only archmotif graph from the derived package
-// edges, so trophic and components can be run at the granularity the section
-// asks about without either of them being reimplemented here.
+// edges, so components can be run at the granularity the section asks about
+// without being reimplemented here.
 func (s *side) packageGraph() (*archmotifimport.Graph, []string) {
 	b := archmotifimport.NewBuilder()
 	nodes := make([]string, 0, len(s.pkgs))
@@ -405,13 +392,6 @@ func (s *side) packageOfFile(path string) string {
 		return dir
 	}
 	return ""
-}
-
-// pkgLevel maps a package path to its integer trophic layer, and reports
-// whether the package was part of the solve at all.
-func (s *side) pkgLevel(pkg string) (int, bool) {
-	level, ok := s.levelOf[pkg]
-	return level, ok
 }
 
 // backwardEdges keys the symbol-level inversions by their endpoints so review

@@ -32,7 +32,7 @@ func reviewSections(
 	added := addedSymbols(head, base)
 	return []Section{
 		reviewGroupCycles(head, base, groups),
-		reviewNewEdges(head, base),
+		reviewNewEdges(head, base, groups),
 		reviewInversions(head, base),
 		reviewUnusedExports(head, ports, added),
 		reviewImpact(head, modelDiff, changed),
@@ -170,9 +170,10 @@ func cycleLabel(cycle groupCycle) string {
 	return fmt.Sprintf("%s (%d groups)", strings.Join(cycle.Groups, ", "), len(cycle.Groups))
 }
 
-func reviewNewEdges(head, base *side) Section {
+func reviewNewEdges(head, base *side, groups *grouping) Section {
 	fresh := newPackageEdges(head, base)
 	violations := policyViolations(head)
+	backward := backwardGroupEdges(head, groups)
 
 	edges := make([]Edge, 0, len(fresh))
 	for edge := range fresh {
@@ -191,9 +192,10 @@ func reviewNewEdges(head, base *side) Section {
 		case violations[edge] != "":
 			list = append(list, tagged{edge, TagPolicy,
 				violations[edge] + " — fix it, or allow the edge explicitly in archai.yaml"})
-		case isBackwardPackageEdge(head, edge):
+		case isBackwardEdge(groups, backward, edge):
 			list = append(list, tagged{edge, TagBackward,
-				"points against the package layering — invert it through an interface in the lower layer"})
+				groups.of(edge.From) + " sits below " + groups.of(edge.To) +
+					" — invert it through an interface in the lower group"})
 		default:
 			list = append(list, tagged{edge, TagOK,
 				"new dependency — confirm it was intended"})
@@ -228,12 +230,15 @@ func reviewNewEdges(head, base *side) Section {
 	)
 }
 
-// isBackwardPackageEdge reports whether the edge climbs the package-level
-// trophic hierarchy: a foundation package depending on one above it.
-func isBackwardPackageEdge(s *side, edge Edge) bool {
-	fromLevel, okFrom := s.pkgLevel(edge.From)
-	toLevel, okTo := s.pkgLevel(edge.To)
-	return okFrom && okTo && fromLevel < toLevel
+// isBackwardEdge reports whether the package edge is carried by a group edge
+// that climbs the group hierarchy — a foundation depending on something above
+// it. An edge inside a single group has no direction to contradict.
+func isBackwardEdge(g *grouping, backward map[Edge]bool, edge Edge) bool {
+	from, to := g.of(edge.From), g.of(edge.To)
+	if from == to {
+		return false
+	}
+	return backward[Edge{From: from, To: to}]
 }
 
 func reviewInversions(head, base *side) Section {

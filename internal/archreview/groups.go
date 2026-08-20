@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/kgatilin/archai/internal/overlay"
+	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
+	"github.com/kgatilin/archmotif/pkg/trophic"
 )
 
 // grouping resolves which group owns a package. Go forbids package import
@@ -233,4 +235,82 @@ func tarjan(nodes []string, adjacency map[string][]string) [][]string {
 		}
 	}
 	return components
+}
+
+// backwardGroupEdges names the group edges that point against the dependency
+// direction the rest of the graph establishes.
+//
+// Direction is read at group level for the same reason cycles are. Go forbids
+// package import cycles, so the package dependsOn graph is always a DAG, and a
+// DAG's trophic solve puts every dependency below its dependent — there is no
+// edge left for "backward" to mean. Only a cycle supplies the conflicting pull
+// that lifts a dependency above the package that uses it, and a cycle can only
+// exist one level up.
+//
+// Each group pair contributes one unit edge however many symbol dependencies
+// sit behind it: the question is which way the dependency points, not how much
+// of it there is.
+func backwardGroupEdges(s *side, g *grouping) map[Edge]bool {
+	collapsed := collapse(s, g)
+	if len(collapsed) == 0 {
+		return nil
+	}
+
+	b := archmotifimport.NewBuilder()
+	var nodes []string
+	seen := map[string]bool{}
+	add := func(name string) bool {
+		if seen[name] {
+			return true
+		}
+		seen[name] = true
+		id := kindPrefixPkg + name
+		if err := b.AddPackage(id, "", ""); err != nil {
+			return false
+		}
+		nodes = append(nodes, id)
+		return true
+	}
+	for _, p := range s.pkgs {
+		if !add(g.of(p)) {
+			return nil
+		}
+	}
+
+	keys := make([]Edge, 0, len(collapsed))
+	for key := range collapsed {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].From != keys[j].From {
+			return keys[i].From < keys[j].From
+		}
+		return keys[i].To < keys[j].To
+	})
+	for _, key := range keys {
+		if !add(key.From) || !add(key.To) {
+			return nil
+		}
+		if err := b.AddDependency(kindPrefixPkg+key.From, kindPrefixPkg+key.To, archmotifimport.DependencyDependsOn); err != nil {
+			return nil
+		}
+	}
+
+	graph, err := b.Build()
+	if err != nil {
+		return nil
+	}
+	sort.Strings(nodes)
+	result := trophic.Analyze(graph, trophic.Options{
+		NodeIDs:   nodes,
+		EdgeKinds: []string{dependsOnKind},
+	})
+	out := make(map[Edge]bool, len(result.BackwardEdges))
+	for _, be := range result.BackwardEdges {
+		out[Edge{
+			From: strings.TrimPrefix(be.From, kindPrefixPkg),
+			To:   strings.TrimPrefix(be.To, kindPrefixPkg),
+		}] = true
+	}
+	return out
 }

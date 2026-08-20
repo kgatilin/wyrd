@@ -154,31 +154,56 @@ func TestNewEdgeTaggedByThePolicyEvaluator(t *testing.T) {
 	}
 }
 
-// Backward means the edge climbs the package-level trophic hierarchy: a
-// foundation package depending on one above it.
-func TestBackwardEdgeClimbsThePackageLayering(t *testing.T) {
-	s, err := newSide(models(
-		newPkg("internal/entry").fn("Entry", "e.go", 1).dep("Entry", "internal/hub", "Hub"),
-		newPkg("internal/hub").fn("Hub", "h.go", 1).
-			dep("Hub", "internal/leafa", "A").dep("Hub", "internal/leafb", "B"),
-		newPkg("internal/leafa").fn("A", "a.go", 1),
-		newPkg("internal/leafb").fn("B", "b.go", 1),
-	), nil)
-	if err != nil {
-		t.Fatal(err)
+// Backward is read at GROUP level, not package level. Go forbids import
+// cycles, so the package dependsOn graph is always a DAG, and a DAG's trophic
+// solve puts every dependency below its dependent — no package edge can ever
+// point backward. Groups can cycle, and that is where the direction question
+// has an answer.
+//
+// The fixture is the shape a real module can produce: alpha depends on beta,
+// gamma and delta downward, and delta reaches back up to alpha through
+// packages outside the downward chain — a cycle between groups with no cycle
+// between packages.
+func TestBackwardEdgeClimbsTheGroupLayering(t *testing.T) {
+	downward := func() []*pkgBuilder {
+		return []*pkgBuilder{
+			newPkg("internal/alpha/a").fn("A", "a.go", 1).
+				dep("A", "internal/beta/b", "B").
+				dep("A", "internal/gamma/c", "C").
+				dep("A", "internal/delta/d", "D"),
+			newPkg("internal/beta/b").fn("B", "b.go", 1).
+				dep("B", "internal/gamma/c", "C").
+				dep("B", "internal/delta/d", "D"),
+			newPkg("internal/gamma/c").fn("C", "c.go", 1).
+				dep("C", "internal/delta/d", "D"),
+			newPkg("internal/delta/d").fn("D", "d.go", 1),
+		}
 	}
+	base := models(append(downward(),
+		newPkg("internal/delta/e").fn("E", "e.go", 1),
+		newPkg("internal/alpha/f").fn("F", "f.go", 1),
+	)...)
+	head := models(append(downward(),
+		newPkg("internal/delta/e").fn("E", "e.go", 1).
+			dep("E", "internal/alpha/f", "F"),
+		newPkg("internal/alpha/f").fn("F", "f.go", 1).
+			dep("F", "internal/delta/d", "D"),
+	)...)
 
-	leaf, okLeaf := s.pkgLevel("internal/leafa")
-	entry, okEntry := s.pkgLevel("internal/entry")
-	if !okLeaf || !okEntry || !(leaf < entry) {
-		t.Fatalf("levels leafa=%d(%v) entry=%d(%v), want the leaf below the entry point",
-			leaf, okLeaf, entry, okEntry)
+	report := Build(Input{Head: head, Base: base})
+	section, ok := sectionByID(report, SectionEdgesNew)
+	if !ok {
+		t.Fatalf("no %s section", SectionEdgesNew)
 	}
-	if !isBackwardPackageEdge(s, Edge{From: "internal/leafa", To: "internal/entry"}) {
-		t.Error("leafa → entry should be backward: it points up the hierarchy")
+	tags := map[string]string{}
+	for _, item := range section.Items {
+		tags[item.Text] = item.Tag
 	}
-	if isBackwardPackageEdge(s, Edge{From: "internal/entry", To: "internal/leafa"}) {
-		t.Error("entry → leafa points down the hierarchy and is not backward")
+	if got := tags["internal/delta/e → internal/alpha/f"]; got != TagBackward {
+		t.Errorf("delta → alpha tagged %q, want %q: it climbs the group hierarchy", got, TagBackward)
+	}
+	if got := tags["internal/alpha/f → internal/delta/d"]; got != TagOK {
+		t.Errorf("alpha → delta tagged %q, want %q: it points down the hierarchy", got, TagOK)
 	}
 }
 
