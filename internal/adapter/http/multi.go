@@ -50,6 +50,7 @@ func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
 		"/api/public-surface",
 		"/api/gitdiff",
 		"/api/archmotif/report",
+		"/api/archmotif/domains",
 	}
 	if s.reviewUIEnabled() {
 		mux.HandleFunc("/", s.handleReviewUIRoot)
