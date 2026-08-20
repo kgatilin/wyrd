@@ -1,11 +1,14 @@
-version: 1
+version: 2
 component: warehouse
 owns: warehouse
 description: Inventory management with multi-slot partition keys
 
-receives:
+# One state per region, location, and SKU: every read-set subject repeats that
+# three-token key in the same order.
+
+inputs:
   - kind: warehouse.stock.adjust
-    role: action
+    pattern: 'svc.*.warehouse.{region}.{location}.stock.{sku}.adjust'
     description: Adjust stock level at a location
     schema:
       type: object
@@ -16,9 +19,9 @@ receives:
         SKU: {type: string}
         Delta: {type: integer}
 
-emits:
+outputs:
   - kind: warehouse.stock.adjusted
-    role: fact
+    pattern: 'svc.*.warehouse.{region}.{location}.stock.{sku}.adjusted'
     schema:
       type: object
       properties:
@@ -27,7 +30,7 @@ emits:
         SKU: {type: string}
         NewLevel: {type: integer}
   - kind: warehouse.stock.depleted
-    role: fact
+    pattern: 'svc.*.warehouse.{region}.{location}.stock.{sku}.depleted'
     description: Stock fell to zero
     schema:
       type: object
@@ -36,16 +39,14 @@ emits:
         Location: {type: string}
         SKU: {type: string}
 
-folds:
-  # Multi-slot subject: one state per region, location, and SKU.
-  - name: warehouse.stock-levels
-    subjects:
-      - 'svc.*.warehouse.{region}.{location}.stock.{sku}.>'
-    consumes:
-      - warehouse.stock.adjusted
-      - warehouse.stock.depleted
-    state:
-      type: object
-      properties:
-        Level: {type: integer}
-        LastUpdated: {type: string, format: date-time}
+state_events:
+  - kind: warehouse.stock.adjusted
+    pattern: 'svc.*.warehouse.{region}.{location}.stock.{sku}.adjusted'
+  - kind: warehouse.stock.depleted
+    pattern: 'svc.*.warehouse.{region}.{location}.stock.{sku}.depleted'
+
+state:
+  type: object
+  properties:
+    Level: {type: integer}
+    LastUpdated: {type: string, format: date-time}

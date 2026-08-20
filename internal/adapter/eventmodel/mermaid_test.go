@@ -13,25 +13,32 @@ func TestToMermaid(t *testing.T) {
 		ID:   "billing",
 		Owns: "billing",
 	}
-	billing.Emits = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
-	billing.Receives = []eventmodel.Slot{{Kind: "billing.invoice.issue", Role: eventmodel.RoleAction}}
+	billing.Outputs = []eventmodel.Slot{{Kind: "billing.invoice.issued"}}
+	billing.Inputs = []eventmodel.Slot{{Kind: "billing.invoice.issue"}}
 
 	shipping := &eventmodel.Component{
 		ID:   "shipping",
 		Owns: "shipping",
 	}
-	shipping.Receives = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
+	shipping.Inputs = []eventmodel.Slot{{Kind: "billing.invoice.issued"}}
+
+	audit := &eventmodel.Component{
+		ID:   "audit",
+		Owns: "audit",
+	}
+	audit.StateEvents = []eventmodel.Slot{{Kind: "billing.invoice.issued"}}
 
 	gateway := &eventmodel.Component{
 		ID:   "gateway",
 		Owns: "gateway",
 	}
-	gateway.Emits = []eventmodel.Slot{{Kind: "billing.invoice.issue", Role: eventmodel.RoleAction}}
+	gateway.Outputs = []eventmodel.Slot{{Kind: "billing.invoice.issue"}}
 
 	m := &eventmodel.Model{
 		Components: map[string]*eventmodel.Component{
 			"billing":  billing,
 			"shipping": shipping,
+			"audit":    audit,
 			"gateway":  gateway,
 		},
 	}
@@ -44,42 +51,83 @@ func TestToMermaid(t *testing.T) {
 		t.Error("output should start with 'flowchart LR'")
 	}
 
-	// Should contain all components.
-	if !strings.Contains(output, "billing") {
-		t.Error("output should contain billing component")
-	}
-	if !strings.Contains(output, "shipping") {
-		t.Error("output should contain shipping component")
-	}
-	if !strings.Contains(output, "gateway") {
-		t.Error("output should contain gateway component")
+	for _, id := range []string{"billing", "shipping", "audit", "gateway"} {
+		if !strings.Contains(output, id) {
+			t.Errorf("output should contain the %s component", id)
+		}
 	}
 
-	// Should have edge from billing to shipping (fact).
-	if !strings.Contains(output, "-->") {
-		t.Error("output should contain solid arrow for fact edge")
+	// A solid arrow means the kind triggers the target.
+	if !strings.Contains(output, "billing -->|invoice.issued| shipping") {
+		t.Errorf("an input edge should be a solid arrow:\n%s", output)
 	}
 
-	// Should have edge from gateway to billing (action).
-	if !strings.Contains(output, "-.->") {
-		t.Error("output should contain dashed arrow for action edge")
+	// A dashed arrow means the target only folds the kind into state.
+	if !strings.Contains(output, "billing -.->|invoice.issued| audit") {
+		t.Errorf("a state-event edge should be a dashed arrow:\n%s", output)
+	}
+}
+
+// A component folding its own output draws no self-loop: it is the normal
+// idiom, so drawing it would put a loop on nearly every node.
+func TestToMermaidSkipsSelfFold(t *testing.T) {
+	billing := &eventmodel.Component{ID: "billing", Owns: "billing"}
+	billing.Outputs = []eventmodel.Slot{{Kind: "billing.invoice.issued"}}
+	billing.StateEvents = []eventmodel.Slot{{Kind: "billing.invoice.issued"}}
+
+	m := &eventmodel.Model{
+		Components: map[string]*eventmodel.Component{"billing": billing},
+	}
+
+	output := ToMermaid(eventmodel.BuildGraph(m))
+	if strings.Contains(output, "billing -->") || strings.Contains(output, "billing -.->") {
+		t.Errorf("a component folding its own output must draw no edge:\n%s", output)
+	}
+}
+
+// A component both triggered by a kind and folding it is drawn once, as the
+// trigger — the stronger of the two relations.
+func TestToMermaidPrefersTriggerOverFold(t *testing.T) {
+	producer := &eventmodel.Component{ID: "producer", Owns: "producer"}
+	producer.Outputs = []eventmodel.Slot{{Kind: "producer.thing.happened"}}
+
+	consumer := &eventmodel.Component{ID: "consumer", Owns: "consumer"}
+	consumer.Inputs = []eventmodel.Slot{{Kind: "producer.thing.happened"}}
+	consumer.StateEvents = []eventmodel.Slot{{Kind: "producer.thing.happened"}}
+
+	m := &eventmodel.Model{
+		Components: map[string]*eventmodel.Component{
+			"producer": producer,
+			"consumer": consumer,
+		},
+	}
+
+	output := ToMermaid(eventmodel.BuildGraph(m))
+	if strings.Count(output, "producer.thing.happened") > 0 {
+		t.Errorf("edge labels are shortened, got:\n%s", output)
+	}
+	if n := strings.Count(output, "|thing.happened|"); n != 1 {
+		t.Errorf("want exactly 1 edge for the kind, got %d:\n%s", n, output)
+	}
+	if !strings.Contains(output, "producer -->|thing.happened| consumer") {
+		t.Errorf("the trigger relation should win:\n%s", output)
 	}
 }
 
 func TestToMermaidWithHealth(t *testing.T) {
-	// Create an orphan fact.
+	// An output nobody observes.
 	billing := &eventmodel.Component{
 		ID:   "billing",
 		Owns: "billing",
 	}
-	billing.Emits = []eventmodel.Slot{{Kind: "billing.orphan.event", Role: eventmodel.RoleFact}}
+	billing.Outputs = []eventmodel.Slot{{Kind: "billing.orphan.event"}}
 
-	// Create a consumer that receives a different event (so billing.orphan.event is orphan).
+	// A component observing a different kind, so billing.orphan.event stays orphan.
 	shipping := &eventmodel.Component{
 		ID:   "shipping",
 		Owns: "shipping",
 	}
-	shipping.Receives = []eventmodel.Slot{{Kind: "billing.other.event", Role: eventmodel.RoleFact}}
+	shipping.Inputs = []eventmodel.Slot{{Kind: "billing.other.event"}}
 
 	m := &eventmodel.Model{
 		Components: map[string]*eventmodel.Component{
@@ -91,9 +139,9 @@ func TestToMermaidWithHealth(t *testing.T) {
 	g := eventmodel.BuildGraph(m)
 	output := ToMermaid(g)
 
-	// The orphan kind should NOT appear as an edge (no receiver).
-	// The mermaid output only shows edges between components.
-	// So we just verify it generates valid output.
+	// The orphan kind should NOT appear as an edge (no observer). The mermaid
+	// output only shows edges between components, so we verify it still
+	// generates valid output.
 	if !strings.HasPrefix(output, "flowchart LR\n") {
 		t.Error("output should start with 'flowchart LR'")
 	}
@@ -102,14 +150,14 @@ func TestToMermaidWithHealth(t *testing.T) {
 func TestToMermaidWithSubgraphs(t *testing.T) {
 	// Create enough components with distinct namespaces to trigger subgraphs.
 	a := &eventmodel.Component{ID: "a", Owns: "ns_a"}
-	a.Emits = []eventmodel.Slot{{Kind: "ns_a.event", Role: eventmodel.RoleFact}}
+	a.Outputs = []eventmodel.Slot{{Kind: "ns_a.event"}}
 
 	b := &eventmodel.Component{ID: "b", Owns: "ns_b"}
-	b.Receives = []eventmodel.Slot{{Kind: "ns_a.event", Role: eventmodel.RoleFact}}
-	b.Emits = []eventmodel.Slot{{Kind: "ns_b.event", Role: eventmodel.RoleFact}}
+	b.Inputs = []eventmodel.Slot{{Kind: "ns_a.event"}}
+	b.Outputs = []eventmodel.Slot{{Kind: "ns_b.event"}}
 
 	c := &eventmodel.Component{ID: "c", Owns: "ns_c"}
-	c.Receives = []eventmodel.Slot{{Kind: "ns_b.event", Role: eventmodel.RoleFact}}
+	c.Inputs = []eventmodel.Slot{{Kind: "ns_b.event"}}
 
 	m := &eventmodel.Model{
 		Components: map[string]*eventmodel.Component{
@@ -188,13 +236,13 @@ func TestSubgraphIDsDisjointFromNodeIDs(t *testing.T) {
 
 	// Create components where namespace equals component id (the collision case).
 	billing := &eventmodel.Component{ID: "billing", Owns: "billing"}
-	billing.Emits = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
+	billing.Outputs = []eventmodel.Slot{{Kind: "billing.invoice.issued"}}
 
 	ledger := &eventmodel.Component{ID: "ledger", Owns: "ledger"}
-	ledger.Receives = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
+	ledger.Inputs = []eventmodel.Slot{{Kind: "billing.invoice.issued"}}
 
 	shipping := &eventmodel.Component{ID: "shipping", Owns: "shipping"}
-	shipping.Receives = []eventmodel.Slot{{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact}}
+	shipping.Inputs = []eventmodel.Slot{{Kind: "billing.invoice.issued"}}
 
 	m := &eventmodel.Model{
 		Components: map[string]*eventmodel.Component{

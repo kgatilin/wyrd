@@ -1,84 +1,77 @@
-version: 1
+version: 2
 component: violations
 owns: violations
 description: Component with deliberate rule violations for testing
 
-receives:
-  # Not a violation any more: observing an action in a namespace this component
+inputs:
+  # Not a violation: being triggered by an event in a namespace this component
   # does not own is ordinary choreography. Kept here so the fixture proves it
   # produces no ownership finding.
   - kind: billing.invoice.issue
-    role: action
-    description: Observing an action owned by another namespace
+    pattern: 'svc.*.billing.{account}.invoice.issue'
+    description: Triggered by an event owned by another namespace
 
-  # ERROR (self-receive-conflict): also emitted below. A component does not
-  # subscribe to itself; folds[].consumes is the way to carry own events into
+  # ERROR (self-input-conflict): also an output below. A component does not
+  # trigger itself; state_events is the way to carry its own outcome into
   # state.
   - kind: violations.self.echo
-    role: fact
-    description: Receiving a kind this component emits
+    pattern: 'svc.*.violations.{account}.self.echo'
+    description: Input on a kind this component outputs
 
-emits:
-  # Also not a violation: ownership is schema authority, not exclusive
-  # production. This only yields closure warnings when nobody observes it.
+  # WARNING (starved-input): no component outputs it, so the trigger never
+  # fires.
+  - kind: violations.absent.trigger
+    pattern: 'svc.*.violations.{account}.absent.trigger'
+
+  # ERROR (partition-mismatch): keyed by region where the rest of the read-set
+  # is keyed by account, so there is no single state to fold into.
+  - kind: violations.mixed.partition
+    pattern: 'svc.*.violations.{region}.mixed.partition'
+
+  # ERROR (malformed-slot): empty {} slot token.
+  - kind: violations.bad.subject
+    pattern: 'svc.*.violations.{}.bad.subject'
+
+outputs:
+  # Not a violation: ownership is schema authority, not exclusive production.
   - kind: ledger.entry.posted
-    role: fact
-    description: Emitting into a namespace owned elsewhere
+    pattern: 'svc.*.ledger.{account}.entry.posted'
+    description: Appending into a namespace owned elsewhere
 
-  # ERROR (exclusive-unhandled): opted into single-handler delivery, no receiver.
+  # ERROR (exclusive-unhandled): opted into single-handler delivery, and no
+  # component takes it as an input.
   - kind: violations.command.run
-    role: action
+    pattern: 'svc.*.violations.{account}.command.run'
     delivery: exclusive
     description: Declares an exclusive handler contract that nothing satisfies
 
-  # WARNING (orphan-event): nobody receives or folds it.
+  # WARNING (orphan-event): no component inputs it or folds it.
   - kind: violations.orphan.fact
-    role: fact
-    description: Fact that nobody listens to
+    pattern: 'svc.*.violations.{account}.orphan.fact'
+    description: Event that nobody observes
 
   - kind: violations.self.echo
-    role: fact
-    description: The emit side of the self-receive conflict above
+    pattern: 'svc.*.violations.{account}.self.echo'
+    description: The output side of the self-input conflict above
 
-  # ERROR (kind-role-conflict): one kind, two roles. Role is a property of the
-  # kind, so this must become two kinds.
+  # ERROR (kind-pattern-conflict): one kind, two addresses. Subscribers of one
+  # will never see what is appended on the other.
   - kind: violations.orphan.dual
-    role: action
-    description: Same kind, first role
+    pattern: 'svc.*.violations.{account}.orphan.dual'
+    description: Same kind, first subject
   - kind: violations.orphan.dual
-    role: fact
-    description: Same kind, second role
+    pattern: 'svc.*.violations.{account}.dual.orphan'
+    description: Same kind, second subject
 
-folds:
-  # WARNING (starved-fold): consumes entry matches nothing.
-  # WARNING (underspecified-state): object state with no shape.
-  - name: violations.starved-fold
-    subjects:
-      - 'svc.*.violations.{tenant}.events.>'
-    consumes: [nonexistent.events.*]
-    state:
-      type: object
+state_events:
+  # WARNING (starved-state-event): the projection tracks something no
+  # component ever appends.
+  - kind: violations.absent.outcome
+    pattern: 'svc.*.violations.{account}.absent.outcome'
 
-  # ERROR (partition-mismatch): the two subjects address different states.
-  - name: violations.mixed-partitions
-    subjects:
-      - svc.*.violations.{tenant}.events.>
-      - svc.*.violations.{region}.events.>
-    consumes: [violations.orphan.*]
-    state:
-      type: object
-      properties:
-        Count: {type: integer}
-
-  # ERROR (malformed-slot): empty {} slot token.
-  - name: violations.bad-subject
-    subjects:
-      - 'svc.*.violations.{}.events.>'
-    consumes: [violations.orphan.*]
-    state:
-      type: object
-      properties:
-        Count: {type: integer}
+# WARNING (underspecified-state): an object with no shape.
+state:
+  type: object
 
 types:
   # ERROR (unresolved-ref).

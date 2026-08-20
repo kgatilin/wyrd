@@ -9,10 +9,15 @@ import (
 )
 
 // ToMermaid renders an event-model graph as a Mermaid flowchart diagram.
-// Components are nodes, event kinds are shown on edges. Facts use solid
-// arrows (-->) while actions use dashed arrows (-.->). Health issues are
+// Components are nodes, event kinds are shown on edges. A solid arrow (-->)
+// means the kind is an input of the target — it triggers it; a dashed arrow
+// (-.->) means the target only folds the kind into its state. Health issues are
 // annotated: orphan kinds have "(orphan)" suffix, starved have "(starved)",
 // ambiguous have "(ambiguous)".
+//
+// A component folding its own output draws no self-loop. It is the normal
+// idiom — record the outcome you just appended — so drawing it would put a
+// loop on nearly every node and say nothing. The JSON graph keeps the edge.
 //
 // Components are grouped by their owned namespace when subgraphs would
 // improve readability (3+ components with distinct namespaces).
@@ -21,9 +26,8 @@ func ToMermaid(g *eventmodel.Graph) string {
 	sb.WriteString("flowchart LR\n")
 
 	// Collect components and their namespaces.
-	components := make(map[string]string)  // id -> owns
-	kindHealth := make(map[string]string)  // kind ID -> health
-	kindRole := make(map[string]string)    // kind ID -> role
+	components := make(map[string]string) // id -> owns
+	kindHealth := make(map[string]string) // kind ID -> health
 
 	for _, n := range g.Nodes {
 		switch n.Kind {
@@ -38,9 +42,6 @@ func ToMermaid(g *eventmodel.Graph) string {
 		case eventmodel.NodeEventKind:
 			if h, ok := n.Attrs["health"].(string); ok {
 				kindHealth[n.ID] = h
-			}
-			if r, ok := n.Attrs["role"].(string); ok {
-				kindRole[n.ID] = r
 			}
 		}
 	}
@@ -95,38 +96,56 @@ func ToMermaid(g *eventmodel.Graph) string {
 	// Build edge map: from component -> to component -> list of kinds.
 	type edgeKey struct{ from, to string }
 	type kindInfo struct {
-		name   string
-		role   string
-		health string
+		name    string
+		health  string
+		trigger bool
 	}
 	edgeKinds := make(map[edgeKey][]kindInfo)
 
-	// Process emits edges to find what each component produces.
-	emitsByKind := make(map[string][]string)  // kind ID -> component IDs that emit it
-	receivesByKind := make(map[string][]string) // kind ID -> component IDs that receive it
+	outputsByKind := make(map[string][]string) // kind ID -> component IDs that append it
+	inputsByKind := make(map[string][]string)  // kind ID -> component IDs it triggers
+	stateByKind := make(map[string][]string)   // kind ID -> component IDs that fold it
 
 	for _, e := range g.Edges {
 		switch e.Kind {
-		case eventmodel.EdgeEmits:
+		case eventmodel.EdgeOutput:
 			compID := strings.TrimPrefix(e.From, "component:")
-			emitsByKind[e.To] = append(emitsByKind[e.To], compID)
-		case eventmodel.EdgeReceives:
+			outputsByKind[e.To] = append(outputsByKind[e.To], compID)
+		case eventmodel.EdgeInput:
 			compID := strings.TrimPrefix(e.To, "component:")
-			receivesByKind[e.From] = append(receivesByKind[e.From], compID)
+			inputsByKind[e.From] = append(inputsByKind[e.From], compID)
+		case eventmodel.EdgeStateEvent:
+			compID := strings.TrimPrefix(e.To, "component:")
+			stateByKind[e.From] = append(stateByKind[e.From], compID)
 		}
 	}
 
-	// Create edges between emitters and receivers.
-	for kindID, emitters := range emitsByKind {
-		receivers := receivesByKind[kindID]
+	// Connect producers to observers. A component that both takes a kind as an
+	// input and folds it is drawn once, as the trigger — the stronger relation.
+	for kindID, producers := range outputsByKind {
 		kindName := strings.TrimPrefix(kindID, "kind:")
-		role := kindRole[kindID]
 		health := kindHealth[kindID]
 
-		for _, from := range emitters {
-			for _, to := range receivers {
+		triggered := make(map[string]bool, len(inputsByKind[kindID]))
+		for _, to := range inputsByKind[kindID] {
+			triggered[to] = true
+		}
+
+		observers := make(map[string]bool, len(triggered)+len(stateByKind[kindID]))
+		for to := range triggered {
+			observers[to] = true
+		}
+		for _, to := range stateByKind[kindID] {
+			observers[to] = true
+		}
+
+		for _, from := range producers {
+			for to := range observers {
+				if from == to {
+					continue
+				}
 				key := edgeKey{from, to}
-				edgeKinds[key] = append(edgeKinds[key], kindInfo{kindName, role, health})
+				edgeKinds[key] = append(edgeKinds[key], kindInfo{kindName, health, triggered[to]})
 			}
 		}
 	}
@@ -159,12 +178,12 @@ func ToMermaid(g *eventmodel.Graph) string {
 			fromID := mermaidID(key.from)
 			toID := mermaidID(key.to)
 
-			if k.role == string(eventmodel.RoleAction) {
-				// Action: dashed arrow.
-				fmt.Fprintf(&sb, "    %s -.->|%s| %s\n", fromID, label, toID)
-			} else {
-				// Fact: solid arrow.
+			if k.trigger {
+				// Input: the kind drives the target.
 				fmt.Fprintf(&sb, "    %s -->|%s| %s\n", fromID, label, toID)
+			} else {
+				// State event: the target only folds it.
+				fmt.Fprintf(&sb, "    %s -.->|%s| %s\n", fromID, label, toID)
 			}
 		}
 	}

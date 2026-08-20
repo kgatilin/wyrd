@@ -71,7 +71,7 @@ func (p *Plugin) MCPTools() []plugin.MCPTool {
 	return []plugin.MCPTool{
 		{
 			Name:        "event_model",
-			Description: "Return the composed event model: components with their receives/emits/folds/types, plus the projected graph for visualization.",
+			Description: "Return the composed event model: components with their inputs/outputs/state_events/types, the fold read-set derived from them, plus the projected graph for visualization.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -80,7 +80,7 @@ func (p *Plugin) MCPTools() []plugin.MCPTool {
 		},
 		{
 			Name:        "event_kind",
-			Description: "Return detail for a single event kind: role, delivery policy, schema owner, producers, observers (receives and folds), payload schema, deprecated fields. Pass the full kind name (e.g. billing.invoice.issued).",
+			Description: "Return detail for a single event kind: subject pattern, delivery policy, schema owner, producers, the components it triggers, the components that fold it into state, payload schema, deprecated fields. Pass the full kind name (e.g. billing.invoice.issued).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -142,10 +142,10 @@ func (p *Plugin) validateCmd() *cobra.Command {
 		Short: "Validate .arch/events.yaml declarations",
 		Long: `Validate all .arch/events.yaml declarations under the specified root.
 
-Errors are fatal rule breaches (duplicate namespace owners, incoherent fold
+Errors are fatal rule breaches (duplicate namespace owners, incoherent
 partition keys, malformed subject slots, $ref cycles, and violations of an
 explicit 'delivery: exclusive' contract). Warnings are potential issues
-(starved receives, orphan events, underspecified fold state) that may be
+(starved inputs, orphan outputs, underspecified state) that may be
 acceptable depending on the composed set.
 
 Multiple components observing the same event is NOT a finding: a durable event
@@ -221,8 +221,8 @@ func (p *Plugin) graphCmd() *cobra.Command {
 		Short: "Generate event model graph",
 		Long: `Generate a graph of the event model from .arch/events.yaml declarations.
 
-The graph shows components, event kinds, folds, and type definitions with
-their relationships (emits, receives, feeds, defines, payload refs).
+The graph shows components, event kinds, and type definitions with their
+relationships (output, input, state-event, defines, payload refs).
 
 Supported formats:
   graphml  - GraphML XML for archmotif analysis
@@ -557,24 +557,27 @@ func (p *Plugin) handleEventModel(_ context.Context, _ map[string]any) (any, err
 			sb.WriteString(fmt.Sprintf("  %s\n", comp.Description))
 		}
 
-		if len(comp.Receives) > 0 {
-			sb.WriteString("  receives:\n")
-			for _, slot := range comp.Receives {
+		for _, section := range []struct {
+			label string
+			slots []eventmodel.Slot
+		}{
+			{"inputs", comp.Inputs},
+			{"outputs", comp.Outputs},
+			{"state_events", comp.StateEvents},
+		} {
+			if len(section.slots) == 0 {
+				continue
+			}
+			sb.WriteString("  " + section.label + ":\n")
+			for _, slot := range section.slots {
 				sb.WriteString("    - " + slotLine(slot))
 			}
 		}
-		if len(comp.Emits) > 0 {
-			sb.WriteString("  emits:\n")
-			for _, slot := range comp.Emits {
-				sb.WriteString("    - " + slotLine(slot))
-			}
-		}
-		if len(comp.Folds) > 0 {
-			sb.WriteString("  folds:\n")
-			for _, fold := range comp.Folds {
-				sb.WriteString(fmt.Sprintf("    - %s (subjects: %v, partition key: %v, consumes: %v)\n",
-					fold.Name, fold.Subjects, fold.PartitionKey, fold.Consumes))
-			}
+		// The fold is derived, so it is reported rather than listed: an agent
+		// reading this needs the read-set it will actually subscribe with.
+		if subjects := comp.Subjects(); len(subjects) > 0 {
+			sb.WriteString(fmt.Sprintf("  fold: subjects %v, partition key %v\n",
+				subjects, comp.PartitionKey))
 		}
 		if len(comp.Types) > 0 {
 			sb.WriteString("  types:\n")
@@ -613,46 +616,37 @@ func (p *Plugin) handleEventKind(_ context.Context, args map[string]any) (any, e
 	// allowed to emit or observe the kind.
 	var producers []string
 	var consumers []string
-	var foldConsumers []string
-	var role eventmodel.Role
+	var stateFolders []string
 	var exclusive bool
 	var schema eventmodel.SchemaNode
 	var deprecatedFields []string
 
 	owner := eventmodel.OwnerOf(model, kindName)
+	pattern := eventmodel.PatternOf(model, kindName)
 
 	for id, comp := range model.Components {
-		for _, slot := range comp.Emits {
-			if slot.Kind == kindName {
-				producers = append(producers, id)
-				role = slot.Role
+		for _, section := range []struct {
+			slots []eventmodel.Slot
+			into  *[]string
+		}{
+			{comp.Outputs, &producers},
+			{comp.Inputs, &consumers},
+			{comp.StateEvents, &stateFolders},
+		} {
+			for _, slot := range section.slots {
+				if slot.Kind != kindName {
+					continue
+				}
+				*section.into = append(*section.into, id)
 				exclusive = exclusive || slot.Delivery.IsExclusive()
 				if !slot.Schema.IsZero() {
 					schema = slot.Schema
-				}
-			}
-		}
-		for _, slot := range comp.Receives {
-			if slot.Kind == kindName {
-				consumers = append(consumers, id)
-				role = slot.Role
-				exclusive = exclusive || slot.Delivery.IsExclusive()
-				if !slot.Schema.IsZero() {
-					schema = slot.Schema
-				}
-			}
-		}
-		for _, fold := range comp.Folds {
-			for _, consumesEntry := range fold.Consumes {
-				if eventmodel.MatchPattern(consumesEntry, kindName) {
-					foldConsumers = append(foldConsumers, id+":"+fold.Name)
-					break
 				}
 			}
 		}
 	}
 
-	if len(producers) == 0 && len(consumers) == 0 && len(foldConsumers) == 0 {
+	if len(producers) == 0 && len(consumers) == 0 && len(stateFolders) == 0 {
 		return nil, fmt.Errorf("kind %q not found in any component", kindName)
 	}
 
@@ -669,9 +663,11 @@ func (p *Plugin) handleEventKind(_ context.Context, args map[string]any) (any, e
 	// Build compact text output for agents.
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("KIND: %s\n", kindName))
-	sb.WriteString(fmt.Sprintf("Role: %s\n", role))
+	if pattern != "" {
+		sb.WriteString(fmt.Sprintf("Subject: %s\n", pattern))
+	}
 	if exclusive {
-		sb.WriteString("Delivery: exclusive (exactly one receiver required)\n")
+		sb.WriteString("Delivery: exclusive (exactly one input consumer required)\n")
 	} else {
 		sb.WriteString("Delivery: broadcast (0..N independent observers)\n")
 	}
@@ -683,12 +679,12 @@ func (p *Plugin) handleEventKind(_ context.Context, args map[string]any) (any, e
 
 	sort.Strings(producers)
 	sort.Strings(consumers)
-	sort.Strings(foldConsumers)
+	sort.Strings(stateFolders)
 
-	sb.WriteString(fmt.Sprintf("Producers: %s\n", formatList(producers)))
-	sb.WriteString(fmt.Sprintf("Consumers: %s\n", formatList(consumers)))
-	if len(foldConsumers) > 0 {
-		sb.WriteString(fmt.Sprintf("Fold consumers: %s\n", formatList(foldConsumers)))
+	sb.WriteString(fmt.Sprintf("Outputs (producers): %s\n", formatList(producers)))
+	sb.WriteString(fmt.Sprintf("Inputs (triggered): %s\n", formatList(consumers)))
+	if len(stateFolders) > 0 {
+		sb.WriteString(fmt.Sprintf("State events (folded by): %s\n", formatList(stateFolders)))
 	}
 
 	if !schema.IsZero() {
@@ -769,13 +765,21 @@ func (p *Plugin) serveModel(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// slotLine renders one receives/emits entry. Delivery is shown only when it
-// departs from the broadcast default, so the common case stays quiet.
+// slotLine renders one inputs/outputs/state_events entry. The subject pattern
+// is shown when declared; delivery only when it departs from the broadcast
+// default, so the common case stays quiet.
 func slotLine(slot eventmodel.Slot) string {
-	if slot.Delivery.IsExclusive() {
-		return fmt.Sprintf("%s [%s, delivery: exclusive]\n", slot.Kind, slot.Role)
+	var parts []string
+	if slot.Pattern != "" {
+		parts = append(parts, slot.Pattern)
 	}
-	return fmt.Sprintf("%s [%s]\n", slot.Kind, slot.Role)
+	if slot.Delivery.IsExclusive() {
+		parts = append(parts, "delivery: exclusive")
+	}
+	if len(parts) == 0 {
+		return slot.Kind + "\n"
+	}
+	return fmt.Sprintf("%s [%s]\n", slot.Kind, strings.Join(parts, ", "))
 }
 
 // formatList formats a slice as a comma-separated string, or "(none)".

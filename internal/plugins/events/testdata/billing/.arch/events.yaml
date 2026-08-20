@@ -1,11 +1,11 @@
-version: 1
+version: 2
 component: billing
 owns: billing
 description: Invoice lifecycle management
 
-receives:
+inputs:
   - kind: billing.invoice.issue
-    role: action
+    pattern: 'svc.*.billing.{account}.invoice.issue'
     description: Create an invoice for one account
     exposure: [public_api]
     schema:
@@ -16,28 +16,28 @@ receives:
         Currency: {type: string}
         Lines: {type: array, items: {$ref: '#/types/Line'}}
 
-emits:
+outputs:
   - kind: billing.invoice.issued
-    role: fact
+    pattern: 'svc.*.billing.{account}.invoice.issued'
     schema: {$ref: '#/types/Invoice'}
   - kind: ledger.entry.post
-    role: action
+    pattern: 'svc.*.ledger.{account}.entry.post'
     description: >-
-      Ask the ledger to post an entry. Emitting into a namespace billing does
+      Ask the ledger to post an entry. Appending into a namespace billing does
       not own is normal: ownership is schema authority, not an exclusive right
       to produce.
 
-folds:
-  # Two subjects, one partition key: both read per-account state.
-  - name: billing.open-invoices
-    subjects:
-      - svc.*.billing.{account}.invoice.>
-      - svc.*.billing.{account}.credit.>
-    consumes: [billing.invoice.*]
-    state:
-      type: object
-      properties:
-        Open: {type: array, items: {$ref: '#/types/Invoice'}}
+state_events:
+  # The component's own outcome, folded back into its state. This is the
+  # channel that makes an inputs/outputs overlap unambiguously a mistake.
+  - kind: billing.invoice.issued
+    pattern: 'svc.*.billing.{account}.invoice.issued'
+
+# One state per account — the key every read-set subject above agrees on.
+state:
+  type: object
+  properties:
+    Open: {type: array, items: {$ref: '#/types/Invoice'}}
 
 types:
   Invoice:

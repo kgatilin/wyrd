@@ -1,9 +1,9 @@
-version: 1
+version: 2
 component: contracts
 owns: contracts
 description: Shared contract definitions - vocabulary only, no runtime
 
-# A vocabulary-only component with no folds, receives, or emits.
+# A vocabulary-only component with no inputs, outputs, or state events.
 # This represents a shared contract package that defines event shapes
 # used by other components.
 

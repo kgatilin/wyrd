@@ -1,14 +1,14 @@
-version: 1
+version: 2
 component: ledger
 owns: ledger
 description: Double-entry accounting ledger
 
-receives:
+inputs:
   # A genuine command: the ledger claims to be its only handler, and says so
   # explicitly. Without this opt-in, nothing would constrain how many
-  # components observe the kind.
+  # components are triggered by the kind.
   - kind: ledger.entry.post
-    role: action
+    pattern: 'svc.*.ledger.{account}.entry.post'
     delivery: exclusive
     description: Post a ledger entry (debit/credit pair)
     schema:
@@ -20,9 +20,9 @@ receives:
         Amount: {type: number}
         Reference: {type: string}
 
-emits:
+outputs:
   - kind: ledger.entry.posted
-    role: fact
+    pattern: 'svc.*.ledger.{account}.entry.posted'
     schema:
       type: object
       properties:
@@ -30,6 +30,15 @@ emits:
         Debit: {type: string}
         Credit: {type: string}
         Amount: {type: number}
+
+state_events:
+  - kind: ledger.entry.posted
+    pattern: 'svc.*.ledger.{account}.entry.posted'
+
+state:
+  type: object
+  properties:
+    Entries: {type: array, items: {$ref: '#/types/Entry'}}
 
 types:
   Entry:

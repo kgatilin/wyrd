@@ -1,19 +1,19 @@
-version: 1
+version: 2
 component: gateway
 description: API gateway - orchestrates without owning events
 
-# No 'owns' field - this component does not define a vocabulary.
-# It only emits actions (call-outs) and receives facts (observations).
+# No 'owns' field - this component does not define a vocabulary. It is driven
+# by other namespaces' events and appends into one it does not own.
 
-receives:
+inputs:
   - kind: billing.invoice.issued
-    role: fact
+    pattern: 'svc.*.billing.{account}.invoice.issued'
     description: Observe invoice events for audit logging
   - kind: ledger.entry.posted
-    role: fact
+    pattern: 'svc.*.ledger.{account}.entry.posted'
     description: Observe ledger events for metrics
 
-emits:
+outputs:
   - kind: billing.invoice.issue
-    role: action
+    pattern: 'svc.*.billing.{account}.invoice.issue'
     description: Trigger invoice creation on behalf of API clients

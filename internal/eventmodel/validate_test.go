@@ -52,43 +52,43 @@ func TestOwnershipIsNotProductionControl(t *testing.T) {
 	}{
 		{"emit fact in owns", func() *Model {
 			c := comp("billing", "billing")
-			c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+			c.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
 			return model(c)
 		}},
 		{"emit fact outside owns", func() *Model {
 			c := comp("billing", "billing")
-			c.Emits = []Slot{{Kind: "ledger.entry.posted", Role: RoleFact}}
+			c.Outputs = []Slot{{Kind: "ledger.entry.posted"}}
 			return model(c)
 		}},
 		{"emit fact with no owns", func() *Model {
 			c := comp("gateway", "")
-			c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+			c.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
 			return model(c)
 		}},
 		{"emit action in owns", func() *Model {
 			c := comp("billing", "billing")
-			c.Emits = []Slot{{Kind: "billing.invoice.retry", Role: RoleAction}}
+			c.Outputs = []Slot{{Kind: "billing.invoice.retry"}}
 			// The observer is a separate component: a component never
 			// receives its own emission (see self-receive-conflict).
 			worker := comp("retry-worker", "retry-worker")
-			worker.Receives = []Slot{{Kind: "billing.invoice.retry", Role: RoleAction}}
+			worker.Inputs = []Slot{{Kind: "billing.invoice.retry"}}
 			return model(c, worker)
 		}},
 		{"receive action outside owns", func() *Model {
 			c := comp("billing", "billing")
-			c.Receives = []Slot{{Kind: "ledger.entry.post", Role: RoleAction}}
+			c.Inputs = []Slot{{Kind: "ledger.entry.post"}}
 			return model(c)
 		}},
 		{"receive action with no owns", func() *Model {
 			c := comp("gateway", "")
-			c.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
+			c.Inputs = []Slot{{Kind: "billing.invoice.issue"}}
 			return model(c)
 		}},
 		{"receive fact outside owns", func() *Model {
 			billing := comp("billing", "billing")
-			billing.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+			billing.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
 			shipping := comp("shipping", "shipping")
-			shipping.Receives = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+			shipping.Inputs = []Slot{{Kind: "billing.invoice.issued"}}
 			return model(billing, shipping)
 		}},
 	}
@@ -109,20 +109,16 @@ func TestOwnershipIsNotProductionControl(t *testing.T) {
 // event-sourced case, not an ambiguity.
 func TestBroadcastFanOutIsNotAFinding(t *testing.T) {
 	producer := comp("orchestrator", "orchestrator")
-	producer.Emits = []Slot{{Kind: "orchestrator.task.run", Role: RoleAction}}
+	producer.Outputs = []Slot{{Kind: "orchestrator.task.run", Pattern: "svc.*.orchestrator.{task}.run"}}
 
 	controllerA := comp("controller-a", "controller-a")
-	controllerA.Receives = []Slot{{Kind: "orchestrator.task.run", Role: RoleAction}}
+	controllerA.Inputs = []Slot{{Kind: "orchestrator.task.run", Pattern: "svc.*.orchestrator.{task}.run"}}
 
 	controllerB := comp("controller-b", "controller-b")
-	controllerB.Receives = []Slot{{Kind: "orchestrator.task.run", Role: RoleAction}}
+	controllerB.Inputs = []Slot{{Kind: "orchestrator.task.run", Pattern: "svc.*.orchestrator.{task}.run"}}
 
 	projection := comp("projection", "projection")
-	projection.Folds = []Fold{{
-		Name:     "projection.tasks",
-		Subjects: []string{"svc.*.orchestrator.{task}.>"},
-		Consumes: []string{"orchestrator.task.*"},
-	}}
+	projection.StateEvents = []Slot{{Kind: "orchestrator.task.run", Pattern: "svc.*.orchestrator.{task}.run"}}
 
 	fs := Validate(model(producer, controllerA, controllerB, projection))
 	for _, f := range fs {
@@ -132,26 +128,20 @@ func TestBroadcastFanOutIsNotAFinding(t *testing.T) {
 	}
 }
 
-// TestMultipleFoldsConsumeOneKind: stateful observation is equally unbounded.
-func TestMultipleFoldsConsumeOneKind(t *testing.T) {
+// TestMultipleComponentsFoldOneKind: stateful observation is equally unbounded.
+// A component folding its own output is the normal idiom, and another
+// component folding the same kind is not competition.
+func TestMultipleComponentsFoldOneKind(t *testing.T) {
 	billing := comp("billing", "billing")
-	billing.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
-	billing.Folds = []Fold{{
-		Name:     "billing.open-invoices",
-		Subjects: []string{"svc.*.billing.{account}.>"},
-		Consumes: []string{"billing.invoice.*"},
-	}}
+	billing.Outputs = []Slot{{Kind: "billing.invoice.issued", Pattern: "svc.*.billing.{account}.invoice.issued"}}
+	billing.StateEvents = []Slot{{Kind: "billing.invoice.issued", Pattern: "svc.*.billing.{account}.invoice.issued"}}
 
 	analytics := comp("analytics", "analytics")
-	analytics.Folds = []Fold{{
-		Name:     "analytics.revenue",
-		Subjects: []string{"svc.*.analytics.{tenant}.>"},
-		Consumes: []string{"billing.invoice.*"},
-	}}
+	analytics.StateEvents = []Slot{{Kind: "billing.invoice.issued", Pattern: "svc.*.billing.{account}.invoice.issued"}}
 
 	fs := Validate(model(billing, analytics))
 	if len(fs) != 0 {
-		t.Errorf("two folds over one kind must be clean, got %+v", fs)
+		t.Errorf("two components folding one kind must be clean, got %+v", fs)
 	}
 }
 
@@ -198,46 +188,46 @@ func TestOwnerOfLongestPrefixWins(t *testing.T) {
 	}
 }
 
-func TestStarvedReceive(t *testing.T) {
+func TestStarvedInput(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
-	// No emitter for this kind.
+	c.Inputs = []Slot{{Kind: "billing.invoice.issue"}}
+	// Nothing outputs this kind, so the trigger never fires.
 
 	fs := Validate(model(c))
-	starved := findingsByKind(fs, KindStarvedReceive)
+	starved := findingsByKind(fs, KindStarvedInput)
 	if len(starved) != 1 {
-		t.Fatalf("want 1 starved receive, got %d", len(starved))
+		t.Fatalf("want 1 starved input, got %d", len(starved))
 	}
 	if starved[0].Severity != SeverityWarning {
-		t.Errorf("starved receive should be warning, got %s", starved[0].Severity)
+		t.Errorf("starved input should be warning, got %s", starved[0].Severity)
 	}
 }
 
-func TestStarvedFold(t *testing.T) {
+func TestStarvedStateEvent(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Folds = []Fold{{Name: "billing.test", Subjects: []string{"svc.*.billing.{account}.>"}, Consumes: []string{"billing.invoice.>"}}}
-	// No emitted kinds matching the consumes.
+	c.StateEvents = []Slot{{Kind: "billing.invoice.issued"}}
+	// Nothing outputs this kind, so the projection tracks nothing.
 
 	fs := Validate(model(c))
-	if !hasKind(fs, KindStarvedFold) {
-		t.Error("want starved fold finding")
+	if !hasKind(fs, KindStarvedStateEvent) {
+		t.Error("want starved state-event finding")
 	}
 }
 
-func TestStarvedFoldSatisfied(t *testing.T) {
+func TestStarvedStateEventSatisfied(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Folds = []Fold{{Name: "billing.test", Subjects: []string{"svc.*.billing.{account}.>"}, Consumes: []string{"billing.invoice.>"}}}
-	c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+	c.StateEvents = []Slot{{Kind: "billing.invoice.issued"}}
+	c.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
 
 	fs := Validate(model(c))
-	if hasKind(fs, KindStarvedFold) {
-		t.Error("fold should be satisfied by emitted kind")
+	if hasKind(fs, KindStarvedStateEvent) {
+		t.Error("state event should be satisfied by the component's own output")
 	}
 }
 
 func TestOrphanEvent(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+	c.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
 	// No consumer.
 
 	fs := Validate(model(c))
@@ -248,35 +238,48 @@ func TestOrphanEvent(t *testing.T) {
 
 func TestOrphanEventConsumedByReceive(t *testing.T) {
 	billing := comp("billing", "billing")
-	billing.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+	billing.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
 
 	shipping := comp("shipping", "shipping")
-	shipping.Receives = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+	shipping.Inputs = []Slot{{Kind: "billing.invoice.issued"}}
 
 	fs := Validate(model(billing, shipping))
 	if hasKind(fs, KindOrphanEvent) {
-		t.Error("event should not be orphan when consumed by receive")
+		t.Error("event should not be orphan when it is another component's input")
 	}
 }
 
-func TestOrphanEventConsumedByFold(t *testing.T) {
+func TestOrphanEventFoldedAsStateEvent(t *testing.T) {
 	billing := comp("billing", "billing")
-	billing.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+	billing.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
 
 	analytics := comp("analytics", "analytics")
-	analytics.Folds = []Fold{{Name: "analytics.invoices", Subjects: []string{"svc.*.analytics.>"}, Consumes: []string{"billing.>"}}}
+	analytics.StateEvents = []Slot{{Kind: "billing.invoice.issued"}}
 
 	fs := Validate(model(billing, analytics))
 	if hasKind(fs, KindOrphanEvent) {
-		t.Error("event should not be orphan when consumed by fold")
+		t.Error("event should not be orphan when a component folds it into state")
 	}
 }
 
-// TestBroadcastActionWithNoReceiverIsWarning: without the exclusive opt-in an
-// unobserved action is a closure warning, exactly like an unobserved fact.
-func TestBroadcastActionWithNoReceiverIsWarning(t *testing.T) {
+// TestOrphanEventFoldedByItsOwnProducer: the producer's own state_events entry
+// counts as an observation. Folding the outcome you just appended is the
+// idiom the third list exists for.
+func TestOrphanEventFoldedByItsOwnProducer(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Emits = []Slot{{Kind: "ledger.entry.post", Role: RoleAction}}
+	c.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
+	c.StateEvents = []Slot{{Kind: "billing.invoice.issued"}}
+
+	if hasKind(Validate(model(c)), KindOrphanEvent) {
+		t.Error("a component folding its own output is an observer of it")
+	}
+}
+
+// TestBroadcastOutputWithNoObserverIsWarning: without the exclusive opt-in an
+// unobserved output is a closure warning, never an error.
+func TestBroadcastOutputWithNoObserverIsWarning(t *testing.T) {
+	c := comp("billing", "billing")
+	c.Outputs = []Slot{{Kind: "ledger.entry.post"}}
 
 	fs := Validate(model(c))
 	orphans := findingsByKind(fs, KindOrphanEvent)
@@ -293,7 +296,7 @@ func TestBroadcastActionWithNoReceiverIsWarning(t *testing.T) {
 
 func TestExclusiveUnhandled(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Emits = []Slot{{Kind: "ledger.entry.post", Role: RoleAction, Delivery: DeliveryExclusive}}
+	c.Outputs = []Slot{{Kind: "ledger.entry.post", Delivery: DeliveryExclusive}}
 
 	fs := Validate(model(c))
 	found := findingsByKind(fs, KindExclusiveUnhandled)
@@ -307,14 +310,14 @@ func TestExclusiveUnhandled(t *testing.T) {
 
 func TestExclusiveConflict(t *testing.T) {
 	billing := comp("billing", "billing")
-	billing.Emits = []Slot{{Kind: "ledger.entry.post", Role: RoleAction}}
+	billing.Outputs = []Slot{{Kind: "ledger.entry.post"}}
 
-	// Exclusivity declared on the receiving side propagates to the kind.
+	// Exclusivity declared on the input side propagates to the kind.
 	ledger1 := comp("ledger1", "ledger")
-	ledger1.Receives = []Slot{{Kind: "ledger.entry.post", Role: RoleAction, Delivery: DeliveryExclusive}}
+	ledger1.Inputs = []Slot{{Kind: "ledger.entry.post", Delivery: DeliveryExclusive}}
 
 	ledger2 := comp("ledger2", "ledger2")
-	ledger2.Receives = []Slot{{Kind: "ledger.entry.post", Role: RoleAction}}
+	ledger2.Inputs = []Slot{{Kind: "ledger.entry.post"}}
 
 	fs := Validate(model(billing, ledger1, ledger2))
 	found := findingsByKind(fs, KindExclusiveConflict)
@@ -322,16 +325,16 @@ func TestExclusiveConflict(t *testing.T) {
 		t.Fatalf("want 1 exclusive-conflict finding, got %d: %+v", len(found), fs)
 	}
 	if !strings.Contains(found[0].Message, "ledger1") || !strings.Contains(found[0].Message, "ledger2") {
-		t.Errorf("conflict should name both receivers: %s", found[0].Message)
+		t.Errorf("conflict should name both consumers: %s", found[0].Message)
 	}
 }
 
 func TestExclusiveSatisfied(t *testing.T) {
 	billing := comp("billing", "billing")
-	billing.Emits = []Slot{{Kind: "ledger.entry.post", Role: RoleAction, Delivery: DeliveryExclusive}}
+	billing.Outputs = []Slot{{Kind: "ledger.entry.post", Delivery: DeliveryExclusive}}
 
 	ledger := comp("ledger", "ledger")
-	ledger.Receives = []Slot{{Kind: "ledger.entry.post", Role: RoleAction, Delivery: DeliveryExclusive}}
+	ledger.Inputs = []Slot{{Kind: "ledger.entry.post", Delivery: DeliveryExclusive}}
 
 	fs := Validate(model(billing, ledger))
 	if hasKind(fs, KindExclusiveUnhandled) || hasKind(fs, KindExclusiveConflict) {
@@ -341,9 +344,8 @@ func TestExclusiveSatisfied(t *testing.T) {
 
 func TestUnresolvedLocalRef(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Emits = []Slot{{
+	c.Outputs = []Slot{{
 		Kind:   "billing.invoice.issued",
-		Role:   RoleFact,
 		Schema: SchemaNode{Raw: map[string]any{"$ref": "#/types/DoesNotExist"}},
 	}}
 
@@ -356,9 +358,8 @@ func TestUnresolvedLocalRef(t *testing.T) {
 func TestResolvedLocalRef(t *testing.T) {
 	c := comp("billing", "billing")
 	c.Types["Invoice"] = SchemaNode{Raw: map[string]any{"type": "object"}}
-	c.Emits = []Slot{{
+	c.Outputs = []Slot{{
 		Kind:   "billing.invoice.issued",
-		Role:   RoleFact,
 		Schema: SchemaNode{Raw: map[string]any{"$ref": "#/types/Invoice"}},
 	}}
 
@@ -370,9 +371,8 @@ func TestResolvedLocalRef(t *testing.T) {
 
 func TestUnresolvedCrossComponentRef(t *testing.T) {
 	billing := comp("billing", "billing")
-	billing.Emits = []Slot{{
+	billing.Outputs = []Slot{{
 		Kind:   "billing.invoice.issued",
-		Role:   RoleFact,
 		Schema: SchemaNode{Raw: map[string]any{"$ref": "ledger#/types/Entry"}},
 	}}
 
@@ -387,9 +387,8 @@ func TestUnresolvedCrossComponentRef(t *testing.T) {
 
 func TestResolvedCrossComponentRef(t *testing.T) {
 	billing := comp("billing", "billing")
-	billing.Emits = []Slot{{
+	billing.Outputs = []Slot{{
 		Kind:   "billing.invoice.issued",
-		Role:   RoleFact,
 		Schema: SchemaNode{Raw: map[string]any{"$ref": "ledger#/types/Entry"}},
 	}}
 
@@ -438,9 +437,8 @@ func TestRefCycleSelf(t *testing.T) {
 func TestNestedSchemaRefs(t *testing.T) {
 	c := comp("billing", "billing")
 	c.Types["Line"] = SchemaNode{Raw: map[string]any{"type": "object"}}
-	c.Emits = []Slot{{
+	c.Outputs = []Slot{{
 		Kind: "billing.invoice.issued",
-		Role: RoleFact,
 		Schema: SchemaNode{Raw: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -462,9 +460,8 @@ func TestOneOfRefs(t *testing.T) {
 	c := comp("billing", "billing")
 	c.Types["V1"] = SchemaNode{Raw: map[string]any{"type": "object"}}
 	c.Types["V2"] = SchemaNode{Raw: map[string]any{"type": "object"}}
-	c.Emits = []Slot{{
+	c.Outputs = []Slot{{
 		Kind: "billing.invoice.issued",
-		Role: RoleFact,
 		Schema: SchemaNode{Raw: map[string]any{
 			"oneOf": []any{
 				map[string]any{"$ref": "#/types/V1"},
@@ -483,9 +480,8 @@ func TestUnresolvedOneOfRef(t *testing.T) {
 	c := comp("billing", "billing")
 	c.Types["V1"] = SchemaNode{Raw: map[string]any{"type": "object"}}
 	// V2 is missing.
-	c.Emits = []Slot{{
+	c.Outputs = []Slot{{
 		Kind: "billing.invoice.issued",
-		Role: RoleFact,
 		Schema: SchemaNode{Raw: map[string]any{
 			"oneOf": []any{
 				map[string]any{"$ref": "#/types/V1"},
@@ -506,12 +502,8 @@ func TestUnresolvedOneOfRef(t *testing.T) {
 
 func TestMalformedSlotSyntax(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Folds = []Fold{{
-		Name:     "billing.bad-subject",
-		Subjects: []string{"svc.*.billing.{unclosed.>"},
-		Consumes: []string{"billing.*"},
-	}}
-	c.Emits = []Slot{{Kind: "billing.foo", Role: RoleFact}}
+	c.Inputs = []Slot{{Kind: "billing.foo", Pattern: "svc.*.billing.{unclosed.>"}}
+	c.Outputs = []Slot{{Kind: "billing.foo"}}
 
 	fs := Validate(model(c))
 	if !hasKind(fs, KindMalformedSlot) {
@@ -521,12 +513,8 @@ func TestMalformedSlotSyntax(t *testing.T) {
 
 func TestMalformedSlotEmptySlot(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Folds = []Fold{{
-		Name:     "billing.empty-slot",
-		Subjects: []string{"svc.*.billing.{}.invoice.>"},
-		Consumes: []string{"billing.*"},
-	}}
-	c.Emits = []Slot{{Kind: "billing.foo", Role: RoleFact}}
+	c.Inputs = []Slot{{Kind: "billing.foo", Pattern: "svc.*.billing.{}.invoice.>"}}
+	c.Outputs = []Slot{{Kind: "billing.foo"}}
 
 	fs := Validate(model(c))
 	if !hasKind(fs, KindMalformedSlot) {
@@ -534,41 +522,30 @@ func TestMalformedSlotEmptySlot(t *testing.T) {
 	}
 }
 
-func TestStarvedFoldPerEntry(t *testing.T) {
-	// A fold with multiple consumes entries, where only one is starved.
+// TestSubjectNotMatchedAgainstKinds is a regression guard: the subject pattern
+// is a transport address, never matched against the kind alphabet. Here the
+// pattern shares no segments with the kind and that is not a finding.
+func TestSubjectNotMatchedAgainstKinds(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Folds = []Fold{{
-		Name:     "billing.multi",
-		Subjects: []string{"svc.*.billing.{account}.>"},
-		Consumes: []string{"billing.invoice.*", "nonexistent.events.*"},
-	}}
-	c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+	c.Outputs = []Slot{{Kind: "billing.invoice.issued", Pattern: "svc.*.wire.{account}.42.>"}}
+	c.StateEvents = []Slot{{Kind: "billing.invoice.issued", Pattern: "svc.*.wire.{account}.42.>"}}
 
 	fs := Validate(model(c))
-	starved := findingsByKind(fs, KindStarvedFold)
-	if len(starved) != 1 {
-		t.Fatalf("want 1 starved-fold finding for the unmatched consumes entry, got %d", len(starved))
-	}
-	if !strings.Contains(starved[0].Message, "nonexistent.events.*") {
-		t.Errorf("starved-fold message should mention the unmatched consumes entry: %s", starved[0].Message)
+	if len(fs) != 0 {
+		t.Errorf("a subject unrelated to the kind name is not a finding, got %+v", fs)
 	}
 }
 
-func TestSubjectNotMatchedAgainstKinds(t *testing.T) {
-	// Regression test: the subject pattern should not be matched against kinds.
-	// This fold's subject is a transport pattern that would match nothing in
-	// the kind alphabet, but its consumes entry does match.
+// TestOutputsAreNotInTheReadSet: an output-only pattern keyed differently from
+// the read-set is not a partition mismatch. Appending an event does not
+// subscribe the component to it, so it never has to address its state.
+func TestOutputsAreNotInTheReadSet(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Folds = []Fold{{
-		Name:     "billing.transport-subject",
-		Subjects: []string{"svc.*.billing.{account}.invoice.>"},
-		Consumes: []string{"billing.invoice.*"},
-	}}
-	c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+	c.Inputs = []Slot{{Kind: "billing.invoice.issue", Pattern: "svc.*.billing.{account}.invoice.issue"}}
+	c.Outputs = []Slot{{Kind: "ledger.entry.post", Pattern: "svc.*.ledger.{entry}.post"}}
 
-	fs := Validate(model(c))
-	if hasKind(fs, KindStarvedFold) {
-		t.Error("fold should NOT be starved: consumes matches the emitted kind")
+	if hasKind(Validate(model(c)), KindPartitionMismatch) {
+		t.Error("an output pattern must not be held to the read-set's partition key")
 	}
 }
 
@@ -576,13 +553,12 @@ func TestFindingSeverities(t *testing.T) {
 	// Verify that errors sort before warnings.
 	c := comp("billing", "billing")
 	// Unresolved $ref (error).
-	c.Emits = []Slot{{
+	c.Outputs = []Slot{{
 		Kind:   "billing.invoice.issued",
-		Role:   RoleFact,
 		Schema: SchemaNode{Raw: map[string]any{"$ref": "#/types/Missing"}},
 	}}
 	// Starved receive (warning).
-	c.Receives = []Slot{{Kind: "billing.foo", Role: RoleFact}}
+	c.Inputs = []Slot{{Kind: "billing.foo"}}
 
 	fs := Validate(model(c))
 	if len(fs) < 2 {
@@ -596,16 +572,12 @@ func TestFindingSeverities(t *testing.T) {
 
 func TestPartitionMismatch(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
-	c.Folds = []Fold{{
-		Name: "billing.mixed",
-		Subjects: []string{
-			"svc.*.billing.{account}.invoice.>",
-			"svc.*.billing.{region}.invoice.>",
-		},
-		PartitionKey: []string{"account"},
-		Consumes:     []string{"billing.invoice.*"},
-	}}
+	c.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
+	c.StateEvents = []Slot{
+		{Kind: "billing.invoice.issued", Pattern: "svc.*.billing.{account}.invoice.issued"},
+		{Kind: "billing.credit.applied", Pattern: "svc.*.billing.{region}.invoice.applied"},
+	}
+	c.PartitionKey = []string{"account"}
 
 	fs := Validate(model(c))
 	found := findingsByKind(fs, KindPartitionMismatch)
@@ -619,16 +591,12 @@ func TestPartitionMismatch(t *testing.T) {
 
 func TestPartitionMismatchOrderMatters(t *testing.T) {
 	c := comp("warehouse", "warehouse")
-	c.Emits = []Slot{{Kind: "warehouse.stock.adjusted", Role: RoleFact}}
-	c.Folds = []Fold{{
-		Name: "warehouse.levels",
-		Subjects: []string{
-			"svc.*.warehouse.{region}.{sku}.stock.>",
-			"svc.*.warehouse.{sku}.{region}.stock.>",
-		},
-		PartitionKey: []string{"region", "sku"},
-		Consumes:     []string{"warehouse.stock.*"},
-	}}
+	c.Outputs = []Slot{{Kind: "warehouse.stock.adjusted"}}
+	c.StateEvents = []Slot{
+		{Kind: "warehouse.stock.adjusted", Pattern: "svc.*.warehouse.{region}.{sku}.stock.adjusted"},
+		{Kind: "warehouse.stock.depleted", Pattern: "svc.*.warehouse.{sku}.{region}.stock.depleted"},
+	}
+	c.PartitionKey = []string{"region", "sku"}
 
 	if !hasKind(Validate(model(c)), KindPartitionMismatch) {
 		t.Error("same slot names in a different order are a different partition key")
@@ -637,31 +605,46 @@ func TestPartitionMismatchOrderMatters(t *testing.T) {
 
 func TestPartitionKeyShared(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
-	c.Folds = []Fold{{
-		Name: "billing.open",
-		Subjects: []string{
-			"svc.*.billing.{account}.invoice.>",
-			"svc.*.billing.{account}.credit.>",
-		},
-		PartitionKey: []string{"account"},
-		Consumes:     []string{"billing.invoice.*"},
-	}}
+	c.Outputs = []Slot{
+		{Kind: "billing.invoice.issued"},
+		{Kind: "billing.credit.applied"},
+	}
+	c.StateEvents = []Slot{
+		{Kind: "billing.invoice.issued", Pattern: "svc.*.billing.{account}.invoice.issued"},
+		{Kind: "billing.credit.applied", Pattern: "svc.*.billing.{account}.credit.applied"},
+	}
+	c.PartitionKey = []string{"account"}
 
 	if hasKind(Validate(model(c)), KindPartitionMismatch) {
 		t.Error("subjects sharing one ordered key must not be flagged")
 	}
 }
 
-func TestUnderspecifiedFoldState(t *testing.T) {
+// TestUnpartitionedSubjectIsExempt: a globally addressed event legitimately
+// feeds a partitioned state, so a pattern with no {slot} at all is not held to
+// the component's key.
+func TestUnpartitionedSubjectIsExempt(t *testing.T) {
 	c := comp("billing", "billing")
-	c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
-	c.Folds = []Fold{{
-		Name:     "billing.placeholder",
-		Subjects: []string{"svc.*.billing.{account}.>"},
-		Consumes: []string{"billing.invoice.*"},
-		State:    SchemaNode{Raw: map[string]any{"type": "object"}},
-	}}
+	c.Outputs = []Slot{
+		{Kind: "billing.invoice.issued"},
+		{Kind: "billing.rates.changed"},
+	}
+	c.StateEvents = []Slot{
+		{Kind: "billing.invoice.issued", Pattern: "svc.*.billing.{account}.invoice.issued"},
+		{Kind: "billing.rates.changed", Pattern: "svc.*.billing.rates.changed"},
+	}
+	c.PartitionKey = []string{"account"}
+
+	if hasKind(Validate(model(c)), KindPartitionMismatch) {
+		t.Error("a subject carrying no slots must not be flagged")
+	}
+}
+
+func TestUnderspecifiedState(t *testing.T) {
+	c := comp("billing", "billing")
+	c.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
+	c.StateEvents = []Slot{{Kind: "billing.invoice.issued"}}
+	c.State = SchemaNode{Raw: map[string]any{"type": "object"}}
 
 	fs := Validate(model(c))
 	found := findingsByKind(fs, KindUnderspecifiedState)
@@ -673,103 +656,124 @@ func TestUnderspecifiedFoldState(t *testing.T) {
 	}
 }
 
-func TestSpecifiedFoldState(t *testing.T) {
-	c := comp("billing", "billing")
-	c.Types["Open"] = SchemaNode{Raw: map[string]any{"type": "object"}}
-	c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
-	c.Folds = []Fold{
-		{
-			Name:     "billing.by-ref",
-			Subjects: []string{"svc.*.billing.{account}.>"},
-			Consumes: []string{"billing.invoice.*"},
-			State:    SchemaNode{Raw: map[string]any{"$ref": "#/types/Open"}},
-		},
-		{
-			Name:     "billing.inline",
-			Subjects: []string{"svc.*.billing.{account}.>"},
-			Consumes: []string{"billing.invoice.*"},
-			State: SchemaNode{Raw: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"Count": map[string]any{"type": "integer"}},
-			}},
-		},
-	}
+func TestSpecifiedState(t *testing.T) {
+	byRef := comp("billing", "billing")
+	byRef.Types["Open"] = SchemaNode{Raw: map[string]any{"type": "object"}}
+	byRef.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
+	byRef.StateEvents = []Slot{{Kind: "billing.invoice.issued"}}
+	byRef.State = SchemaNode{Raw: map[string]any{"$ref": "#/types/Open"}}
 
-	if hasKind(Validate(model(c)), KindUnderspecifiedState) {
+	inline := comp("shipping", "shipping")
+	inline.Outputs = []Slot{{Kind: "shipping.package.shipped"}}
+	inline.StateEvents = []Slot{{Kind: "shipping.package.shipped"}}
+	inline.State = SchemaNode{Raw: map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"Count": map[string]any{"type": "integer"}},
+	}}
+
+	if hasKind(Validate(model(byRef, inline)), KindUnderspecifiedState) {
 		t.Error("a state with a $ref or properties must not be flagged")
 	}
 }
 
-// TestKindRoleConflictAcrossComponents: role is a property of the kind, so two
-// components cannot read the same kind differently.
-func TestKindRoleConflictAcrossComponents(t *testing.T) {
+// TestAbsentStateIsNotAFinding: the state schema is optional. A component may
+// fold nothing worth describing, and only a declared-but-empty schema is the
+// placeholder the warning is about.
+func TestAbsentStateIsNotAFinding(t *testing.T) {
+	c := comp("billing", "billing")
+	c.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
+	c.StateEvents = []Slot{{Kind: "billing.invoice.issued"}}
+
+	if hasKind(Validate(model(c)), KindUnderspecifiedState) {
+		t.Error("an absent state must not be reported as underspecified")
+	}
+}
+
+// --- kind-pattern-conflict ----------------------------------------------------
+
+// The subject pattern is where a kind lives on the wire, so two components
+// cannot address the same kind differently: the subscriber of one will never
+// see what the other appends.
+func TestKindPatternConflictAcrossComponents(t *testing.T) {
 	producer := comp("llm", "llm")
-	producer.Emits = []Slot{{Kind: "llm.message", Role: RoleFact}}
+	producer.Outputs = []Slot{{Kind: "llm.message", Pattern: "svc.*.llm.{session}.message"}}
 
 	consumer := comp("router", "router")
-	consumer.Receives = []Slot{{Kind: "llm.message", Role: RoleAction}}
+	consumer.Inputs = []Slot{{Kind: "llm.message", Pattern: "svc.*.router.{session}.message"}}
 
 	fs := Validate(model(producer, consumer))
-	found := findingsByKind(fs, KindRoleConflict)
+	found := findingsByKind(fs, KindPatternConflict)
 	if len(found) != 1 {
-		t.Fatalf("want 1 kind-role-conflict finding, got %d: %+v", len(found), fs)
+		t.Fatalf("want 1 kind-pattern-conflict finding, got %d: %+v", len(found), fs)
 	}
 	if found[0].Severity != SeverityError {
-		t.Errorf("kind-role-conflict should be an error, got %s", found[0].Severity)
+		t.Errorf("kind-pattern-conflict should be an error, got %s", found[0].Severity)
 	}
-	for _, want := range []string{"llm.message", "action", "fact", "llm:emits", "router:receives"} {
+	for _, want := range []string{"llm.message", "svc.*.llm.{session}.message", "svc.*.router.{session}.message", "llm:outputs", "router:inputs"} {
 		if !strings.Contains(found[0].Message, want) {
 			t.Errorf("message should mention %q: %s", want, found[0].Message)
 		}
 	}
 }
 
-// TestKindRoleConflictWithinComponent: the common shape — one component both
-// receives a kind as an action and emits it as a fact.
-func TestKindRoleConflictWithinComponent(t *testing.T) {
+// One component can disagree with itself across its own lists.
+func TestKindPatternConflictWithinComponent(t *testing.T) {
 	c := comp("llm", "llm")
-	c.Receives = []Slot{{Kind: "llm.message", Role: RoleAction}}
-	c.Emits = []Slot{{Kind: "llm.message", Role: RoleFact}}
+	c.Outputs = []Slot{{Kind: "llm.message", Pattern: "svc.*.llm.{session}.message"}}
+	c.StateEvents = []Slot{{Kind: "llm.message", Pattern: "svc.*.llm.{turn}.message"}}
 
-	if !hasKind(Validate(model(c)), KindRoleConflict) {
-		t.Error("want kind-role-conflict when one component declares both roles")
+	if !hasKind(Validate(model(c)), KindPatternConflict) {
+		t.Error("want kind-pattern-conflict when one component declares two addresses")
 	}
 }
 
-// TestKindRoleConsistent: the same role on every side is clean, and repeating a
-// kind across many producers and observers is not itself a conflict.
-func TestKindRoleConsistent(t *testing.T) {
+// Agreeing declarations are clean, however many sites repeat them.
+func TestKindPatternConsistent(t *testing.T) {
+	const pattern = "svc.*.llm.{session}.message"
+
 	a := comp("llm", "llm")
-	a.Emits = []Slot{{Kind: "llm.message", Role: RoleFact}}
+	a.Outputs = []Slot{{Kind: "llm.message", Pattern: pattern}}
 
 	b := comp("mirror", "mirror")
-	b.Emits = []Slot{{Kind: "llm.message", Role: RoleFact}}
+	b.Outputs = []Slot{{Kind: "llm.message", Pattern: pattern}}
 
 	c := comp("router", "router")
-	c.Receives = []Slot{{Kind: "llm.message", Role: RoleFact}}
+	c.Inputs = []Slot{{Kind: "llm.message", Pattern: pattern}}
 
 	d := comp("audit", "audit")
-	d.Receives = []Slot{{Kind: "llm.message", Role: RoleFact}}
+	d.StateEvents = []Slot{{Kind: "llm.message", Pattern: pattern}}
 
-	if hasKind(Validate(model(a, b, c, d)), KindRoleConflict) {
+	if hasKind(Validate(model(a, b, c, d)), KindPatternConflict) {
 		t.Error("agreeing declarations must not conflict")
 	}
 }
 
-// TestKindRoleConflictIsPerKind: two conflicting kinds produce two findings,
-// not one per declaration site.
-func TestKindRoleConflictIsPerKind(t *testing.T) {
-	c := comp("llm", "llm")
-	c.Receives = []Slot{
-		{Kind: "llm.message", Role: RoleAction},
-		{Kind: "llm.tool", Role: RoleAction},
+// A declaration that carries no pattern is not disagreeing with one that does.
+func TestKindPatternOmittedIsNotAConflict(t *testing.T) {
+	producer := comp("llm", "llm")
+	producer.Outputs = []Slot{{Kind: "llm.message", Pattern: "svc.*.llm.{session}.message"}}
+
+	consumer := comp("router", "router")
+	consumer.Inputs = []Slot{{Kind: "llm.message"}}
+
+	if hasKind(Validate(model(producer, consumer)), KindPatternConflict) {
+		t.Error("an omitted pattern must not be read as a second address")
 	}
-	c.Emits = []Slot{
-		{Kind: "llm.message", Role: RoleFact},
-		{Kind: "llm.tool", Role: RoleFact},
+}
+
+// Two conflicting kinds produce two findings, not one per declaration site.
+func TestKindPatternConflictIsPerKind(t *testing.T) {
+	c := comp("llm", "llm")
+	c.Inputs = []Slot{
+		{Kind: "llm.message", Pattern: "svc.*.llm.{session}.message"},
+		{Kind: "llm.tool", Pattern: "svc.*.llm.{session}.tool"},
+	}
+	c.StateEvents = []Slot{
+		{Kind: "llm.message", Pattern: "svc.*.llm.{turn}.message"},
+		{Kind: "llm.tool", Pattern: "svc.*.llm.{turn}.tool"},
 	}
 
-	found := findingsByKind(Validate(model(c)), KindRoleConflict)
+	found := findingsByKind(Validate(model(c)), KindPatternConflict)
 	if len(found) != 2 {
 		t.Fatalf("want 1 finding per conflicting kind, got %d", len(found))
 	}
@@ -778,71 +782,44 @@ func TestKindRoleConflictIsPerKind(t *testing.T) {
 	}
 }
 
-// TestPayloadVariantsDoNotChangeRole: alternative payload shapes (oneOf, a
-// deprecated legacy branch) are schema evolution, not a role change.
-func TestPayloadVariantsDoNotChangeRole(t *testing.T) {
-	c := comp("llm", "llm")
-	c.Types["Text"] = SchemaNode{Raw: map[string]any{"type": "object"}}
-	c.Types["Legacy"] = SchemaNode{Raw: map[string]any{"type": "string", "deprecated": true}}
-	c.Emits = []Slot{{
-		Kind: "llm.message",
-		Role: RoleFact,
-		Schema: SchemaNode{Raw: map[string]any{
-			"oneOf": []any{
-				map[string]any{"$ref": "#/types/Text"},
-				map[string]any{"$ref": "#/types/Legacy"},
-			},
-		}},
-	}}
-	c.Receives = []Slot{{Kind: "llm.message", Role: RoleFact}}
+// PatternOf resolves the canonical address deterministically, and is empty for
+// a kind nobody addressed.
+func TestPatternOf(t *testing.T) {
+	producer := comp("llm", "llm")
+	producer.Outputs = []Slot{
+		{Kind: "llm.message", Pattern: "svc.*.llm.{session}.message"},
+		{Kind: "llm.silent"},
+	}
 
-	if hasKind(Validate(model(c)), KindRoleConflict) {
-		t.Error("payload variants must not be read as a role change")
+	m := model(producer)
+	if got := PatternOf(m, "llm.message"); got != "svc.*.llm.{session}.message" {
+		t.Errorf("PatternOf(llm.message) = %q", got)
+	}
+	if got := PatternOf(m, "llm.silent"); got != "" {
+		t.Errorf("PatternOf(llm.silent) = %q, want empty", got)
+	}
+	if got := PatternOf(m, "llm.unknown"); got != "" {
+		t.Errorf("PatternOf(llm.unknown) = %q, want empty", got)
 	}
 }
 
-// TestSplitKindsResolveRoleConflict documents the prescribed fix: separate
-// kinds for the intent and the outcome.
-func TestSplitKindsResolveRoleConflict(t *testing.T) {
-	c := comp("llm", "llm")
-	c.Receives = []Slot{{Kind: "llm.message.send", Role: RoleAction}}
-	c.Emits = []Slot{{Kind: "llm.message.sent", Role: RoleFact}}
-	c.Folds = []Fold{{
-		Name:     "llm.transcript",
-		Subjects: []string{"svc.*.llm.{session}.message.>"},
-		Consumes: []string{"llm.message.*"},
-		State: SchemaNode{Raw: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{"Turns": map[string]any{"type": "integer"}},
-		}},
-	}}
+// --- self-input-conflict -----------------------------------------------------
 
-	caller := comp("chat", "chat")
-	caller.Emits = []Slot{{Kind: "llm.message.send", Role: RoleAction}}
-
-	fs := Validate(model(c, caller))
-	if len(fs) != 0 {
-		t.Errorf("split kinds should validate clean, got %+v", fs)
-	}
-}
-
-// --- self-receive-conflict ---------------------------------------------------
-
-// A component does not subscribe to itself: the emit is already the
-// notification, and a matching receives slot draws a self-loop that nothing at
-// runtime corresponds to.
-func TestSelfReceiveConflict(t *testing.T) {
+// A component does not trigger itself: the output is already the record, and a
+// matching inputs entry draws a self-loop that nothing at runtime corresponds
+// to.
+func TestSelfInputConflict(t *testing.T) {
 	c := comp("controller-llm", "llm")
-	c.Emits = []Slot{{Kind: "llm.failed", Role: RoleFact}}
-	c.Receives = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+	c.Outputs = []Slot{{Kind: "llm.failed"}}
+	c.Inputs = []Slot{{Kind: "llm.failed"}}
 
 	fs := Validate(model(c))
-	found := findingsByKind(fs, KindSelfReceiveConflict)
+	found := findingsByKind(fs, KindSelfInputConflict)
 	if len(found) != 1 {
-		t.Fatalf("want 1 self-receive-conflict finding, got %d: %+v", len(found), fs)
+		t.Fatalf("want 1 self-input-conflict finding, got %d: %+v", len(found), fs)
 	}
 	if found[0].Severity != SeverityError {
-		t.Errorf("self-receive-conflict should be an error, got %s", found[0].Severity)
+		t.Errorf("self-input-conflict should be an error, got %s", found[0].Severity)
 	}
 	if found[0].Component != "controller-llm" {
 		t.Errorf("Component = %q, want controller-llm", found[0].Component)
@@ -850,50 +827,48 @@ func TestSelfReceiveConflict(t *testing.T) {
 	if found[0].Location != "llm.failed" {
 		t.Errorf("Location = %q, want llm.failed", found[0].Location)
 	}
-	// Component id, kind, and both declaration sites must be recoverable.
-	for _, want := range []string{`"controller-llm"`, `"llm.failed"`, "emits", "receives", "folds[].consumes"} {
+	// Component id, kind, both declaration sites, and the fix must be
+	// recoverable from the message alone.
+	for _, want := range []string{`"controller-llm"`, `"llm.failed"`, "input", "output", "state_events"} {
 		if !strings.Contains(found[0].Message, want) {
 			t.Errorf("message should mention %q: %s", want, found[0].Message)
 		}
 	}
-	if _, ok := found[0].Related["emits"]; !ok {
-		t.Errorf("Related should carry the emits positions: %v", found[0].Related)
+	if _, ok := found[0].Related["outputs"]; !ok {
+		t.Errorf("Related should carry the outputs positions: %v", found[0].Related)
 	}
-	if _, ok := found[0].Related["receives"]; !ok {
-		t.Errorf("Related should carry the receives positions: %v", found[0].Related)
+	if _, ok := found[0].Related["inputs"]; !ok {
+		t.Errorf("Related should carry the inputs positions: %v", found[0].Related)
 	}
 }
 
-// The prescribed fix: fold the component's own events instead of receiving them.
-func TestSelfFoldIsAllowed(t *testing.T) {
+// The prescribed fix, and the reason the rule can stay narrow: folding the
+// component's own output is a state event, not an input.
+func TestSelfStateEventIsAllowed(t *testing.T) {
 	c := comp("controller-llm", "llm")
-	c.Emits = []Slot{{Kind: "llm.failed", Role: RoleFact}}
-	c.Folds = []Fold{{
-		Name:     "llm.failures",
-		Subjects: []string{"svc.*.llm.{session}.>"},
-		Consumes: []string{"llm.failed"},
-		State: SchemaNode{Raw: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{"Count": map[string]any{"type": "integer"}},
-		}},
+	c.Outputs = []Slot{{Kind: "llm.failed", Pattern: "svc.*.llm.{session}.failed"}}
+	c.StateEvents = []Slot{{Kind: "llm.failed", Pattern: "svc.*.llm.{session}.failed"}}
+	c.State = SchemaNode{Raw: map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"Count": map[string]any{"type": "integer"}},
 	}}
 
 	fs := Validate(model(c))
 	if len(fs) != 0 {
-		t.Errorf("folding own events should validate clean, got %+v", fs)
+		t.Errorf("folding own output should validate clean, got %+v", fs)
 	}
 }
 
-// Other components observe the emitter's kind freely, however many of them.
-func TestOtherComponentsMayReceiveEmittedKind(t *testing.T) {
+// Other components take the producer's kind as an input freely, however many.
+func TestOtherComponentsMayInputAnOutputKind(t *testing.T) {
 	producer := comp("controller-llm", "llm")
-	producer.Emits = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+	producer.Outputs = []Slot{{Kind: "llm.failed"}}
 
 	b := comp("router", "router")
-	b.Receives = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+	b.Inputs = []Slot{{Kind: "llm.failed"}}
 
 	c := comp("audit", "audit")
-	c.Receives = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+	c.Inputs = []Slot{{Kind: "llm.failed"}}
 
 	fs := Validate(model(producer, b, c))
 	if len(fs) != 0 {
@@ -901,62 +876,62 @@ func TestOtherComponentsMayReceiveEmittedKind(t *testing.T) {
 	}
 }
 
-// Emitting one kind and receiving a different one is the ordinary case.
-func TestEmitAndReceiveDifferentKinds(t *testing.T) {
+// Outputting one kind and being triggered by a different one is the ordinary
+// case.
+func TestOutputAndInputDifferentKinds(t *testing.T) {
 	c := comp("controller-llm", "llm")
-	c.Emits = []Slot{{Kind: "llm.failed", Role: RoleFact}}
-	c.Receives = []Slot{{Kind: "router.request.dispatched", Role: RoleFact}}
+	c.Outputs = []Slot{{Kind: "llm.failed"}}
+	c.Inputs = []Slot{{Kind: "router.request.dispatched"}}
 
 	router := comp("router", "router")
-	router.Emits = []Slot{{Kind: "router.request.dispatched", Role: RoleFact}}
-	router.Receives = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+	router.Outputs = []Slot{{Kind: "router.request.dispatched"}}
+	router.Inputs = []Slot{{Kind: "llm.failed"}}
 
-	if hasKind(Validate(model(c, router)), KindSelfReceiveConflict) {
+	if hasKind(Validate(model(c, router)), KindSelfInputConflict) {
 		t.Error("distinct kinds must not conflict")
 	}
 }
 
 // One finding per (component, kind) — not one per duplicated slot.
-func TestSelfReceiveConflictIsPerKind(t *testing.T) {
+func TestSelfInputConflictIsPerKind(t *testing.T) {
 	c := comp("controller-llm", "llm")
-	c.Emits = []Slot{
-		{Kind: "llm.failed", Role: RoleFact},
-		{Kind: "llm.done", Role: RoleFact},
+	c.Outputs = []Slot{
+		{Kind: "llm.failed"},
+		{Kind: "llm.done"},
 	}
-	c.Receives = []Slot{
-		{Kind: "llm.failed", Role: RoleFact},
-		{Kind: "llm.failed", Role: RoleFact},
-		{Kind: "llm.done", Role: RoleFact},
+	c.Inputs = []Slot{
+		{Kind: "llm.failed"},
+		{Kind: "llm.failed"},
+		{Kind: "llm.done"},
 	}
 
-	found := findingsByKind(Validate(model(c)), KindSelfReceiveConflict)
+	found := findingsByKind(Validate(model(c)), KindSelfInputConflict)
 	if len(found) != 2 {
 		t.Fatalf("want 1 finding per conflicting kind, got %d", len(found))
 	}
-	// Both receives positions of the repeated kind are reported.
+	// Both inputs positions of the repeated kind are reported.
 	for _, f := range found {
 		if f.Location != "llm.failed" {
 			continue
 		}
-		pos, ok := f.Related["receives"].([]int)
+		pos, ok := f.Related["inputs"].([]int)
 		if !ok || len(pos) != 2 {
-			t.Errorf("both receives positions should be reported, got %v", f.Related["receives"])
+			t.Errorf("both inputs positions should be reported, got %v", f.Related["inputs"])
 		}
 	}
 }
 
-// Matching is on the exact kind: a fold glob covering the kind is not a
-// receives slot, and a similarly-named kind is a different kind.
-func TestSelfReceiveConflictMatchesExactKind(t *testing.T) {
+// Matching is on the exact kind: a similarly-named kind is a different kind.
+func TestSelfInputConflictMatchesExactKind(t *testing.T) {
 	c := comp("controller-llm", "llm")
-	c.Emits = []Slot{{Kind: "llm.failed", Role: RoleFact}}
-	c.Receives = []Slot{{Kind: "llm.failed.retried", Role: RoleFact}}
+	c.Outputs = []Slot{{Kind: "llm.failed"}}
+	c.Inputs = []Slot{{Kind: "llm.failed.retried"}}
 
 	other := comp("supervisor", "supervisor")
-	other.Emits = []Slot{{Kind: "llm.failed.retried", Role: RoleFact}}
-	other.Receives = []Slot{{Kind: "llm.failed", Role: RoleFact}}
+	other.Outputs = []Slot{{Kind: "llm.failed.retried"}}
+	other.Inputs = []Slot{{Kind: "llm.failed"}}
 
-	if hasKind(Validate(model(c, other)), KindSelfReceiveConflict) {
+	if hasKind(Validate(model(c, other)), KindSelfInputConflict) {
 		t.Error("prefix-related kinds are different kinds")
 	}
 }

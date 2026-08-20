@@ -11,31 +11,33 @@ import (
 // severity as appropriate for their context.
 //
 // The base model is event-sourced choreography: an event is appended once and
-// may be observed independently by any number of components and folds. There
-// is therefore NO rule that an emitted event resolves to a single handler, and
-// no rule that ownership of a namespace restricts who may emit into it or
-// observe it. Both were RPC assumptions and have been removed.
+// may be observed independently by any number of components. There is
+// therefore NO rule that an output resolves to a single handler, and no rule
+// that ownership of a namespace restricts who may append into it or observe
+// it. Both were RPC assumptions and have been removed.
 //
 // Rules implemented:
 //   - Single-owner namespaces: one component defines a namespace's schemas
-//   - Single role per kind: role is global, not per declaration site
-//   - Closure: starved receives, starved fold consumes, orphan events
-//   - Fold coherence: {slot} syntax, one shared partition key, declared state
+//   - Single pattern per kind: where a kind lives on the wire is global
+//   - Self-trigger: a kind is never both an input and an output of one
+//     component; folding one's own output is state_events
+//   - Closure: starved inputs, starved state events, orphan outputs
+//   - Read-set coherence: {slot} syntax, one shared partition key
 //   - Exclusive delivery (opt-in): a kind declared `delivery: exclusive`
-//     must have exactly one receiver
+//     must be the input of exactly one component
 //   - $ref integrity: every $ref resolves, no cross-component cycles
 //
 // NOT implemented (see package doc):
-//   - Schema compatibility between an emitted payload and a receiver's schema
+//   - Schema compatibility between an output payload and a consumer's schema
 func Validate(m *Model) []Finding {
 	var findings []Finding
 
 	// Build indexes for efficient lookup.
-	ownerOf := make(map[string]string)           // namespace -> component id
-	receiversOf := make(map[string][]string)     // kind -> component ids that receive it
-	emittersOf := make(map[string][]string)      // kind -> component ids that emit it
-	allEmittedKinds := make(map[string]struct{}) // every kind appended to the log
-	exclusiveKinds := make(map[string]struct{})  // kinds that opted into single-handler delivery
+	ownerOf := make(map[string]string)          // namespace -> component id
+	inputsOf := make(map[string][]string)       // kind -> component ids triggered by it
+	foldersOf := make(map[string][]string)      // kind -> component ids folding it as state
+	producersOf := make(map[string][]string)    // kind -> component ids that append it
+	exclusiveKinds := make(map[string]struct{}) // kinds that opted into single-handler delivery
 
 	// Track ownership claims (map prefix -> list of component IDs claiming it).
 	ownerClaims := make(map[string][]string)
@@ -47,22 +49,17 @@ func Validate(m *Model) []Finding {
 			ownerOf[comp.Owns] = id
 		}
 
-		// Index receives.
-		for _, slot := range comp.Receives {
-			receiversOf[slot.Kind] = append(receiversOf[slot.Kind], id)
-			if slot.Delivery.IsExclusive() {
-				exclusiveKinds[slot.Kind] = struct{}{}
+		index := func(slots []Slot, into map[string][]string) {
+			for _, slot := range slots {
+				into[slot.Kind] = append(into[slot.Kind], id)
+				if slot.Delivery.IsExclusive() {
+					exclusiveKinds[slot.Kind] = struct{}{}
+				}
 			}
 		}
-
-		// Index emits.
-		for _, slot := range comp.Emits {
-			emittersOf[slot.Kind] = append(emittersOf[slot.Kind], id)
-			allEmittedKinds[slot.Kind] = struct{}{}
-			if slot.Delivery.IsExclusive() {
-				exclusiveKinds[slot.Kind] = struct{}{}
-			}
-		}
+		index(comp.Inputs, inputsOf)
+		index(comp.Outputs, producersOf)
+		index(comp.StateEvents, foldersOf)
 	}
 
 	// Check for overlapping namespace ownership. Exact duplicates and nesting
@@ -73,14 +70,15 @@ func Validate(m *Model) []Finding {
 	// Per-component validation.
 	for id, comp := range m.Components {
 		findings = append(findings, validateRefs(id, comp, m)...)
-		findings = append(findings, validateFolds(id, comp)...)
-		findings = append(findings, validateSelfReceive(id, comp)...)
+		findings = append(findings, validateReadSet(id, comp)...)
+		findings = append(findings, validateState(id, comp)...)
+		findings = append(findings, validateSelfInput(id, comp)...)
 	}
 
 	// Cross-component validation.
-	findings = append(findings, validateKindRoles(m)...)
-	findings = append(findings, validateClosure(m, receiversOf, emittersOf, allEmittedKinds)...)
-	findings = append(findings, validateExclusiveDelivery(m, receiversOf, exclusiveKinds)...)
+	findings = append(findings, validatePatterns(m)...)
+	findings = append(findings, validateClosure(m, inputsOf, foldersOf, producersOf)...)
+	findings = append(findings, validateExclusiveDelivery(m, inputsOf, exclusiveKinds)...)
 	findings = append(findings, validateRefCycles(m)...)
 
 	sortFindings(findings)
@@ -187,91 +185,97 @@ func validateOwnershipOverlaps(m *Model, ownerOf map[string]string, ownerClaims 
 	return findings
 }
 
-// validateSelfReceive rejects a component that declares the same kind in both
-// emits and receives.
+// validateSelfInput enforces that a component never takes its own output as
+// an input. Inputs and outputs are the component's ports — what triggers it and
+// what it appends — so a kind in both describes the component triggering
+// itself: a loop through the boundary that exists to separate it from everyone
+// else, drawing a self-edge with no runtime referent.
 //
-// `receives` and `emits` are the component's ports: inputs and outputs. Routing
-// your own output back into your own input describes nothing — it is a loop
-// through a boundary that exists to separate you from everyone else, and it
-// draws a self-edge in the graph with no runtime referent.
+// The rule is narrow, and state_events is what makes it narrow. Folding one's
+// own output into state is the normal case (record the outcome you just
+// appended) and it is declared there, where it costs nothing. So an overlap
+// between inputs and outputs is unambiguously a mistake rather than a
+// legitimate pattern written in the wrong section.
 //
-// Folding your own events is a different thing entirely and is fully allowed:
-// `folds[].consumes` is not a port, it is state maintained over the log, and it
-// carries a state schema and a partition key that a receives slot cannot.
-//
-// The rule is deliberately narrow. It does NOT restrict:
-//   - `folds[].consumes` over the component's own kinds — that is the fix;
-//   - other components receiving the kind, however many of them;
-//   - the same component emitting X and receiving a different kind Y.
-//
-// Matching is on the exact kind. Once the model becomes subject-aware — where
-// one kind can travel several routes and a component may legitimately emit on
-// one and observe another — the comparison becomes (kind, route) rather than
-// kind alone, and this exact-kind check is the degenerate single-route case.
-func validateSelfReceive(id string, comp *Component) []Finding {
-	if len(comp.Emits) == 0 || len(comp.Receives) == 0 {
+// Matching is on the exact kind. Once one kind can travel several routes and a
+// component may legitimately append on one and observe another, the comparison
+// becomes (kind, pattern) rather than kind alone, and this is the degenerate
+// single-route case.
+func validateSelfInput(id string, comp *Component) []Finding {
+	if len(comp.Outputs) == 0 || len(comp.Inputs) == 0 {
 		return nil
 	}
 
-	emitPositions := make(map[string][]int, len(comp.Emits))
-	for i, slot := range comp.Emits {
-		emitPositions[slot.Kind] = append(emitPositions[slot.Kind], i)
+	outputPositions := make(map[string][]int, len(comp.Outputs))
+	for i, slot := range comp.Outputs {
+		outputPositions[slot.Kind] = append(outputPositions[slot.Kind], i)
 	}
 
 	var findings []Finding
 	reported := make(map[string]bool)
-	for i, slot := range comp.Receives {
-		emits, ok := emitPositions[slot.Kind]
+	for i, slot := range comp.Inputs {
+		outputs, ok := outputPositions[slot.Kind]
 		if !ok || reported[slot.Kind] {
 			continue
 		}
 		reported[slot.Kind] = true
 
-		receives := []int{i}
-		for j := i + 1; j < len(comp.Receives); j++ {
-			if comp.Receives[j].Kind == slot.Kind {
-				receives = append(receives, j)
+		inputs := []int{i}
+		for j := i + 1; j < len(comp.Inputs); j++ {
+			if comp.Inputs[j].Kind == slot.Kind {
+				inputs = append(inputs, j)
 			}
 		}
 
 		findings = append(findings, Finding{
 			Severity:  SeverityError,
-			Kind:      KindSelfReceiveConflict,
+			Kind:      KindSelfInputConflict,
 			Component: id,
 			File:      comp.SourceFile,
 			Location:  slot.Kind,
-			Message: fmt.Sprintf("component %q both emits and receives kind %q; use folds[].consumes for stateful observation of the component's own events",
+			Message: fmt.Sprintf("component %q declares kind %q as both an input and an output, so it triggers itself; move it to state_events to fold its own outcome",
 				id, slot.Kind),
-			Related: map[string]any{"emits": emits, "receives": receives},
+			Related: map[string]any{"outputs": outputs, "inputs": inputs},
 		})
 	}
 
 	return findings
 }
 
-// roleDecl records one site where a kind's role was declared.
-type roleDecl struct {
+// patternDecl records one site where a kind's subject pattern was declared.
+type patternDecl struct {
 	Component string
-	Section   string // "receives" or "emits"
-	Role      Role
+	Section   string // "inputs", "outputs" or "state_events"
+	Pattern   string
 }
 
 // Site renders the declaration site as "component:section".
-func (d roleDecl) Site() string { return d.Component + ":" + d.Section }
+func (d patternDecl) Site() string { return d.Component + ":" + d.Section }
 
-// roleDeclarations collects every role declaration per kind in a deterministic
-// order: components sorted by id, and within a component receives before emits
-// in declaration order. The first entry for a kind is the canonical role that
-// renderers use when declarations disagree.
-func roleDeclarations(m *Model) map[string][]roleDecl {
-	out := make(map[string][]roleDecl)
+// patternDeclarations collects every non-empty pattern declaration per kind in
+// a deterministic order: components sorted by id, and within a component
+// inputs, then outputs, then state events, in declaration order. The first
+// entry for a kind is the canonical pattern renderers use when declarations
+// disagree.
+func patternDeclarations(m *Model) map[string][]patternDecl {
+	out := make(map[string][]patternDecl)
 	for _, id := range sortedComponentIDs(m) {
 		comp := m.Components[id]
-		for _, slot := range comp.Receives {
-			out[slot.Kind] = append(out[slot.Kind], roleDecl{id, "receives", slot.Role})
+		sections := []struct {
+			name  string
+			slots []Slot
+		}{
+			{"inputs", comp.Inputs},
+			{"outputs", comp.Outputs},
+			{"state_events", comp.StateEvents},
 		}
-		for _, slot := range comp.Emits {
-			out[slot.Kind] = append(out[slot.Kind], roleDecl{id, "emits", slot.Role})
+		for _, section := range sections {
+			for _, slot := range section.slots {
+				if slot.Pattern == "" {
+					continue
+				}
+				out[slot.Kind] = append(out[slot.Kind], patternDecl{id, section.name, slot.Pattern})
+			}
 		}
 	}
 	return out
@@ -287,19 +291,32 @@ func sortedComponentIDs(m *Model) []string {
 	return ids
 }
 
-// validateKindRoles enforces that a kind carries exactly one role across the
-// whole composed set.
+// PatternOf returns the canonical subject pattern of a kind — the first one
+// declared for it in deterministic order — or "" when no declaration site
+// carries a pattern.
+func PatternOf(m *Model, kind string) string {
+	decls := patternDeclarations(m)[kind]
+	if len(decls) == 0 {
+		return ""
+	}
+	return decls[0].Pattern
+}
+
+// validatePatterns enforces that a kind travels on exactly one subject pattern
+// across the whole composed set.
 //
-// Role is a property of the kind, not of the declaration site: it says what the
-// event *is*, and one event cannot both express an intent and record an
-// outcome. Producers and observers therefore cannot disagree about it, and a
-// payload variant (a different schema branch, a legacy shape, an extra field)
-// never changes it. Where a name would need both readings, that is two kinds —
-// `x.thing.do` and `x.thing.done` — not one kind read two ways. Splitting them
-// is the fix; there is no reading under which the conflict is benign, so it is
-// an error rather than a warning.
-func validateKindRoles(m *Model) []Finding {
-	decls := roleDeclarations(m)
+// The pattern is where the kind lives on the wire; the kind is only its name.
+// Two answers to "what subject is this on" means the subscribers of one
+// pattern will never see what a producer appends on the other — a wiring bug
+// that no amount of agreement about the payload can rescue, and one that is
+// invisible at runtime until the event silently fails to arrive. A component
+// that declares no pattern for a kind is not disagreeing and is skipped.
+//
+// Where a kind genuinely travels several routes, that is a model this format
+// does not yet describe, and the fix is to name the routes as separate kinds
+// rather than to let one kind mean two addresses.
+func validatePatterns(m *Model) []Finding {
+	decls := patternDeclarations(m)
 
 	kinds := make([]string, 0, len(decls))
 	for kind := range decls {
@@ -309,13 +326,13 @@ func validateKindRoles(m *Model) []Finding {
 
 	var findings []Finding
 	for _, kind := range kinds {
-		sitesByRole := make(map[Role][]string)
-		var order []Role // roles in first-declared order
+		sitesByPattern := make(map[string][]string)
+		var order []string // patterns in first-declared order
 		for _, d := range decls[kind] {
-			if _, seen := sitesByRole[d.Role]; !seen {
-				order = append(order, d.Role)
+			if _, seen := sitesByPattern[d.Pattern]; !seen {
+				order = append(order, d.Pattern)
 			}
-			sitesByRole[d.Role] = append(sitesByRole[d.Role], d.Site())
+			sitesByPattern[d.Pattern] = append(sitesByPattern[d.Pattern], d.Site())
 		}
 		if len(order) < 2 {
 			continue
@@ -323,85 +340,73 @@ func validateKindRoles(m *Model) []Finding {
 
 		parts := make([]string, 0, len(order))
 		related := make(map[string]any, len(order))
-		for _, role := range order {
-			parts = append(parts, fmt.Sprintf("%s (%s)", role, strings.Join(sitesByRole[role], ", ")))
-			related[string(role)] = sitesByRole[role]
+		for _, pattern := range order {
+			parts = append(parts, fmt.Sprintf("%s (%s)", pattern, strings.Join(sitesByPattern[pattern], ", ")))
+			related[pattern] = sitesByPattern[pattern]
 		}
 
 		findings = append(findings, Finding{
 			Severity:  SeverityError,
-			Kind:      KindRoleConflict,
+			Kind:      KindPatternConflict,
 			Component: decls[kind][0].Component,
 			File:      m.Components[decls[kind][0].Component].SourceFile,
 			Location:  kind,
-			Message: fmt.Sprintf("kind %q is declared with conflicting roles: %s; role is a property of the kind, so split intent and outcome into separate kinds",
+			Message: fmt.Sprintf("kind %q is declared on conflicting subject patterns: %s; the pattern is the kind's address, so subscribers of one will never see what the other appends",
 				kind, strings.Join(parts, " vs ")),
-			Related: map[string]any{"roles": related},
+			Related: map[string]any{"patterns": related},
 		})
 	}
 
 	return findings
 }
 
-// validateClosure checks that receives and folds are not starved, and that
-// emitted events are observed by somebody.
-func validateClosure(m *Model, receiversOf, emittersOf map[string][]string, allEmittedKinds map[string]struct{}) []Finding {
+// validateClosure checks that a component's read-set is fed by somebody, and
+// that everything it appends is observed by somebody.
+//
+// Both directions are warnings, not errors: the composed set seen statically
+// may be a subset of the running one — a component whose declaration is not in
+// this repository still emits, and still observes.
+func validateClosure(m *Model, inputsOf, foldersOf, producersOf map[string][]string) []Finding {
 	var findings []Finding
 
-	// Starved receives: kind has no producer.
+	// Starved read-set: an input or a state event nobody appends. The two are
+	// separate finding kinds because the fixes differ — a starved input means
+	// the trigger never fires, a starved state event means the projection is
+	// tracking something that never happens.
+	starved := []struct {
+		slots   func(*Component) []Slot
+		kind    FindingKind
+		section string
+	}{
+		{func(c *Component) []Slot { return c.Inputs }, KindStarvedInput, "inputs"},
+		{func(c *Component) []Slot { return c.StateEvents }, KindStarvedStateEvent, "state_events"},
+	}
 	for id, comp := range m.Components {
-		for _, slot := range comp.Receives {
-			if len(emittersOf[slot.Kind]) == 0 {
+		for _, section := range starved {
+			for _, slot := range section.slots(comp) {
+				if len(producersOf[slot.Kind]) > 0 {
+					continue
+				}
 				findings = append(findings, Finding{
 					Severity:  SeverityWarning,
-					Kind:      KindStarvedReceive,
+					Kind:      section.kind,
 					Component: id,
 					File:      comp.SourceFile,
 					Location:  slot.Kind,
-					Message:   fmt.Sprintf("receives %q but no component emits it", slot.Kind),
+					Message: fmt.Sprintf("declares %q in %s but no component outputs it",
+						slot.Kind, section.section),
 				})
 			}
 		}
 	}
 
-	// Starved folds: consumes entry matches no emitted kind.
-	// Report per consumes entry, not per fold.
+	// Orphan outputs: appended by this component and observed by nobody —
+	// neither an input nor a state event anywhere. A component folding its own
+	// output counts as an observer, which is why this reads foldersOf rather
+	// than excluding the producer.
 	for id, comp := range m.Components {
-		for _, fold := range comp.Folds {
-			for _, consumesEntry := range fold.Consumes {
-				matched := false
-				for kind := range allEmittedKinds {
-					if MatchPattern(consumesEntry, kind) {
-						matched = true
-						break
-					}
-				}
-				if !matched {
-					findings = append(findings, Finding{
-						Severity:  SeverityWarning,
-						Kind:      KindStarvedFold,
-						Component: id,
-						File:      comp.SourceFile,
-						Location:  fold.Name,
-						Message: fmt.Sprintf("fold %q consumes %q but no emitted kind matches",
-							fold.Name, consumesEntry),
-					})
-				}
-			}
-		}
-	}
-
-	// Orphan events: an emitted event that nobody observes — neither a
-	// receives slot nor a fold. This applies to both roles: an action with no
-	// observer is as dead as a fact with no observer, and neither is an error,
-	// because the composed set seen statically may be a subset of the running
-	// one.
-	for id, comp := range m.Components {
-		for _, slot := range comp.Emits {
-			if len(receiversOf[slot.Kind]) > 0 {
-				continue
-			}
-			if countFoldConsumers(m, slot.Kind) > 0 {
+		for _, slot := range comp.Outputs {
+			if len(inputsOf[slot.Kind]) > 0 || len(foldersOf[slot.Kind]) > 0 {
 				continue
 			}
 			findings = append(findings, Finding{
@@ -410,30 +415,13 @@ func validateClosure(m *Model, receiversOf, emittersOf map[string][]string, allE
 				Component: id,
 				File:      comp.SourceFile,
 				Location:  slot.Kind,
-				Message: fmt.Sprintf("emits %s %q but no component receives or folds it",
-					slot.Role, slot.Kind),
+				Message: fmt.Sprintf("outputs %q but no component takes it as an input or folds it into state",
+					slot.Kind),
 			})
 		}
 	}
 
 	return findings
-}
-
-// countFoldConsumers counts the folds across the model whose consumes globs
-// match kind. Each fold counts once regardless of how many entries match.
-func countFoldConsumers(m *Model, kind string) int {
-	n := 0
-	for _, comp := range m.Components {
-		for _, fold := range comp.Folds {
-			for _, consumesEntry := range fold.Consumes {
-				if MatchPattern(consumesEntry, kind) {
-					n++
-					break
-				}
-			}
-		}
-	}
-	return n
 }
 
 // validateExclusiveDelivery enforces single-handler cardinality, but ONLY for
@@ -444,20 +432,24 @@ func countFoldConsumers(m *Model, kind string) int {
 // controllers, projections and read models; requiring it to resolve to exactly
 // one handler is an RPC assumption that does not hold. Where a project really
 // does have a command with one owner, it says so, and then — and only then —
-// zero or many receivers become errors.
+// zero or many consumers become errors.
 //
-// A kind is exclusive if any declaration of it (emit or receive) says so;
-// exclusivity is a property of the kind, not of one side of it.
-func validateExclusiveDelivery(m *Model, receiversOf map[string][]string, exclusiveKinds map[string]struct{}) []Finding {
+// Cardinality is counted over inputs alone. A state event is an observation
+// that drives no reaction, so any number of components may fold an exclusive
+// kind without competing for the right to handle it.
+//
+// A kind is exclusive if any declaration of it says so; exclusivity is a
+// property of the kind, not of one side of it.
+func validateExclusiveDelivery(m *Model, inputsOf map[string][]string, exclusiveKinds map[string]struct{}) []Finding {
 	var findings []Finding
 
 	for id, comp := range m.Components {
-		for _, slot := range comp.Emits {
+		for _, slot := range comp.Outputs {
 			if _, ok := exclusiveKinds[slot.Kind]; !ok {
 				continue
 			}
-			receivers := receiversOf[slot.Kind]
-			switch len(receivers) {
+			consumers := inputsOf[slot.Kind]
+			switch len(consumers) {
 			case 0:
 				findings = append(findings, Finding{
 					Severity:  SeverityError,
@@ -465,13 +457,13 @@ func validateExclusiveDelivery(m *Model, receiversOf map[string][]string, exclus
 					Component: id,
 					File:      comp.SourceFile,
 					Location:  slot.Kind,
-					Message: fmt.Sprintf("emits %q declared delivery: exclusive but no component receives it",
+					Message: fmt.Sprintf("outputs %q declared delivery: exclusive but no component takes it as an input",
 						slot.Kind),
 				})
 			case 1:
 				// ok
 			default:
-				sorted := append([]string(nil), receivers...)
+				sorted := append([]string(nil), consumers...)
 				sort.Strings(sorted)
 				findings = append(findings, Finding{
 					Severity:  SeverityError,
@@ -479,9 +471,9 @@ func validateExclusiveDelivery(m *Model, receiversOf map[string][]string, exclus
 					Component: id,
 					File:      comp.SourceFile,
 					Location:  slot.Kind,
-					Message: fmt.Sprintf("emits %q declared delivery: exclusive but %d components receive it: %v",
+					Message: fmt.Sprintf("outputs %q declared delivery: exclusive but %d components take it as an input: %v",
 						slot.Kind, len(sorted), sorted),
-					Related: map[string]any{"receivers": sorted},
+					Related: map[string]any{"consumers": sorted},
 				})
 			}
 		}
@@ -519,15 +511,16 @@ func validateRefs(id string, comp *Component, m *Model) []Finding {
 		})
 	}
 
-	for _, slot := range comp.Receives {
-		walkSchema("receives:"+slot.Kind, slot.Schema)
+	for _, slot := range comp.Inputs {
+		walkSchema("inputs:"+slot.Kind, slot.Schema)
 	}
-	for _, slot := range comp.Emits {
-		walkSchema("emits:"+slot.Kind, slot.Schema)
+	for _, slot := range comp.Outputs {
+		walkSchema("outputs:"+slot.Kind, slot.Schema)
 	}
-	for _, fold := range comp.Folds {
-		walkSchema("folds:"+fold.Name, fold.State)
+	for _, slot := range comp.StateEvents {
+		walkSchema("state_events:"+slot.Kind, slot.Schema)
 	}
+	walkSchema("state", comp.State)
 	for name, schema := range comp.Types {
 		walkSchema("types:"+name, schema)
 	}
@@ -691,72 +684,60 @@ func collectCrossRefs(comp *Component, fn func(targetID string)) {
 		walkSchemaNode(node, visit)
 	}
 
-	for _, slot := range comp.Receives {
+	for _, slot := range comp.Inputs {
 		walkAll(slot.Schema)
 	}
-	for _, slot := range comp.Emits {
+	for _, slot := range comp.Outputs {
 		walkAll(slot.Schema)
 	}
-	for _, fold := range comp.Folds {
-		walkAll(fold.State)
+	for _, slot := range comp.StateEvents {
+		walkAll(slot.Schema)
 	}
+	walkAll(comp.State)
 	for _, schema := range comp.Types {
 		walkAll(schema)
 	}
 }
 
-// validateFolds checks the internal coherence of each fold: {slot} syntax in
-// every subject, one shared partition key across all of them, and a state
-// schema that actually says something.
-func validateFolds(id string, comp *Component) []Finding {
-	var findings []Finding
-	for _, fold := range comp.Folds {
-		findings = append(findings, validateFoldSubjects(id, comp, fold)...)
-		findings = append(findings, validateFoldState(id, comp, fold)...)
-	}
-	return findings
-}
-
-// validateFoldSubjects checks {slot} syntax per subject and then that every
-// subject of the fold extracts the same ordered partition key.
+// validateReadSet checks the coherence of the component's derived fold: the
+// {slot} syntax of every subject pattern in its read-set, and that all of them
+// extract the same ordered partition key.
 //
-// A fold instance holds exactly one state, addressed by its partition key. If
-// two subjects of the same fold disagree on the key — different slot names, a
+// A component holds exactly one state, addressed by its partition key. If two
+// patterns in its read-set disagree on the key — different slot names, a
 // different order, or a different count — there is no single answer to "which
-// state does this event belong to", and the fold cannot be wired.
-func validateFoldSubjects(id string, comp *Component, fold Fold) []Finding {
+// state does this event belong to", and the fold cannot be wired. Patterns
+// that carry no slots at all are exempt: a globally addressed event legitimately
+// feeds a partitioned state.
+func validateReadSet(id string, comp *Component) []Finding {
 	var findings []Finding
 
-	malformed := make(map[int]bool)
-	for i, subject := range fold.Subjects {
-		if subject == "" {
-			continue
-		}
+	subjects := comp.Subjects()
+	malformed := make(map[string]bool)
+	for _, subject := range subjects {
 		if err := ValidateSlotSyntax(subject); err != nil {
-			malformed[i] = true
+			malformed[subject] = true
 			findings = append(findings, Finding{
 				Severity:  SeverityError,
 				Kind:      KindMalformedSlot,
 				Component: id,
 				File:      comp.SourceFile,
-				Location:  fold.Name,
-				Message:   fmt.Sprintf("fold %q subject %q: %v", fold.Name, subject, err),
+				Location:  subject,
+				Message:   fmt.Sprintf("subject %q: %v", subject, err),
 			})
 		}
 	}
 
-	// Partition coherence is only meaningful once the syntax parses, and only
-	// when there is more than one subject to compare.
-	if len(fold.Subjects) < 2 {
+	want := comp.PartitionKey
+	if len(want) == 0 {
 		return findings
 	}
-	want := fold.PartitionKey
-	for i := 1; i < len(fold.Subjects); i++ {
-		if malformed[i] || malformed[0] {
+	for _, subject := range subjects {
+		if malformed[subject] {
 			continue
 		}
-		got := SlotTokens(fold.Subjects[i])
-		if slotKeysEqual(want, got) {
+		got := SlotTokens(subject)
+		if len(got) == 0 || slotKeysEqual(want, got) {
 			continue
 		}
 		findings = append(findings, Finding{
@@ -764,9 +745,9 @@ func validateFoldSubjects(id string, comp *Component, fold Fold) []Finding {
 			Kind:      KindPartitionMismatch,
 			Component: id,
 			File:      comp.SourceFile,
-			Location:  fold.Name,
-			Message: fmt.Sprintf("fold %q subject %q extracts partition key %v but %q extracts %v; all subjects of one fold must extract the same ordered key",
-				fold.Name, fold.Subjects[i], got, fold.Subjects[0], want),
+			Location:  subject,
+			Message: fmt.Sprintf("subject %q extracts partition key %v but the component's read-set is keyed by %v; one component holds one state, so every partitioned subject it reads must address it identically",
+				subject, got, want),
 			Related: map[string]any{"want": want, "got": got},
 		})
 	}
@@ -774,11 +755,12 @@ func validateFoldSubjects(id string, comp *Component, fold Fold) []Finding {
 	return findings
 }
 
-// validateFoldState flags a state schema that declares no shape. The reader
-// already rejects a missing state; this catches the placeholder that remains
-// after someone writes `state: {type: object}` and moves on.
-func validateFoldState(id string, comp *Component, fold Fold) []Finding {
-	if !isUnderspecifiedState(fold.State) {
+// validateState flags a declared state schema that says nothing. The schema is
+// optional — a component may fold nothing worth describing — so this catches
+// the placeholder that remains after someone writes `state: {type: object}` and
+// moves on, not the absence of the field.
+func validateState(id string, comp *Component) []Finding {
+	if !isUnderspecifiedState(comp.State) {
 		return nil
 	}
 	return []Finding{{
@@ -786,9 +768,8 @@ func validateFoldState(id string, comp *Component, fold Fold) []Finding {
 		Kind:      KindUnderspecifiedState,
 		Component: id,
 		File:      comp.SourceFile,
-		Location:  fold.Name,
-		Message: fmt.Sprintf("fold %q declares an object state with no properties and no $ref; declare the projection shape or reference a type",
-			fold.Name),
+		Location:  "state",
+		Message:   "state is an object with no properties and no $ref; declare the projection shape, reference a type, or drop the field",
 	}}
 }
 

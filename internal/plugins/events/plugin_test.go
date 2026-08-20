@@ -93,13 +93,13 @@ func TestPlugin_ValidateCmd_WithErrors(t *testing.T) {
 	if !strings.Contains(output, "ERROR") {
 		t.Errorf("output should contain ERROR: %s", output)
 	}
-	for _, want := range []string{"exclusive-unhandled", "partition-mismatch", "malformed-slot", "unresolved-ref", "kind-role-conflict", "self-receive-conflict"} {
+	for _, want := range []string{"exclusive-unhandled", "partition-mismatch", "malformed-slot", "unresolved-ref", "kind-pattern-conflict", "self-input-conflict"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output should mention %s: %s", want, output)
 		}
 	}
-	// The fixture deliberately emits a fact into, and observes an action from, a
-	// namespace it does not own. Under event-sourced semantics that is legal.
+	// The fixture deliberately appends into, and is triggered by, a namespace it
+	// does not own. Under event-sourced semantics that is legal.
 	if strings.Contains(output, "ownership-violation") {
 		t.Errorf("ownership must not restrict production or observation: %s", output)
 	}
@@ -215,11 +215,17 @@ func TestPlugin_MCPEventKind(t *testing.T) {
 	if !strings.Contains(text, "KIND: billing.invoice.issued") {
 		t.Errorf("output should contain kind header: %s", text)
 	}
-	if !strings.Contains(text, "Producers:") {
-		t.Errorf("output should contain Producers: %s", text)
+	if !strings.Contains(text, "Subject: svc.*.billing.{account}.invoice.issued") {
+		t.Errorf("output should contain the kind's address: %s", text)
 	}
-	if !strings.Contains(text, "Consumers:") {
-		t.Errorf("output should contain Consumers: %s", text)
+	if !strings.Contains(text, "Outputs (producers): billing") {
+		t.Errorf("output should name the producers: %s", text)
+	}
+	if !strings.Contains(text, "Inputs (triggered):") {
+		t.Errorf("output should report what the kind triggers: %s", text)
+	}
+	if !strings.Contains(text, "State events (folded by): billing") {
+		t.Errorf("output should report who folds the kind: %s", text)
 	}
 }
 
@@ -611,15 +617,13 @@ func TestPlugin_GenCmd_WritesNextToComponent(t *testing.T) {
 	if err := os.MkdirAll(archDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	decl := `version: 1
+	decl := `version: 2
 component: billing
 owns: billing
-emits:
+outputs:
   - kind: billing.invoice.issued
-    role: fact
-receives:
+inputs:
   - kind: ledger.entry.posted
-    role: fact
 `
 	if err := os.WriteFile(filepath.Join(archDir, "events.yaml"), []byte(decl), 0o644); err != nil {
 		t.Fatal(err)

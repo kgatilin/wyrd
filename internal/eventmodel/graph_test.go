@@ -5,15 +5,16 @@ import (
 )
 
 func TestBuildGraphNodes(t *testing.T) {
-	// Build a model with components, kinds, folds, and types.
+	// Build a model with components, kinds, and types.
 	billing := comp("billing", "billing")
 	billing.Types["Invoice"] = SchemaNode{Raw: map[string]any{"type": "object"}}
-	billing.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
-	billing.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
-	billing.Folds = []Fold{{Name: "open-invoices", Subjects: []string{"svc.*.billing.{account}.>"}, Consumes: []string{"billing.invoice.>"}}}
+	billing.Inputs = []Slot{{Kind: "billing.invoice.issue", Pattern: "svc.*.billing.{account}.invoice.issue"}}
+	billing.Outputs = []Slot{{Kind: "billing.invoice.issued", Pattern: "svc.*.billing.{account}.invoice.issued"}}
+	billing.StateEvents = []Slot{{Kind: "billing.invoice.issued", Pattern: "svc.*.billing.{account}.invoice.issued"}}
+	billing.PartitionKey = []string{"account"}
 
 	shipping := comp("shipping", "shipping")
-	shipping.Receives = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+	shipping.Inputs = []Slot{{Kind: "billing.invoice.issued", Pattern: "svc.*.billing.{account}.invoice.issued"}}
 
 	m := model(billing, shipping)
 	g := BuildGraph(m)
@@ -31,14 +32,12 @@ func TestBuildGraphNodes(t *testing.T) {
 	if nodesByKind[NodeEventKind] != 2 {
 		t.Errorf("want 2 kind nodes, got %d", nodesByKind[NodeEventKind])
 	}
-	if nodesByKind[NodeFold] != 1 {
-		t.Errorf("want 1 fold node, got %d", nodesByKind[NodeFold])
-	}
 	if nodesByKind[NodeType] != 1 {
 		t.Errorf("want 1 type node, got %d", nodesByKind[NodeType])
 	}
 
-	// Check component node attributes.
+	// Check component node attributes. The fold is not a node of its own, so
+	// the read-set and its key ride on the component that holds them.
 	var billingNode Node
 	for _, n := range g.Nodes {
 		if n.ID == "component:billing" {
@@ -52,52 +51,60 @@ func TestBuildGraphNodes(t *testing.T) {
 	if billingNode.Attrs["owns"] != "billing" {
 		t.Errorf("billing owns = %v, want billing", billingNode.Attrs["owns"])
 	}
+	if got := billingNode.Attrs["partition_arity"]; got != 1 {
+		t.Errorf("billing partition_arity = %v, want 1", got)
+	}
+	// Read-set is inputs + state events; the output-only pattern is the same
+	// subject as the state event here, so the deduplicated set is 2.
+	subjects, _ := billingNode.Attrs["subjects"].([]string)
+	if len(subjects) != 2 {
+		t.Errorf("billing subjects = %v, want 2 entries", subjects)
+	}
 }
 
 func TestBuildGraphEdges(t *testing.T) {
 	billing := comp("billing", "billing")
-	billing.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
-	billing.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
-	// Use a specific consumes entry to match only facts.
-	billing.Folds = []Fold{{Name: "self-fold", Subjects: []string{"svc.*.billing.{account}.>"}, Consumes: []string{"billing.invoice.issued"}}}
+	billing.Inputs = []Slot{{Kind: "billing.invoice.issue"}}
+	billing.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
+	billing.StateEvents = []Slot{{Kind: "billing.invoice.issued"}}
 
 	ledger := comp("ledger", "ledger")
-	ledger.Receives = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+	ledger.Inputs = []Slot{{Kind: "billing.invoice.issued"}}
 
 	gateway := comp("gateway", "gateway")
-	gateway.Emits = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
+	gateway.Outputs = []Slot{{Kind: "billing.invoice.issue"}}
 
 	m := model(billing, ledger, gateway)
 	g := BuildGraph(m)
 
-	// Count edges by kind.
 	edgesByKind := make(map[EdgeKind]int)
 	for _, e := range g.Edges {
 		edgesByKind[e.Kind]++
 	}
 
-	// billing emits billing.invoice.issued, gateway emits billing.invoice.issue
-	if edgesByKind[EdgeEmits] != 2 {
-		t.Errorf("want 2 emits edges, got %d", edgesByKind[EdgeEmits])
+	// billing outputs billing.invoice.issued, gateway outputs billing.invoice.issue
+	if edgesByKind[EdgeOutput] != 2 {
+		t.Errorf("want 2 output edges, got %d", edgesByKind[EdgeOutput])
 	}
-	// billing receives billing.invoice.issue, ledger receives billing.invoice.issued
-	if edgesByKind[EdgeReceives] != 2 {
-		t.Errorf("want 2 receives edges, got %d", edgesByKind[EdgeReceives])
+	// billing is triggered by billing.invoice.issue, ledger by billing.invoice.issued
+	if edgesByKind[EdgeInput] != 2 {
+		t.Errorf("want 2 input edges, got %d", edgesByKind[EdgeInput])
 	}
-	// billing.invoice.issued feeds billing.self-fold (exact pattern match)
-	if edgesByKind[EdgeFeeds] != 1 {
-		t.Errorf("want 1 feeds edge, got %d", edgesByKind[EdgeFeeds])
-	}
-	// billing.self-fold held-by billing
-	if edgesByKind[EdgeHeldBy] != 1 {
-		t.Errorf("want 1 held-by edge, got %d", edgesByKind[EdgeHeldBy])
+	// billing folds its own output.
+	if edgesByKind[EdgeStateEvent] != 1 {
+		t.Errorf("want 1 state-event edge, got %d", edgesByKind[EdgeStateEvent])
 	}
 
-	// Verify edge attributes.
+	// Direction: outputs point away from the component, the other two into it.
 	for _, e := range g.Edges {
-		if e.Kind == EdgeEmits {
-			if e.Attrs["role"] == nil {
-				t.Errorf("emits edge %s->%s missing role attribute", e.From, e.To)
+		switch e.Kind {
+		case EdgeOutput:
+			if e.From != componentID("billing") && e.From != componentID("gateway") {
+				t.Errorf("output edge should start at a component, got %s", e.From)
+			}
+		case EdgeInput, EdgeStateEvent:
+			if e.To != componentID("billing") && e.To != componentID("ledger") {
+				t.Errorf("%s edge should end at a component, got %s", e.Kind, e.To)
 			}
 		}
 	}
@@ -111,16 +118,16 @@ func TestBuildGraphHealth(t *testing.T) {
 		wantHealth Health
 	}{
 		{
-			name: "ok: fact with producer and consumer",
+			name: "ok: output with a consumer",
 			model: model(
 				func() *Component {
 					c := comp("billing", "billing")
-					c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+					c.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
 					return c
 				}(),
 				func() *Component {
 					c := comp("shipping", "shipping")
-					c.Receives = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+					c.Inputs = []Slot{{Kind: "billing.invoice.issued"}}
 					return c
 				}(),
 			),
@@ -128,11 +135,11 @@ func TestBuildGraphHealth(t *testing.T) {
 			wantHealth: HealthOK,
 		},
 		{
-			name: "orphan: fact with producer but no consumer",
+			name: "orphan: output nobody observes",
 			model: model(
 				func() *Component {
 					c := comp("billing", "billing")
-					c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+					c.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
 					return c
 				}(),
 			),
@@ -140,11 +147,11 @@ func TestBuildGraphHealth(t *testing.T) {
 			wantHealth: HealthOrphan,
 		},
 		{
-			name: "starved: receives but no producer",
+			name: "starved: input with no producer",
 			model: model(
 				func() *Component {
 					c := comp("shipping", "shipping")
-					c.Receives = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+					c.Inputs = []Slot{{Kind: "billing.invoice.issued"}}
 					return c
 				}(),
 			),
@@ -152,23 +159,23 @@ func TestBuildGraphHealth(t *testing.T) {
 			wantHealth: HealthStarved,
 		},
 		{
-			// Without the exclusive opt-in, many receivers is the healthy
+			// Without the exclusive opt-in, many consumers is the healthy
 			// event-sourced default, not an ambiguity.
-			name: "ok: broadcast action with multiple receivers",
+			name: "ok: broadcast kind with multiple consumers",
 			model: model(
 				func() *Component {
 					c := comp("gateway", "gateway")
-					c.Emits = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
+					c.Outputs = []Slot{{Kind: "billing.invoice.issue"}}
 					return c
 				}(),
 				func() *Component {
 					c := comp("billing1", "billing1")
-					c.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
+					c.Inputs = []Slot{{Kind: "billing.invoice.issue"}}
 					return c
 				}(),
 				func() *Component {
 					c := comp("billing2", "billing2")
-					c.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
+					c.Inputs = []Slot{{Kind: "billing.invoice.issue"}}
 					return c
 				}(),
 			),
@@ -176,21 +183,21 @@ func TestBuildGraphHealth(t *testing.T) {
 			wantHealth: HealthOK,
 		},
 		{
-			name: "ambiguous: exclusive kind with multiple receivers",
+			name: "ambiguous: exclusive kind with multiple consumers",
 			model: model(
 				func() *Component {
 					c := comp("gateway", "gateway")
-					c.Emits = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction, Delivery: DeliveryExclusive}}
+					c.Outputs = []Slot{{Kind: "billing.invoice.issue", Delivery: DeliveryExclusive}}
 					return c
 				}(),
 				func() *Component {
 					c := comp("billing1", "billing1")
-					c.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
+					c.Inputs = []Slot{{Kind: "billing.invoice.issue"}}
 					return c
 				}(),
 				func() *Component {
 					c := comp("billing2", "billing2")
-					c.Receives = []Slot{{Kind: "billing.invoice.issue", Role: RoleAction}}
+					c.Inputs = []Slot{{Kind: "billing.invoice.issue"}}
 					return c
 				}(),
 			),
@@ -198,20 +205,46 @@ func TestBuildGraphHealth(t *testing.T) {
 			wantHealth: HealthAmbiguous,
 		},
 		{
-			name: "ok: fact consumed by fold",
+			// Folding is observation: a kind nobody is triggered by, but that
+			// some component keeps in state, is not an orphan.
+			name: "ok: output observed only as a state event",
 			model: model(
 				func() *Component {
 					c := comp("billing", "billing")
-					c.Emits = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+					c.Outputs = []Slot{{Kind: "billing.invoice.issued"}}
 					return c
 				}(),
 				func() *Component {
 					c := comp("analytics", "analytics")
-					c.Folds = []Fold{{Name: "invoices", Subjects: []string{"svc.*.analytics.>"}, Consumes: []string{"billing.>"}}}
+					c.StateEvents = []Slot{{Kind: "billing.invoice.issued"}}
 					return c
 				}(),
 			),
 			kind:       "billing.invoice.issued",
+			wantHealth: HealthOK,
+		},
+		{
+			// Exclusive cardinality counts inputs alone: any number of
+			// components may fold the kind without competing to handle it.
+			name: "ok: exclusive kind with one consumer and extra folders",
+			model: model(
+				func() *Component {
+					c := comp("gateway", "gateway")
+					c.Outputs = []Slot{{Kind: "billing.invoice.issue", Delivery: DeliveryExclusive}}
+					return c
+				}(),
+				func() *Component {
+					c := comp("billing", "billing")
+					c.Inputs = []Slot{{Kind: "billing.invoice.issue"}}
+					return c
+				}(),
+				func() *Component {
+					c := comp("audit", "audit")
+					c.StateEvents = []Slot{{Kind: "billing.invoice.issue"}}
+					return c
+				}(),
+			),
+			kind:       "billing.invoice.issue",
 			wantHealth: HealthOK,
 		},
 	}
@@ -246,14 +279,13 @@ func TestBuildGraphPayloadAndRefEdges(t *testing.T) {
 			"product": map[string]any{"$ref": "#/types/Invoice"},
 		},
 	}}
-	billing.Emits = []Slot{{
+	billing.Outputs = []Slot{{
 		Kind:   "billing.invoice.issued",
-		Role:   RoleFact,
 		Schema: SchemaNode{Raw: map[string]any{"$ref": "#/types/Invoice"}},
 	}}
 
 	shipping := comp("shipping", "shipping")
-	shipping.Receives = []Slot{{Kind: "billing.invoice.issued", Role: RoleFact}}
+	shipping.Inputs = []Slot{{Kind: "billing.invoice.issued"}}
 
 	m := model(billing, shipping)
 	g := BuildGraph(m)
@@ -307,15 +339,15 @@ func TestBuildGraphVocabEdges(t *testing.T) {
 	}
 }
 
-// TestBuildGraphRoleConflict: where declarations disagree the projection must
-// pick deterministically and say so, not silently expose whichever role the map
-// iteration happened to land on.
-func TestBuildGraphRoleConflict(t *testing.T) {
+// TestBuildGraphPatternConflict: where declarations disagree about a kind's
+// address the projection must pick deterministically and say so, not silently
+// expose whichever pattern the map iteration happened to land on.
+func TestBuildGraphPatternConflict(t *testing.T) {
 	producer := comp("llm", "llm")
-	producer.Emits = []Slot{{Kind: "llm.message", Role: RoleFact}}
+	producer.Outputs = []Slot{{Kind: "llm.message", Pattern: "svc.*.llm.{session}.message"}}
 
 	consumer := comp("router", "router")
-	consumer.Receives = []Slot{{Kind: "llm.message", Role: RoleAction}}
+	consumer.Inputs = []Slot{{Kind: "llm.message", Pattern: "svc.*.router.{session}.message"}}
 
 	for i := 0; i < 20; i++ {
 		g := BuildGraph(model(producer, consumer))
@@ -330,25 +362,25 @@ func TestBuildGraphRoleConflict(t *testing.T) {
 			t.Fatal("kind node not found")
 		}
 		// "llm" sorts before "router", so its declaration is canonical.
-		if node.Attrs["role"] != string(RoleFact) {
-			t.Fatalf("role = %v, want a stable %q", node.Attrs["role"], RoleFact)
+		if node.Attrs["pattern"] != "svc.*.llm.{session}.message" {
+			t.Fatalf("pattern = %v, want a stable llm-side pattern", node.Attrs["pattern"])
 		}
-		if node.Attrs["role_conflict"] != true {
-			t.Fatalf("role_conflict should be set, attrs = %v", node.Attrs)
+		if node.Attrs["pattern_conflict"] != true {
+			t.Fatalf("pattern_conflict should be set, attrs = %v", node.Attrs)
 		}
 	}
 }
 
-func TestBuildGraphNoRoleConflictFlagWhenConsistent(t *testing.T) {
+func TestBuildGraphNoPatternConflictFlagWhenConsistent(t *testing.T) {
 	c := comp("llm", "llm")
-	c.Emits = []Slot{{Kind: "llm.message", Role: RoleFact}}
-	c.Receives = []Slot{{Kind: "llm.message", Role: RoleFact}}
+	c.Outputs = []Slot{{Kind: "llm.message", Pattern: "svc.*.llm.{session}.message"}}
+	c.StateEvents = []Slot{{Kind: "llm.message", Pattern: "svc.*.llm.{session}.message"}}
 
 	g := BuildGraph(model(c))
 	for _, n := range g.Nodes {
 		if n.ID == kindID("llm.message") {
-			if _, ok := n.Attrs["role_conflict"]; ok {
-				t.Errorf("role_conflict must be absent when declarations agree: %v", n.Attrs)
+			if _, ok := n.Attrs["pattern_conflict"]; ok {
+				t.Errorf("pattern_conflict must be absent when declarations agree: %v", n.Attrs)
 			}
 			return
 		}

@@ -19,42 +19,45 @@ const (
 	// authority over a namespace's schemas is ambiguous.
 	KindDuplicateOwner FindingKind = "duplicate-owner"
 
-	// KindRoleConflict — one event kind is declared with more than one role
-	// across the composed set. Role is a global property of the kind, not of
-	// a declaration site.
-	KindRoleConflict FindingKind = "kind-role-conflict"
+	// KindPatternConflict — one event kind is declared on more than one
+	// subject pattern across the composed set. The pattern is where the kind
+	// lives on the wire, so two answers means the subscribers of one side
+	// will never see what the other side appends.
+	KindPatternConflict FindingKind = "kind-pattern-conflict"
 
-	// KindSelfReceiveConflict — one component declares the same kind in both
-	// emits and receives. Observing one's own event statefully is a fold.
-	KindSelfReceiveConflict FindingKind = "self-receive-conflict"
+	// KindSelfInputConflict — one component declares the same kind in both
+	// inputs and outputs, so it triggers itself. Folding one's own output
+	// into state is the legal channel for that, and it is state_events.
+	KindSelfInputConflict FindingKind = "self-input-conflict"
 
-	// KindStarvedReceive — a receives slot has no producer.
-	KindStarvedReceive FindingKind = "starved-receive"
+	// KindStarvedInput — an inputs entry has no producer.
+	KindStarvedInput FindingKind = "starved-input"
 
-	// KindStarvedFold — a fold consumes entry matches no emitted kind.
-	KindStarvedFold FindingKind = "starved-fold"
+	// KindStarvedStateEvent — a state_events entry has no producer.
+	KindStarvedStateEvent FindingKind = "starved-state-event"
 
-	// KindOrphanEvent — an emitted event (of either role) is observed by
-	// nobody: no receives slot and no fold consumes it.
+	// KindOrphanEvent — an output is observed by nobody: it is neither an
+	// input nor a state event anywhere in the composed set.
 	KindOrphanEvent FindingKind = "orphan-event"
 
-	// KindPartitionMismatch — a fold's subjects do not extract the same
-	// ordered partition key, so they cannot address one fold state.
+	// KindPartitionMismatch — a component's inputs and state events do not
+	// all extract the same ordered partition key, so its fold read-set
+	// cannot address one state.
 	KindPartitionMismatch FindingKind = "partition-mismatch"
 
-	// KindUnderspecifiedState — a fold declares a state schema with no
-	// shape (an object with no properties and no $ref): a placeholder,
+	// KindUnderspecifiedState — the component declares a state schema with
+	// no shape (an object with no properties and no $ref): a placeholder,
 	// not a projection contract.
 	KindUnderspecifiedState FindingKind = "underspecified-state"
 
-	// KindExclusiveUnhandled — a kind declared `delivery: exclusive` has no
-	// receiver. Fires ONLY under that opt-in policy; broadcast events with
-	// no observer are orphan-event warnings, not errors.
+	// KindExclusiveUnhandled — a kind declared `delivery: exclusive` is
+	// nobody's input. Fires ONLY under that opt-in policy; an output with no
+	// observer is an orphan-event warning, not an error.
 	KindExclusiveUnhandled FindingKind = "exclusive-unhandled"
 
-	// KindExclusiveConflict — a kind declared `delivery: exclusive` has more
-	// than one receiver. Fires ONLY under that opt-in policy; multiple
-	// independent observers are the event-sourced norm, not a defect.
+	// KindExclusiveConflict — a kind declared `delivery: exclusive` is the
+	// input of more than one component. Fires ONLY under that opt-in policy;
+	// multiple independent observers are the event-sourced norm.
 	KindExclusiveConflict FindingKind = "exclusive-conflict"
 
 	// KindUnresolvedRef — a $ref does not resolve.
@@ -63,7 +66,7 @@ const (
 	// KindRefCycle — a cross-component $ref cycle was detected.
 	KindRefCycle FindingKind = "ref-cycle"
 
-	// KindMalformedSlot — a fold subject has invalid {slot} syntax.
+	// KindMalformedSlot — a subject pattern has invalid {slot} syntax.
 	KindMalformedSlot FindingKind = "malformed-slot"
 )
 
@@ -82,9 +85,8 @@ type Finding struct {
 	// File is the source file path (for diagnostics).
 	File string
 
-	// Location names the slot/fold/vocab entry involved (e.g. the event
-	// kind or fold name). Empty when the finding applies to the component
-	// as a whole.
+	// Location names the slot/type entry involved (usually the event kind).
+	// Empty when the finding applies to the component as a whole.
 	Location string
 
 	// Message is a human-readable description of the issue.

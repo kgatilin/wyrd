@@ -3,9 +3,13 @@ package eventmodel
 import "sort"
 
 // Graph is a bipartite event-model graph projected from a validated Model.
-// Nodes are components, kinds, folds, and type definitions. Edges capture the
-// event-driven relationships: emission, reception, fold feeding, payload
-// typing, and schema references.
+// Nodes are components, kinds, and type definitions. Edges capture the
+// event-driven relationships: the component's output and input ports, the
+// state events it folds, payload typing, and schema references.
+//
+// There is no fold node. One component holds one state, so the fold is the
+// component: its read-set, partition key and state shape ride as attributes
+// rather than as a vertex that would sit alone next to every component.
 //
 // This is a pure data structure with no rendering concerns. Adapters
 // (GraphML, Mermaid) consume it to produce output formats.
@@ -17,17 +21,17 @@ type Graph struct {
 // Node is a single vertex in the event graph.
 type Node struct {
 	// ID follows the scheme from design.md §3:
-	//   component:<id>  kind:<name>  fold:<component>.<name>  type:<component>.<typeName>
+	//   component:<id>  kind:<name>  type:<component>.<typeName>
 	ID string
 
 	// Kind classifies the node.
 	Kind NodeKind
 
 	// Attrs holds node-specific attributes. Keys vary by Kind:
-	//   component: owns, deprecated
-	//   kind: producer_count, consumer_count, fold_consumer_count, health,
-	//         role, role_conflict, delivery, deprecated
-	//   fold: subjects, partition_key, partition_arity, consumes, component
+	//   component: owns, subjects, consumes, partition_key, partition_arity,
+	//              has_state
+	//   kind: producer_count, input_count, state_fold_count, health, pattern,
+	//         partition_key, pattern_conflict, delivery
 	//   type: component, deprecated
 	Attrs map[string]any
 }
@@ -38,7 +42,6 @@ type NodeKind string
 const (
 	NodeComponent NodeKind = "component"
 	NodeEventKind NodeKind = "kind"
-	NodeFold      NodeKind = "fold"
 	NodeType      NodeKind = "type"
 )
 
@@ -51,8 +54,7 @@ type Edge struct {
 	Kind EdgeKind
 
 	// Attrs holds edge-specific attributes. Keys vary by Kind:
-	//   emits: role
-	//   receives: role, exposure
+	//   input, output, state-event: exposure
 	Attrs map[string]any
 }
 
@@ -60,13 +62,15 @@ type Edge struct {
 type EdgeKind string
 
 const (
-	EdgeEmits    EdgeKind = "emits"    // component --emits--> kind
-	EdgeReceives EdgeKind = "receives" // kind --receives--> component
-	EdgeFeeds    EdgeKind = "feeds"    // kind --feeds--> fold
-	EdgeHeldBy   EdgeKind = "held-by"  // fold --held-by--> component
-	EdgePayload  EdgeKind = "payload"  // kind --payload--> type
-	EdgeRefs     EdgeKind = "refs"     // type --refs--> type
-	EdgeDefines  EdgeKind = "defines"  // component --defines--> type (structural contains)
+	// EdgeOutput and EdgeInput are the component's ports; EdgeStateEvent is
+	// the third channel, an observation that updates state without triggering
+	// the component. All three point the way the data flows.
+	EdgeOutput     EdgeKind = "output"      // component --output--> kind
+	EdgeInput      EdgeKind = "input"       // kind --input--> component
+	EdgeStateEvent EdgeKind = "state-event" // kind --state-event--> component
+	EdgePayload    EdgeKind = "payload"     // kind --payload--> type
+	EdgeRefs       EdgeKind = "refs"        // type --refs--> type
+	EdgeDefines    EdgeKind = "defines"     // component --defines--> type (structural contains)
 )
 
 // Health classifies a kind's connectivity status.
@@ -77,8 +81,8 @@ const (
 	HealthOrphan  Health = "orphan"  // emitted but observed by nobody
 	HealthStarved Health = "starved" // observed but emitted by nobody
 	// HealthAmbiguous applies only to kinds declared `delivery: exclusive`
-	// that have more than one receiver. Multiple observers of an ordinary
-	// broadcast event are normal and healthy.
+	// that are the input of more than one component. Multiple observers of an
+	// ordinary broadcast event are normal and healthy.
 	HealthAmbiguous Health = "ambiguous"
 )
 
@@ -89,37 +93,37 @@ func BuildGraph(m *Model) *Graph {
 	g := &Graph{}
 
 	// Build indexes for health computation (same as Validate).
-	receiversOf := make(map[string][]string)
-	emittersOf := make(map[string][]string)
+	inputsOf := make(map[string][]string)
+	foldersOf := make(map[string][]string)
+	producersOf := make(map[string][]string)
 	exclusiveKinds := make(map[string]struct{})
+	patterns := make(map[string]string)
 
 	for id, comp := range m.Components {
-		for _, slot := range comp.Receives {
-			receiversOf[slot.Kind] = append(receiversOf[slot.Kind], id)
-			if slot.Delivery.IsExclusive() {
-				exclusiveKinds[slot.Kind] = struct{}{}
+		index := func(slots []Slot, into map[string][]string) {
+			for _, slot := range slots {
+				into[slot.Kind] = append(into[slot.Kind], id)
+				if slot.Delivery.IsExclusive() {
+					exclusiveKinds[slot.Kind] = struct{}{}
+				}
 			}
 		}
-		for _, slot := range comp.Emits {
-			emittersOf[slot.Kind] = append(emittersOf[slot.Kind], id)
-			if slot.Delivery.IsExclusive() {
-				exclusiveKinds[slot.Kind] = struct{}{}
-			}
-		}
+		index(comp.Inputs, inputsOf)
+		index(comp.Outputs, producersOf)
+		index(comp.StateEvents, foldersOf)
 	}
 
-	// Collect all unique kind names and their roles. A kind carries one role
-	// globally; where declarations disagree (a kind-role-conflict error) the
-	// first declaration in deterministic order wins and the node is flagged,
-	// so the projection exposes the conflict instead of silently picking.
-	roleDecls := roleDeclarations(m)
-	kindRoles := make(map[string]Role, len(roleDecls))
-	roleConflict := make(map[string]bool, len(roleDecls))
-	for kind, decls := range roleDecls {
-		kindRoles[kind] = decls[0].Role
+	// A kind travels one subject pattern globally; where declarations disagree
+	// (a kind-pattern-conflict error) the first in deterministic order wins and
+	// the node is flagged, so the projection exposes the conflict instead of
+	// silently picking.
+	patternDecls := patternDeclarations(m)
+	patternConflict := make(map[string]bool, len(patternDecls))
+	for kind, decls := range patternDecls {
+		patterns[kind] = decls[0].Pattern
 		for _, d := range decls[1:] {
-			if d.Role != decls[0].Role {
-				roleConflict[kind] = true
+			if d.Pattern != decls[0].Pattern {
+				patternConflict[kind] = true
 				break
 			}
 		}
@@ -127,10 +131,18 @@ func BuildGraph(m *Model) *Graph {
 
 	compIDs := sortedComponentIDs(m)
 
-	// Component nodes.
+	// Component nodes. The fold is not a node of its own: one component holds
+	// one state, so its read-set, partition key and state shape are attributes
+	// of the component that holds them.
 	for _, id := range compIDs {
 		comp := m.Components[id]
-		attrs := make(map[string]any)
+		attrs := map[string]any{
+			"subjects":        comp.Subjects(),
+			"consumes":        comp.Consumes(),
+			"partition_key":   comp.PartitionKey,
+			"partition_arity": len(comp.PartitionKey),
+			"has_state":       !comp.State.IsZero(),
+		}
 		if comp.Owns != "" {
 			attrs["owns"] = comp.Owns
 		}
@@ -141,70 +153,46 @@ func BuildGraph(m *Model) *Graph {
 		})
 	}
 
-	// Kind nodes with health, counts, and role.
-	kindNames := make([]string, 0, len(kindRoles))
-	for k := range kindRoles {
+	// Kind nodes with health and counts. Every kind named anywhere gets a node,
+	// including one only ever consumed — that is what makes starvation visible.
+	kindSet := make(map[string]struct{})
+	for _, index := range []map[string][]string{inputsOf, producersOf, foldersOf} {
+		for kind := range index {
+			kindSet[kind] = struct{}{}
+		}
+	}
+	kindNames := make([]string, 0, len(kindSet))
+	for k := range kindSet {
 		kindNames = append(kindNames, k)
 	}
 	sort.Strings(kindNames)
 
 	for _, kind := range kindNames {
-		role := kindRoles[kind]
 		_, exclusive := exclusiveKinds[kind]
-		foldConsumers := countFoldConsumers(m, kind)
-		health := computeKindHealth(kind, receiversOf, emittersOf, foldConsumers, exclusive)
+		health := computeKindHealth(kind, inputsOf, foldersOf, producersOf, exclusive)
 		delivery := DeliveryBroadcast
 		if exclusive {
 			delivery = DeliveryExclusive
 		}
 		attrs := map[string]any{
-			"producer_count":      len(emittersOf[kind]),
-			"consumer_count":      len(receiversOf[kind]),
-			"fold_consumer_count": foldConsumers,
-			"health":              string(health),
-			"role":                string(role),
-			"delivery":            string(delivery),
+			"producer_count":   len(producersOf[kind]),
+			"input_count":      len(inputsOf[kind]),
+			"state_fold_count": len(foldersOf[kind]),
+			"health":           string(health),
+			"delivery":         string(delivery),
 		}
-		if roleConflict[kind] {
-			attrs["role_conflict"] = true
+		if pattern := patterns[kind]; pattern != "" {
+			attrs["pattern"] = pattern
+			attrs["partition_key"] = SlotTokens(pattern)
+		}
+		if patternConflict[kind] {
+			attrs["pattern_conflict"] = true
 		}
 		g.Nodes = append(g.Nodes, Node{
 			ID:    kindID(kind),
 			Kind:  NodeEventKind,
 			Attrs: attrs,
 		})
-	}
-
-	// Fold nodes.
-	for _, compID := range compIDs {
-		comp := m.Components[compID]
-		foldNames := make([]string, 0, len(comp.Folds))
-		for _, f := range comp.Folds {
-			foldNames = append(foldNames, f.Name)
-		}
-		sort.Strings(foldNames)
-
-		for _, fname := range foldNames {
-			var fold Fold
-			for _, f := range comp.Folds {
-				if f.Name == fname {
-					fold = f
-					break
-				}
-			}
-			attrs := map[string]any{
-				"subjects":        fold.Subjects,
-				"partition_key":   fold.PartitionKey,
-				"partition_arity": len(fold.PartitionKey),
-				"consumes":        fold.Consumes,
-				"component":       compID, // Stored explicitly so exporters don't parse the ID.
-			}
-			g.Nodes = append(g.Nodes, Node{
-				ID:    foldID(compID, fold.Name),
-				Kind:  NodeFold,
-				Attrs: attrs,
-			})
-		}
 	}
 
 	// Type-definition nodes.
@@ -232,79 +220,36 @@ func BuildGraph(m *Model) *Graph {
 		}
 	}
 
-	// Edges: component --emits--> kind.
+	// Port edges. Outputs point away from the component, inputs and state
+	// events point into it — the direction data actually travels.
 	for _, compID := range compIDs {
 		comp := m.Components[compID]
-		// Sort slots by kind for determinism.
-		emitSlots := make([]Slot, len(comp.Emits))
-		copy(emitSlots, comp.Emits)
-		sort.Slice(emitSlots, func(i, j int) bool {
-			return emitSlots[i].Kind < emitSlots[j].Kind
-		})
 
-		for _, slot := range emitSlots {
-			g.Edges = append(g.Edges, Edge{
-				From:  componentID(compID),
-				To:    kindID(slot.Kind),
-				Kind:  EdgeEmits,
-				Attrs: map[string]any{"role": string(slot.Role)},
-			})
-		}
-	}
-
-	// Edges: kind --receives--> component.
-	for _, compID := range compIDs {
-		comp := m.Components[compID]
-		recvSlots := make([]Slot, len(comp.Receives))
-		copy(recvSlots, comp.Receives)
-		sort.Slice(recvSlots, func(i, j int) bool {
-			return recvSlots[i].Kind < recvSlots[j].Kind
-		})
-
-		for _, slot := range recvSlots {
-			attrs := map[string]any{"role": string(slot.Role)}
-			if len(slot.Exposure) > 0 {
-				attrs["exposure"] = slot.Exposure
-			}
-			g.Edges = append(g.Edges, Edge{
-				From:  kindID(slot.Kind),
-				To:    componentID(compID),
-				Kind:  EdgeReceives,
-				Attrs: attrs,
-			})
-		}
-	}
-
-	// Edges: kind --feeds--> fold (consumes matching).
-	for _, compID := range compIDs {
-		comp := m.Components[compID]
-		for _, fold := range comp.Folds {
-			for _, kind := range kindNames {
-				// Check if any consumes entry matches this kind.
-				for _, consumesEntry := range fold.Consumes {
-					if MatchPattern(consumesEntry, kind) {
-						g.Edges = append(g.Edges, Edge{
-							From: kindID(kind),
-							To:   foldID(compID, fold.Name),
-							Kind: EdgeFeeds,
-						})
-						break // Only add edge once per kind-fold pair.
-					}
+		emit := func(slots []Slot, edge EdgeKind, out bool) {
+			sorted := make([]Slot, len(slots))
+			copy(sorted, slots)
+			sort.Slice(sorted, func(i, j int) bool { return sorted[i].Kind < sorted[j].Kind })
+			for _, slot := range sorted {
+				attrs := map[string]any{}
+				if len(slot.Exposure) > 0 {
+					attrs["exposure"] = slot.Exposure
 				}
+				if len(attrs) == 0 {
+					attrs = nil
+				}
+				e := Edge{Kind: edge, Attrs: attrs}
+				if out {
+					e.From, e.To = componentID(compID), kindID(slot.Kind)
+				} else {
+					e.From, e.To = kindID(slot.Kind), componentID(compID)
+				}
+				g.Edges = append(g.Edges, e)
 			}
 		}
-	}
 
-	// Edges: fold --held-by--> component.
-	for _, compID := range compIDs {
-		comp := m.Components[compID]
-		for _, fold := range comp.Folds {
-			g.Edges = append(g.Edges, Edge{
-				From: foldID(compID, fold.Name),
-				To:   componentID(compID),
-				Kind: EdgeHeldBy,
-			})
-		}
+		emit(comp.Outputs, EdgeOutput, true)
+		emit(comp.Inputs, EdgeInput, false)
+		emit(comp.StateEvents, EdgeStateEvent, false)
 	}
 
 	// Edges: component --defines--> type (structural containment).
@@ -349,11 +294,10 @@ func BuildGraph(m *Model) *Graph {
 			})
 		}
 
-		for _, slot := range comp.Emits {
-			processSlotSchema(slot)
-		}
-		for _, slot := range comp.Receives {
-			processSlotSchema(slot)
+		for _, slots := range [][]Slot{comp.Outputs, comp.Inputs, comp.StateEvents} {
+			for _, slot := range slots {
+				processSlotSchema(slot)
+			}
 		}
 
 		// Type-to-type refs from the component's type definitions.
@@ -384,20 +328,22 @@ func BuildGraph(m *Model) *Graph {
 // same logic as Validate. This is the single source of truth for health
 // classification.
 //
-// Health does not depend on role: an action and a fact are both durable events
-// with 0..N observers. Only an explicit `delivery: exclusive` declaration makes
-// receiver cardinality a health signal.
-func computeKindHealth(kind string, receiversOf, emittersOf map[string][]string, foldConsumers int, exclusive bool) Health {
-	producers := len(emittersOf[kind])
-	consumers := len(receiversOf[kind])
+// Observation is inputs plus state events: a kind nobody is triggered by, but
+// which some component folds into state, is observed. Only an explicit
+// `delivery: exclusive` declaration makes consumer cardinality a health signal,
+// and it counts inputs alone — folding an exclusive kind competes with nobody.
+func computeKindHealth(kind string, inputsOf, foldersOf, producersOf map[string][]string, exclusive bool) Health {
+	producers := len(producersOf[kind])
+	inputs := len(inputsOf[kind])
+	folders := len(foldersOf[kind])
 
 	if producers == 0 {
 		return HealthStarved
 	}
-	if exclusive && consumers != 1 {
+	if exclusive && inputs != 1 {
 		return HealthAmbiguous
 	}
-	if consumers == 0 && foldConsumers == 0 {
+	if inputs == 0 && folders == 0 {
 		return HealthOrphan
 	}
 	return HealthOK
@@ -454,5 +400,4 @@ func parseCrossComponentRef(ref string) (compID, name string, ok bool) {
 // ID helpers for graph nodes.
 func componentID(id string) string    { return "component:" + id }
 func kindID(name string) string       { return "kind:" + name }
-func foldID(comp, name string) string { return "fold:" + comp + "." + name }
 func typeID(comp, name string) string { return "type:" + comp + "." + name }

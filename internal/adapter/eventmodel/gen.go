@@ -38,34 +38,44 @@ type TemplateData struct {
 	// Extra is the component's opaque passthrough block.
 	Extra map[string]any
 
-	// Receives and Emits are the component's ports, in declaration order.
-	Receives []TemplateSlot
-	Emits    []TemplateSlot
+	// Inputs, Outputs and StateEvents are the component's three declared
+	// lists, in declaration order.
+	Inputs      []TemplateSlot
+	Outputs     []TemplateSlot
+	StateEvents []TemplateSlot
 
-	// Folds are the component's projections, in declaration order.
-	Folds []TemplateFold
+	// Fold is the component's derived projection: the read-set a runtime
+	// subscribes with. Nothing declares it — it is Inputs plus StateEvents.
+	Fold TemplateFold
 
 	// Types are the component's reusable schema definitions, sorted by name.
 	Types []TemplateType
 
-	// ForeignEmits and ForeignReceives are the subsets of Emits/Receives whose
-	// kind falls outside Owns — the component's coupling to other namespaces,
-	// which is usually what a template needs to treat differently (imports, a
-	// separate address book, an external-API catalog).
-	ForeignEmits    []TemplateSlot
-	ForeignReceives []TemplateSlot
+	// ForeignInputs, ForeignOutputs and ForeignStateEvents are the subsets
+	// whose kind falls outside Owns — the component's coupling to other
+	// namespaces, which is usually what a template needs to treat differently
+	// (imports, a separate address book, an external-API catalog).
+	ForeignInputs      []TemplateSlot
+	ForeignOutputs     []TemplateSlot
+	ForeignStateEvents []TemplateSlot
 
-	// Kinds is the sorted unique set of kinds this component declares on
-	// either port — the natural input for a constant block.
+	// Kinds is the sorted unique set of kinds this component declares on any
+	// of the three lists — the natural input for a constant block.
 	Kinds []string
 }
 
-// TemplateSlot is one receives or emits entry as templates see it.
+// TemplateSlot is one inputs, outputs or state_events entry as templates
+// see it.
 type TemplateSlot struct {
 	Kind string
 
-	// Role is "action" or "fact".
-	Role string
+	// Pattern is the subject the kind travels on, with {slot} tokens, or ""
+	// when the declaration carries none.
+	Pattern string
+
+	// PartitionKey is the ordered {slot} names of Pattern — what a template
+	// needs to bind subscription placeholders without parsing the pattern.
+	PartitionKey []string
 
 	// Delivery is normalized: "broadcast" when the declaration omitted it, so
 	// templates never have to special-case the empty string.
@@ -89,22 +99,23 @@ func (s TemplateSlot) Exclusive() bool {
 	return s.Delivery == string(eventmodel.DeliveryExclusive)
 }
 
-// TemplateFold is one fold as templates see it.
+// TemplateFold is the component's derived projection as templates see it.
+// It is not declared anywhere: Subjects and Consumes come from Inputs plus
+// StateEvents, in that order, deduplicated. Outputs are excluded — appending
+// an event does not subscribe you to it.
 type TemplateFold struct {
-	Name string
-
-	// Subjects are the transport patterns; PartitionKey is the ordered {slot}
-	// name list they all share. Both are what a subject-grammar template needs
-	// to emit subscriptions and state keys.
+	// Subjects are the transport patterns of the read-set; PartitionKey is the
+	// ordered {slot} name list they all share. Both are what a subject-grammar
+	// template needs to emit subscriptions and state keys.
 	Subjects     []string
 	PartitionKey []string
 
+	// Consumes are the kinds the reducer folds.
 	Consumes []string
 
-	// State is the raw projection-state schema tree.
+	// State is the raw projection-state schema tree, or nil when the component
+	// declared none.
 	State any
-
-	Extra map[string]any
 }
 
 // TemplateType is one reusable schema definition.
@@ -124,32 +135,31 @@ func BuildTemplateData(comp *eventmodel.Component) TemplateData {
 
 	kinds := make(map[string]struct{})
 
-	for _, slot := range comp.Receives {
-		ts := templateSlot(slot)
-		data.Receives = append(data.Receives, ts)
-		kinds[slot.Kind] = struct{}{}
-		if !kindInNamespace(slot.Kind, comp.Owns) {
-			data.ForeignReceives = append(data.ForeignReceives, ts)
-		}
+	sections := []struct {
+		slots   []eventmodel.Slot
+		dst     *[]TemplateSlot
+		foreign *[]TemplateSlot
+	}{
+		{comp.Inputs, &data.Inputs, &data.ForeignInputs},
+		{comp.Outputs, &data.Outputs, &data.ForeignOutputs},
+		{comp.StateEvents, &data.StateEvents, &data.ForeignStateEvents},
 	}
-	for _, slot := range comp.Emits {
-		ts := templateSlot(slot)
-		data.Emits = append(data.Emits, ts)
-		kinds[slot.Kind] = struct{}{}
-		if !kindInNamespace(slot.Kind, comp.Owns) {
-			data.ForeignEmits = append(data.ForeignEmits, ts)
+	for _, section := range sections {
+		for _, slot := range section.slots {
+			ts := templateSlot(slot)
+			*section.dst = append(*section.dst, ts)
+			kinds[slot.Kind] = struct{}{}
+			if !kindInNamespace(slot.Kind, comp.Owns) {
+				*section.foreign = append(*section.foreign, ts)
+			}
 		}
 	}
 
-	for _, fold := range comp.Folds {
-		data.Folds = append(data.Folds, TemplateFold{
-			Name:         fold.Name,
-			Subjects:     fold.Subjects,
-			PartitionKey: fold.PartitionKey,
-			Consumes:     fold.Consumes,
-			State:        fold.State.Raw,
-			Extra:        fold.Extra,
-		})
+	data.Fold = TemplateFold{
+		Subjects:     comp.Subjects(),
+		PartitionKey: comp.PartitionKey,
+		Consumes:     comp.Consumes(),
+		State:        comp.State.Raw,
 	}
 
 	names := make([]string, 0, len(comp.Types))
@@ -176,13 +186,14 @@ func templateSlot(slot eventmodel.Slot) TemplateSlot {
 		delivery = eventmodel.DeliveryBroadcast
 	}
 	return TemplateSlot{
-		Kind:        slot.Kind,
-		Role:        string(slot.Role),
-		Delivery:    string(delivery),
-		Description: slot.Description,
-		Exposure:    slot.Exposure,
-		Schema:      slot.Schema.Raw,
-		Extra:       slot.Extra,
+		Kind:         slot.Kind,
+		Pattern:      slot.Pattern,
+		PartitionKey: eventmodel.SlotTokens(slot.Pattern),
+		Delivery:     string(delivery),
+		Description:  slot.Description,
+		Exposure:     slot.Exposure,
+		Schema:       slot.Schema.Raw,
+		Extra:        slot.Extra,
 	}
 }
 

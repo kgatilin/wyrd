@@ -752,30 +752,69 @@ Declarative event-driven architecture declarations (`.arch/events.yaml`) with
 validation and graph projection. See `docs/event-model.md` for the full usage
 guide: format reference, validation rules, CLI/MCP surfaces, worked examples.
 
-**The model is event-sourced choreography, not RPC.** A durable event is
-appended once and may be observed independently by any number of components and
-folds. Consequences baked into the rules:
+**A component declares three lists and nothing else** (`version: 2`):
+`inputs` (what triggers it), `outputs` (what it appends), `state_events` (what
+it folds into state without being triggered). The **fold is derived, never
+declared**: read-set = the `pattern` of every input and state event, consumed
+kinds = their `kind`, partition key = the ordered `{slot}` tokens they share.
+There is no `folds:` block — one component holds one state, so the fold *is* the
+component, and a separate block would only be a second place for the read-set to
+be wrong. **Outputs are not in the read-set**: appending an event does not
+subscribe you to it, and without that exclusion every producer would silently
+subscribe to its own whole output surface.
 
-- `role: action | fact` is *semantic classification only* — no cardinality —
-  but it is **global to the kind**: every producer and observer must agree,
-  payload variants never change it, and intent vs outcome means two kinds
-  (`x.do` / `x.done`). Disagreement is a `kind-role-conflict` error.
+**The model is event-sourced choreography, not RPC.** A durable event is
+appended once and may be observed independently by any number of components.
+Consequences baked into the rules:
+
+- **`state_events` is why the self-loop rule can stay narrow.** A kind in both
+  `inputs` and `outputs` is a component triggering itself
+  (`self-input-conflict`, error). A kind in both `state_events` and `outputs` is
+  the normal way to fold the outcome you just appended and is never a finding.
+  Because the legal channel exists and costs one line, an inputs/outputs overlap
+  is unambiguously a mistake rather than a legitimate pattern in the wrong
+  section. Exact-kind match today, `(kind, pattern)` if a kind ever travels
+  several routes.
+- **`pattern` is the kind's address, and it lives on the slot** — next to the
+  kind that owns it, which is the only place both sides can be checked against
+  each other. One kind travels one subject globally; disagreement is
+  `kind-pattern-conflict` (error), because the subscribers of one pattern will
+  never see what a producer appends on the other — a broken wire, invisible at
+  runtime until the event silently fails to arrive. Optional: a declaration that
+  omits it is not a second answer. archai validates `{slot}` syntax and **never
+  matches a pattern against a kind** — different alphabets.
+- **`role: action | fact` is gone**, with `kind-role-conflict`. Direction says
+  what role said about movement; the intent-vs-outcome reading belongs in
+  `description` and in the kind name (`x.do` / `x.done`), not in a field every
+  producer and observer has to agree on. `kind-pattern-conflict` replaces it and
+  is the stronger rule: a role disagreement was a taxonomy argument, a pattern
+  disagreement is a wiring bug.
 - `owns` is authority over a namespace's **schemas**, not an exclusive right to
-  emit into it or observe it. Its only rule is uniqueness (`duplicate-owner`).
+  append into it or observe it. Its only rule is uniqueness (`duplicate-owner`).
 - Single-handler semantics are opt-in per slot via `delivery: exclusive`; only
-  then do `exclusive-unhandled` / `exclusive-conflict` fire. The removed
-  `unresolved-call` / `ambiguous-call` / `ownership-violation` rules were the
-  RPC assumption and must not come back as defaults.
-- `receives`/`emits` are ports (in/out), so a component never `receives` its own
-  emitted kind — that is a loop through its own boundary
-  (`self-receive-conflict`). Folds are NOT ports and may freely consume the
-  component's own kinds. Exact-kind match today, `(kind, route)` once the model
-  is subject-aware.
-- `folds[].subjects` is a list; every entry must extract the **same ordered**
-  `{slot}` partition key (one fold instance = one state), else
-  `partition-mismatch`. `state` is required.
+  then do `exclusive-unhandled` / `exclusive-conflict` fire, and they count
+  **inputs alone** — a state event drives no reaction, so folding an exclusive
+  kind competes with nobody. The removed `unresolved-call` / `ambiguous-call` /
+  `ownership-violation` rules were the RPC assumption and must not come back as
+  defaults.
+- **One component, one partition key**: every read-set pattern must extract the
+  **same ordered** `{slot}` list, else `partition-mismatch`. Two deliberate
+  exemptions — a pattern with *no* slots (a globally addressed event legitimately
+  feeds a partitioned state) and an *output-only* pattern (not in the read-set).
+- `state` is **optional**. It could be required when a `folds` entry existed only
+  where there was something to project; with the fold derived, requiring it would
+  force a schema onto every component that has any input. Declared-but-shapeless
+  is still an `underspecified-state` warning.
+- **Kind globs are gone with `consumes`.** `state_events` lists kinds exactly, so
+  starvation is exact (`starved-input` / `starved-state-event`) instead of
+  per-glob-entry, and the dot-segmented matcher had no caller left.
 - `types` (not `vocab`) are reusable JSON Schema definitions, `$defs`-style,
   addressed as `#/types/X` or `other-component#/types/X`.
+- **Graph: no fold node.** `component:<id>`, `kind:<name>`,
+  `type:<comp>.<name>`; edges `output` (component→kind), `input` and
+  `state-event` (kind→component), plus `defines`/`payload`/`refs`. The read-set,
+  partition key and state shape are component attributes — a fold vertex would
+  sit alone beside every component carrying exactly those three things.
 
 Codegen (`archai plugin events gen`) is **template-driven and language-neutral**:
 templates live in the project (`.arch/templates/*.tmpl`), archai renders them

@@ -14,32 +14,36 @@ import (
 
 func genComponent() *eventmodel.Component {
 	return &eventmodel.Component{
-		Version:     1,
+		Version:     eventmodel.SchemaVersion,
 		ID:          "billing",
 		Owns:        "billing",
 		Description: "Invoice lifecycle",
 		Extra:       map[string]any{"go_package": "billingevents", "partition": "account"},
-		Receives: []eventmodel.Slot{
+		Inputs: []eventmodel.Slot{
 			{
 				Kind:     "billing.invoice.issue",
-				Role:     eventmodel.RoleAction,
+				Pattern:  "svc.*.billing.{account}.invoice.issue",
 				Exposure: []string{"public_api"},
 				Schema:   eventmodel.SchemaNode{Raw: map[string]any{"type": "object"}},
 			},
 		},
-		Emits: []eventmodel.Slot{
-			{Kind: "billing.invoice.issued", Role: eventmodel.RoleFact,
-				Schema: eventmodel.SchemaNode{Raw: map[string]any{"type": "object"}}},
-			{Kind: "ledger.entry.post", Role: eventmodel.RoleAction,
-				Delivery: eventmodel.DeliveryExclusive},
+		Outputs: []eventmodel.Slot{
+			{
+				Kind:    "billing.invoice.issued",
+				Pattern: "svc.*.billing.{account}.invoice.issued",
+				Schema:  eventmodel.SchemaNode{Raw: map[string]any{"type": "object"}},
+			},
+			{
+				Kind:     "ledger.entry.post",
+				Pattern:  "svc.*.ledger.{account}.entry.post",
+				Delivery: eventmodel.DeliveryExclusive,
+			},
 		},
-		Folds: []eventmodel.Fold{{
-			Name:         "billing.open-invoices",
-			Subjects:     []string{"svc.*.billing.{account}.invoice.>"},
-			PartitionKey: []string{"account"},
-			Consumes:     []string{"billing.invoice.*"},
-			State:        eventmodel.SchemaNode{Raw: map[string]any{"type": "object"}},
-		}},
+		StateEvents: []eventmodel.Slot{
+			{Kind: "billing.invoice.issued", Pattern: "svc.*.billing.{account}.invoice.issued"},
+		},
+		State:        eventmodel.SchemaNode{Raw: map[string]any{"type": "object"}},
+		PartitionKey: []string{"account"},
 		Types: map[string]eventmodel.SchemaNode{
 			"Invoice": {Raw: map[string]any{"type": "object"}},
 			"Line":    {Raw: map[string]any{"type": "object"}},
@@ -54,11 +58,12 @@ func TestBuildTemplateData(t *testing.T) {
 	if d.Component != "billing" || d.Owns != "billing" {
 		t.Errorf("identity = %q/%q", d.Component, d.Owns)
 	}
-	if len(d.Receives) != 1 || len(d.Emits) != 2 || len(d.Folds) != 1 {
-		t.Fatalf("ports = %d receives, %d emits, %d folds", len(d.Receives), len(d.Emits), len(d.Folds))
+	if len(d.Inputs) != 1 || len(d.Outputs) != 2 || len(d.StateEvents) != 1 {
+		t.Fatalf("lists = %d inputs, %d outputs, %d state events",
+			len(d.Inputs), len(d.Outputs), len(d.StateEvents))
 	}
 
-	// Kinds is the sorted union of both ports.
+	// Kinds is the sorted union of all three lists.
 	want := []string{"billing.invoice.issue", "billing.invoice.issued", "ledger.entry.post"}
 	if strings.Join(d.Kinds, ",") != strings.Join(want, ",") {
 		t.Errorf("Kinds = %v, want %v", d.Kinds, want)
@@ -70,14 +75,59 @@ func TestBuildTemplateData(t *testing.T) {
 	}
 }
 
+// The fold is derived, never declared: inputs plus state events, in that
+// order, deduplicated, with the output-only kind excluded.
+func TestBuildTemplateDataDerivesFold(t *testing.T) {
+	d := BuildTemplateData(genComponent())
+
+	wantSubjects := []string{
+		"svc.*.billing.{account}.invoice.issue",
+		"svc.*.billing.{account}.invoice.issued",
+	}
+	if strings.Join(d.Fold.Subjects, ",") != strings.Join(wantSubjects, ",") {
+		t.Errorf("Fold.Subjects = %v, want %v", d.Fold.Subjects, wantSubjects)
+	}
+	wantConsumes := []string{"billing.invoice.issue", "billing.invoice.issued"}
+	if strings.Join(d.Fold.Consumes, ",") != strings.Join(wantConsumes, ",") {
+		t.Errorf("Fold.Consumes = %v, want %v", d.Fold.Consumes, wantConsumes)
+	}
+	for _, entry := range d.Fold.Consumes {
+		if entry == "ledger.entry.post" {
+			t.Error("an output-only kind must not enter the read-set")
+		}
+	}
+	if strings.Join(d.Fold.PartitionKey, ",") != "account" {
+		t.Errorf("Fold.PartitionKey = %v, want [account]", d.Fold.PartitionKey)
+	}
+	if d.Fold.State == nil {
+		t.Error("Fold.State should carry the component's state schema")
+	}
+}
+
+// A slot exposes its own address plus the slot names parsed out of it, so a
+// template binding subscriptions never has to parse the pattern itself.
+func TestBuildTemplateDataSlotPattern(t *testing.T) {
+	d := BuildTemplateData(genComponent())
+
+	if got := d.Inputs[0].Pattern; got != "svc.*.billing.{account}.invoice.issue" {
+		t.Errorf("Inputs[0].Pattern = %q", got)
+	}
+	if got := strings.Join(d.Inputs[0].PartitionKey, ","); got != "account" {
+		t.Errorf("Inputs[0].PartitionKey = %v, want [account]", d.Inputs[0].PartitionKey)
+	}
+}
+
 func TestBuildTemplateDataForeign(t *testing.T) {
 	d := BuildTemplateData(genComponent())
 
-	if len(d.ForeignEmits) != 1 || d.ForeignEmits[0].Kind != "ledger.entry.post" {
-		t.Errorf("ForeignEmits = %+v, want just ledger.entry.post", d.ForeignEmits)
+	if len(d.ForeignOutputs) != 1 || d.ForeignOutputs[0].Kind != "ledger.entry.post" {
+		t.Errorf("ForeignOutputs = %+v, want just ledger.entry.post", d.ForeignOutputs)
 	}
-	if len(d.ForeignReceives) != 0 {
-		t.Errorf("ForeignReceives = %+v, want empty", d.ForeignReceives)
+	if len(d.ForeignInputs) != 0 {
+		t.Errorf("ForeignInputs = %+v, want empty", d.ForeignInputs)
+	}
+	if len(d.ForeignStateEvents) != 0 {
+		t.Errorf("ForeignStateEvents = %+v, want empty", d.ForeignStateEvents)
 	}
 }
 
@@ -88,9 +138,9 @@ func TestBuildTemplateDataNoOwns(t *testing.T) {
 	comp.Owns = ""
 
 	d := BuildTemplateData(comp)
-	if len(d.ForeignEmits) != 2 || len(d.ForeignReceives) != 1 {
-		t.Errorf("without owns everything is foreign, got %d emits / %d receives",
-			len(d.ForeignEmits), len(d.ForeignReceives))
+	if len(d.ForeignOutputs) != 2 || len(d.ForeignInputs) != 1 || len(d.ForeignStateEvents) != 1 {
+		t.Errorf("without owns everything is foreign, got %d outputs / %d inputs / %d state events",
+			len(d.ForeignOutputs), len(d.ForeignInputs), len(d.ForeignStateEvents))
 	}
 }
 
@@ -98,16 +148,16 @@ func TestBuildTemplateDataNoOwns(t *testing.T) {
 func TestBuildTemplateDataNormalizesDelivery(t *testing.T) {
 	d := BuildTemplateData(genComponent())
 
-	if got := d.Emits[0].Delivery; got != "broadcast" {
+	if got := d.Outputs[0].Delivery; got != "broadcast" {
 		t.Errorf("omitted delivery = %q, want broadcast", got)
 	}
-	if d.Emits[0].Exclusive() {
+	if d.Outputs[0].Exclusive() {
 		t.Error("broadcast slot must not report Exclusive")
 	}
-	if got := d.Emits[1].Delivery; got != "exclusive" {
+	if got := d.Outputs[1].Delivery; got != "exclusive" {
 		t.Errorf("declared delivery = %q, want exclusive", got)
 	}
-	if !d.Emits[1].Exclusive() {
+	if !d.Outputs[1].Exclusive() {
 		t.Error("exclusive slot must report Exclusive")
 	}
 }
@@ -154,7 +204,7 @@ func TestRenderTemplateHelpers(t *testing.T) {
 		{"quote", `{{ quote .Component }}`, `"billing"`},
 		{"unexported", `{{ unexported "billing.invoice" }}`, "billingInvoice"},
 		{"jsonRaw", `{{ jsonRaw (index .Types 0).Schema }}`, `{"type":"object"}`},
-		{"join", `{{ join (index .Folds 0).PartitionKey "," }}`, "account"},
+		{"join", `{{ join .Fold.PartitionKey "," }}`, "account"},
 		{"docComment", `{{ docComment .Description }}`, "// Invoice lifecycle"},
 		{"indent", `{{ indent 2 "a\nb" }}`, "  a\n  b"},
 		{"trimPrefix", `{{ trimPrefix (index .Kinds 0) "billing." }}`, "invoice.issue"},
@@ -231,7 +281,8 @@ func TestShippedExampleTemplateProducesValidGo(t *testing.T) {
 		"// Code generated by archai plugin events gen. DO NOT EDIT.",
 		"package billingevents", // from extra.go_package
 		`KindBillingInvoiceIssued = "billing.invoice.issued"`,
-		"FoldBillingOpenInvoicesPartitionKey",
+		"FoldPartitionKey",
+		`SubjectBillingInvoiceIssued = "svc.*.billing.{account}.invoice.issued"`,
 		"var Exclusive = []string{", // ledger.entry.post is exclusive
 		"var Foreign = []string{",   // ledger.entry.post is out of namespace
 	} {
@@ -252,7 +303,7 @@ func TestShippedExampleTemplateWithoutExtra(t *testing.T) {
 
 	comp := genComponent()
 	comp.Extra = nil
-	comp.Folds = nil
+	comp.State = eventmodel.SchemaNode{}
 	comp.Types = nil
 
 	out, err := RenderTemplate("contract_gen.go.tmpl", string(text), BuildTemplateData(comp))

@@ -84,16 +84,17 @@ type rawComponent struct {
 	Component   string         `yaml:"component"`
 	Owns        string         `yaml:"owns"`
 	Description string         `yaml:"description"`
-	Receives    []rawSlot      `yaml:"receives"`
-	Emits       []rawSlot      `yaml:"emits"`
-	Folds       []rawFold      `yaml:"folds"`
+	Inputs      []rawSlot      `yaml:"inputs"`
+	Outputs     []rawSlot      `yaml:"outputs"`
+	StateEvents []rawSlot      `yaml:"state_events"`
+	State       any            `yaml:"state"`
 	Types       map[string]any `yaml:"types"`
 	Extra       map[string]any `yaml:"extra"`
 }
 
 type rawSlot struct {
 	Kind        string         `yaml:"kind"`
-	Role        string         `yaml:"role"`
+	Pattern     string         `yaml:"pattern"`
 	Delivery    string         `yaml:"delivery"`
 	Description string         `yaml:"description"`
 	Exposure    []string       `yaml:"exposure"`
@@ -101,13 +102,8 @@ type rawSlot struct {
 	Extra       map[string]any `yaml:"extra"`
 }
 
-type rawFold struct {
-	Name     string         `yaml:"name"`
-	Subjects []string       `yaml:"subjects"`
-	Consumes []string       `yaml:"consumes"`
-	State    any            `yaml:"state"`
-	Extra    map[string]any `yaml:"extra"`
-}
+// SchemaVersion is the only .arch/events.yaml version this reader accepts.
+const SchemaVersion = 2
 
 func parseEventsFile(path string) (*Component, error) {
 	data, err := os.ReadFile(path)
@@ -122,9 +118,14 @@ func parseEventsFile(path string) (*Component, error) {
 		return nil, fmt.Errorf("parsing YAML: %w", err)
 	}
 
-	// Structural validation.
-	if raw.Version != 1 {
-		return nil, fmt.Errorf("unsupported version %d (want 1)", raw.Version)
+	// Structural validation. Version 1 is named explicitly because its shape
+	// (receives/emits/folds) is close enough to this one to fail confusingly.
+	switch raw.Version {
+	case SchemaVersion:
+	case 1:
+		return nil, fmt.Errorf("version 1 is no longer supported: replace receives/emits/folds with inputs/outputs/state_events and set version: %d", SchemaVersion)
+	default:
+		return nil, fmt.Errorf("unsupported version %d (want %d)", raw.Version, SchemaVersion)
 	}
 	if raw.Component == "" {
 		return nil, fmt.Errorf("missing required field 'component'")
@@ -135,6 +136,7 @@ func parseEventsFile(path string) (*Component, error) {
 		ID:          raw.Component,
 		Owns:        raw.Owns,
 		Description: raw.Description,
+		State:       SchemaNode{Raw: raw.State},
 		Types:       make(map[string]SchemaNode, len(raw.Types)),
 		Extra:       raw.Extra,
 		SourceFile:  path,
@@ -145,47 +147,26 @@ func parseEventsFile(path string) (*Component, error) {
 		comp.Types[name] = SchemaNode{Raw: schema}
 	}
 
-	// Convert receives.
-	for i, rs := range raw.Receives {
-		slot, err := convertSlot(rs, "receives", i)
-		if err != nil {
-			return nil, err
+	sections := []struct {
+		name string
+		raw  []rawSlot
+		dst  *[]Slot
+	}{
+		{"inputs", raw.Inputs, &comp.Inputs},
+		{"outputs", raw.Outputs, &comp.Outputs},
+		{"state_events", raw.StateEvents, &comp.StateEvents},
+	}
+	for _, section := range sections {
+		for i, rs := range section.raw {
+			slot, err := convertSlot(rs, section.name, i)
+			if err != nil {
+				return nil, err
+			}
+			*section.dst = append(*section.dst, slot)
 		}
-		comp.Receives = append(comp.Receives, slot)
 	}
 
-	// Convert emits.
-	for i, rs := range raw.Emits {
-		slot, err := convertSlot(rs, "emits", i)
-		if err != nil {
-			return nil, err
-		}
-		comp.Emits = append(comp.Emits, slot)
-	}
-
-	// Convert folds.
-	for i, rf := range raw.Folds {
-		if rf.Name == "" {
-			return nil, fmt.Errorf("folds[%d]: missing required field 'name'", i)
-		}
-		if len(rf.Consumes) == 0 {
-			return nil, fmt.Errorf("folds[%d] (%s): missing required field 'consumes'", i, rf.Name)
-		}
-		// State is required: a fold with no declared state shape is an
-		// unfinished declaration. The partition key says which state is
-		// addressed; the state schema says what is actually held there.
-		if rf.State == nil {
-			return nil, fmt.Errorf("folds[%d] (%s): missing required field 'state'", i, rf.Name)
-		}
-		comp.Folds = append(comp.Folds, Fold{
-			Name:         rf.Name,
-			Subjects:     rf.Subjects,
-			PartitionKey: partitionKeyOf(rf.Subjects),
-			Consumes:     rf.Consumes,
-			State:        SchemaNode{Raw: rf.State},
-			Extra:        rf.Extra,
-		})
-	}
+	comp.PartitionKey = partitionKeyOf(comp.Subjects())
 
 	return comp, nil
 }
@@ -194,11 +175,6 @@ func convertSlot(rs rawSlot, section string, idx int) (Slot, error) {
 	if rs.Kind == "" {
 		return Slot{}, fmt.Errorf("%s[%d]: missing required field 'kind'", section, idx)
 	}
-	role := Role(rs.Role)
-	if !role.Valid() {
-		return Slot{}, fmt.Errorf("%s[%d] (%s): invalid role %q (want 'action' or 'fact')",
-			section, idx, rs.Kind, rs.Role)
-	}
 	delivery := Delivery(rs.Delivery)
 	if !delivery.Valid() {
 		return Slot{}, fmt.Errorf("%s[%d] (%s): invalid delivery %q (want 'broadcast' or 'exclusive')",
@@ -206,7 +182,7 @@ func convertSlot(rs rawSlot, section string, idx int) (Slot, error) {
 	}
 	return Slot{
 		Kind:        rs.Kind,
-		Role:        role,
+		Pattern:     rs.Pattern,
 		Delivery:    delivery,
 		Description: rs.Description,
 		Exposure:    rs.Exposure,
@@ -215,14 +191,19 @@ func convertSlot(rs rawSlot, section string, idx int) (Slot, error) {
 	}, nil
 }
 
-// partitionKeyOf returns the ordered {slot} names of the first subject, which
-// the validator then requires every other subject of the same fold to repeat.
+// partitionKeyOf returns the ordered {slot} names of the first subject that
+// carries any, which the validator then requires every other subject of the
+// component's read-set to repeat. Patterns with no slots are skipped rather
+// than treated as an empty key: a kind addressed globally sits in the same
+// read-set as partitioned ones without forcing the key to nil.
 // It does not validate syntax; use ValidateSlotSyntax for that.
 func partitionKeyOf(subjects []string) []string {
-	if len(subjects) == 0 {
-		return nil
+	for _, subject := range subjects {
+		if key := SlotTokens(subject); len(key) > 0 {
+			return key
+		}
 	}
-	return SlotTokens(subjects[0])
+	return nil
 }
 
 // kindHasPrefix reports whether kind starts with the given owns prefix.
@@ -244,7 +225,7 @@ func kindHasPrefix(kind, owns string) bool {
 
 // SlotTokens returns the {slot} names of a subject pattern in declaration
 // order. The order is significant: it is the partition key layout, and two
-// subjects reading into the same fold state must agree on it exactly.
+// subjects reading into the same component state must agree on it exactly.
 // It does not validate syntax; use ValidateSlotSyntax for that.
 func SlotTokens(subject string) []string {
 	var out []string

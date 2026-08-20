@@ -1,25 +1,36 @@
-version: 1
+version: 2
 component: shipping
 owns: shipping
 description: Package shipment tracking
 
-receives:
+inputs:
   - kind: billing.invoice.issued
-    role: fact
+    pattern: 'svc.*.billing.{account}.invoice.issued'
     description: Observe invoice issuance to prepare shipment
 
-emits:
+outputs:
   - kind: shipping.package.shipped
-    role: fact
+    pattern: 'svc.*.shipping.{account}.package.shipped'
     schema:
       type: object
       properties:
         TrackingNumber: {type: string}
         Carrier: {type: string}
   - kind: shipping.package.delivered
-    role: fact
+    pattern: 'svc.*.shipping.{account}.package.delivered'
     schema:
       type: object
       properties:
         TrackingNumber: {type: string}
         DeliveredAt: {type: string, format: date-time}
+
+state_events:
+  - kind: shipping.package.shipped
+    pattern: 'svc.*.shipping.{account}.package.shipped'
+  - kind: shipping.package.delivered
+    pattern: 'svc.*.shipping.{account}.package.delivered'
+
+state:
+  type: object
+  properties:
+    InFlight: {type: integer}

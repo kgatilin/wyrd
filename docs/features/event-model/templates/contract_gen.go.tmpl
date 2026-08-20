@@ -39,71 +39,85 @@ const (
 {{- end }}
 )
 
-// Emitted lists every kind this component appends to the log.
-var Emitted = []string{
-{{- range .Emits }}
-	Kind{{ goIdent .Kind }}, // {{ .Role }}
+// Outputs lists every kind this component appends to the log.
+var Outputs = []string{
+{{- range .Outputs }}
+	Kind{{ goIdent .Kind }},
 {{- end }}
 }
 
-// Received lists every kind this component observes on its input port.
-var Received = []string{
-{{- range .Receives }}
-	Kind{{ goIdent .Kind }}, // {{ .Role }}
+// Inputs lists every kind that triggers this component.
+var Inputs = []string{
+{{- range .Inputs }}
+	Kind{{ goIdent .Kind }},
 {{- end }}
 }
-{{ if or .ForeignEmits .ForeignReceives }}
+
+// StateEvents lists every kind this component folds into its state without
+// being triggered by it. They may be its own outputs or another component's.
+var StateEvents = []string{
+{{- range .StateEvents }}
+	Kind{{ goIdent .Kind }},
+{{- end }}
+}
+{{ if or .ForeignOutputs .ForeignInputs .ForeignStateEvents }}
 // Foreign kinds cross this component's namespace boundary: they are defined by
 // somebody else's declaration, so their schemas are not this package's to change.
 var Foreign = []string{
-{{- range .ForeignEmits }}
-	Kind{{ goIdent .Kind }}, // emitted
+{{- range .ForeignOutputs }}
+	Kind{{ goIdent .Kind }}, // output
 {{- end }}
-{{- range .ForeignReceives }}
-	Kind{{ goIdent .Kind }}, // received
+{{- range .ForeignInputs }}
+	Kind{{ goIdent .Kind }}, // input
+{{- end }}
+{{- range .ForeignStateEvents }}
+	Kind{{ goIdent .Kind }}, // state event
 {{- end }}
 }
 {{ end }}
-{{- $exclusive := false }}{{ range .Emits }}{{ if .Exclusive }}{{ $exclusive = true }}{{ end }}{{ end }}
-{{- range .Receives }}{{ if .Exclusive }}{{ $exclusive = true }}{{ end }}{{ end }}
+{{- $exclusive := false }}{{ range .Outputs }}{{ if .Exclusive }}{{ $exclusive = true }}{{ end }}{{ end }}
+{{- range .Inputs }}{{ if .Exclusive }}{{ $exclusive = true }}{{ end }}{{ end }}
 {{- if $exclusive }}
 // Exclusive kinds opted out of broadcast: exactly one component handles them.
 var Exclusive = []string{
-{{- range .Emits }}{{ if .Exclusive }}
+{{- range .Outputs }}{{ if .Exclusive }}
 	Kind{{ goIdent .Kind }},
 {{- end }}{{ end }}
-{{- range .Receives }}{{ if .Exclusive }}
+{{- range .Inputs }}{{ if .Exclusive }}
 	Kind{{ goIdent .Kind }},
 {{- end }}{{ end }}
 }
 {{ end }}
-{{- range .Folds }}
-// Fold {{ .Name }}: one state per ({{ join .PartitionKey ", " }}).
-{{- $f := goIdent .Name }}
-const Fold{{ $f }}Name = {{ quote .Name }}
-
+{{- if .Fold.Subjects }}
+// The fold read-set is derived from inputs plus state events — nothing
+// declares it{{ if .Fold.PartitionKey }}, and it holds one state per ({{ join .Fold.PartitionKey ", " }}){{ end }}.
 var (
-	Fold{{ $f }}Subjects = []string{
-	{{- range .Subjects }}
+	FoldSubjects = []string{
+	{{- range .Fold.Subjects }}
 		{{ quote . }},
 	{{- end }}
 	}
-	Fold{{ $f }}PartitionKey = []string{
-	{{- range .PartitionKey }}
+	FoldPartitionKey = []string{
+	{{- range .Fold.PartitionKey }}
 		{{ quote . }},
 	{{- end }}
 	}
-	Fold{{ $f }}Consumes = []string{
-	{{- range .Consumes }}
+	FoldConsumes = []string{
+	{{- range .Fold.Consumes }}
 		{{ quote . }},
 	{{- end }}
 	}
 )
-
-// Fold{{ $f }}StateSchema is the declared projection state, as JSON Schema.
-const Fold{{ $f }}StateSchema = {{ quote (jsonRaw .State) }}
 {{ end }}
-{{- range .Emits }}{{ if .Schema }}
+{{- if .Fold.State }}
+// FoldStateSchema is the declared projection state, as JSON Schema.
+const FoldStateSchema = {{ quote (jsonRaw .Fold.State) }}
+{{ end }}
+{{- range .Outputs }}{{ if .Pattern }}
+// Subject{{ goIdent .Kind }} is the address {{ .Kind }} travels on.
+const Subject{{ goIdent .Kind }} = {{ quote .Pattern }}
+{{ end }}{{ end }}
+{{- range .Outputs }}{{ if .Schema }}
 // PayloadSchema{{ goIdent .Kind }} is the declared wire schema for {{ .Kind }}.
 const PayloadSchema{{ goIdent .Kind }} = {{ quote (jsonRaw .Schema) }}
 {{ end }}{{ end }}

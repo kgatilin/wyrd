@@ -19,14 +19,12 @@ import (
 // Node mapping:
 //   - component -> archmotif package node (role="component")
 //   - kind -> archmotif type node (role="event_kind")
-//   - fold -> archmotif type node (role="fold")
 //   - type -> archmotif type node (role="type_def")
 //
 // Edge mapping:
-//   - emits -> DependencyDependsOn (component -> kind)
-//   - receives -> DependencyDependsOn (kind -> component)
-//   - feeds -> DependencyDependsOn (kind -> fold)
-//   - held-by -> AddContains (fold is contained by component)
+//   - output -> DependencyDependsOn (component -> kind)
+//   - input -> DependencyDependsOn (kind -> component)
+//   - state-event -> DependencyDependsOn (kind -> component)
 //   - payload -> DependencyUsesType (kind -> type)
 //   - refs -> DependencyUsesType (type -> type)
 //   - defines -> AddContains (type is contained by component)
@@ -64,7 +62,7 @@ func ToArchmotifGraph(g *eventmodel.Graph) (*archmotifimport.Graph, error) {
 		}
 	}
 
-	// Pass 2: Create type nodes (kinds, folds, type definitions).
+	// Pass 2: Create type nodes (kinds, type definitions).
 	for _, n := range nodes {
 		switch n.Kind {
 		case eventmodel.NodeComponent:
@@ -77,12 +75,6 @@ func ToArchmotifGraph(g *eventmodel.Graph) (*archmotifimport.Graph, error) {
 			}
 			if err := b.AddType(n.ID, pkg, false, role); err != nil {
 				return nil, fmt.Errorf("eventmodel graphml: kind %s: %w", n.ID, err)
-			}
-		case eventmodel.NodeFold:
-			// Folds store their owning component in attributes.
-			compID := componentID(n.Attrs["component"].(string))
-			if err := b.AddType(n.ID, compID, false, "fold"); err != nil {
-				return nil, fmt.Errorf("eventmodel graphml: fold %s: %w", n.ID, err)
 			}
 		case eventmodel.NodeType:
 			// Type definitions store their owning component in attributes.
@@ -113,25 +105,20 @@ func ToArchmotifGraph(g *eventmodel.Graph) (*archmotifimport.Graph, error) {
 	// Pass 2: Create edges.
 	for _, e := range edges {
 		switch e.Kind {
-		case eventmodel.EdgeEmits:
-			// Component emits kind: a dependency edge.
+		case eventmodel.EdgeOutput:
+			// Component appends kind: a dependency edge.
 			if err := b.AddDependency(e.From, e.To, archmotifimport.DependencyDependsOn); err != nil {
-				return nil, fmt.Errorf("eventmodel graphml: emits %s->%s: %w", e.From, e.To, err)
+				return nil, fmt.Errorf("eventmodel graphml: output %s->%s: %w", e.From, e.To, err)
 			}
-		case eventmodel.EdgeReceives:
-			// Kind received by component: a dependency edge.
+		case eventmodel.EdgeInput:
+			// Kind triggers component: a dependency edge.
 			if err := b.AddDependency(e.From, e.To, archmotifimport.DependencyDependsOn); err != nil {
-				return nil, fmt.Errorf("eventmodel graphml: receives %s->%s: %w", e.From, e.To, err)
+				return nil, fmt.Errorf("eventmodel graphml: input %s->%s: %w", e.From, e.To, err)
 			}
-		case eventmodel.EdgeFeeds:
-			// Kind feeds fold.
+		case eventmodel.EdgeStateEvent:
+			// Kind folded into the component's state: a dependency edge.
 			if err := b.AddDependency(e.From, e.To, archmotifimport.DependencyDependsOn); err != nil {
-				return nil, fmt.Errorf("eventmodel graphml: feeds %s->%s: %w", e.From, e.To, err)
-			}
-		case eventmodel.EdgeHeldBy:
-			// Fold held by component: structural containment.
-			if err := b.AddContains(e.To, e.From); err != nil {
-				return nil, fmt.Errorf("eventmodel graphml: held-by %s->%s: %w", e.From, e.To, err)
+				return nil, fmt.Errorf("eventmodel graphml: state-event %s->%s: %w", e.From, e.To, err)
 			}
 		case eventmodel.EdgePayload:
 			// Kind uses type.

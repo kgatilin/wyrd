@@ -14,7 +14,7 @@ func TestReadValidComponent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	yaml := `version: 1
+	yaml := `version: 2
 component: billing
 owns: billing
 description: invoice lifecycle
@@ -23,9 +23,9 @@ extra:
   partition: account
   transport: queue
 
-receives:
+inputs:
   - kind: billing.invoice.issue
-    role: action
+    pattern: svc.*.billing.{account}.invoice.issue
     description: create an invoice
     exposure: [public_api]
     schema:
@@ -34,23 +34,23 @@ receives:
       properties:
         Account: {type: string}
 
-emits:
+outputs:
   - kind: billing.invoice.issued
-    role: fact
+    pattern: svc.*.billing.{account}.invoice.issued
     schema: {$ref: '#/types/Invoice'}
   - kind: ledger.entry.post
-    role: action
+    pattern: svc.*.ledger.{account}.entry.post
 
-folds:
-  - name: billing.open-invoices
-    subjects:
-      - svc.*.billing.{account}.invoice.>
-      - svc.*.billing.{account}.credit.>
-    consumes: [billing.invoice.*]
-    state:
-      type: object
-      properties:
-        Open: {type: array}
+state_events:
+  - kind: billing.invoice.issued
+    pattern: svc.*.billing.{account}.invoice.issued
+  - kind: billing.credit.applied
+    pattern: svc.*.billing.{account}.credit.applied
+
+state:
+  type: object
+  properties:
+    Open: {type: array}
 
 types:
   Invoice:
@@ -77,8 +77,8 @@ types:
 		t.Fatal("component 'billing' not found")
 	}
 
-	if comp.Version != 1 {
-		t.Errorf("Version = %d, want 1", comp.Version)
+	if comp.Version != SchemaVersion {
+		t.Errorf("Version = %d, want %d", comp.Version, SchemaVersion)
 	}
 	if comp.Owns != "billing" {
 		t.Errorf("Owns = %q, want 'billing'", comp.Owns)
@@ -86,44 +86,52 @@ types:
 	if comp.Description != "invoice lifecycle" {
 		t.Errorf("Description = %q, want 'invoice lifecycle'", comp.Description)
 	}
-	if len(comp.Receives) != 1 {
-		t.Errorf("Receives: want 1, got %d", len(comp.Receives))
+	if len(comp.Inputs) != 1 {
+		t.Errorf("Inputs: want 1, got %d", len(comp.Inputs))
 	} else {
-		r := comp.Receives[0]
+		r := comp.Inputs[0]
 		if r.Kind != "billing.invoice.issue" {
-			t.Errorf("Receives[0].Kind = %q", r.Kind)
+			t.Errorf("Inputs[0].Kind = %q", r.Kind)
 		}
-		if r.Role != RoleAction {
-			t.Errorf("Receives[0].Role = %q", r.Role)
+		if r.Pattern != "svc.*.billing.{account}.invoice.issue" {
+			t.Errorf("Inputs[0].Pattern = %q", r.Pattern)
 		}
 		if len(r.Exposure) != 1 || r.Exposure[0] != "public_api" {
-			t.Errorf("Receives[0].Exposure = %v", r.Exposure)
+			t.Errorf("Inputs[0].Exposure = %v", r.Exposure)
 		}
 	}
-	if len(comp.Emits) != 2 {
-		t.Errorf("Emits: want 2, got %d", len(comp.Emits))
+	if len(comp.Outputs) != 2 {
+		t.Errorf("Outputs: want 2, got %d", len(comp.Outputs))
 	}
-	if len(comp.Folds) != 1 {
-		t.Errorf("Folds: want 1, got %d", len(comp.Folds))
-	} else {
-		f := comp.Folds[0]
-		if f.Name != "billing.open-invoices" {
-			t.Errorf("Folds[0].Name = %q", f.Name)
-		}
-		wantSubjects := []string{
-			"svc.*.billing.{account}.invoice.>",
-			"svc.*.billing.{account}.credit.>",
-		}
-		if !slotKeysEqual(f.Subjects, wantSubjects) {
-			t.Errorf("Folds[0].Subjects = %v, want %v", f.Subjects, wantSubjects)
-		}
-		if !slotKeysEqual(f.PartitionKey, []string{"account"}) {
-			t.Errorf("Folds[0].PartitionKey = %v, want [account]", f.PartitionKey)
-		}
-		if len(f.Consumes) != 1 || f.Consumes[0] != "billing.invoice.*" {
-			t.Errorf("Folds[0].Consumes = %v", f.Consumes)
-		}
+	if len(comp.StateEvents) != 2 {
+		t.Errorf("StateEvents: want 2, got %d", len(comp.StateEvents))
 	}
+
+	// The fold is derived, never declared: its read-set is inputs plus state
+	// events, deduplicated, and it excludes the output-only kind.
+	wantSubjects := []string{
+		"svc.*.billing.{account}.invoice.issue",
+		"svc.*.billing.{account}.invoice.issued",
+		"svc.*.billing.{account}.credit.applied",
+	}
+	if !slotKeysEqual(comp.Subjects(), wantSubjects) {
+		t.Errorf("Subjects() = %v, want %v", comp.Subjects(), wantSubjects)
+	}
+	wantConsumes := []string{
+		"billing.invoice.issue",
+		"billing.invoice.issued",
+		"billing.credit.applied",
+	}
+	if !slotKeysEqual(comp.Consumes(), wantConsumes) {
+		t.Errorf("Consumes() = %v, want %v", comp.Consumes(), wantConsumes)
+	}
+	if !slotKeysEqual(comp.PartitionKey, []string{"account"}) {
+		t.Errorf("PartitionKey = %v, want [account]", comp.PartitionKey)
+	}
+	if comp.State.IsZero() {
+		t.Error("State should be parsed")
+	}
+
 	if len(comp.Types) != 1 {
 		t.Errorf("Types: want 1, got %d", len(comp.Types))
 	}
@@ -132,6 +140,33 @@ types:
 	}
 	if comp.Extra == nil || comp.Extra["partition"] != "account" {
 		t.Errorf("Extra = %v", comp.Extra)
+	}
+}
+
+// TestReadRejectsVersion1 pins the migration message: the v1 shape parses far
+// enough to look plausible, so the reader has to name what changed rather than
+// report an unknown field.
+func TestReadRejectsVersion1(t *testing.T) {
+	dir := t.TempDir()
+	archDir := filepath.Join(dir, "billing", ".arch")
+	if err := os.MkdirAll(archDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `version: 1
+component: billing
+`
+	if err := os.WriteFile(filepath.Join(archDir, "events.yaml"), []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Read(dir)
+	if err == nil {
+		t.Fatal("want an error for version 1")
+	}
+	for _, want := range []string{"version 1", "inputs/outputs/state_events"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should mention %q", err, want)
+		}
 	}
 }
 
@@ -144,7 +179,7 @@ func TestReadDuplicateComponentID(t *testing.T) {
 		if err := os.MkdirAll(archDir, 0755); err != nil {
 			t.Fatal(err)
 		}
-		yaml := `version: 1
+		yaml := `version: 2
 component: billing
 owns: billing
 `
@@ -174,63 +209,46 @@ func TestReadMissingRequiredFields(t *testing.T) {
 			want: "unsupported version 0",
 		},
 		{
+			name: "unknown future version",
+			yaml: `version: 99
+component: billing`,
+			want: "unsupported version 99",
+		},
+		{
 			name: "missing component",
-			yaml: `version: 1`,
+			yaml: `version: 2`,
 			want: "missing required field 'component'",
 		},
 		{
-			name: "missing slot kind",
-			yaml: `version: 1
+			name: "missing input kind",
+			yaml: `version: 2
 component: billing
-receives:
-  - role: action`,
-			want: "missing required field 'kind'",
+inputs:
+  - pattern: svc.*.billing.{account}.foo`,
+			want: "inputs[0]: missing required field 'kind'",
 		},
 		{
-			name: "invalid role",
-			yaml: `version: 1
+			name: "missing output kind",
+			yaml: `version: 2
 component: billing
-receives:
-  - kind: billing.foo
-    role: bogus`,
-			want: "invalid role",
+outputs:
+  - description: nameless`,
+			want: "outputs[0]: missing required field 'kind'",
 		},
 		{
-			name: "missing fold name",
-			yaml: `version: 1
+			name: "missing state event kind",
+			yaml: `version: 2
 component: billing
-folds:
-  - consumes: [billing.*]`,
-			want: "missing required field 'name'",
-		},
-		{
-			name: "missing fold consumes",
-			yaml: `version: 1
-component: billing
-folds:
-  - name: foo
-    subjects:
-      - svc.*.billing.{account}.>`,
-			want: "missing required field 'consumes'",
-		},
-		{
-			name: "missing fold state",
-			yaml: `version: 1
-component: billing
-folds:
-  - name: foo
-    subjects:
-      - svc.*.billing.{account}.>
-    consumes: [billing.*]`,
-			want: "missing required field 'state'",
+state_events:
+  - description: nameless`,
+			want: "state_events[0]: missing required field 'kind'",
 		},
 		{
 			name: "invalid delivery",
-			yaml: `version: 1
+			yaml: `version: 2
 component: billing
-receives:
+inputs:
   - kind: billing.foo
-    role: action
     delivery: at-most-once`,
 			want: "invalid delivery",
 		},
@@ -265,7 +283,7 @@ func TestReadStrictDecoding(t *testing.T) {
 	if err := os.MkdirAll(archDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	yaml := `version: 1
+	yaml := `version: 2
 component: billing
 unknown_field: value
 `
@@ -407,7 +425,7 @@ func TestReadRootNamedTestdata(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	yaml := `version: 1
+	yaml := `version: 2
 component: mycomp
 owns: mycomp
 `
@@ -439,7 +457,7 @@ func TestReadSkipsTestdataSubdirectory(t *testing.T) {
 	if err := os.MkdirAll(testdataArch, 0755); err != nil {
 		t.Fatal(err)
 	}
-	yaml := `version: 1
+	yaml := `version: 2
 component: hidden
 owns: hidden
 `
@@ -452,7 +470,7 @@ owns: hidden
 	if err := os.MkdirAll(visibleArch, 0755); err != nil {
 		t.Fatal(err)
 	}
-	yaml2 := `version: 1
+	yaml2 := `version: 2
 component: visible
 owns: visible
 `
