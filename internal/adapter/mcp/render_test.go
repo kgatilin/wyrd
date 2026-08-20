@@ -58,6 +58,7 @@ func TestRenderSubgraph_CompactAndRoundTrippable(t *testing.T) {
 		Dense:     true,
 		NodeCount: 3,
 		EdgeCount: 2,
+		Diffusion: &diffusionStats{Conductance: 0.21384719, SeedCount: 5},
 		Nodes: []nodeInfo{
 			{ID: home + ".Dispatch", Kind: "func", Package: home, Name: "Dispatch",
 				File: home + "/tools.go", Line: 10,
@@ -102,8 +103,24 @@ func TestRenderSubgraph_CompactAndRoundTrippable(t *testing.T) {
 	if !strings.Contains(out, "Dispatch --uses--> serve.State") {
 		t.Errorf("cross-package edge endpoint not shortened:\n%s", out)
 	}
+	// The cut quality is reported next to the size, rounded like every other
+	// metric in these renders.
+	if !strings.Contains(out, "conductance 0.214") || !strings.Contains(out, "5 seeds") {
+		t.Errorf("diffusion diagnostics missing from header:\n%s", out)
+	}
 	// No float score noise anywhere.
 	assertNoFloatNoise(t, out)
+}
+
+func TestRenderSubgraph_ExpandOmitsDiffusion(t *testing.T) {
+	// expand walks edges rather than cutting a community, so it has no cut to
+	// report and the line must not appear at all.
+	out := renderSubgraph("", subgraphResult{
+		Nodes: []nodeInfo{{ID: "internal/serve.State", Kind: "struct", Package: "internal/serve", Name: "State"}},
+	})
+	if strings.Contains(out, "conductance") {
+		t.Errorf("expand output carries a cut it never made:\n%s", out)
+	}
 }
 
 func TestRenderSpectralCore_NoFloatNoise(t *testing.T) {

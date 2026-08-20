@@ -167,6 +167,18 @@ func TestHandleAPISearchGraph(t *testing.T) {
 	if !nodeIDs["internal/handler.Handler"] {
 		t.Error("expected Handler node in subgraph")
 	}
+
+	// The diffusion diagnostics travel with the subgraph: how many hits seeded
+	// it, how crisply it separates, and whether the node cap trimmed it.
+	if resp.SeedCount == 0 {
+		t.Error("expected a non-zero seed_count")
+	}
+	if resp.Conductance < 0 || resp.Conductance > 1 {
+		t.Errorf("conductance = %v, want a fraction in [0,1]", resp.Conductance)
+	}
+	if resp.Truncated {
+		t.Errorf("a %d-node subgraph should not report truncation", len(resp.Nodes))
+	}
 }
 
 func TestHandleAPIExpand(t *testing.T) {

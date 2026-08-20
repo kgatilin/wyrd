@@ -37,6 +37,10 @@ type Service struct {
 	// graph holds the adjacency map for expand/neighbor operations.
 	graph *Graph
 
+	// params are the tuning knobs of the search pipeline (fusion weights,
+	// softmax temperatures, diffusion constants).
+	params Params
+
 	// denseAvailable tracks whether dense search is operational.
 	// Set to false if the embedder fails during Index/Refresh.
 	denseAvailable bool
@@ -180,6 +184,7 @@ func NewService(root string, emb Embedder, vidx vectorIndexWithHash, lidx lexica
 		denseAvailable: vidx != nil && emb != nil,
 		vectorsPath:    filepath.Join(cacheDir, "vectors.json"),
 		lexicalPath:    filepath.Join(cacheDir, "bm25.json"),
+		params:         DefaultParams(),
 	}
 	for _, opt := range opts {
 		opt(s)

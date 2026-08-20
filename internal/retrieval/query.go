@@ -2,21 +2,15 @@ package retrieval
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
-	"github.com/kgatilin/archmotif/pkg/graphval"
-)
-
-// search_graph ranking budget: BFS gathers up to searchGraphCandidateCap nodes
-// around the seeds (bounding hub blow-ups), personalized PageRank ranks them by
-// structural proximity to the seeds, and the top searchGraphResultCap survive.
-const (
-	searchGraphCandidateCap = 400
-	searchGraphResultCap    = 50
-	searchGraphRestart      = 0.15
+	"github.com/kgatilin/archmotif/pkg/localpartition"
 )
 
 // Result represents a search result with scoring and context.
@@ -81,11 +75,8 @@ type Filters struct {
 	PackagePrefix string   `json:"package_prefix,omitempty"`
 }
 
-// rrfK is the constant used in reciprocal rank fusion scoring.
-const rrfK = 60
-
-// Search performs hybrid search: dense (if available) + BM25, fused with RRF.
-// Returns results sorted by fused score descending.
+// Search performs hybrid search: dense (if available) + BM25, fused into a
+// calibrated relevance mass. Returns results sorted by mass descending.
 func (s *Service) Search(ctx context.Context, query string, k int, filters Filters) ([]Result, bool, error) {
 	if k < 1 {
 		k = 10
@@ -112,8 +103,8 @@ func (s *Service) Search(ctx context.Context, query string, k int, filters Filte
 	// Lexical search (always available)
 	lexicalResults := s.lindex.Search(query, fetchK)
 
-	// Fuse with RRF
-	fused := rrfFuse(denseResults, lexicalResults, rrfK)
+	// Fuse the two channels into one calibrated relevance mass
+	fused := s.fuseCalibrated(query, denseResults, lexicalResults)
 
 	// Apply filters and limit
 	var results []Result
@@ -154,87 +145,228 @@ func (s *Service) Search(ctx context.Context, query string, k int, filters Filte
 	return results, denseUsed, nil
 }
 
-// SearchGraph performs Search, gathers a bounded candidate neighbourhood around
-// the hits, and ranks it by personalized PageRank (structural proximity to the
-// seeds) — returning the top searchGraphResultCap nodes with their scores. This
-// replaces the old unbounded BFS expansion: the candidate cap stops hub nodes
-// from pulling in the whole graph, and the diffusion ranking surfaces the most
-// relevant neighbours instead of a flat, truncation-prone set.
-func (s *Service) SearchGraph(ctx context.Context, query string, k, hops int) (Subgraph, bool, error) {
+// GraphSearchResult is what search_graph hands back: the community the query
+// landed in, plus the diagnostics of the cut that produced it. Subgraph is
+// embedded, so the nodes-and-edges contract shared with Expand stays a single
+// type and only search_graph carries the extra fields.
+type GraphSearchResult struct {
+	Subgraph
+
+	// Conductance is the fraction of edge weight crossing the region's
+	// boundary, in [0,1]. Low means the region really does separate from the
+	// rest of the graph — the query found something coherent; high means the
+	// best available cut still runs through the middle of a hairball, which is
+	// the signal that the answer is thin however many nodes came back.
+	Conductance float64 `json:"conductance"`
+
+	// Truncated reports that MaxGraphNodes cut the region down, so what came
+	// back is the highest-mass part of a larger community.
+	Truncated bool `json:"truncated"`
+
+	// SeedCount is how many distinct search hits actually seeded the diffusion.
+	SeedCount int `json:"seed_count"`
+}
+
+// SearchGraph answers "how does this connect" where Search answers "where is
+// this": it runs Search, hands the calibrated relevance masses to a local graph
+// partition (Andersen–Chung–Lang push followed by a sweep cut), and returns the
+// community those seeds sit in.
+//
+// The push spreads each seed's mass along the weighted edges and stops pushing
+// where the residual falls under DiffusionEpsilon, so the walk only ever visits
+// the neighbourhood the mass actually reaches — the size of the repository does
+// not enter into it. The sweep then walks the mass-ordered prefixes of what was
+// reached and keeps the one whose boundary is cheapest, which is what makes the
+// result size query-adaptive: a narrow question cuts a small dense region, a
+// broad one keeps going until the boundary stops getting cheaper. The price of
+// that boundary is the conductance, and it travels back as the quality signal
+// on the whole answer.
+//
+// Two bounds sit on top of the diffusion. hops keeps the meaning its name
+// promises — alpha and epsilon shape the region but say nothing about graph
+// distance, so the sweep set is intersected with the nodes within hops
+// undirected steps of the seeds. MaxGraphNodes is the payload cap, applied last
+// and by mass, and it is reported instead of silently applied.
+func (s *Service) SearchGraph(ctx context.Context, query string, k, hops int) (GraphSearchResult, bool, error) {
 	if hops < 1 {
 		hops = 1
 	}
 
 	results, denseUsed, err := s.Search(ctx, query, k, Filters{})
 	if err != nil {
-		return Subgraph{}, denseUsed, err
-	}
-
-	// Collect seed node IDs from search results.
-	seedIDs := make([]string, len(results))
-	for i, r := range results {
-		seedIDs[i] = r.NodeID
+		return GraphSearchResult{}, denseUsed, err
 	}
 
 	s.mu.RLock()
 	graph := s.graph
+	params := s.params
 	s.mu.RUnlock()
-	if graph == nil || len(seedIDs) == 0 {
-		return Subgraph{Nodes: []NodeInfo{}, Edges: []EdgeInfo{}}, denseUsed, nil
+
+	// A candidate that ended up with no mass is not evidence of anything, and
+	// localpartition reads a non-positive seed weight as "unweighted" (1) — the
+	// exact inversion that would make the weakest hit the strongest seed.
+	seeds := make([]localpartition.Seed, 0, len(results))
+	seedIDs := make([]string, 0, len(results))
+	for _, r := range results {
+		if r.Score <= 0 {
+			continue
+		}
+		seeds = append(seeds, localpartition.Seed{Name: r.NodeID, Weight: float64(r.Score)})
+		seedIDs = append(seedIDs, r.NodeID)
 	}
 
-	// Bounded BFS to assemble the candidate pool (cap guards hub blow-ups).
-	candidates := graph.NeighborNodes(seedIDs, hops, nil, searchGraphCandidateCap)
-
-	// Rank candidates by undirected personalized PageRank seeded at the hits,
-	// then keep the strongest searchGraphResultCap.
-	ranked := rankByDiffusion(graph, candidates, seedIDs)
-	if len(ranked) > searchGraphResultCap {
-		ranked = ranked[:searchGraphResultCap]
+	if graph == nil || len(seeds) == 0 {
+		return GraphSearchResult{Subgraph: emptySubgraph()}, denseUsed, nil
 	}
 
-	return s.buildRankedSubgraph(graph, ranked), denseUsed, nil
+	edges := diffusionEdges(graph, params.EdgeKindWeights)
+	part, err := localpartition.LocalPartitionWeighted(edges, seeds, localpartition.Options{
+		Alpha:      params.DiffusionAlpha,
+		Epsilon:    params.DiffusionEpsilon,
+		HubDamping: params.HubDamping,
+	})
+	if err != nil {
+		return GraphSearchResult{}, denseUsed, fmt.Errorf("local partition: %w", err)
+	}
+
+	region := withinHops(edges, seedIDs, part.Region, hops)
+	region, truncated := capByMass(region, part.Weights, params.MaxGraphNodes)
+
+	return GraphSearchResult{
+		Subgraph:    s.buildRegionSubgraph(graph, region, part.Weights),
+		Conductance: part.Conductance,
+		Truncated:   truncated,
+		SeedCount:   part.SeedCount,
+	}, denseUsed, nil
 }
 
-// rankByDiffusion projects the candidate node set and its induced edges into a
-// graphval matrix graph and runs undirected personalized PageRank seeded at the
-// search hits. Results are returned sorted by score descending (graphval's
-// contract). Seeds outside the candidate set are dropped; with no usable seed
-// the scores degrade to global PageRank over the candidates.
-func rankByDiffusion(graph *Graph, candidates map[string]bool, seedIDs []string) []graphval.Score {
-	nodes := make([]graphval.Node, 0, len(candidates))
-	for id := range candidates {
-		nodes = append(nodes, graphval.Node{Name: id})
-	}
-	var edges []graphval.Edge
-	for _, e := range graph.InducedEdges(candidates) {
-		edges = append(edges, graphval.Edge{From: e.From, To: e.To})
-	}
-	gv, err := graphval.New(nodes, edges)
-	if err != nil {
-		return nil
-	}
-	seeds := make([]string, 0, len(seedIDs))
-	for _, id := range seedIDs {
-		if candidates[id] {
-			seeds = append(seeds, id)
+// diffusionEdges projects the code graph onto the weighted edge list the
+// diffusion walks.
+//
+// EdgeKindWeights is the participation list, not merely a scale: a kind the map
+// does not mention contributes no edge at all. That is how a relation is kept
+// out of the diffusion entirely — the design excludes containment on exactly
+// these grounds — without a second masking parameter that could disagree with
+// the weights. A kind mapped to a non-positive weight is read the same way,
+// since localpartition treats such a weight as 1 and would otherwise smuggle
+// the edge back in at full strength.
+//
+// Only Outgoing is walked. Incoming holds the same edges seen from the other
+// end, and localpartition symmetrizes anyway, so iterating both maps would
+// double every weight. The result is sorted so that the weight accumulation
+// inside localpartition happens in the same order on every run, which Go's
+// randomized map iteration would otherwise leave free to differ in the last
+// bits — enough to flip a sweep tie.
+func diffusionEdges(graph *Graph, kindWeights map[string]float64) []localpartition.WeightedEdge {
+	var edges []localpartition.WeightedEdge
+	for _, out := range graph.Outgoing {
+		for _, e := range out {
+			w, ok := kindWeights[string(e.Kind)]
+			if !ok || w <= 0 {
+				continue
+			}
+			edges = append(edges, localpartition.WeightedEdge{From: e.From, To: e.To, Weight: w})
 		}
 	}
-	return gv.PersonalizedPageRankByNames(seeds, searchGraphRestart, true)
+	sort.Slice(edges, func(i, j int) bool {
+		if edges[i].From != edges[j].From {
+			return edges[i].From < edges[j].From
+		}
+		if edges[i].To != edges[j].To {
+			return edges[i].To < edges[j].To
+		}
+		return edges[i].Weight < edges[j].Weight
+	})
+	return edges
 }
 
-// buildRankedSubgraph materialises the ranked node IDs into a Subgraph: each
-// node carries its diffusion score, and the induced edges among the kept nodes
-// are included.
-func (s *Service) buildRankedSubgraph(graph *Graph, ranked []graphval.Score) Subgraph {
-	keep := make(map[string]bool, len(ranked))
-	nodes := make([]NodeInfo, 0, len(ranked))
-	for _, sc := range ranked {
-		node, ok := graph.NodesByID[sc.Name]
+// withinHops drops the region nodes that lie farther than hops undirected steps
+// from the seeds.
+//
+// The diffusion has no notion of distance: alpha decides how fast mass decays
+// with each step, not how many steps it may take, so a well-connected region
+// can reach several hops out at any alpha. The hops argument is a promise about
+// radius, and this is where it is kept.
+//
+// The walk is over the edge list handed to the diffusion rather than over the
+// Graph's own adjacency, so the two can never measure different graphs: whatever
+// diffusionEdges decides participates is what a hop is counted along.
+func withinHops(edges []localpartition.WeightedEdge, seedIDs, region []string, hops int) []string {
+	adj := make(map[string][]string, len(edges))
+	for _, e := range edges {
+		if e.From == e.To {
+			continue
+		}
+		adj[e.From] = append(adj[e.From], e.To)
+		adj[e.To] = append(adj[e.To], e.From)
+	}
+
+	reachable := make(map[string]bool, len(seedIDs))
+	frontier := make([]string, 0, len(seedIDs))
+	for _, id := range seedIDs {
+		if !reachable[id] {
+			reachable[id] = true
+			frontier = append(frontier, id)
+		}
+	}
+	for step := 0; step < hops && len(frontier) > 0; step++ {
+		var next []string
+		for _, id := range frontier {
+			for _, nbr := range adj[id] {
+				if reachable[nbr] {
+					continue
+				}
+				reachable[nbr] = true
+				next = append(next, nbr)
+			}
+		}
+		frontier = next
+	}
+
+	kept := make([]string, 0, len(region))
+	for _, id := range region {
+		if reachable[id] {
+			kept = append(kept, id)
+		}
+	}
+	return kept
+}
+
+// capByMass orders the region by diffusion mass and keeps at most max of it,
+// reporting whether anything was dropped. Ordering is part of the contract, not
+// just of the cap: consumers render and re-truncate the node list as given, so
+// the heaviest nodes have to come first. Ties break on node ID, so the same
+// query returns the same nodes run to run.
+func capByMass(region []string, weights map[string]float64, max int) ([]string, bool) {
+	ordered := make([]string, len(region))
+	copy(ordered, region)
+	sort.Slice(ordered, func(i, j int) bool {
+		wi, wj := weights[ordered[i]], weights[ordered[j]]
+		if wi != wj {
+			return wi > wj
+		}
+		return ordered[i] < ordered[j]
+	})
+	if max > 0 && len(ordered) > max {
+		return ordered[:max], true
+	}
+	return ordered, false
+}
+
+// buildRegionSubgraph materialises the region node IDs into a Subgraph: nodes
+// stay in the mass order they arrive in, each carrying its diffusion mass as
+// Score, followed by the edges induced among them. A region node the graph
+// cannot resolve is skipped — edges may name a symbol that never became a node
+// of its own.
+func (s *Service) buildRegionSubgraph(graph *Graph, region []string, weights map[string]float64) Subgraph {
+	keep := make(map[string]bool, len(region))
+	nodes := make([]NodeInfo, 0, len(region))
+	for _, id := range region {
+		node, ok := graph.NodesByID[id]
 		if !ok {
 			continue
 		}
-		keep[sc.Name] = true
+		keep[id] = true
 		nodes = append(nodes, NodeInfo{
 			ID:        node.ID,
 			Kind:      node.Kind,
@@ -244,7 +376,7 @@ func (s *Service) buildRankedSubgraph(graph *Graph, ranked []graphval.Score) Sub
 			Line:      node.Span.StartLine,
 			Signature: node.Signature,
 			Doc:       truncateString(node.Doc, 200),
-			Score:     sc.Score,
+			Score:     weights[id],
 		})
 	}
 
@@ -253,6 +385,19 @@ func (s *Service) buildRankedSubgraph(graph *Graph, ranked []graphval.Score) Sub
 	for i, e := range rawEdges {
 		edges[i] = EdgeInfo{From: e.From, To: e.To, Kind: string(e.Kind)}
 	}
+	sortEdgeInfos(edges)
+
+	return Subgraph{Nodes: nodes, Edges: edges}
+}
+
+// emptySubgraph is the shape a query with nothing to say returns: empty, but
+// never nil, so a caller can marshal it without a nil-versus-[] special case.
+func emptySubgraph() Subgraph {
+	return Subgraph{Nodes: []NodeInfo{}, Edges: []EdgeInfo{}}
+}
+
+// sortEdgeInfos orders edges deterministically by endpoints then kind.
+func sortEdgeInfos(edges []EdgeInfo) {
 	sort.Slice(edges, func(i, j int) bool {
 		if edges[i].From != edges[j].From {
 			return edges[i].From < edges[j].From
@@ -262,8 +407,6 @@ func (s *Service) buildRankedSubgraph(graph *Graph, ranked []graphval.Score) Sub
 		}
 		return edges[i].Kind < edges[j].Kind
 	})
-
-	return Subgraph{Nodes: nodes, Edges: edges}
 }
 
 // Expand performs BFS from the given node IDs up to hops steps.
@@ -274,7 +417,7 @@ func (s *Service) Expand(ctx context.Context, nodeIDs []string, hops int, edgeKi
 	s.mu.RUnlock()
 
 	if graph == nil {
-		return Subgraph{Nodes: []NodeInfo{}, Edges: []EdgeInfo{}}, nil
+		return emptySubgraph(), nil
 	}
 
 	// Convert edge kind strings
@@ -311,15 +454,7 @@ func (s *Service) Expand(ctx context.Context, nodeIDs []string, hops int, edgeKi
 	for i, e := range rawEdges {
 		edges[i] = EdgeInfo{From: e.From, To: e.To, Kind: string(e.Kind)}
 	}
-	sort.Slice(edges, func(i, j int) bool {
-		if edges[i].From != edges[j].From {
-			return edges[i].From < edges[j].From
-		}
-		if edges[i].To != edges[j].To {
-			return edges[i].To < edges[j].To
-		}
-		return edges[i].Kind < edges[j].Kind
-	})
+	sortEdgeInfos(edges)
 
 	return Subgraph{Nodes: nodes, Edges: edges}, nil
 }
@@ -359,15 +494,7 @@ func (s *Service) Node(ctx context.Context, id string) (NodeDetail, error) {
 	for _, e := range graph.Incoming[id] {
 		edges = append(edges, EdgeInfo{From: e.From, To: e.To, Kind: string(e.Kind)})
 	}
-	sort.Slice(edges, func(i, j int) bool {
-		if edges[i].From != edges[j].From {
-			return edges[i].From < edges[j].From
-		}
-		if edges[i].To != edges[j].To {
-			return edges[i].To < edges[j].To
-		}
-		return edges[i].Kind < edges[j].Kind
-	})
+	sortEdgeInfos(edges)
 
 	return NodeDetail{
 		NodeID:    node.ID,
@@ -395,31 +522,147 @@ func (s *Service) getNode(id string) (Node, bool) {
 	return node, ok
 }
 
-// rrfFuse combines dense and lexical results using Reciprocal Rank Fusion.
-func rrfFuse(dense, lexical []Scored, k float32) []Scored {
-	scores := make(map[string]float32)
+// fuseCalibrated combines the dense and lexical candidate lists into a single
+// calibrated relevance mass per candidate, sorted by mass descending.
+//
+// A cosine and a BM25 score sit on unrelated scales, so each channel is first
+// softmaxed into a probability mass over its own candidates; the two masses are
+// then mixed convexly with DenseWeight. The result is a distribution over the
+// candidate pool, which keeps the margin between hits — how far ahead the top
+// one actually was — and is what the graph diffusion downstream takes as its
+// personalization vector.
+//
+// When only one channel produced candidates it carries the full mass rather
+// than its convex share, so the distribution still sums to 1.
+func (s *Service) fuseCalibrated(query string, dense, lexical []Scored) []Scored {
+	denseMass := softmax(dense, s.params.DenseTemp)
+	lexMass := softmax(lexical, s.params.LexTemp)
 
-	// RRF score from dense results
-	for rank, r := range dense {
-		scores[r.ID] += 1.0 / (k + float32(rank+1))
+	var mass map[string]float64
+	switch {
+	case len(denseMass) == 0:
+		mass = lexMass
+	case len(lexMass) == 0:
+		mass = denseMass
+	default:
+		beta := s.params.DenseWeight
+		mass = make(map[string]float64, len(denseMass)+len(lexMass))
+		for id, m := range denseMass {
+			mass[id] += beta * m
+		}
+		for id, m := range lexMass {
+			mass[id] += (1 - beta) * m
+		}
 	}
 
-	// RRF score from lexical results
-	for rank, r := range lexical {
-		scores[r.ID] += 1.0 / (k + float32(rank+1))
-	}
+	s.applyExactNameFloor(mass, query)
 
-	// Convert to sorted slice
-	var fused []Scored
-	for id, score := range scores {
-		fused = append(fused, Scored{ID: id, Score: score})
+	fused := make([]Scored, 0, len(mass))
+	for id, m := range mass {
+		fused = append(fused, Scored{ID: id, Score: float32(m)})
 	}
-
 	sort.Slice(fused, func(i, j int) bool {
-		return fused[i].Score > fused[j].Score
+		if fused[i].Score != fused[j].Score {
+			return fused[i].Score > fused[j].Score
+		}
+		return fused[i].ID < fused[j].ID
 	})
 
 	return fused
+}
+
+// softmax turns a channel's raw scores into a probability mass over its
+// candidates. temp controls sharpness: a low temperature concentrates the mass
+// on the leading scores, a high one flattens toward uniform. The maximum score
+// is subtracted before exponentiating, the standard overflow guard.
+func softmax(scored []Scored, temp float64) map[string]float64 {
+	if len(scored) == 0 {
+		return nil
+	}
+	if temp <= 0 {
+		temp = 1
+	}
+
+	top := math.Inf(-1)
+	for _, sc := range scored {
+		if v := float64(sc.Score); v > top {
+			top = v
+		}
+	}
+
+	mass := make(map[string]float64, len(scored))
+	for _, sc := range scored {
+		mass[sc.ID] = math.Exp((float64(sc.Score) - top) / temp)
+	}
+
+	total := 0.0
+	for _, m := range mass {
+		total += m
+	}
+	if total <= 0 {
+		return mass
+	}
+	for id := range mass {
+		mass[id] /= total
+	}
+	return mass
+}
+
+// applyExactNameFloor lifts every candidate whose symbol name is literally a
+// token of the query to at least ExactNameBoost, then renormalizes the mass
+// back to 1. A softmax over a wide candidate pool can bury an exactly named
+// symbol under its semantic neighbours; the floor keeps a name the caller typed
+// verbatim in view without pinning it to the top.
+func (s *Service) applyExactNameFloor(mass map[string]float64, query string) {
+	floor := s.params.ExactNameBoost
+	if floor <= 0 || len(mass) == 0 {
+		return
+	}
+	tokens := queryTokens(query)
+	if len(tokens) == 0 {
+		return
+	}
+
+	lifted := false
+	for id, m := range mass {
+		if m >= floor {
+			continue
+		}
+		node, ok := s.getNode(id)
+		if !ok || !tokens[strings.ToLower(node.Name)] {
+			continue
+		}
+		mass[id] = floor
+		lifted = true
+	}
+	if !lifted {
+		return
+	}
+
+	total := 0.0
+	for _, m := range mass {
+		total += m
+	}
+	if total <= 0 {
+		return
+	}
+	for id := range mass {
+		mass[id] /= total
+	}
+}
+
+// queryTokens splits a query on everything that cannot appear in a Go
+// identifier and lowercases what is left, so "NewService(ctx)" yields
+// {newservice, ctx}.
+func queryTokens(query string) map[string]bool {
+	parts := strings.FieldsFunc(query, func(r rune) bool {
+		return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	tokens := make(map[string]bool, len(parts))
+	for _, p := range parts {
+		tokens[strings.ToLower(p)] = true
+	}
+	return tokens
 }
 
 // buildSnippet creates a snippet from signature + doc + first lines of body.

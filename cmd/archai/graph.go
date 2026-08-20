@@ -118,11 +118,11 @@ func graphTools() []toolCmd {
 		},
 		{
 			name:  "search_graph",
-			short: "Search returning a subgraph of seeds plus neighbors",
+			short: "Search returning the community around the hits",
 			flags: []argFlag{
 				{name: "query", kind: argString, path: "query", required: true, usage: "Search query"},
 				{name: "k", kind: argInt, path: "k", usage: "Max seed results (default 10)"},
-				{name: "hops", kind: argInt, path: "hops", usage: "Hops to expand from seeds (default 1)"},
+				{name: "hops", kind: argInt, path: "hops", usage: "Hard radius cap in edges from the seeds (default 1)"},
 			},
 		},
 		{

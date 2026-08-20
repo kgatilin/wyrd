@@ -12,53 +12,6 @@ import (
 	"github.com/kgatilin/archai/internal/domain"
 )
 
-// TestRRFFusion verifies RRF fusion produces correct ordering.
-func TestRRFFusion(t *testing.T) {
-	// Dense ranks: A > B > C
-	dense := []Scored{
-		{ID: "A", Score: 0.9},
-		{ID: "B", Score: 0.8},
-		{ID: "C", Score: 0.7},
-	}
-
-	// Lexical ranks: B > C > D
-	lexical := []Scored{
-		{ID: "B", Score: 10.0},
-		{ID: "C", Score: 8.0},
-		{ID: "D", Score: 5.0},
-	}
-
-	fused := rrfFuse(dense, lexical, 60)
-
-	// B appears in both (rank 2 in dense, rank 1 in lexical) -> highest RRF
-	// C appears in both (rank 3 in dense, rank 2 in lexical)
-	// A appears only in dense (rank 1)
-	// D appears only in lexical (rank 3)
-	// Expected order: B > C > A > D (or close, depends on RRF scores)
-
-	if len(fused) != 4 {
-		t.Fatalf("expected 4 fused results, got %d", len(fused))
-	}
-
-	// B should be first (best combined score)
-	if fused[0].ID != "B" {
-		t.Errorf("expected B first, got %s", fused[0].ID)
-	}
-
-	// C should be second
-	if fused[1].ID != "C" {
-		t.Errorf("expected C second, got %s", fused[1].ID)
-	}
-
-	// Verify scores are descending
-	for i := 1; i < len(fused); i++ {
-		if fused[i].Score > fused[i-1].Score {
-			t.Errorf("scores not descending at position %d: %f > %f",
-				i, fused[i].Score, fused[i-1].Score)
-		}
-	}
-}
-
 // TestExpandBFS tests graph expansion with hops and edge filtering.
 func TestExpandBFS(t *testing.T) {
 	// Build a test graph:
@@ -196,6 +149,12 @@ type FooService struct {}
 
 	if len(results) > 0 && results[0].NodeID != "internal/pkg.FooService" {
 		t.Errorf("expected FooService, got %s", results[0].NodeID)
+	}
+
+	// The lexical channel alone still carries the full mass, so a lone hit
+	// gets all of it rather than the (1−β) share of a convex mix.
+	if len(results) > 0 && (results[0].Score <= 0 || results[0].Score > 1) {
+		t.Errorf("score = %v, want a calibrated mass in (0,1]", results[0].Score)
 	}
 }
 
