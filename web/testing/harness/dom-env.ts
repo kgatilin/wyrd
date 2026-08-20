@@ -178,6 +178,13 @@ export interface MountOptions {
    */
   source?: (path: string) => { path?: string; content: string; hash?: string };
   /**
+   * Answers GET /api/node/{id} — one symbol's declaration, as the wiring
+   * panel reads it. Return undefined for an id the graph has no node for
+   * (a field, an interface method): the panel acts on that, it is not an
+   * error.
+   */
+  node?: (id: string) => unknown;
+  /**
    * Answers GET /api/archmotif/report — the architecture review report.
    * `fresh` is what the reviewer's Refresh sends: rebuild rather than answer
    * from the daemon's warmed copy. Without a responder the panel reports a
@@ -219,6 +226,18 @@ export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promi
     if (url.includes('/api/source') && options?.source) {
       const file = new URLSearchParams(url.split('?')[1] ?? '').get('file') ?? '';
       return okJson({ path: file, ...options.source(file) });
+    }
+    if (url.includes('/api/node/') && options?.node) {
+      const found = options.node(decodeURIComponent(url.split('/api/node/')[1] ?? ''));
+      if (found == null) {
+        return {
+          ok: false,
+          status: 404,
+          json: async () => ({ error: 'node not found' }),
+          text: async () => 'node not found',
+        } as unknown as Response;
+      }
+      return okJson(found);
     }
     if (url.includes('/api/archmotif/report') && options?.report) {
       const base = new URLSearchParams(url.split('?')[1] ?? '').get('base') ?? '';

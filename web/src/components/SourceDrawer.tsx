@@ -9,6 +9,13 @@ export interface SourceDrawerState {
   content?: string;
   hash?: string;
   error?: string;
+  /**
+   * 1-based line to open the file at, when the caller had one — the
+   * declaration a symbol was opened from. The row is accented and scrolled
+   * into view; without it the file opens at the top, which is the wrong place
+   * in anything longer than a screen.
+   */
+  line?: number;
 }
 
 export interface SaveSourceResult {
@@ -29,10 +36,20 @@ export function SourceDrawer({ source, onClose, onSave }: SourceDrawerProps) {
   const [baseHash, setBaseHash] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const hitRef = useRef<HTMLTableRowElement | null>(null);
   const lines = useMemo(() => {
     if (source?.content == null) return [];
     return highlightedLines(source.path, source.content);
   }, [source?.content, source?.path]);
+
+  // Land on the line that was asked for. It runs after the table is on
+  // screen, and again when another symbol names another line in the same
+  // file, which is the walk from one declaration to the next.
+  useEffect(() => {
+    const row = hitRef.current;
+    if (!row || typeof row.scrollIntoView !== 'function') return;
+    row.scrollIntoView({ block: 'center' });
+  }, [source?.path, source?.status, source?.line, editing]);
 
   useEffect(() => {
     if (source?.status !== 'loaded') return;
@@ -115,14 +132,17 @@ export function SourceDrawer({ source, onClose, onSave }: SourceDrawerProps) {
         {source.status === 'loaded' && !editing && (
           <table className="hf-source-table">
             <tbody>
-              {(lines.length > 0 ? lines : ['']).map((line, idx) => (
-                <tr key={idx}>
+              {(lines.length > 0 ? lines : ['']).map((line, idx) => {
+                const hit = source.line != null && idx + 1 === source.line;
+                return (
+                <tr key={idx} ref={hit ? hitRef : undefined} className={hit ? 'hit' : undefined}>
                   <td className="hf-source-no">{idx + 1}</td>
                   <td className="hf-source-code">
                     <code dangerouslySetInnerHTML={{ __html: line || ' ' }} />
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

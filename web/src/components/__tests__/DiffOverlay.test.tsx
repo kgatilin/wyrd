@@ -90,12 +90,14 @@ function Harness({
   baseRef = 'main',
   open = true,
   onClose = () => {},
+  onOpenSourceFile = () => {},
   select,
 }: {
   worktree?: string;
   baseRef?: string;
   open?: boolean;
   onClose?: () => void;
+  onOpenSourceFile?: (path: string, line?: number) => void;
   /** A file asked for from outside, the way a card's ± button does. */
   select?: string;
 }) {
@@ -106,7 +108,14 @@ function Harness({
   }, [select, choose]);
   if (!open) return null;
   return (
-    <DiffOverlay session={session} graph={graph} worktree={worktree} baseRef={baseRef} onClose={onClose} />
+    <DiffOverlay
+      session={session}
+      graph={graph}
+      worktree={worktree}
+      baseRef={baseRef}
+      onOpenSourceFile={onOpenSourceFile}
+      onClose={onClose}
+    />
   );
 }
 

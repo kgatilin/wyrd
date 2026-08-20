@@ -24,6 +24,11 @@ export class SymbolWiringHarness extends ComponentHarness {
     return Promise.all(chips.map((chip) => chip.text()));
   }
 
+  /** The anchor's declaration block, above both columns. */
+  definition(): SymbolDefinitionHarness {
+    return new SymbolDefinitionHarness(this.root, this.env);
+  }
+
   incoming(): WiringColumnHarness {
     return new WiringColumnHarness(this.root, this.env, 'in');
   }
@@ -55,6 +60,73 @@ export class SymbolWiringHarness extends ComponentHarness {
   async emptyMessage(): Promise<string | null> {
     if ((await this.env.rootLocator('.hf-symbol-empty').count()) === 0) return null;
     return (await this.env.rootLocator('.hf-symbol-empty').first()).text();
+  }
+}
+
+/**
+ * The declaration block: where the anchor is written, its signature, and its
+ * own source.
+ */
+export class SymbolDefinitionHarness extends ComponentHarness {
+  async isPresent(): Promise<boolean> {
+    return (await this.env.rootLocator('.hf-symbol-def').count()) > 0;
+  }
+
+  /** `file:line` of the declaration; null while it is unknown. */
+  async location(): Promise<string | null> {
+    const button = this.env.rootLocator('.hf-symbol-def-open');
+    if ((await button.count()) === 0) return null;
+    return (await button.first()).text();
+  }
+
+  /** Open the whole file the anchor is declared in. */
+  async openFile(): Promise<void> {
+    await (await this.env.rootLocator('.hf-symbol-def-open').first()).click();
+  }
+
+  async signature(): Promise<string | null> {
+    const sig = this.env.rootLocator('.hf-symbol-def-sig');
+    if ((await sig.count()) === 0) return null;
+    return (await sig.first()).text();
+  }
+
+  async doc(): Promise<string | null> {
+    const doc = this.env.rootLocator('.hf-symbol-def-doc');
+    if ((await doc.count()) === 0) return null;
+    return (await doc.first()).text();
+  }
+
+  /** The declaration's source lines, in order. */
+  async sourceLines(): Promise<string[]> {
+    const rows = await this.env.rootLocator('.hf-symbol-def-src').all();
+    return Promise.all(rows.map((row) => row.text()));
+  }
+
+  /** Line numbers drawn next to the source — the file's, not the block's. */
+  async lineNumbers(): Promise<string[]> {
+    const rows = await this.env.rootLocator('.hf-symbol-def-no').all();
+    return Promise.all(rows.map((row) => row.text()));
+  }
+
+  /**
+   * The note shown when the declaration on screen is the type containing the
+   * anchor rather than the anchor itself; null when it is the anchor's own.
+   */
+  async fallbackNote(): Promise<string | null> {
+    const tag = this.env.rootLocator('.hf-symbol-def-tag');
+    if ((await tag.count()) === 0) return null;
+    return (await tag.first()).text();
+  }
+
+  /** Whatever the block says while it has no declaration to show. */
+  async state(): Promise<string | null> {
+    const state = this.env.rootLocator('.hf-symbol-def-state');
+    if ((await state.count()) === 0) return null;
+    return (await state.first()).text();
+  }
+
+  async toggleSource(): Promise<void> {
+    await (await this.env.rootLocator('.hf-symbol-def-toggle').first()).click();
   }
 }
 

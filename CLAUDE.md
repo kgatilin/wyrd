@@ -442,9 +442,32 @@ the right, each side grouped into the package the neighbour lives in.
 It replaced a BFS-over-the-whole-graph node/edge canvas that reliably
 produced a hairball of crossing curves.
 
+- **The declaration sits above both columns.** The panel is most often
+  opened from a name in someone else's file, where "what uses this" means
+  nothing until "what is this" is answered — so the block names the file and
+  line the symbol is written at, its signature, its doc and its own source
+  (`GET /w/<worktree>/api/node/<id>` → `retrieval.Service.Node`, the same
+  node the MCP `get_node` tool returns, body read from the indexed span).
+  Three consequences:
+  - **The panel's anchor id *is* the retrieval node id**, so there is no
+    lookup table: `{pkg}.{Symbol}` for a type or function,
+    `{pkg}.{Recv}.{Method}` for a method. A field and an interface method
+    are spans inside their type rather than nodes, so a 404 falls back to
+    the declaring type and the block says whose declaration it is showing
+    (`definitionLookupIds`, `web/src/domain/symbolDefinition.ts`).
+  - **The signature survives folding**; the source is capped at 240px and
+    scrolls, so a 300-line function never squeezes the wiring off the panel.
+    Line numbers are the file's, starting at the declaration.
+  - **`<> file:line` opens the whole file at that line** in the source
+    drawer, accented and scrolled to. Opened from the file diff it closes
+    the diff first — the drawer renders *under* that overlay, and the diff
+    session is cached in the app, so `Diff` returns to the same patch at the
+    same scroll.
 - **Depth is walked, not drawn.** A neighbour row re-anchors the panel on
   itself and pushes onto a back stack (`<` in the header, `Esc` closes).
   One hop at a time stays readable where a transitive closure never does.
+  Declarations read along the way are kept for the walk and dropped when the
+  model changes — a reparse can move a declaration.
 - **Cross-package is the finding.** Blocks whose package differs from the
   anchor's are accent-bordered, tagged, and sorted ahead of the anchor's
   own package; the header carries a cross-package count and a
@@ -460,8 +483,12 @@ produced a hairball of crossing curves.
   of view.
 - Model: `web/src/domain/symbolNeighborhood.ts` (pure, tested) — it also
   synthesizes the method-level `implements` pairs the graph only records
-  between struct and interface. View: `SymbolGraphOverlay.tsx`. Specs go
-  through `testing/harness/symbol-wiring.harness.ts`, never raw selectors.
+  between struct and interface; `web/src/domain/symbolDefinition.ts` +
+  `web/src/data/symbolDefinition.ts` for the declaration. View:
+  `SymbolGraphOverlay.tsx`. Specs go through
+  `testing/harness/symbol-wiring.harness.ts`, never raw selectors;
+  `mountAppDom` takes a `node` responder, so the DOM specs answer without a
+  daemon.
 - **The file diff opens it too.** Every identifier in a patch that the
   graph can resolve is clickable (`hf-code-sym`, underlined on hover); the
   wiring panel opens over the diff, so "what uses this?" is answered

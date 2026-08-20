@@ -614,10 +614,13 @@ function AppContent({
     dispatch({ type: 'ArchMotifCanvasOpened', scope: domainsScope });
   };
 
-  const openSourceFile = (path: string) => {
+  // `line` is where the file is opened at, when the caller knows one — a
+  // symbol's declaration. The path alone lands at the top of the file, which
+  // is the wrong place whenever the file is longer than a screen.
+  const openSourceFile = (path: string, line?: number) => {
     setSymbolFocus(null);
     const seq = ++sourceRequestSeq.current;
-    setSourceViewer({ path, status: 'loading' });
+    setSourceViewer({ path, status: 'loading', line });
     fetch(sourceAPIURL(path, activeWorktree))
       .then(async (res) => {
         if (!res.ok) {
@@ -628,7 +631,13 @@ function AppContent({
       })
       .then((data) => {
         if (sourceRequestSeq.current !== seq) return;
-        setSourceViewer({ path: data.path || path, status: 'loaded', content: data.content, hash: data.hash });
+        setSourceViewer({
+          path: data.path || path,
+          status: 'loaded',
+          content: data.content,
+          hash: data.hash,
+          line,
+        });
       })
       .catch((err: unknown) => {
         if (sourceRequestSeq.current !== seq) return;
@@ -636,6 +645,7 @@ function AppContent({
           path,
           status: 'error',
           error: err instanceof Error ? err.message : String(err),
+          line,
         });
       });
   };
@@ -1167,6 +1177,8 @@ function AppContent({
             <SymbolGraphOverlay
               graph={graph}
               target={symbolFocus}
+              worktree={activeWorktree}
+              onOpenFile={openSourceFile}
               onClose={() => setSymbolFocus(null)}
             />
           )}
@@ -1197,6 +1209,7 @@ function AppContent({
             graph={graph}
             worktree={activeWorktree}
             baseRef={reviewBaseRef}
+            onOpenSourceFile={openSourceFile}
             onClose={() => setDiffOpen(false)}
           />
         )}

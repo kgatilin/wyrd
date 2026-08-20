@@ -1517,6 +1517,131 @@ body {
   background: var(--accent-bg);
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
+/* the anchor's own declaration, above both columns */
+.hf-symbol-def {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--line-1);
+  background: var(--bg-1);
+}
+.hf-symbol-def-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.hf-symbol-def-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-1);
+}
+.hf-symbol-def-open {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  background: var(--bg-3);
+  color: var(--fg-1);
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hf-symbol-def-open:hover {
+  color: var(--fg-0);
+  border-color: var(--accent);
+}
+.hf-symbol-def-icon { color: var(--accent); }
+.hf-symbol-def-tag {
+  flex: none;
+  font-size: 9px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.hf-symbol-def-toggle {
+  margin-left: auto;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-3);
+  color: var(--fg-2);
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+}
+.hf-symbol-def-toggle:hover {
+  color: var(--fg-0);
+  border-color: var(--accent);
+}
+.hf-symbol-def-state {
+  padding: 0 12px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-2);
+}
+.hf-symbol-def-state.error { color: var(--rem-fg); }
+.hf-symbol-def-sig {
+  display: block;
+  padding: 0 12px 7px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-0);
+  word-break: break-word;
+}
+.hf-symbol-def-doc {
+  padding: 0 12px 7px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+}
+/* the declaration's own source: capped, so a long body never squeezes the
+   wiring it was meant to explain off the panel */
+.hf-symbol-def-code {
+  max-height: 240px;
+  overflow: auto;
+  border-top: 1px solid var(--line-1);
+  background: var(--bg-0);
+}
+.hf-symbol-def-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.hf-symbol-def-no {
+  width: 1%;
+  padding: 0 10px 0 12px;
+  text-align: right;
+  color: var(--fg-3);
+  user-select: none;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.hf-symbol-def-src {
+  padding: 0 12px 0 0;
+  color: var(--fg-1);
+  white-space: pre;
+}
+
 .hf-symbol-empty {
   flex: 1;
   display: grid;
@@ -1982,6 +2107,8 @@ body {
   border-bottom: 1px solid var(--line-1);
   background: var(--bg-2);
 }
+.hf-source-table tr.hit { background: var(--accent-bg); }
+.hf-source-table tr.hit .hf-source-no { color: var(--accent); }
 .hf-source-title {
   min-width: 0;
   flex: 1;

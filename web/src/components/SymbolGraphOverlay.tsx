@@ -1,7 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { UIGraph } from '../types';
 import type { SymbolFocusTarget } from '../domain/symbolFocus';
 import { componentPathPrefix } from '../domain/componentPath';
+import {
+  definitionLocation,
+  definitionLookupIds,
+  isDeclaringTypeFallback,
+  type DefinitionAnchor,
+  type SymbolDefinition,
+} from '../domain/symbolDefinition';
+import { fetchSymbolDefinition } from '../data/symbolDefinition';
+import { highlightedLines } from './highlight';
 import {
   buildNeighborhood,
   toTarget,
@@ -13,6 +22,13 @@ import {
 export interface SymbolGraphOverlayProps {
   graph: UIGraph;
   target: SymbolFocusTarget;
+  /** Worktree the declaration is read from; empty means the served root. */
+  worktree: string;
+  /**
+   * Open the whole file a symbol is declared in, at the declaration. The panel
+   * shows the declaration itself; this is for the rest of the file around it.
+   */
+  onOpenFile: (path: string, line?: number) => void;
   onClose: () => void;
 }
 
@@ -22,10 +38,15 @@ export interface SymbolGraphOverlayProps {
  * the package the neighbour lives in. Depth comes from walking — clicking a
  * neighbour re-anchors the panel on it — so the view never degrades into the
  * reachable closure.
+ *
+ * Above both columns sits the symbol's own declaration, because the panel is
+ * most often opened from a name in someone else's file: what it is has to be
+ * answered before what is around it means anything.
  */
-export function SymbolGraphOverlay({ graph, target, onClose }: SymbolGraphOverlayProps) {
+export function SymbolGraphOverlay({ graph, target, worktree, onOpenFile, onClose }: SymbolGraphOverlayProps) {
   const [trail, setTrail] = useState<SymbolFocusTarget[]>([target]);
   const [crossOnly, setCrossOnly] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(true);
   useEffect(() => setTrail([target]), [target]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -38,6 +59,7 @@ export function SymbolGraphOverlay({ graph, target, onClose }: SymbolGraphOverla
   const current = trail[trail.length - 1];
   const model = useMemo(() => buildNeighborhood(graph, current), [graph, current]);
   const anchor = model.anchor;
+  const definition = useSymbolDefinition(anchor, worktree, graph);
   if (!anchor) return null;
 
   const walk = (next: SymbolFocusTarget) => setTrail((prev) => [...prev, next]);
@@ -86,6 +108,14 @@ export function SymbolGraphOverlay({ graph, target, onClose }: SymbolGraphOverla
           </button>
         </div>
 
+        <Definition
+          state={definition}
+          anchor={anchor}
+          open={sourceOpen}
+          onToggle={() => setSourceOpen((on) => !on)}
+          onOpenFile={onOpenFile}
+        />
+
         {empty ? (
           <div className="hf-symbol-empty">No first-level relations recorded for this symbol.</div>
         ) : (
@@ -110,6 +140,158 @@ export function SymbolGraphOverlay({ graph, target, onClose }: SymbolGraphOverla
         )}
       </div>
     </div>
+  );
+}
+
+/** What the panel knows about the anchor's declaration right now. */
+type DefinitionState =
+  | { status: 'loading' }
+  | { status: 'ready'; definition: SymbolDefinition }
+  | { status: 'missing' }
+  | { status: 'error'; error: string };
+
+/**
+ * Read the anchor's declaration from the daemon, one lookup per anchor.
+ *
+ * Answers are kept for the walk: a trail runs back and forth over the same
+ * few symbols, and re-reading a declaration only to redraw the same block is
+ * a flash of "reading..." for nothing. They are dropped when the model
+ * changes, since a reparse can move a declaration or delete it. Failures are
+ * not kept — a daemon that was busy is worth asking again.
+ */
+function useSymbolDefinition(
+  anchor: DefinitionAnchor | null,
+  worktree: string,
+  graph: UIGraph
+): DefinitionState {
+  const cache = useRef<{ graph: UIGraph | null; entries: Map<string, DefinitionState> }>({
+    graph: null,
+    entries: new Map(),
+  });
+  const [state, setState] = useState<DefinitionState>({ status: 'loading' });
+  const id = anchor?.id ?? '';
+  const internalId = anchor?.internalId ?? '';
+  const memberId = anchor?.memberId;
+
+  useEffect(() => {
+    if (cache.current.graph !== graph) cache.current = { graph, entries: new Map() };
+    if (!id) return;
+    const cached = cache.current.entries.get(id);
+    if (cached) {
+      setState(cached);
+      return;
+    }
+    let live = true;
+    setState({ status: 'loading' });
+    const remember = (next: DefinitionState) => {
+      cache.current.entries.set(id, next);
+      setState(next);
+    };
+    void (async () => {
+      try {
+        for (const lookup of definitionLookupIds({ id, internalId, memberId })) {
+          const found = await fetchSymbolDefinition(lookup, worktree);
+          if (!live) return;
+          if (found) {
+            remember({ status: 'ready', definition: found });
+            return;
+          }
+        }
+        remember({ status: 'missing' });
+      } catch (err) {
+        if (!live) return;
+        setState({ status: 'error', error: err instanceof Error ? err.message : String(err) });
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [id, internalId, memberId, worktree, graph]);
+
+  return state;
+}
+
+/**
+ * The anchor's declaration: where it is written, its signature, its doc and
+ * its own source. The signature stays visible when the source is folded away —
+ * it is the one line that says what the symbol is.
+ */
+function Definition({
+  state,
+  anchor,
+  open,
+  onToggle,
+  onOpenFile,
+}: {
+  state: DefinitionState;
+  anchor: DefinitionAnchor;
+  open: boolean;
+  onToggle: () => void;
+  onOpenFile: (path: string, line?: number) => void;
+}) {
+  const definition = state.status === 'ready' ? state.definition : null;
+  const lines = useMemo(
+    () => (definition?.body ? highlightedLines(definition.file, definition.body) : []),
+    [definition?.body, definition?.file]
+  );
+  const first = Math.max(definition?.line ?? 1, 1);
+
+  return (
+    <section className={`hf-symbol-def ${open ? 'open' : 'folded'}`}>
+      <div className="hf-symbol-def-head">
+        <span className="hf-symbol-def-label">Definition</span>
+        {definition && definition.file && (
+          <button
+            className="hf-symbol-def-open"
+            onClick={() => onOpenFile(definition.file, definition.line)}
+            title="Open the whole file at this declaration"
+          >
+            <span className="hf-symbol-def-icon">&lt;&gt;</span>
+            {definitionLocation(definition)}
+          </button>
+        )}
+        {definition && isDeclaringTypeFallback(definition, anchor) && (
+          <span
+            className="hf-symbol-def-tag"
+            title="The graph records no node for this member; what is shown is the type that declares it"
+          >
+            declared in {definition.name}
+          </span>
+        )}
+        <button
+          className="hf-symbol-def-toggle"
+          onClick={onToggle}
+          title={open ? 'Fold the source away' : 'Show the source'}
+        >
+          {open ? '−' : '+'}
+        </button>
+      </div>
+
+      {state.status === 'loading' && <div className="hf-symbol-def-state">Reading the declaration...</div>}
+      {state.status === 'missing' && (
+        <div className="hf-symbol-def-state">No declaration recorded for this symbol.</div>
+      )}
+      {state.status === 'error' && <div className="hf-symbol-def-state error">{state.error}</div>}
+
+      {definition?.signature && <code className="hf-symbol-def-sig">{definition.signature}</code>}
+      {open && definition?.doc && <div className="hf-symbol-def-doc">{definition.doc}</div>}
+      {open && lines.length > 0 && (
+        <div className="hf-symbol-def-code">
+          <table className="hf-symbol-def-table">
+            <tbody>
+              {lines.map((line, idx) => (
+                <tr key={idx}>
+                  <td className="hf-symbol-def-no">{first + idx}</td>
+                  <td className="hf-symbol-def-src">
+                    <code dangerouslySetInnerHTML={{ __html: line || ' ' }} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -174,6 +174,13 @@ export interface DiffOverlayProps {
   worktree: string;
   /** Review base ref the diff is taken against (e.g. "main"). */
   baseRef: string;
+  /**
+   * Open a whole file, at a line when one is known. Reading a file means
+   * leaving the patch: the source drawer lives under this overlay, not over
+   * it. The diff session is cached in the app, so `Diff` comes back to the
+   * same file at the same scroll.
+   */
+  onOpenSourceFile: (path: string, line?: number) => void;
   onClose: () => void;
 }
 
@@ -185,7 +192,14 @@ export interface DiffOverlayProps {
  * It renders the session and reports back into it; it owns no diff state of
  * its own, so it can be unmounted on close without costing anything.
  */
-export function DiffOverlay({ session, graph, worktree, baseRef, onClose }: DiffOverlayProps) {
+export function DiffOverlay({
+  session,
+  graph,
+  worktree,
+  baseRef,
+  onOpenSourceFile,
+  onClose,
+}: DiffOverlayProps) {
   const { diff, status, error, groupMode, selected, collapsed, scroll } = session;
   const { setGroupMode, select, toggleGroup, reload } = session;
   const patchRef = useRef<HTMLDivElement | null>(null);
@@ -382,7 +396,17 @@ export function DiffOverlay({ session, graph, worktree, baseRef, onClose }: Diff
       )}
 
       {symbolFocus && (
-        <SymbolGraphOverlay graph={graph} target={symbolFocus} onClose={() => setSymbolFocus(null)} />
+        <SymbolGraphOverlay
+          graph={graph}
+          target={symbolFocus}
+          worktree={worktree}
+          onOpenFile={(path, line) => {
+            setSymbolFocus(null);
+            onClose();
+            onOpenSourceFile(path, line);
+          }}
+          onClose={() => setSymbolFocus(null)}
+        />
       )}
     </div>
   );
