@@ -71,6 +71,9 @@ jobs:
             done
           done
           rm -rf dist/stage
+          # The installer is published alongside the binaries so a pinned
+          # release can be installed with the script it shipped with.
+          cp install.sh dist/
           ( cd dist && sha256sum *.tar.gz > checksums.txt )
           ls -lh dist
 
@@ -79,20 +82,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          notes=$(cat <<'NOTES'
+          notes=$(cat <<NOTES
+          ## Install
+
+          \`\`\`
+          curl -fsSL https://raw.githubusercontent.com/kgatilin/archai/main/install.sh | sh -s -- --version $VERSION
+          \`\`\`
+
+          Or take a tarball below. \`go install\` does not work for this project —
+          the review UI is embedded from \`web/dist\`, which is not in the module zip.
+
           ## Binaries
 
           | Artifact | What it is |
           |---|---|
-          | `archai_*` | Full archai: code graph, MCP server, review UI, diagram generation. |
-          | `archai-check_*` | Validation only — overlay layer rules, dependency policy, target drift. ~6x smaller, no UI or renderer linked in. Use it in CI. |
+          | \`archai_*\` | Full archai: code graph, MCP server, review UI, diagram generation. |
+          | \`archai-check_*\` | The architecture gates only — overlay layer rules and dependency policy. ~6x smaller, no UI or renderer linked in. Use it in CI. |
 
-          ```
-          archai-check all       # overlay + dependency-policy gates, non-zero on violations
-          archai-check overlay   # layer rules only
-          archai-check policy    # dependency policy only
-          archai-check target    # drift against a locked target
-          ```
+          \`\`\`
+          archai daemon start    # parse the repo, print the review URL
+          archai-check all       # layer-rule + dependency-policy gates, non-zero on violations
+          \`\`\`
           NOTES
           )
           if gh release view "$VERSION" >/dev/null 2>&1; then

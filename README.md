@@ -37,8 +37,25 @@ its patch opens on it.
 
 ## Install
 
-The review UI is compiled into `archai` from `web/dist` — a build artifact, not
-committed — so the full binary is built from source. Needs Go 1.25+ and npm:
+```bash
+curl -fsSL https://raw.githubusercontent.com/kgatilin/archai/main/install.sh | sh
+```
+
+Grabs the latest release build for your platform, checks its sha256 against the
+release's `checksums.txt`, and drops the binary in `~/.local/bin`. Linux and
+darwin, amd64 and arm64; WSL counts as linux.
+
+```bash
+… | sh -s -- --all                    # archai and archai-check
+… | sh -s -- --dir /usr/local/bin     # somewhere else        [ARCHAI_INSTALL_DIR]
+… | sh -s -- --version v2.23.0        # pin a release         [ARCHAI_VERSION]
+```
+
+Or take the tarball yourself from
+[Releases](https://github.com/kgatilin/archai/releases).
+
+**Building from source** needs Go 1.25+ and npm — the review UI is compiled
+into the binary from `web/dist`:
 
 ```bash
 git clone https://github.com/kgatilin/archai.git
@@ -46,18 +63,12 @@ cd archai
 make build      # npm build, then go build → bin/archai
 ```
 
-`archai-check` embeds nothing, so it installs directly:
-
-```bash
-go install github.com/kgatilin/archai/cmd/archai-check@main
-```
-
-> **Do not use `@latest`.** The module path is `github.com/kgatilin/archai`
-> with no `/v2` suffix while the tags are `v2.x`, so the Go proxy ignores every
-> one of them and `@latest` resolves to **v1.9.0** — old enough to predate
-> `archai daemon`, which is how a fresh install ends up without half the
-> commands. `go install` cannot produce the full `archai` at all yet, for the
-> embed reason above. Both are being fixed; build from source meanwhile.
+> **`go install` is not a supported route, and `@latest` is actively wrong.**
+> `web/dist` is a build artifact and not in the module zip, so the `//go:embed`
+> of the review UI fails and the full `archai` cannot build that way at all.
+> On top of that the module path has no `/v2` suffix while the tags are `v2.x`,
+> so the Go proxy ignores every one of them and `@latest` resolves to
+> **v1.9.0** — old enough to predate `archai daemon`. Use the installer.
 
 ### Embeddings need Ollama
 
@@ -306,11 +317,14 @@ Each command exits non-zero when its gate fails and prints the offending edges,
 one per line.
 
 ```yaml
-- uses: actions/setup-go@v5
-  with:
-    go-version-file: go.mod
-- run: go run github.com/kgatilin/archai/cmd/archai-check@main all   # not @latest — see Install
+- run: |
+    curl -fsSL https://raw.githubusercontent.com/kgatilin/archai/main/install.sh \
+      | sh -s -- --check
+    "$HOME/.local/bin/archai-check" all
 ```
+
+The gate step needs neither Go nor Node on the runner — it downloads one
+static binary and runs it.
 
 The gates live in `internal/check` and are shared with `archai overlay check`
 and `archai policy check`, so the binary you run locally and the binary CI runs
