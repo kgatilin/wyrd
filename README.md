@@ -37,17 +37,27 @@ its patch opens on it.
 
 ## Install
 
-```bash
-# Everything: code graph, review UI, MCP server, diagram generation.
-go install github.com/kgatilin/archai/cmd/archai@latest
+The review UI is compiled into `archai` from `web/dist` — a build artifact, not
+committed — so the full binary is built from source. Needs Go 1.25+ and npm:
 
-# The CI gate on its own — builds without Node, ~8.9 MB.
-go install github.com/kgatilin/archai/cmd/archai-check@latest
+```bash
+git clone https://github.com/kgatilin/archai.git
+cd archai
+make build      # npm build, then go build → bin/archai
 ```
 
-Tagged releases publish prebuilt tarballs for linux and darwin on amd64 and
-arm64, with checksums: <https://github.com/kgatilin/archai/releases>.
-Building from source needs Go 1.25+ (and npm for the embedded review UI).
+`archai-check` embeds nothing, so it installs directly:
+
+```bash
+go install github.com/kgatilin/archai/cmd/archai-check@main
+```
+
+> **Do not use `@latest`.** The module path is `github.com/kgatilin/archai`
+> with no `/v2` suffix while the tags are `v2.x`, so the Go proxy ignores every
+> one of them and `@latest` resolves to **v1.9.0** — old enough to predate
+> `archai daemon`, which is how a fresh install ends up without half the
+> commands. `go install` cannot produce the full `archai` at all yet, for the
+> embed reason above. Both are being fixed; build from source meanwhile.
 
 ### Embeddings need Ollama
 
@@ -299,7 +309,7 @@ one per line.
 - uses: actions/setup-go@v5
   with:
     go-version-file: go.mod
-- run: go run github.com/kgatilin/archai/cmd/archai-check@latest all
+- run: go run github.com/kgatilin/archai/cmd/archai-check@main all   # not @latest — see Install
 ```
 
 The gates live in `internal/check` and are shared with `archai overlay check`
