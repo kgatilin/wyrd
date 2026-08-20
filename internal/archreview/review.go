@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	archmotifadapter "github.com/kgatilin/archai/internal/adapter/archmotif"
 	"github.com/kgatilin/archai/internal/diff"
 )
 
@@ -488,18 +489,9 @@ func reviewOrphans(head *side, ports portRules, added func(symbol) bool) Section
 	)
 }
 
-// trophicVerdict names an incoherence value. The thresholds are the
-// trophic_layers lens's, kept identical so the panel and the lens cannot call
-// the same number by two different words.
+// trophicVerdict names an incoherence value in the report's voice: the
+// trophic_layers lens's own vocabulary with its underscores opened up, so the
+// panel and the lens cannot call the same number by two different words.
 func trophicVerdict(f0 float64) string {
-	switch {
-	case f0 < 0.05:
-		return "layered"
-	case f0 < 0.25:
-		return "mostly layered"
-	case f0 < 0.45:
-		return "partially layered"
-	default:
-		return "tangled"
-	}
+	return strings.ReplaceAll(archmotifadapter.TrophicVerdict(f0), "_", " ")
 }

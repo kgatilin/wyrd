@@ -3249,20 +3249,6 @@ type trophicLayersResponse struct {
 	BackwardEdgeCount int                   `json:"backward_edge_count"`
 }
 
-// trophicVerdict maps the incoherence F0 to a human-readable verdict.
-func trophicVerdict(f0 float64) string {
-	switch {
-	case f0 < 0.05:
-		return "layered"
-	case f0 < 0.25:
-		return "mostly_layered"
-	case f0 < 0.45:
-		return "partially_layered"
-	default:
-		return "tangled"
-	}
-}
-
 func handleTrophicLayers(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
 	var args trophicLayersArgs
 	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
@@ -3363,7 +3349,7 @@ func handleTrophicLayers(state *serve.State, rawArgs json.RawMessage) (ToolResul
 		EdgeCount:     result.EdgeCount,
 		Coherence: trophicCoherence{
 			F0:      result.IncoherenceF0,
-			Verdict: trophicVerdict(result.IncoherenceF0),
+			Verdict: archmotifAdapter.TrophicVerdict(result.IncoherenceF0),
 		},
 		LayerCount:        result.LayerCount,
 		Layers:            layers,
