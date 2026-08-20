@@ -177,6 +177,13 @@ export interface MountOptions {
    * error, which is itself a state worth testing.
    */
   source?: (path: string) => { path?: string; content: string; hash?: string };
+  /**
+   * Answers POST /api/mcp/tools/call — the daemon's analysis lenses. Return
+   * the payload; the MCP ToolResult envelope is added here, so a spec writes
+   * the tool's own shape. Without it the domains canvas reports the lens
+   * failed, which is itself a state worth testing.
+   */
+  lens?: (name: string, args: Record<string, unknown>) => unknown;
 }
 
 export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promise<DomEnvironment> {
@@ -196,6 +203,14 @@ export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promi
     if (url.includes('/api/source') && options?.source) {
       const file = new URLSearchParams(url.split('?')[1] ?? '').get('file') ?? '';
       return okJson({ path: file, ...options.source(file) });
+    }
+    if (url.includes('/api/mcp/tools/call') && options?.lens) {
+      const body = JSON.parse(String(init?.body ?? '{}')) as {
+        name?: string;
+        arguments?: Record<string, unknown>;
+      };
+      const payload = options.lens(body.name ?? '', body.arguments ?? {});
+      return okJson({ content: [{ type: 'text', text: JSON.stringify(payload) }] });
     }
     if (url.includes('/api/search') && options?.search) {
       const body = JSON.parse(String(init?.body ?? '{}')) as { query?: string; k?: number };

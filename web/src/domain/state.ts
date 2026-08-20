@@ -39,6 +39,29 @@ export interface Interaction {
   showInlineSignatures: boolean;
 }
 
+/**
+ * Which node set the domains canvas puts through `latent_domains`. `diff` is
+ * the change region the branch pulls on, `repo` the whole repository, and
+ * `package` one package — the entry the panel's god-package row uses.
+ */
+export type ArchMotifScopeKind = 'diff' | 'repo' | 'package';
+
+export interface ArchMotifScope {
+  kind: ArchMotifScopeKind;
+  package?: string;
+}
+
+/**
+ * The domains canvas: structural clusters × semantic clusters as a grid. Only
+ * what is being asked for lives here — the answer itself is fetched by the
+ * canvas, like the file diff, because it is a view over the review rather
+ * than part of the review's state machine.
+ */
+export interface ArchMotifCanvasState {
+  open: boolean;
+  scope: ArchMotifScope;
+}
+
 export interface AppUI {
   theme: 'dark' | 'light';
   focusId: string | null;
@@ -49,6 +72,8 @@ export interface AppUI {
   leftCollapsed: boolean;
   /** ArchMotif metrics panel is open as an overlay over the canvas. */
   archMotifOpen: boolean;
+  /** ArchMotif domains canvas — replaces the review canvas while open. */
+  archMotifCanvas: ArchMotifCanvasState;
   activeChangeId: string | null;
   activeMarkerId: string | null;
   zoom: number;
@@ -142,6 +167,7 @@ export const initialState: AppState = {
     leftTab: 'review',
     leftCollapsed: false,
     archMotifOpen: false,
+    archMotifCanvas: { open: false, scope: { kind: 'diff' } },
     activeChangeId: null,
     activeMarkerId: null,
     zoom: 1,

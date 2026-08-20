@@ -3,7 +3,7 @@ import type { AskHit, RawAskHit } from './ask';
 import type { ChangeEntry } from './derive';
 import type { LayoutPins } from './layoutPins';
 import type { ReviewDefaults } from './reviewDefaults';
-import type { CardDensity, Marker, ReviewChangeFilter, ReviewImpactMode } from './state';
+import type { ArchMotifScope, CardDensity, Marker, ReviewChangeFilter, ReviewImpactMode } from './state';
 
 /** Identifies which canvas object a context-tree row points at. Canonical home (was components/Tree). */
 export interface TreeFocusTarget {
@@ -23,6 +23,9 @@ export type Event =
   | { type: 'LeftTabChanged'; tab: 'review' | 'ask' }
   | { type: 'LeftCollapsedToggled' }
   | { type: 'ArchMotifToggled' }
+  | { type: 'ArchMotifCanvasOpened'; scope: ArchMotifScope }
+  | { type: 'ArchMotifCanvasClosed' }
+  | { type: 'ArchMotifScopeChanged'; scope: ArchMotifScope }
   | { type: 'ZoomChanged'; zoom: number }
   | { type: 'ZoomFitRequested' }
   | { type: 'ReviewViewChanged'; id: string }

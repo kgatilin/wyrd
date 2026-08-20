@@ -26,6 +26,10 @@ type latentDomainsArgs struct {
 	Selector spectralSelector `json:"selector"`
 	K        any              `json:"k"`   // "auto" or integer; applied to the semantic side, mirrored on the structural side
 	KNN      int              `json:"knn"` // k nearest neighbors for the semantic similarity graph
+	// IncludeMembers switches the lens from its verdict rendering to the full
+	// partition as JSON: every member of every cluster on BOTH sides, ids only.
+	// See buildClusterMembers for why that is opt-in.
+	IncludeMembers bool `json:"include_members"`
 }
 
 type latentDomainsPartition struct {
@@ -60,7 +64,7 @@ type latentDomainsResponse struct {
 	Semantic     latentDomainsPartition `json:"semantic"`
 	Agreement    latentDomainsAgreement `json:"agreement"`
 	Glue         latentDomainsGlue      `json:"glue"`
-	DroppedNodes int                    `json:"dropped_nodes"`          // selected nodes without embeddings
+	DroppedNodes int                    `json:"dropped_nodes"`         // selected nodes without embeddings
 	DiffRegion   *diffRegionMeta        `json:"diff_region,omitempty"` // present when selector.diff scoped the analysis
 }
 
@@ -88,6 +92,29 @@ func buildClusterSummaries(clusters []spectralcluster.Cluster) []spectralCluster
 			info.Truncated = true
 		}
 		out[i] = info
+	}
+	return out
+}
+
+// buildClusterMembers dumps every member of every cluster, uncapped — the
+// partition itself rather than a sample of it. It backs include_members, which
+// exists for ONE caller shape: a program that draws the two partitions against
+// each other (the review UI's domains canvas plots structural clusters × semantic
+// clusters as a contingency grid, so it needs both memberships or it has no
+// grid). That is also why include_members switches the result to JSON: the
+// rendered text is a verdict for a reader, and a grid cannot be recovered from
+// it.
+//
+// It stays opt-in because the dump compounds 2×K and is unbounded in the node
+// count, which is exactly what buildClusterSummaries was introduced to avoid for
+// the default (agent-facing) call. Dispatch's maxResultBytes ceiling still
+// applies: an over-budget region comes back as the oversize envelope, telling
+// the caller to narrow the selector rather than silently truncating a partition.
+func buildClusterMembers(clusters []spectralcluster.Cluster) []spectralClusterInfo {
+	out := make([]spectralClusterInfo, len(clusters))
+	for i, c := range clusters {
+		members := mapNodeIDsToSymbols(c.Members)
+		out[i] = spectralClusterInfo{ID: c.ID, Size: len(members), Members: members}
 	}
 	return out
 }
@@ -281,6 +308,11 @@ func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResul
 	structShare := dominantShare(structResult.Clusters)
 	semShare := dominantShare(semResult.Clusters)
 
+	buildClusters := buildClusterSummaries
+	if args.IncludeMembers {
+		buildClusters = buildClusterMembers
+	}
+
 	verdict, note := latentVerdict(ami, structShare, semShare, semResult.ChosenK)
 
 	resp := latentDomainsResponse{
@@ -290,14 +322,14 @@ func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResul
 			ClusterCount:  len(structResult.Clusters),
 			DominantShare: roundTo(structShare, 3),
 			Modularity:    structResult.Modularity,
-			Clusters:      buildClusterSummaries(structResult.Clusters),
+			Clusters:      buildClusters(structResult.Clusters),
 		},
 		Semantic: latentDomainsPartition{
 			K:             semResult.ChosenK,
 			ClusterCount:  len(semResult.Clusters),
 			DominantShare: roundTo(semShare, 3),
 			Modularity:    semResult.Modularity,
-			Clusters:      buildClusterSummaries(semResult.Clusters),
+			Clusters:      buildClusters(semResult.Clusters),
 		},
 		Agreement: latentDomainsAgreement{AMI: roundTo(ami, 3), NMI: roundTo(nmi, 3), Verdict: verdict},
 		Glue: latentDomainsGlue{
@@ -307,6 +339,10 @@ func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResul
 		},
 		DroppedNodes: droppedCount,
 		DiffRegion:   diffMeta,
+	}
+	// A caller that asked for the membership is parsing it, not reading it.
+	if args.IncludeMembers {
+		return textResult(resp)
 	}
 	return text(renderLatentDomains(resp))
 }

@@ -8,6 +8,7 @@ import { CommentPopoverHarness } from './comment-popover.harness';
 import { MarkerHarness } from './marker.harness';
 import { SymbolWiringHarness } from './symbol-wiring.harness';
 import { AskPanelHarness } from './ask-panel.harness';
+import { ArchMotifCanvasHarness } from './archmotif-canvas.harness';
 import { DiffOverlayHarness } from './diff-overlay.harness';
 import { SourceDrawerHarness } from './source-drawer.harness';
 
@@ -45,6 +46,11 @@ export class AppHarness extends ComponentHarness {
 
   ask(): AskPanelHarness {
     return new AskPanelHarness(this.root, this.env);
+  }
+
+  /** The domains canvas (whether or not it is open). */
+  domains(): ArchMotifCanvasHarness {
+    return new ArchMotifCanvasHarness(this.root, this.env);
   }
 
   /** The file-diff overlay (whether or not it is open). */
