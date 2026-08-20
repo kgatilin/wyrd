@@ -8,6 +8,7 @@ import {
   type ArchReport,
   type ReportAction,
   type ReportItem,
+  type ReportMode,
   type ReportSection,
 } from '../domain/archReport';
 
@@ -167,7 +168,7 @@ export function ArchMotifPanel({ session, onAction }: ArchMotifPanelProps) {
       {note && <div className="hf-report-index">{note}</div>}
 
       {report.sections.map((section) => (
-        <SectionView key={section.id} section={section} onAction={onAction} />
+        <SectionView key={section.id} mode={report.mode} section={section} onAction={onAction} />
       ))}
 
       <div className="hf-report-totals">{totalsLabel(report.totals)}</div>
@@ -176,9 +177,11 @@ export function ArchMotifPanel({ session, onAction }: ArchMotifPanelProps) {
 }
 
 function SectionView({
+  mode,
   section,
   onAction,
 }: {
+  mode: ReportMode;
   section: ReportSection;
   onAction: (action: ReportAction) => void;
 }) {
@@ -198,7 +201,13 @@ function SectionView({
       </div>
       <div className="hf-report-summary">{section.summary}</div>
       {section.items.map((item, index) => (
-        <RowView key={`${section.id}:${index}`} section={section} item={item} onAction={onAction} />
+        <RowView
+          key={`${section.id}:${index}`}
+          mode={mode}
+          section={section}
+          item={item}
+          onAction={onAction}
+        />
       ))}
       {section.more ? <div className="hf-report-more">and {section.more} more</div> : null}
     </section>
@@ -206,15 +215,17 @@ function SectionView({
 }
 
 function RowView({
+  mode,
   section,
   item,
   onAction,
 }: {
+  mode: ReportMode;
   section: ReportSection;
   item: ReportItem;
   onAction: (action: ReportAction) => void;
 }) {
-  const actions = rowActions(section, item);
+  const actions = rowActions(mode, section, item);
   return (
     <div className="hf-report-row">
       <button

@@ -194,6 +194,21 @@ const reviewReport: ArchReport = {
       ],
     },
     {
+      id: 'hotspot_growth',
+      title: 'Hotspot growth',
+      severity: 20,
+      state: 'flag',
+      count: 1,
+      summary: '1 hotspot grew',
+      items: [
+        {
+          text: 'internal/adapter/http/server.go — 31 declarations (+4)',
+          detail: 'already past the god-file threshold — put the new declarations elsewhere',
+          target: { file: 'internal/adapter/http/server.go', componentId: 'internal/adapter/http' },
+        },
+      ],
+    },
+    {
       id: 'orphans_new',
       title: 'Orphans',
       severity: 10,
@@ -402,10 +417,26 @@ describe('a report row is a gesture on the canvas', () => {
     expect(await wiring.anchorName()).toContain('Warm');
   });
 
-  it('opens a file’s patch, and reads the file from the button beside it', async () => {
+  it('reads a repo-mode file, where there is no base and so no patch', async () => {
     const { env, app, panel } = await mount();
     const row = await (await panel.section('god_files')).row(
       'internal/adapter/http/server.go — 31 declarations'
+    );
+    // The patch stays on the row; it is the reading that comes first here.
+    expect(await row.actions()).toEqual(['diff', 'focus']);
+
+    await row.click();
+    const drawer = app.sourceDrawer();
+    await env.waitUntil(async () => (await drawer.path()) != null, {
+      message: 'the source drawer never opened',
+    });
+    expect(await drawer.path()).toBe('internal/adapter/http/server.go');
+  });
+
+  it('opens a changed file at its patch in review mode', async () => {
+    const { env, app, panel } = await mount(reviewReport);
+    const row = await (await panel.section('hotspot_growth')).row(
+      'internal/adapter/http/server.go — 31 declarations (+4)'
     );
     expect(await row.actions()).toEqual(['source', 'focus']);
 

@@ -527,11 +527,13 @@ to do about it, and where to click.
 - **A row's gesture is read off the shape of its target.** `rowActions`
   (`web/src/domain/archReport.ts`, pure and tested) looks at `target`: edges
   accent them on the canvas, `internalId` opens the wiring panel, `file` opens
-  its patch (with `<>` beside it for the source), a bare `componentId` focuses
-  the package. A section the server grows later inherits the mapping without a
-  client change. The one exception is the god-package row, which also offers
-  `Domains` — the jump into the domains canvas scoped to that package, because
-  the action there is the section's finding rather than the target's shape.
+  it, a bare `componentId` focuses the package. A section the server grows
+  later inherits the mapping without a client change. Two things the target
+  shape cannot say come from elsewhere: the mode decides which way round a file
+  row reads (review mode opens the patch, since the finding is that a *changed*
+  file grew; repo mode has no base and opens the code — the other gesture stays
+  on the row either way), and the god-package row also offers `Domains`, the
+  jump into the domains canvas scoped to that package.
 - Ids need no translation anywhere in the client: the server already writes
   `componentId` as a package path, `internalId` as `{package}.{Symbol}` and
   `file` as module-relative, which is what uigraph calls them.

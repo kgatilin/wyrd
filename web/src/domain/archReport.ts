@@ -104,8 +104,13 @@ export interface ReportRowActions {
 /**
  * The gestures a row offers, most specific target first: a row about edges
  * highlights them, a row about a symbol opens its wiring, a row about a file
- * opens its patch, and a row about nothing but a package puts that package on
- * the canvas.
+ * opens it, and a row about nothing but a package puts that package on the
+ * canvas.
+ *
+ * The mode decides which way round a file row reads. In review mode the
+ * finding is that a changed file grew, so the patch comes first; in repo mode
+ * there is no base and usually no patch, so the file itself does. Both
+ * gestures stay on the row either way.
  *
  * Reading the target rather than the section id is what keeps this one rule:
  * "New group cycles" and "Group cycles" are the same gesture because they
@@ -114,7 +119,11 @@ export interface ReportRowActions {
  * row, whose action — ask that package for its latent domains — is the
  * section's finding rather than the target's shape.
  */
-export function rowActions(section: ReportSection, item: ReportItem): ReportRowActions {
+export function rowActions(
+  mode: ReportMode,
+  section: ReportSection,
+  item: ReportItem
+): ReportRowActions {
   const target = item.target ?? {};
   const edges = edgesOf(target);
   const extra: ReportAction[] = [];
@@ -130,14 +139,22 @@ export function rowActions(section: ReportSection, item: ReportItem): ReportRowA
       ...(target.memberId ? { memberId: target.memberId } : {}),
     };
   } else if (target.file) {
-    primary = { kind: 'diff', file: target.file };
+    primary =
+      mode === 'review'
+        ? { kind: 'diff', file: target.file }
+        : { kind: 'source', file: target.file };
   } else if (target.componentId) {
     primary = { kind: 'focus', componentId: target.componentId };
   }
 
-  // A file is read as often as it is diffed: a repo-mode god file has no patch
-  // to show, and a reviewer looking at one wants the code either way.
-  if (target.file) extra.push({ kind: 'source', file: target.file });
+  // Whichever of the two the mode put first, the other stays available.
+  if (target.file) {
+    extra.push(
+      primary?.kind === 'diff'
+        ? { kind: 'source', file: target.file }
+        : { kind: 'diff', file: target.file }
+    );
+  }
 
   // Whatever else the row points at, the package it lives in is a place to
   // stand on the canvas.

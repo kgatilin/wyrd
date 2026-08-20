@@ -25,6 +25,7 @@ describe('rowActions', () => {
       { from: 'internal/adapter/http', to: 'internal/serve' },
     ];
     const actions = rowActions(
+      'repo',
       sectionOf('group_cycles'),
       itemOf({ edges, componentId: 'internal/adapter/http' })
     );
@@ -41,7 +42,7 @@ describe('rowActions', () => {
 
   it('falls back to the first edge’s source when a cycle names no package', () => {
     const edges = [{ from: 'a', to: 'b' }];
-    const actions = rowActions(sectionOf('group_cycles'), itemOf({ edges }));
+    const actions = rowActions('repo', sectionOf('group_cycles'), itemOf({ edges }));
     expect(actions.primary).toEqual({ kind: 'highlight', edges, focus: 'a' });
     expect(actions.extra).toEqual([]);
   });
@@ -49,6 +50,7 @@ describe('rowActions', () => {
   it('treats a single new dependency as a one-edge highlight', () => {
     const edge = { from: 'internal/adapter/mcp', to: 'internal/serve' };
     const actions = rowActions(
+      'review',
       sectionOf('edges_new'),
       itemOf({ edge, componentId: 'internal/adapter/mcp' })
     );
@@ -61,6 +63,7 @@ describe('rowActions', () => {
 
   it('opens a symbol’s wiring, and a member’s wiring scoped to the member', () => {
     const symbol = rowActions(
+      'repo',
       sectionOf('unused_exports'),
       itemOf({ componentId: 'internal/serve', internalId: 'internal/serve.Warm' })
     );
@@ -72,6 +75,7 @@ describe('rowActions', () => {
     expect(symbol.extra).toEqual([{ kind: 'focus', componentId: 'internal/serve' }]);
 
     const member = rowActions(
+      'repo',
       sectionOf('inversions'),
       itemOf({
         componentId: 'internal/serve',
@@ -87,26 +91,38 @@ describe('rowActions', () => {
     });
   });
 
-  it('opens a file’s patch, and offers to read the file next to it', () => {
-    const actions = rowActions(
-      sectionOf('god_files'),
-      itemOf({ file: 'internal/adapter/mcp/tools.go', componentId: 'internal/adapter/mcp' })
-    );
-    expect(actions.primary).toEqual({ kind: 'diff', file: 'internal/adapter/mcp/tools.go' });
-    expect(actions.extra).toEqual([
-      { kind: 'source', file: 'internal/adapter/mcp/tools.go' },
-      { kind: 'focus', componentId: 'internal/adapter/mcp' },
+  it('opens a changed file at its patch, and an unchanged one at its code', () => {
+    const target = {
+      file: 'internal/adapter/mcp/tools.go',
+      componentId: 'internal/adapter/mcp',
+    };
+
+    // Review mode: the finding is that a changed file grew.
+    const review = rowActions('review', sectionOf('hotspot_growth'), itemOf(target));
+    expect(review.primary).toEqual({ kind: 'diff', file: target.file });
+    expect(review.extra).toEqual([
+      { kind: 'source', file: target.file },
+      { kind: 'focus', componentId: target.componentId },
+    ]);
+
+    // Repo mode: no base, so usually no patch — the file itself comes first.
+    const repo = rowActions('repo', sectionOf('god_files'), itemOf(target));
+    expect(repo.primary).toEqual({ kind: 'source', file: target.file });
+    expect(repo.extra).toEqual([
+      { kind: 'diff', file: target.file },
+      { kind: 'focus', componentId: target.componentId },
     ]);
   });
 
   it('puts a bare package on the canvas', () => {
-    const actions = rowActions(sectionOf('islands'), itemOf({ componentId: 'internal/plugins' }));
+    const actions = rowActions('repo', sectionOf('islands'), itemOf({ componentId: 'internal/plugins' }));
     expect(actions.primary).toEqual({ kind: 'focus', componentId: 'internal/plugins' });
     expect(actions.extra).toEqual([]);
   });
 
   it('offers the domains canvas on a god package, and nowhere else', () => {
     const god = rowActions(
+      'repo',
       sectionOf('god_packages'),
       itemOf({ componentId: 'internal/adapter/mcp' })
     );
@@ -117,6 +133,7 @@ describe('rowActions', () => {
     // the action there is to put the new dependencies elsewhere, not to
     // re-cluster the package.
     const hotspot = rowActions(
+      'review',
       sectionOf('hotspot_growth'),
       itemOf({ componentId: 'internal/adapter/mcp' })
     );
@@ -124,7 +141,7 @@ describe('rowActions', () => {
   });
 
   it('leaves a row without a target unclickable', () => {
-    const actions = rowActions(sectionOf('impact'), itemOf({}));
+    const actions = rowActions('review', sectionOf('impact'), itemOf({}));
     expect(actions.primary).toBeNull();
     expect(actions.extra).toEqual([]);
   });
