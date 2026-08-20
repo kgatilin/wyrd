@@ -39,7 +39,7 @@ import { PinnedMarker } from './components/PinnedMarker';
 import type { SymbolFocusTarget } from './domain/symbolFocus';
 import type { ArchMotifScope } from './domain/state';
 import type { ReportAction } from './domain/archReport';
-import type { LensPort } from './domain/ports';
+import type { DomainsPort, LensPort } from './domain/ports';
 
 /**
  * Embed mode (?embed=1): render just the review canvas + reviewbar — no
@@ -56,18 +56,18 @@ const EMBED =
  * now drives data/layout/semantic state. AppContent renders once a graph exists.
  */
 export default function App() {
-  const [{ store, viewport, lens }] = useState(() => createAppStore());
+  const [{ store, viewport, lens, domains }] = useState(() => createAppStore());
   useEffect(() => {
     store.dispatch({ type: 'GraphRequested' });
   }, [store]);
   return (
     <StoreProvider store={store}>
-      <AppRoot viewport={viewport} lens={lens} />
+      <AppRoot viewport={viewport} lens={lens} domains={domains} />
     </StoreProvider>
   );
 }
 
-function AppRoot({ viewport, lens }: { viewport: DomViewport; lens: LensPort }) {
+function AppRoot({ viewport, lens, domains }: { viewport: DomViewport; lens: LensPort; domains: DomainsPort }) {
   const theme = useStore((s) => s.ui.theme);
   const load = useStore((s) => s.load);
   const graph = useStore((s) => s.graph);
@@ -89,7 +89,7 @@ function AppRoot({ viewport, lens }: { viewport: DomViewport; lens: LensPort }) 
   if (!graph || pending) {
     return <LoadingScreen theme={theme} worktree={pending} />;
   }
-  return <AppContent graph={graph} viewport={viewport} lens={lens} />;
+  return <AppContent graph={graph} viewport={viewport} lens={lens} domains={domains} />;
 }
 
 function LoadingScreen({
@@ -133,7 +133,17 @@ function LoadingScreen({
  *                                                  └──► geometry consumers (BCGroups, EdgeLayer,
  *                                                       Component map, canvasDimensions)
  */
-function AppContent({ graph, viewport, lens }: { graph: UIGraph; viewport: DomViewport; lens: LensPort }) {
+function AppContent({
+  graph,
+  viewport,
+  lens,
+  domains,
+}: {
+  graph: UIGraph;
+  viewport: DomViewport;
+  lens: LensPort;
+  domains: DomainsPort;
+}) {
   // Store-owned data/layout/semantic state (Plan 2a/2c). The viewport (zoom/pan/
   // scroll) remains a local island.
   const dispatch = useDispatch();
@@ -1146,6 +1156,7 @@ function AppContent({ graph, viewport, lens }: { graph: UIGraph; viewport: DomVi
               scope={domainsScope}
               hasBase={showDiff}
               lens={lens}
+              domains={domains}
               symbolPanelOpen={symbolFocus != null}
               onScopeChange={(scope) => dispatch({ type: 'ArchMotifScopeChanged', scope })}
               onSymbolFocus={setSymbolFocus}

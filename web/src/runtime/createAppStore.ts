@@ -7,18 +7,25 @@ import { createElkLayout } from '../adapters/elkLayout';
 import { createHttpGraphSource } from '../adapters/httpGraphSource';
 import { createHttpSearchSource } from '../adapters/httpSearchSource';
 import { createHttpLensSource } from '../adapters/httpLensSource';
+import { createHttpDomainsSource } from '../adapters/httpDomainsSource';
 import { createDomViewport, type DomViewport } from '../adapters/domViewport';
 import { createBrowserNavigation } from '../adapters/browserNavigation';
-import type { LensPort } from '../domain/ports';
+import type { DomainsPort, LensPort } from '../domain/ports';
 
 /**
  * App-level composition root. Builds the real elk + http + DOM-viewport adapters,
  * wires them into the store, and returns the store plus the viewport (App binds
- * the viewport to its canvas element on mount) and the lens port (the domains
- * canvas calls the daemon's analysis tools directly, as the file diff calls
- * its endpoint — a view over the review, not part of its state machine).
+ * the viewport to its canvas element on mount) and the two ports the domains
+ * canvas reads: the lens port for readiness and the domains port for the
+ * partition itself. Both are views over the review, as the file diff is, rather
+ * than part of its state machine.
  */
-export function createAppStore(): { store: AppStore; viewport: DomViewport; lens: LensPort } {
+export function createAppStore(): {
+  store: AppStore;
+  viewport: DomViewport;
+  lens: LensPort;
+  domains: DomainsPort;
+} {
   const viewport = createDomViewport();
   const effects = createEffects({
     graphSource: createHttpGraphSource(),
@@ -28,5 +35,5 @@ export function createAppStore(): { store: AppStore; viewport: DomViewport; lens
     viewport,
   });
   const store = createStore(initialState, update, effects);
-  return { store, viewport, lens: createHttpLensSource() };
+  return { store, viewport, lens: createHttpLensSource(), domains: createHttpDomainsSource() };
 }

@@ -94,28 +94,35 @@ const READY_STATUS = {
 /**
  * Structure puts the shared helper with transport; semantics puts it with the
  * store. That disagreement is the off-diagonal cell.
+ *
+ * The wire shape is the endpoint's: one node list, and a cluster label per node
+ * per side. `type:store.Row` is deliberately unplaced (-1) on neither side —
+ * see the encoding spec for that case.
  */
+const NODES = [
+  'fn:transport.Serve',
+  'fn:transport.parseHeader',
+  'fn:shared.bind',
+  'fn:store.Put',
+  'type:store.Row',
+];
+
 const DOMAINS = {
+  nodes: NODES,
   node_count: 5,
   structural: {
     k: 2,
     cluster_count: 2,
     dominant_share: 0.6,
     modularity: 0.12,
-    clusters: [
-      { id: 0, size: 3, members: ['fn:transport.Serve', 'fn:transport.parseHeader', 'fn:shared.bind'] },
-      { id: 1, size: 2, members: ['fn:store.Put', 'type:store.Row'] },
-    ],
+    labels: [0, 0, 0, 1, 1],
   },
   semantic: {
     k: 2,
     cluster_count: 2,
     dominant_share: 0.6,
     modularity: 0.47,
-    clusters: [
-      { id: 0, size: 2, members: ['fn:transport.Serve', 'fn:transport.parseHeader'] },
-      { id: 1, size: 3, members: ['fn:store.Put', 'type:store.Row', 'fn:shared.bind'] },
-    ],
+    labels: [0, 0, 1, 1, 1],
   },
   agreement: { ami: 0.31, nmi: 0.58, verdict: 'latent_domains_glued' },
   glue: {
@@ -131,24 +138,36 @@ interface LensCall {
   args: Record<string, unknown>;
 }
 
-/** Mount with a lens that records what was asked and answers with `answers`. */
+/**
+ * Mount with a lens that records the readiness calls and a domains responder
+ * that records the scopes asked for. They are two endpoints on purpose: the
+ * canvas asks the lens surface whether the daemon is ready, and the domains
+ * endpoint for the partition, which is too large to come back through the lens
+ * surface's result budget.
+ */
 async function mount(
-  answers: { status?: unknown; domains?: unknown } = {},
+  answers: { status?: unknown; domains?: unknown; noDomainsResponder?: boolean } = {},
   graph: UIGraph = graphOf()
 ) {
   const calls: LensCall[] = [];
+  const scopes: Record<string, string>[] = [];
   const env = await mountAppDom(graph, {
     lens: (name, args) => {
       calls.push({ name, args });
-      if (name === 'status') return answers.status ?? READY_STATUS;
-      return answers.domains ?? DOMAINS;
+      return answers.status ?? READY_STATUS;
     },
+    domains: answers.noDomainsResponder
+      ? undefined
+      : (query) => {
+          scopes.push(Object.fromEntries(query));
+          return answers.domains ?? DOMAINS;
+        },
   });
   const app = await env.load(AppHarness);
   await app.waitForLoaded();
   const domains = app.domains();
   await domains.open();
-  return { app, domains, calls };
+  return { app, domains, calls, scopes };
 }
 
 afterEach(cleanup);
@@ -265,63 +284,49 @@ describe('domains canvas — readiness', () => {
     expect(await domains.cellIds()).toEqual([]);
   });
 
-  it('never asks the lens before the daemon says it is ready', async () => {
-    const { calls } = await mount({
+  it('never asks for the partition before the daemon says it is ready', async () => {
+    const { calls, scopes } = await mount({
       status: { ready: true, indexing: false, dense_available: false, message: '' },
     });
 
     expect(calls.map((call) => call.name)).toEqual(['status']);
+    expect(scopes).toEqual([]);
   });
 });
 
 describe('domains canvas — scope', () => {
   it('asks the whole repository when the worktree has no review base', async () => {
-    const { domains, calls } = await mount();
+    const { domains, scopes } = await mount();
     await domains.waitForGrid();
 
     expect(await domains.scope()).toBe('repo');
     expect(await domains.isScopeEnabled('diff region')).toBe(false);
-    const lensCall = calls.find((call) => call.name === 'latent_domains');
-    expect(lensCall?.args).toEqual({
-      selector: { node_kinds: ['type', 'fn'] },
-      include_members: true,
-    });
+    expect(scopes).toEqual([{ scope: 'repo' }]);
   });
 
   it('asks for the change region on a branch, and re-asks when the scope changes', async () => {
-    const { app, domains, calls } = await mount({}, graphOf({ pr: true }));
+    const { app, domains, scopes } = await mount({}, graphOf({ pr: true }));
     await domains.waitForGrid();
 
     expect(await domains.scope()).toBe('diff region');
-    expect(calls.find((call) => call.name === 'latent_domains')?.args).toEqual({
-      selector: { diff: true },
-      include_members: true,
-    });
+    expect(scopes).toEqual([{ scope: 'diff' }]);
 
     await domains.setScope('repo');
-    await app.env.waitUntil(
-      async () => calls.filter((call) => call.name === 'latent_domains').length === 2,
-      { message: 'the scope switch did not re-ask the lens' }
-    );
-    expect(calls.filter((call) => call.name === 'latent_domains')[1].args).toEqual({
-      selector: { node_kinds: ['type', 'fn'] },
-      include_members: true,
+    await app.env.waitUntil(async () => scopes.length === 2, {
+      message: 'the scope switch did not re-ask for the partition',
     });
+    expect(scopes[1]).toEqual({ scope: 'repo' });
   });
 
   it('scopes to one package', async () => {
-    const { app, domains, calls } = await mount();
+    const { app, domains, scopes } = await mount();
     await domains.waitForGrid();
 
     await domains.setPackageScope('store');
-    await app.env.waitUntil(
-      async () => calls.filter((call) => call.name === 'latent_domains').length === 2,
-      { message: 'the package scope did not re-ask the lens' }
-    );
-    expect(calls.filter((call) => call.name === 'latent_domains')[1].args).toEqual({
-      selector: { package: 'store', include_subpackages: true },
-      include_members: true,
+    await app.env.waitUntil(async () => scopes.length === 2, {
+      message: 'the package scope did not re-ask for the partition',
     });
+    expect(scopes[1]).toEqual({ scope: 'package', package: 'store' });
   });
 });
 
@@ -356,15 +361,13 @@ describe('domains canvas — chrome', () => {
     expect(await diagram.componentCount()).toBeGreaterThan(0);
   });
 
-  it('reports a lens failure instead of an empty grid', async () => {
-    const env = await mountAppDom(graphOf());
-    const app = await env.load(AppHarness);
-    await app.waitForLoaded();
-    const domains = app.domains();
-    await domains.open();
+  it('reports a failed read instead of an empty grid', async () => {
+    // The daemon is ready, but the partition never arrives. A canvas that just
+    // stays blank is indistinguishable from one that is still thinking.
+    const { app, domains } = await mount({ noDomainsResponder: true });
 
     await app.env.waitUntil(async () => (await domains.readinessKind()) === 'error', {
-      message: 'the canvas never reported the failed lens call',
+      message: 'the canvas never reported the failed read',
     });
     expect(await domains.readiness()).toContain('failed');
   });

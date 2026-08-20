@@ -250,9 +250,10 @@ const READY_STATUS = {
 };
 
 const DOMAINS = {
+  nodes: ['fn:internal/serve.Warm', 'type:internal/adapter/http.Server'],
   node_count: 2,
-  structural: { k: 1, cluster_count: 1, dominant_share: 1, modularity: 0.1, clusters: [{ id: 0, size: 2, members: ['fn:internal/serve.Warm', 'type:internal/adapter/http.Server'] }] },
-  semantic: { k: 1, cluster_count: 1, dominant_share: 1, modularity: 0.2, clusters: [{ id: 0, size: 2, members: ['fn:internal/serve.Warm', 'type:internal/adapter/http.Server'] }] },
+  structural: { k: 1, cluster_count: 1, dominant_share: 1, modularity: 0.1, labels: [0, 0] },
+  semantic: { k: 1, cluster_count: 1, dominant_share: 1, modularity: 0.2, labels: [0, 0] },
   agreement: { ami: 1, nmi: 1, verdict: 'aligned' },
   glue: { top_fan_in: [], glue_cluster: 0, note: '' },
   dropped_nodes: 0,
@@ -267,6 +268,7 @@ async function mount(report: ArchReport = repoReport) {
   const asked: string[] = [];
   const rebuilds: boolean[] = [];
   const lensCalls: LensCall[] = [];
+  const domainScopes: Record<string, string>[] = [];
   const env = await mountAppDom(graph, {
     report: (base, fresh) => {
       asked.push(base);
@@ -277,7 +279,11 @@ async function mount(report: ArchReport = repoReport) {
     source: () => ({ content: 'package http\n\n// here\n' }),
     lens: (name, args) => {
       lensCalls.push({ name, args });
-      return name === 'status' ? READY_STATUS : DOMAINS;
+      return READY_STATUS;
+    },
+    domains: (query) => {
+      domainScopes.push(Object.fromEntries(query));
+      return DOMAINS;
     },
   });
   const app = await env.load(AppHarness);
@@ -285,7 +291,7 @@ async function mount(report: ArchReport = repoReport) {
   const panel = app.report();
   await panel.open();
   await panel.waitForReport();
-  return { env, app, panel, asked, rebuilds, lensCalls };
+  return { env, app, panel, asked, rebuilds, lensCalls, domainScopes };
 }
 
 afterEach(() => {
@@ -463,7 +469,7 @@ describe('a report row is a gesture on the canvas', () => {
   });
 
   it('sends a god package to the domains canvas, scoped to that package', async () => {
-    const { env, app, panel, lensCalls } = await mount();
+    const { env, app, panel, domainScopes } = await mount();
     const row = await (await panel.section('god_packages')).row('internal/serve — degree 14');
     expect(await row.actions()).toEqual(['domains']);
 
@@ -474,11 +480,10 @@ describe('a report row is a gesture on the canvas', () => {
     // The panel gets out of the way of the grid it just asked for.
     expect(await panel.isPresent()).toBe(false);
 
-    await env.waitUntil(async () => lensCalls.some((call) => call.name === 'latent_domains'), {
+    await env.waitUntil(async () => domainScopes.length > 0, {
       message: 'the canvas never asked for the clustering',
     });
-    const call = lensCalls.find((entry) => entry.name === 'latent_domains');
-    expect(call?.args.selector).toEqual({ package: 'internal/serve', include_subpackages: true });
+    expect(domainScopes[0]).toEqual({ scope: 'package', package: 'internal/serve' });
   });
 
   it('lands on the package a row names', async () => {

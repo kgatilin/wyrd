@@ -1,40 +1,77 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildDomainGrid,
-  lensSelectorForScope,
-  type RawDomainCluster,
+  domainsQueryForScope,
   type RawDomainPartition,
   type RawLatentDomains,
 } from './archMotifDomains';
 import type { Diff, Internal, UIGraph, SymbolRelation } from '../types';
 
-/** A cluster carrying its full membership, as `include_members` returns it. */
-function cluster(id: number, members: string[]): RawDomainCluster {
-  return { id, size: members.length, members };
+/**
+ * The specs describe a partition the readable way — a cluster and its members —
+ * and `payload` encodes it the way the daemon does: one shared node list, and
+ * an integer label per node per side.
+ */
+interface ClusterSpec {
+  id: number;
+  members: string[];
+}
+interface SideSpec {
+  clusters: ClusterSpec[];
+  extra: Partial<RawDomainPartition>;
 }
 
-function partition(clusters: RawDomainCluster[], extra: Partial<RawDomainPartition> = {}): RawDomainPartition {
+function cluster(id: number, members: string[]): ClusterSpec {
+  return { id, members };
+}
+
+function partition(clusters: ClusterSpec[], extra: Partial<RawDomainPartition> = {}): SideSpec {
+  return { clusters, extra };
+}
+
+/** The node list is the union of both sides, in first-seen order. */
+function nodeList(sides: SideSpec[]): string[] {
+  const nodes: string[] = [];
+  const seen = new Set<string>();
+  for (const side of sides) {
+    for (const spec of side.clusters) {
+      for (const member of spec.members) {
+        if (seen.has(member)) continue;
+        seen.add(member);
+        nodes.push(member);
+      }
+    }
+  }
+  return nodes;
+}
+
+/** One side as label-per-node; -1 for a node this side did not place. */
+function labelsOf(side: SideSpec, nodes: string[]): RawDomainPartition {
+  const labelOf = new Map<string, number>();
+  for (const spec of side.clusters) {
+    for (const member of spec.members) labelOf.set(member, spec.id);
+  }
   return {
-    k: clusters.length,
-    cluster_count: clusters.length,
+    k: side.clusters.length,
+    cluster_count: side.clusters.length,
     dominant_share: 0,
     modularity: 0,
-    clusters,
-    ...extra,
+    labels: nodes.map((node) => labelOf.get(node) ?? -1),
+    ...side.extra,
   };
 }
 
 function payload(
-  structural: RawDomainPartition,
-  semantic: RawDomainPartition,
+  structural: SideSpec,
+  semantic: SideSpec,
   extra: Partial<RawLatentDomains> = {}
 ): RawLatentDomains {
-  const nodes = new Set<string>();
-  for (const c of structural.clusters) for (const m of c.members ?? []) nodes.add(m);
+  const nodes = nodeList([structural, semantic]);
   return {
-    node_count: nodes.size,
-    structural,
-    semantic,
+    nodes,
+    node_count: nodes.length,
+    structural: labelsOf(structural, nodes),
+    semantic: labelsOf(semantic, nodes),
     agreement: { ami: 0.2, nmi: 0.5, verdict: 'latent_domains_glued' },
     glue: { top_fan_in: [], glue_cluster: -1, note: '' },
     dropped_nodes: 0,
@@ -140,7 +177,7 @@ describe('domains grid — contingency assembly', () => {
     expect(grid.cols).toHaveLength(3);
   });
 
-  it('counts members one partition placed and the other did not', () => {
+  it('counts symbols one partition placed and the other did not', () => {
     const raw = payload(
       partition([cluster(0, ['fn:pkg/a.A', 'fn:pkg/a.Orphan'])]),
       partition([cluster(0, ['fn:pkg/a.A'])])
@@ -151,14 +188,61 @@ describe('domains grid — contingency assembly', () => {
     expect(grid.unplaced).toBe(1);
     expect(grid.cells[0].size).toBe(1);
   });
+});
 
-  it('flags a sampled response: the grid would be missing members', () => {
-    const raw = payload(
-      partition([{ id: 0, size: 40, members_sample: ['fn:pkg/a.A'], truncated: true }]),
-      partition([cluster(0, ['fn:pkg/a.A'])])
-    );
+describe('domains grid — the label encoding', () => {
+  it('reads each side by node position, not by looking an id up', () => {
+    // Hand-written rather than built by the helper: this is the wire contract.
+    // Labels are positional, so a partition is one integer per node per side
+    // and the ids are carried once however many sides read them.
+    const raw: RawLatentDomains = {
+      nodes: ['fn:pkg/a.A', 'fn:pkg/b.B', 'fn:pkg/c.C'],
+      node_count: 3,
+      structural: { k: 2, cluster_count: 2, dominant_share: 0.67, modularity: 0.1, labels: [0, 0, 1] },
+      semantic: { k: 2, cluster_count: 2, dominant_share: 0.67, modularity: 0.4, labels: [0, 1, 1] },
+      agreement: { ami: 0.1, nmi: 0.3, verdict: 'diverging' },
+      glue: { top_fan_in: [], glue_cluster: -1, note: '' },
+      dropped_nodes: 0,
+    };
 
-    expect(buildDomainGrid(raw, null).truncated).toBe(true);
+    const grid = buildDomainGrid(raw, null);
+
+    expect(grid.cells.map((cell) => cell.id).sort()).toEqual(['s0-m0', 's0-m1', 's1-m1']);
+    const shared = grid.cells.find((cell) => cell.id === 's0-m0')!;
+    expect(shared.packages.flatMap((block) => block.members.map((m) => m.name))).toEqual(['A']);
+    expect(grid.unplaced).toBe(0);
+  });
+
+  it('treats -1 as unplaced rather than as cluster zero', () => {
+    const raw: RawLatentDomains = {
+      nodes: ['fn:pkg/a.A', 'fn:pkg/a.Loose'],
+      node_count: 2,
+      structural: { k: 1, cluster_count: 1, dominant_share: 1, modularity: 0, labels: [0, -1] },
+      semantic: { k: 1, cluster_count: 1, dominant_share: 1, modularity: 0, labels: [0, 0] },
+      agreement: { ami: 1, nmi: 1, verdict: 'aligned' },
+      glue: { top_fan_in: [], glue_cluster: -1, note: '' },
+      dropped_nodes: 0,
+    };
+
+    const grid = buildDomainGrid(raw, null);
+
+    expect(grid.unplaced).toBe(1);
+    expect(grid.cells).toHaveLength(1);
+    expect(grid.cells[0].size).toBe(1);
+  });
+
+  it('counts a symbol neither side placed once, not twice', () => {
+    const raw: RawLatentDomains = {
+      nodes: ['fn:pkg/a.A', 'fn:pkg/a.Nowhere'],
+      node_count: 2,
+      structural: { k: 1, cluster_count: 1, dominant_share: 1, modularity: 0, labels: [0, -1] },
+      semantic: { k: 1, cluster_count: 1, dominant_share: 1, modularity: 0, labels: [0, -1] },
+      agreement: { ami: 1, nmi: 1, verdict: 'aligned' },
+      glue: { top_fan_in: [], glue_cluster: -1, note: '' },
+      dropped_nodes: 0,
+    };
+
+    expect(buildDomainGrid(raw, null).unplaced).toBe(1);
   });
 });
 
@@ -393,19 +477,19 @@ describe('domains grid — diff overlay', () => {
   });
 });
 
-describe('lens selector', () => {
+describe('domains query', () => {
   it('asks the daemon for the change region in diff scope', () => {
-    expect(lensSelectorForScope({ kind: 'diff' })).toEqual({ diff: true });
+    expect(domainsQueryForScope({ kind: 'diff' })).toEqual({ scope: 'diff' });
   });
 
-  it('drops methods and fields in repo scope, to keep the semantic side cheap', () => {
-    expect(lensSelectorForScope({ kind: 'repo' })).toEqual({ node_kinds: ['type', 'fn'] });
+  it('asks for the whole repository in repo scope', () => {
+    expect(domainsQueryForScope({ kind: 'repo' })).toEqual({ scope: 'repo' });
   });
 
-  it('scopes to one package and its subpackages', () => {
-    expect(lensSelectorForScope({ kind: 'package', package: 'internal/adapter/mcp' })).toEqual({
+  it('scopes to one package', () => {
+    expect(domainsQueryForScope({ kind: 'package', package: 'internal/adapter/mcp' })).toEqual({
+      scope: 'package',
       package: 'internal/adapter/mcp',
-      include_subpackages: true,
     });
   });
 });

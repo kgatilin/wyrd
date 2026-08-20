@@ -191,6 +191,15 @@ export interface MountOptions {
    * failed, which is itself a state worth testing.
    */
   lens?: (name: string, args: Record<string, unknown>) => unknown;
+  /**
+   * Answers GET /api/archmotif/domains — the latent-domains partition the
+   * canvas draws. Separate from `lens` because it is a separate endpoint: the
+   * canvas asks the lens surface for readiness and this one for the partition,
+   * which does not fit under the lens surface's result budget. Without a
+   * responder the canvas reports the read failed, which is itself a state
+   * worth testing.
+   */
+  domains?: (query: URLSearchParams) => unknown;
 }
 
 export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promise<DomEnvironment> {
@@ -217,6 +226,9 @@ export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promi
       const fresh = String(headers['Cache-Control'] ?? '').includes('no-cache');
       return okJson(options.report(base, fresh));
     }
+    if (url.includes('/api/archmotif/domains') && options?.domains) {
+      return okJson(options.domains(new URLSearchParams(url.split('?')[1] ?? '')));
+    }
     if (url.includes('/api/mcp/tools/call') && options?.lens) {
       const body = JSON.parse(String(init?.body ?? '{}')) as {
         name?: string;
@@ -229,7 +241,14 @@ export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promi
       const body = JSON.parse(String(init?.body ?? '{}')) as { query?: string; k?: number };
       return okJson(options.search(body.query ?? '', body.k ?? 0));
     }
-    return { ok: false, json: async () => ({}) } as unknown as Response;
+    // No responder: a real failure, with a status, so a spec exercises the
+    // error path the way the daemon would produce it.
+    return {
+      ok: false,
+      status: 503,
+      json: async () => ({}),
+      text: async () => '',
+    } as unknown as Response;
   });
   render(React.createElement(App));
   return new DomEnvironment();

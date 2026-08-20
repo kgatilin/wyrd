@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { UIGraph } from '../types';
 import type { ArchMotifScope } from '../domain/state';
-import type { LensPort } from '../domain/ports';
+import type { DomainsPort, LensPort } from '../domain/ports';
 import type { SymbolFocusTarget } from '../domain/symbolFocus';
 import { isLensPending } from '../data/lens';
 import {
   buildDomainGrid,
-  lensSelectorForScope,
   type DomainCell,
   type DomainGrid,
   type DomainMember,
@@ -19,10 +18,16 @@ import {
  * module boundaries the same boundaries the subject matter has?* — and, when
  * they are not, names the shared helpers fusing them.
  *
- * Both partitions come from a single `latent_domains` call. Three calls
- * (`latent_domains` for the verdict plus each single-sided lens for the
- * membership) would make the grid depend on the solver returning the same
- * partition three times running.
+ * Both partitions come from one solve on the daemon. Asking for them
+ * separately would make the grid depend on the solver returning the same
+ * partition twice running.
+ *
+ * Two ports, because they are two transports. Readiness is the `status` tool
+ * over the LensPort: it is cheap, and it says which of a cold daemon's two slow
+ * phases is in the way. The partition is the DomainsPort, which reads the
+ * daemon's own endpoint — the tool endpoint clamps a result at 256 KiB to
+ * protect an agent's context window, and a full partition does not fit under it
+ * on a repository of any size.
  */
 
 /** How often to re-ask while the daemon is still building its index. */
@@ -51,7 +56,10 @@ export interface ArchMotifCanvasProps {
   scope: ArchMotifScope;
   /** True when the worktree has a review base, so a diff region exists. */
   hasBase: boolean;
+  /** Readiness (`status`), so the canvas reports a cold daemon's progress. */
   lens: LensPort;
+  /** The partition itself. */
+  domains: DomainsPort;
   /**
    * The wiring panel is up over the grid. While it is, it owns the keyboard —
    * Esc dismisses the panel, not the canvas underneath it.
@@ -68,12 +76,13 @@ export function ArchMotifCanvas({
   scope,
   hasBase,
   lens,
+  domains,
   symbolPanelOpen,
   onScopeChange,
   onSymbolFocus,
   onClose,
 }: ArchMotifCanvasProps) {
-  const session = useDomainsSession(lens, worktree, scope, graph);
+  const session = useDomainsSession(lens, domains, worktree, scope, graph);
   const [selectedCell, setSelectedCell] = useState<string | null>(null);
   const [hoveredCell, setHoveredCell] = useState<string | null>(null);
 
@@ -187,11 +196,6 @@ function Header({
               {grid.diff.changedMembers} changed in {grid.diff.cells}{' '}
               {grid.diff.cells === 1 ? 'cell' : 'cells'} ({grid.diff.structuralClusters}×
               {grid.diff.semanticClusters})
-            </span>
-          )}
-          {grid?.truncated && (
-            <span className="hf-domains-stat warn" title="A cluster came back sampled — members are missing">
-              partial
             </span>
           )}
         </div>
@@ -492,12 +496,14 @@ function SymbolRow({
 }
 
 /**
- * Readiness, then the lens. `status` is cheap and says which of the two slow
- * phases the daemon is in, so the canvas reports progress rather than hanging
- * on a call that cannot answer yet.
+ * Readiness, then the partition. `status` is cheap and says which of the two
+ * slow phases the daemon is in, so the canvas reports progress rather than
+ * sitting on a call that cannot answer yet — and a call that fails is shown as
+ * a failure rather than as a canvas that never fills in.
  */
 function useDomainsSession(
   lens: LensPort,
+  domains: DomainsPort,
   worktree: string,
   scope: ArchMotifScope,
   graph: UIGraph
@@ -508,7 +514,6 @@ function useDomainsSession(
 
   useEffect(() => {
     let cancelled = false;
-    const selector = lensSelectorForScope(scope);
 
     const schedule = () => {
       timer.current = setTimeout(() => {
@@ -540,27 +545,9 @@ function useDomainsSession(
           return;
         }
 
-        const payload = await lens.call(
-          'latent_domains',
-          { selector, include_members: true },
-          { worktree }
-        );
+        const payload = await domains.load(scope, { worktree });
         if (cancelled) return;
-        if (isLensPending(payload)) {
-          setSession(
-            payload.status === 'indexing'
-              ? {
-                  status: 'indexing',
-                  embedded: payload.embedded ?? 0,
-                  embeddable: payload.embeddable ?? 0,
-                  message: payload.message ?? '',
-                }
-              : { status: 'loading', phase: payload.phase }
-          );
-          schedule();
-          return;
-        }
-        setSession({ status: 'ready', raw: payload as RawLatentDomains });
+        setSession({ status: 'ready', raw: payload });
       } catch (err) {
         if (cancelled) return;
         setSession({ status: 'error', error: err instanceof Error ? err.message : String(err) });
@@ -576,7 +563,7 @@ function useDomainsSession(
     // `graph` is a dependency on purpose: a reload means the working tree
     // moved, and a grid describing the previous one is worse than none.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lens, worktree, scopeKey, graph]);
+  }, [lens, domains, worktree, scopeKey, graph]);
 
   return session;
 }

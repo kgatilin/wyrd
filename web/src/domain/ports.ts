@@ -1,4 +1,5 @@
 import type { UIGraph } from '../types';
+import type { ArchMotifScopeInput, RawLatentDomains } from './archMotifDomains';
 import type { RawAskHit } from './ask';
 import type { Interaction } from './state';
 
@@ -21,6 +22,17 @@ export interface SearchPort {
  */
 export interface LensPort {
   call(name: string, args: Record<string, unknown>, options: { worktree?: string }): Promise<unknown>;
+}
+
+/**
+ * The domains partition at one scope. Separate from LensPort because it is a
+ * separate transport, not a separate tool: the lens endpoint clamps a result at
+ * 256 KiB for an agent's sake and a full partition does not fit, so the canvas
+ * reads its own endpoint. Readiness still comes over LensPort — `status` is
+ * cheap and says which phase a cold daemon is in.
+ */
+export interface DomainsPort {
+  load(scope: ArchMotifScopeInput, options: { worktree?: string }): Promise<RawLatentDomains>;
 }
 
 export interface NavigationPort {

@@ -20,22 +20,23 @@ import type { Diff, Internal, UIGraph } from '../types';
  */
 
 // ── Wire shapes ───────────────────────────────────────────────────────────
-// snake_case throughout: this is the latent_domains payload, not the app model.
+// snake_case throughout: this is the daemon's payload, not the app model.
 
-export interface RawDomainCluster {
-  id: number;
-  size: number;
-  members?: string[];
-  members_sample?: string[];
-  truncated?: boolean;
-}
-
+/**
+ * One side's clustering, as a label per node rather than a member list per
+ * cluster. `labels[i]` is the cluster of `nodes[i]`; -1 means this side did not
+ * place that node.
+ *
+ * The ids live in `RawLatentDomains.nodes`, once, however many sides read them.
+ * Repeating them per side is what used to push the payload past a quarter of a
+ * megabyte on a real repository.
+ */
 export interface RawDomainPartition {
   k: number;
   cluster_count: number;
   dominant_share: number;
   modularity: number;
-  clusters: RawDomainCluster[];
+  labels: number[];
 }
 
 export interface RawGlueNode {
@@ -45,6 +46,8 @@ export interface RawGlueNode {
 }
 
 export interface RawLatentDomains {
+  /** The analysed symbols, as archmotif node ids. Both label arrays index it. */
+  nodes: string[];
   node_count: number;
   structural: RawDomainPartition;
   semantic: RawDomainPartition;
@@ -169,9 +172,7 @@ export interface DomainGrid {
   height: number;
   rowHeaderWidth: number;
   colHeaderHeight: number;
-  /** A cluster came back sampled, so the grid is missing members. */
-  truncated: boolean;
-  /** Members one partition placed and the other did not. Normally 0. */
+  /** Symbols one partition placed and the other did not. Normally 0. */
   unplaced: number;
 }
 
@@ -203,16 +204,19 @@ export function buildDomainGrid(raw: RawLatentDomains, graph: UIGraph | null): D
     glueIds.add(node.node);
   }
 
-  const structural = clusterMembership(raw.structural);
-  const semantic = clusterMembership(raw.semantic);
-  const truncated = isTruncated(raw.structural) || isTruncated(raw.semantic);
-
-  // Contingency: every member the two partitions both placed, keyed by pair.
+  // Contingency: every symbol the two partitions both placed, keyed by pair.
+  // Both sides label the same node list by position, so the join is an index
+  // rather than a lookup — and a symbol either side left unplaced (-1) has no
+  // intersection to sit in.
+  const nodes = raw.nodes ?? [];
+  const structuralLabels = raw.structural?.labels ?? [];
+  const semanticLabels = raw.semantic?.labels ?? [];
   const buckets = new Map<string, { row: number; col: number; ids: string[] }>();
   let unplaced = 0;
-  for (const [id, structuralCluster] of structural.labelOf) {
-    const semanticCluster = semantic.labelOf.get(id);
-    if (semanticCluster == null) {
+  for (let i = 0; i < nodes.length; i++) {
+    const structuralCluster = structuralLabels[i];
+    const semanticCluster = semanticLabels[i];
+    if (structuralCluster == null || semanticCluster == null || structuralCluster < 0 || semanticCluster < 0) {
       unplaced++;
       continue;
     }
@@ -222,10 +226,7 @@ export function buildDomainGrid(raw: RawLatentDomains, graph: UIGraph | null): D
       bucket = { row: structuralCluster, col: semanticCluster, ids: [] };
       buckets.set(key, bucket);
     }
-    bucket.ids.push(id);
-  }
-  for (const id of semantic.labelOf.keys()) {
-    if (!structural.labelOf.has(id)) unplaced++;
+    bucket.ids.push(nodes[i]);
   }
 
   const overlap = new Map<string, number>();
@@ -298,24 +299,24 @@ export function buildDomainGrid(raw: RawLatentDomains, graph: UIGraph | null): D
     height,
     rowHeaderWidth: ROW_HEADER_W,
     colHeaderHeight: COL_HEADER_H,
-    truncated,
     unplaced,
   };
 }
 
 /**
- * The selector a scope puts on the lens call. Diff scope asks the daemon for
- * the change region; repo scope drops methods and fields (a few hundred nodes
- * instead of thousands, which keeps the semantic kNN side cheap).
+ * The query a scope puts on the domains endpoint. Diff scope asks the daemon
+ * for the change region; repo scope drops methods and fields (a few hundred
+ * nodes instead of thousands, which is what keeps the O(n²) similarity pass and
+ * the two spectral solves answerable at repository scale).
  */
-export function lensSelectorForScope(scope: ArchMotifScopeInput): Record<string, unknown> {
+export function domainsQueryForScope(scope: ArchMotifScopeInput): Record<string, string> {
   switch (scope.kind) {
     case 'diff':
-      return { diff: true };
+      return { scope: 'diff' };
     case 'package':
-      return { package: scope.package ?? '', include_subpackages: true };
+      return { scope: 'package', package: scope.package ?? '' };
     default:
-      return { node_kinds: ['type', 'fn'] };
+      return { scope: 'repo' };
   }
 }
 
@@ -326,22 +327,6 @@ export interface ArchMotifScopeInput {
 }
 
 // ── Internals ─────────────────────────────────────────────────────────────
-
-type ClusterMembership = { labelOf: Map<string, number> };
-
-function clusterMembership(partition: RawDomainPartition | undefined): ClusterMembership {
-  const labelOf = new Map<string, number>();
-  for (const cluster of partition?.clusters ?? []) {
-    for (const member of cluster.members ?? cluster.members_sample ?? []) {
-      labelOf.set(member, cluster.id);
-    }
-  }
-  return { labelOf };
-}
-
-function isTruncated(partition: RawDomainPartition | undefined): boolean {
-  return (partition?.clusters ?? []).some((cluster) => cluster.truncated === true);
-}
 
 function countBy(
   buckets: Map<string, { row: number; col: number; ids: string[] }>,
