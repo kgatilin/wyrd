@@ -58,8 +58,7 @@ func (s *Server) routesContent(mux *nethttp.ServeMux) {
 	mux.HandleFunc("/api/events", s.handleModelEvents)
 	mux.HandleFunc("/api/public-surface", s.handlePublicSurfaceJSON)
 	mux.HandleFunc("/api/gitdiff", s.handleGitDiffJSON)
-	mux.HandleFunc("/api/archmotif/metrics", s.handleArchMotifMetricsJSON)
-	mux.HandleFunc("/api/archmotif/embed", s.handleArchMotifEmbed)
+	mux.HandleFunc("/api/archmotif/report", s.handleArchMotifReport)
 	// M11: JSON API used by the MCP thin-client wrapper. Registered
 	// under /api/ so the browser UI and the machine API live side by
 	// side on one listener.

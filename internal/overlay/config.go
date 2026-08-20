@@ -22,6 +22,8 @@ package overlay
 //   - Aggregates: named domain aggregates rooted at a single type.
 //   - Configs: fully-qualified type names to surface as configuration
 //     entry points.
+//   - Ports: exported symbols reached from outside the dependency graph,
+//     so an unused-export check does not report them as dead.
 type Config struct {
 	Module          string                    `yaml:"module"`
 	Layers          map[string][]string       `yaml:"layers"`
@@ -36,6 +38,7 @@ type Config struct {
 	Serve           ServeConfig               `yaml:"serve,omitempty"`
 	Diagrams        DiagramConfig             `yaml:"diagrams,omitempty"`
 	Policy          PolicyConfig              `yaml:"policy,omitempty"`
+	Ports           Ports                     `yaml:"ports,omitempty"`
 }
 
 // PolicyConfig declares the dependency policy: which package-to-package

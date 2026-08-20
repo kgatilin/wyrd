@@ -27,6 +27,8 @@ import (
 //     Root type name (must contain a '.' separating package path from
 //     type name).
 //   - Every entry in Configs is a well-formed fully-qualified type name.
+//   - Every ports.external selector parses as a package glob, "pkg.Symbol"
+//     or "pkg.Type.Member".
 //
 // Errors are joined (errors.Join) so callers can see every problem at
 // once rather than discovering them one edit at a time.
@@ -111,6 +113,12 @@ func Validate(cfg *Config, goModPath string) error {
 
 	if err := validateServeConfig(cfg.Serve); err != nil {
 		errs = append(errs, err)
+	}
+
+	for i, sel := range cfg.Ports.External {
+		if _, err := ParseExternalPort(sel); err != nil {
+			errs = append(errs, fmt.Errorf("overlay: ports.external[%d]: %w", i, err))
+		}
 	}
 
 	// Track which BC each aggregate appears in so we can flag any

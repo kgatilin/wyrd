@@ -119,70 +119,15 @@ func selectComponentIDs(models []domain.PackageModel, selector overlay.PackageSe
 	return ids
 }
 
+// selectorMatches defers to overlay, which owns PackageSelector and its
+// pattern syntax. The review report resolves packages through the same
+// matcher, so a group means one thing on the canvas and in the report.
 func selectorMatches(selector overlay.PackageSelector, pkg string) bool {
-	included := len(selector.Include) == 0
-	for _, pattern := range selector.Include {
-		if matchPackagePattern(pattern, pkg) {
-			included = true
-			break
-		}
-	}
-	if !included {
-		return false
-	}
-	for _, pattern := range selector.Exclude {
-		if matchPackagePattern(pattern, pkg) {
-			return false
-		}
-	}
-	return true
-}
-
-func matchPackagePattern(pattern, pkg string) bool {
-	pattern = normalizePackagePath(pattern)
-	pkg = normalizePackagePath(pkg)
-	if pattern == "" {
-		return pkg == ""
-	}
-	patSegs := strings.Split(pattern, "/")
-	pkgSegs := strings.Split(pkg, "/")
-	return matchSegments(patSegs, pkgSegs)
-}
-
-func matchSegments(pattern, pkg []string) bool {
-	for len(pattern) > 0 {
-		head := pattern[0]
-		pattern = pattern[1:]
-		if head == "..." {
-			return len(pattern) == 0
-		}
-		if len(pkg) == 0 {
-			return false
-		}
-		switch head {
-		case "*":
-			pkg = pkg[1:]
-		default:
-			if head != pkg[0] {
-				return false
-			}
-			pkg = pkg[1:]
-		}
-	}
-	return len(pkg) == 0
+	return selector.Matches(pkg)
 }
 
 func normalizePackagePath(p string) string {
-	p = strings.TrimSpace(filepathSlash(p))
-	p = strings.TrimPrefix(p, "./")
-	if p == "." {
-		return ""
-	}
-	return strings.Trim(p, "/")
-}
-
-func filepathSlash(p string) string {
-	return strings.ReplaceAll(p, "\\", "/")
+	return overlay.NormalizePackagePath(p)
 }
 
 func titleFromID(id string) string {

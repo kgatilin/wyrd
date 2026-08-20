@@ -110,6 +110,30 @@ adapters:
 
 configs: []
 
+# Exported symbols in internal/... that something outside the dependency
+# graph reaches. Without the declaration the review report's unused-export
+# section would call them dead, because no edge it can see points at them.
+#
+# Selectors are a package glob, "pkg.Symbol", or "pkg.Type.Member".
+ports:
+  external:
+    # Plugins construct themselves in their own init() and hand the value
+    # to the process-wide registry (internal/plugin.RegisterPlugin), so no
+    # caller ever names the type.
+    - "internal/plugins/..."
+
+    # The review report leaves the process as JSON. encoding/json walks
+    # Report's field types by reflection and the review UI consumes their
+    # shape, so they are the payload contract even though the HTTP handler
+    # only ever names Build.
+    - "internal/archreview.Report"
+    - "internal/archreview.Base"
+    - "internal/archreview.Totals"
+    - "internal/archreview.Section"
+    - "internal/archreview.Item"
+    - "internal/archreview.Target"
+    - "internal/archreview.Edge"
+
 # Dependency policy (see docs/features/dependency-policy/design.md).
 #
 # This dogfoods the policy engine on archai itself. It encodes archai's own

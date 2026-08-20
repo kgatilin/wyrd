@@ -145,30 +145,20 @@ func groupsFromReviewGroups(models []domain.PackageModel, cfg *overlay.Config) [
 		ids   []string
 	}
 
-	groupIDs := sortedMapKeys(cfg.ReviewGroups)
-	byID := make(map[string]acc, len(groupIDs)+1)
+	byID := make(map[string]acc, len(cfg.ReviewGroups)+1)
 	for _, model := range models {
-		matchedID := ""
-		matchedTitle := ""
-		for _, groupID := range groupIDs {
-			group := cfg.ReviewGroups[groupID]
-			if !selectorMatches(group.Packages, model.Path) {
-				continue
-			}
+		matchedID := "configured_groups:uncategorized"
+		matchedTitle := "Uncategorized"
+		if groupID, child, ok := cfg.ReviewGroupOf(model.Path); ok {
 			matchedID = "configured_groups:" + groupID
-			matchedTitle = strings.TrimSpace(group.Title)
+			matchedTitle = strings.TrimSpace(cfg.ReviewGroups[groupID].Title)
 			if matchedTitle == "" {
 				matchedTitle = titleFromID(groupID)
 			}
-			if child := perDirectoryChild(group.PerDirectory, model.Path); child != "" {
+			if child != "" {
 				matchedID += ":" + child
 				matchedTitle = titleFromID(child)
 			}
-			break
-		}
-		if matchedID == "" {
-			matchedID = "configured_groups:uncategorized"
-			matchedTitle = "Uncategorized"
 		}
 
 		group := byID[matchedID]
@@ -195,25 +185,6 @@ func groupsFromReviewGroups(models []domain.PackageModel, cfg *overlay.Config) [
 		})
 	}
 	return groups
-}
-
-// perDirectoryChild returns the direct child segment of pkg under prefix, or
-// "" when the group has no per_directory split or pkg is not strictly below
-// the prefix (including pkg == prefix, which stays in the base group).
-func perDirectoryChild(prefix, pkg string) string {
-	prefix = normalizePackagePath(prefix)
-	if prefix == "" {
-		return ""
-	}
-	pkg = normalizePackagePath(pkg)
-	if !strings.HasPrefix(pkg, prefix+"/") {
-		return ""
-	}
-	rest := pkg[len(prefix)+1:]
-	if slash := strings.IndexByte(rest, '/'); slash >= 0 {
-		rest = rest[:slash]
-	}
-	return rest
 }
 
 func groupsFromConfiguredContexts(
