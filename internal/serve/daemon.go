@@ -121,6 +121,18 @@ type ActivityAware interface {
 	SetActivityObserver(func())
 }
 
+// WorktreeWarmer is implemented by HTTP transports that precompute a
+// per-worktree answer rather than build it on the first request. serve.Serve
+// wires it to MultiState's LoadedHook, so the work starts the moment a
+// worktree's model is parsed instead of the first time a browser asks — which
+// is what makes "warmed at daemon start" true without a timer. The transport
+// owns what is warmed and when it goes stale; the daemon only says when a
+// model became available. A transport that doesn't implement it simply
+// computes on demand.
+type WorktreeWarmer interface {
+	WarmWorktree(name string, state *State)
+}
+
 // Serve runs the daemon: it builds the in-memory model, starts the
 // fsnotify watcher, wires stub transports, and blocks until ctx is
 // cancelled. Callers are expected to bridge SIGINT/SIGTERM into ctx.
@@ -238,6 +250,11 @@ func Serve(ctx context.Context, opts Options) error {
 			}
 			if aware, ok := srv.(ActivityAware); ok {
 				aware.SetActivityObserver(touchActivity)
+			}
+			// Installed before the listener binds, so no request can trigger
+			// a load that the transport then never hears about.
+			if warmer, ok := srv.(WorktreeWarmer); ok && opts.MultiState != nil {
+				opts.MultiState.SetLoadedHook(warmer.WarmWorktree)
 			}
 			fmt.Fprintf(logOut, "serve: HTTP transport binding %s (worktree=%q)\n", opts.HTTPAddr, wtName)
 			httpStarted = true

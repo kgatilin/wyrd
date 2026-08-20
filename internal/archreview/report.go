@@ -112,6 +112,16 @@ type Report struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
+// WithIndex returns the report with its index status replaced, under the same
+// rule Build applies: reported only while it stands between the reviewer and an
+// answer. A caller that caches a report needs it, because indexing progresses
+// on no model event at all — a stored copy would go on announcing a dense pass
+// that finished long ago.
+func (r Report) WithIndex(status IndexStatus) Report {
+	r.Index = indexWhenBlocking(status)
+	return r
+}
+
 // Base names what the branch was compared against.
 type Base struct {
 	Ref string `json:"ref"`

@@ -29,8 +29,13 @@ export interface ArchReportSession {
   error: string | null;
   /** A re-read is in flight over a report already on screen. */
   refreshing: boolean;
-  /** Re-read the report — the Refresh button, and the model-changed SSE. */
-  reload: () => void;
+  /**
+   * Re-read the report — the Refresh button, and the model-changed SSE. Pass
+   * `fresh` to make the daemon rebuild it rather than answer from its own
+   * cache; the button does, the SSE does not, because the daemon has already
+   * dropped and re-warmed its copy by the time that event arrives.
+   */
+  reload: (fresh?: boolean) => void;
 }
 
 /**
@@ -39,11 +44,12 @@ export interface ArchReportSession {
  * package models on every open is seconds of daemon work for an answer that
  * has not changed.
  *
- * Nothing else caches it — the endpoint has no ETag and the daemon rebuilds
- * the whole report per request — so this is the only cache there is. It is
- * dropped when the worktree or base changes, and re-read on the same
- * model-changed SSE that reloads the canvas: the report and the canvas must
- * never end up describing different working trees.
+ * The daemon caches it too, warmed as each worktree's model finishes parsing,
+ * so a first open no longer waits for a build. This cache still earns its place
+ * above that one: the response carries no ETag, so even a warm answer is a
+ * round trip and a re-render. It is dropped when the worktree or base changes,
+ * and re-read on the same model-changed SSE that reloads the canvas: the report
+ * and the canvas must never end up describing different working trees.
  */
 export function useArchReportSession(
   worktree: string,
@@ -51,7 +57,9 @@ export function useArchReportSession(
   open: boolean
 ): ArchReportSession {
   const key = `${worktree}\n${baseRef}`;
-  const [token, setToken] = useState(0);
+  // The counter is what re-runs the read; `fresh` rides with it so the request
+  // it triggers knows whether the reviewer asked for a rebuild.
+  const [reloadState, setReloadState] = useState({ token: 0, fresh: false });
   const [data, setData] = useState<{
     status: 'loading' | 'ready' | 'error';
     report: ArchReport | null;
@@ -65,7 +73,7 @@ export function useArchReportSession(
 
   useEffect(() => {
     if (!open) return;
-    const stamp = `${key}#${token}`;
+    const stamp = `${key}#${reloadState.token}`;
     if (loaded.current === stamp) return;
     // A reload of the same review is a refresh: the report on screen stays
     // while the daemon is asked again, instead of blinking back to a spinner
@@ -75,7 +83,7 @@ export function useArchReportSession(
     let cancelled = false;
     if (isRefresh) setRefreshing(true);
     else setData({ status: 'loading', report: null, error: null });
-    fetchArchReport(worktree, baseRef).then(
+    fetchArchReport(worktree, baseRef, reloadState.fresh).then(
       (report) => {
         if (cancelled) return;
         setRefreshing(false);
@@ -99,9 +107,12 @@ export function useArchReportSession(
     return () => {
       cancelled = true;
     };
-  }, [open, key, token, worktree, baseRef]);
+  }, [open, key, reloadState, worktree, baseRef]);
 
-  const reload = useCallback(() => setToken((n) => n + 1), []);
+  const reload = useCallback(
+    (fresh = false) => setReloadState((prev) => ({ token: prev.token + 1, fresh })),
+    []
+  );
   return { ...data, refreshing, reload };
 }
 
@@ -146,7 +157,7 @@ export function ArchMotifPanel({ session, onAction }: ArchMotifPanelProps) {
         </span>
         {base && <span className="hf-report-base">{base}</span>}
         <span className="hf-spacer" />
-        <button className="hf-source-action" type="button" onClick={reload}>
+        <button className="hf-source-action" type="button" onClick={() => reload(true)}>
           Refresh
         </button>
       </div>

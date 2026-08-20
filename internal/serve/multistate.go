@@ -31,6 +31,14 @@ type StateLoader func(ctx context.Context, name, path string) (*State, error)
 // and by callers that prefer manual refreshes).
 type WatcherHook func(ctx context.Context, name string, state *State) (io.Closer, error)
 
+// LoadedHook is invoked once a worktree's State has been loaded and wired.
+// It exists so a transport can start work that needs the parsed model — a
+// subscription to the State's event bus, an answer precomputed before anyone
+// asks for it — at the moment the model becomes available, without MultiState
+// learning what that work is. Each call runs on its own goroutine, so a hook
+// that does real work cannot hold up the load or the callers waiting on it.
+type LoadedHook func(name string, state *State)
+
 // DefaultStateLoader is the production StateLoader used when
 // NewMultiState is called without one. It builds a fresh State
 // anchored at path and loads the full Go + overlay + target model.
@@ -92,6 +100,10 @@ type MultiState struct {
 	// loaded for a worktree. The returned closer is tracked in
 	// watchers and released on Refresh-drop / Close.
 	watcherHook WatcherHook
+
+	// loadedHook, when non-nil, is invoked once per successful load so a
+	// transport can act on a freshly available model.
+	loadedHook LoadedHook
 
 	// watchers tracks per-worktree closers registered by watcherHook.
 	watchers map[string]io.Closer
@@ -346,6 +358,15 @@ func (m *MultiState) SetWatcherHook(hook WatcherHook) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.watcherHook = hook
+}
+
+// SetLoadedHook installs a LoadedHook invoked after each successful worktree
+// load. Safe to call before Refresh; already-loaded states are not replayed,
+// so install it before anything can trigger a load.
+func (m *MultiState) SetLoadedHook(hook LoadedHook) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.loadedHook = hook
 }
 
 // Refresh re-discovers worktrees via `git worktree list --porcelain`
@@ -645,6 +666,7 @@ func (m *MultiState) runLoad(name string, entry worktree.Entry, load *stateLoad)
 	}
 	m.states[name] = loaded
 	hook := m.watcherHook
+	loadedHook := m.loadedHook
 	m.mu.Unlock()
 
 	// Wire the base-model resolver so diff-scoped tools on this worktree can
@@ -654,6 +676,13 @@ func (m *MultiState) runLoad(name string, entry worktree.Entry, load *stateLoad)
 	// Review UI config (review_views / review_groups) follows the primary
 	// checkout, not the branch's possibly-stale archai.yaml copy.
 	loaded.SetReviewConfigRoot(m.root)
+
+	// The State is committed and fully wired, so anything keyed off "this
+	// worktree's model is ready" can start. Its own goroutine: the hook is
+	// free to do the real work that makes it worth having.
+	if loadedHook != nil {
+		go loadedHook(name, loaded)
+	}
 
 	// Spin up the per-worktree watcher. If the hook fails we keep the loaded
 	// state (the transport is still usable — just without auto-reload) and

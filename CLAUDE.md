@@ -602,11 +602,40 @@ to do about it, and where to click.
   packages, so a highlight row also focuses the package it names, which pulls
   that package and its edge neighbours into the projection. Clicking the row
   again puts the accent down, and so does a click on the empty canvas.
-- **The session is cached in the app, not in the panel** (`useArchReportSession`,
-  exported from `ArchMotifPanel.tsx`): the daemon rebuilds both package models,
-  both graphs and the model diff on every request, so reopening the overlay
-  must not pay for that again. It is re-read on `Refresh` and on the same
-  `model-changed` SSE that reloads the canvas and the file diff.
+- **The report is warmed, not built on demand.** Building it costs an archmotif
+  graph over the worktree's model and another over its base, plus the branch's
+  git hunks — a second here, several on a large repo, and the panel used to pay
+  it on every first open. `internal/adapter/http/archmotif_report_cache.go`
+  holds one built report per `(worktree, base ref)`, and
+  `Server.WarmWorktree` fills it in the background: on `serve.WorktreeWarmer`,
+  which the daemon wires to `MultiState`'s `LoadedHook` so the build starts the
+  moment a worktree's model is parsed rather than on the first request; on the
+  `/api/warm` an MCP client pings at attach; and again after every model change.
+  Only `defaultReviewBaseRef` is warmed — another ref is a miss that builds on
+  demand. Warming never blocks: one entry per key, computed on its own goroutine
+  under a background context, and a request arriving mid-build waits for that
+  build instead of starting a second. `internal/serve` must not learn what is
+  being warmed, which is why the trigger is an injected port rather than a call.
+- **Invalidation is by event, never by clock.** The entry is dropped on the same
+  `plugin.ModelEvent` the SSE `model-changed` stream is published from — the
+  subscription is made in `watchModel`, before the snapshot the build reads, so
+  an event landing mid-build cannot be missed — and a request whose worktree or
+  base differs is a miss that computes synchronously. Nothing is served because
+  it is *probably* still current. Two things move with no model event behind
+  them, and both are handled rather than tolerated: the embedding index, which
+  is re-stamped onto the cached report on the way out (`Report.WithIndex`, so
+  the rule about when to report it lives in one place); and a change the model
+  does not see — an edited comment, a base branch that moved underneath — which
+  is what the panel's `Refresh` is for. It sends `Cache-Control: no-cache` and
+  the handler drops the entry first, so the button cannot hand back the answer
+  the reviewer is trying to replace.
+- **The session is also cached in the app, not in the panel**
+  (`useArchReportSession`, exported from `ArchMotifPanel.tsx`): the response
+  carries no ETag, so even a warm answer is a round trip and a re-render.
+  It is re-read on `Refresh` and on the same `model-changed` SSE that reloads
+  the canvas and the file diff — and only `Refresh` asks the daemon to rebuild,
+  because by the time that SSE arrives the daemon has already dropped and
+  re-warmed its own copy.
 - Harness `testing/harness/archmotif-panel.harness.ts`; `mountAppDom` takes a
   `report` responder, so the DOM specs answer without a daemon.
 - What this replaced: a grid of package counts, a degree-sorted coupling table

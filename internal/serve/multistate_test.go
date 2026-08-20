@@ -658,3 +658,112 @@ func TestMultiState_RefreshRejectsDuplicateNames(t *testing.T) {
 		t.Errorf("error = %q, want contains %q", err.Error(), "duplicate worktree name")
 	}
 }
+
+// The loaded hook is how a transport learns that a worktree's model is ready,
+// which is what lets it precompute an answer at daemon start rather than on the
+// first request. It must fire once per successful load, carry the State that
+// was loaded, and — because the work it exists for is slow by definition —
+// never hold up the load or the callers waiting on it.
+func TestMultiState_LoadedHookFiresOffTheLoadPath(t *testing.T) {
+	root := newGitRepo(t)
+	m := NewMultiState(root, stubLoader(new(int64)))
+
+	var (
+		hookMu sync.Mutex
+		seen   []string
+		states []*State
+	)
+	release := make(chan struct{})
+	entered := make(chan struct{}, 4)
+	m.SetLoadedHook(func(name string, state *State) {
+		entered <- struct{}{}
+		<-release // a hook is free to take its time
+		hookMu.Lock()
+		seen = append(seen, name)
+		states = append(states, state)
+		hookMu.Unlock()
+	})
+
+	if err := m.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	name := m.Default()
+
+	loaded := make(chan *State, 1)
+	go func() {
+		state, err := m.Get(context.Background(), name)
+		if err != nil {
+			t.Errorf("Get: %v", err)
+		}
+		loaded <- state
+	}()
+
+	// The load completes while the hook is still running.
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the loaded hook never ran")
+	}
+	var state *State
+	select {
+	case state = <-loaded:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a blocked hook held up the load")
+	}
+
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		hookMu.Lock()
+		done := len(seen) == 1
+		hookMu.Unlock()
+		if done {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the loaded hook never finished")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	hookMu.Lock()
+	defer hookMu.Unlock()
+	if seen[0] != name {
+		t.Errorf("hook name = %q, want %q", seen[0], name)
+	}
+	if states[0] != state {
+		t.Error("hook got a different State than the one the load cached")
+	}
+
+	// A second Get is served from the cache, so the hook does not fire again.
+	if _, err := m.Get(context.Background(), name); err != nil {
+		t.Fatalf("second Get: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if len(seen) != 1 {
+		t.Errorf("hook calls = %d, want 1 — a cached Get is not a load", len(seen))
+	}
+}
+
+// A load that fails caches nothing, so there is no ready model to act on.
+func TestMultiState_LoadedHookSkipsAFailedLoad(t *testing.T) {
+	root := newGitRepo(t)
+	m := NewMultiState(root, func(context.Context, string, string) (*State, error) {
+		return nil, errors.New("pattern ./...: no matching files found")
+	})
+	m.SetLogOut(io.Discard)
+
+	var calls int64
+	m.SetLoadedHook(func(string, *State) { atomic.AddInt64(&calls, 1) })
+
+	if err := m.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if _, err := m.Get(context.Background(), m.Default()); err == nil {
+		t.Fatal("Get = nil error, want the loader's failure")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := atomic.LoadInt64(&calls); got != 0 {
+		t.Errorf("hook calls = %d, want 0 — a failed load has no model to act on", got)
+	}
+}

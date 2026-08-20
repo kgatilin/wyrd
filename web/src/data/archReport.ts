@@ -3,12 +3,22 @@ import type { ArchReport } from '../domain/archReport';
 /**
  * Read the architecture review report for a worktree against the review base.
  *
- * The daemon builds it from scratch per request — both package models, an
- * archmotif graph over each, the model diff and the git hunks — and sends it
- * back without an ETag. Whoever calls this is the cache.
+ * The daemon keeps one built report per worktree and base, warmed when the
+ * worktree's model finishes parsing and dropped on the same model change the
+ * SSE stream announces. `fresh` asks it to rebuild instead: the daemon has no
+ * event for a change that leaves the model alone — an edited comment, a base
+ * branch that moved underneath — so the reviewer's own refresh is what reaches
+ * past its cache. The response carries no ETag, so this client is still a cache
+ * in its own right.
  */
-export async function fetchArchReport(worktree: string, baseRef: string): Promise<ArchReport> {
-  const res = await fetch(archReportURL(worktree, baseRef));
+export async function fetchArchReport(
+  worktree: string,
+  baseRef: string,
+  fresh = false
+): Promise<ArchReport> {
+  const res = await fetch(archReportURL(worktree, baseRef), {
+    headers: fresh ? { 'Cache-Control': 'no-cache' } : undefined,
+  });
   if (!res.ok) {
     const message = await res.text();
     throw new Error(message.trim() || `HTTP ${res.status}`);

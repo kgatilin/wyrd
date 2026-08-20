@@ -265,10 +265,12 @@ interface LensCall {
 
 async function mount(report: ArchReport = repoReport) {
   const asked: string[] = [];
+  const rebuilds: boolean[] = [];
   const lensCalls: LensCall[] = [];
   const env = await mountAppDom(graph, {
-    report: (base) => {
+    report: (base, fresh) => {
       asked.push(base);
+      rebuilds.push(fresh);
       return report;
     },
     gitDiff: () => gitDiff,
@@ -283,7 +285,7 @@ async function mount(report: ArchReport = repoReport) {
   const panel = app.report();
   await panel.open();
   await panel.waitForReport();
-  return { env, app, panel, asked, lensCalls };
+  return { env, app, panel, asked, rebuilds, lensCalls };
 }
 
 afterEach(() => {
@@ -321,7 +323,7 @@ describe('the review report', () => {
   });
 
   it('offers Refresh and nothing else — no Embed, no embedding files', async () => {
-    const { panel, asked } = await mount();
+    const { panel, asked, rebuilds } = await mount();
     expect(await panel.buttons()).toEqual(['Refresh']);
 
     await panel.refresh();
@@ -329,6 +331,11 @@ describe('the review report', () => {
       message: 'Refresh never asked the daemon again',
     });
     expect(asked).toEqual(['main', 'main']);
+    // The daemon holds a warmed report and has no event for a change that
+    // leaves the model alone, so Refresh has to ask it to rebuild — otherwise
+    // the button hands back the very answer the reviewer is trying to replace.
+    // The first read takes the warm copy: that is what makes opening fast.
+    expect(rebuilds).toEqual([false, true]);
   });
 
   it('costs nothing to reopen: the daemon is asked once', async () => {

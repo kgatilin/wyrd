@@ -179,10 +179,11 @@ export interface MountOptions {
   source?: (path: string) => { path?: string; content: string; hash?: string };
   /**
    * Answers GET /api/archmotif/report — the architecture review report.
-   * Without it the panel reports a read error, which is itself a state worth
-   * testing.
+   * `fresh` is what the reviewer's Refresh sends: rebuild rather than answer
+   * from the daemon's warmed copy. Without a responder the panel reports a
+   * read error, which is itself a state worth testing.
    */
-  report?: (baseRef: string) => unknown;
+  report?: (baseRef: string, fresh: boolean) => unknown;
   /**
    * Answers POST /api/mcp/tools/call — the daemon's analysis lenses. Return
    * the payload; the MCP ToolResult envelope is added here, so a spec writes
@@ -212,7 +213,9 @@ export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promi
     }
     if (url.includes('/api/archmotif/report') && options?.report) {
       const base = new URLSearchParams(url.split('?')[1] ?? '').get('base') ?? '';
-      return okJson(options.report(base));
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      const fresh = String(headers['Cache-Control'] ?? '').includes('no-cache');
+      return okJson(options.report(base, fresh));
     }
     if (url.includes('/api/mcp/tools/call') && options?.lens) {
       const body = JSON.parse(String(init?.body ?? '{}')) as {

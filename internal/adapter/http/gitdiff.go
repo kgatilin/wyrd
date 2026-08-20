@@ -54,12 +54,7 @@ func (s *Server) handleGitDiffJSON(w nethttp.ResponseWriter, r *nethttp.Request)
 		return
 	}
 
-	baseRef := r.URL.Query().Get("base")
-	if baseRef == "" {
-		baseRef = defaultReviewBaseRef
-	}
-
-	res, err := git.Diff(repoPath, baseRef)
+	res, err := git.Diff(repoPath, reviewBaseRefOf(r))
 	if err != nil {
 		nethttp.Error(w, err.Error(), nethttp.StatusInternalServerError)
 		return
@@ -96,14 +91,29 @@ func (s *Server) handleGitDiffJSON(w nethttp.ResponseWriter, r *nethttp.Request)
 // repoPathFor resolves the on-disk directory whose git state answers r:
 // the dispatched worktree in multi mode, the served root otherwise.
 func (s *Server) repoPathFor(r *nethttp.Request) (string, string) {
-	if name := s.currentWorktree(r); name != "" && s.multi != nil {
-		if entry, ok := s.multi.Entry(name); ok && entry.Path != "" {
-			return entry.Path, name
-		}
+	name := s.currentWorktree(r)
+	if path := s.worktreeRepoPath(name); path != "" {
+		return path, name
 	}
+	// Resolved second, and only on the fallback: in multi mode stateFor can
+	// block on a cold worktree load, which a name that already resolves to a
+	// checkout has no reason to wait for.
 	state := s.stateFor(r)
 	if state == nil {
 		return "", ""
 	}
-	return state.Snapshot().Root, s.currentWorktree(r)
+	return state.Snapshot().Root, name
+}
+
+// worktreeRepoPath is the named worktree's own checkout, or "" when the name
+// names no discovered worktree.
+func (s *Server) worktreeRepoPath(name string) string {
+	if name == "" || s.multi == nil {
+		return ""
+	}
+	entry, ok := s.multi.Entry(name)
+	if !ok {
+		return ""
+	}
+	return entry.Path
 }

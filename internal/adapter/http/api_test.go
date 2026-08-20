@@ -27,6 +27,15 @@ func TestMain(m *testing.M) {
 // packages so every API endpoint has something to return.
 func newAPITestServer(t *testing.T) (*httptest.Server, *serve.State, string) {
 	t.Helper()
+	ts, state, _, root := newAPIFixture(t)
+	return ts, state, root
+}
+
+// newAPIFixture is newAPITestServer plus the Server itself, for the tests that
+// have to look at what the transport is holding rather than only at what it
+// answers.
+func newAPIFixture(t *testing.T) (*httptest.Server, *serve.State, *Server, string) {
+	t.Helper()
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "go.mod"), "module api.test\n\ngo 1.21\n")
 	mustWriteFile(t, filepath.Join(root, "alpha", "alpha.go"), `package alpha
@@ -51,7 +60,7 @@ func Hello() string { return "hi" }
 	srv.routes(mux)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
-	return ts, state, root
+	return ts, state, srv, root
 }
 
 func mustWriteFile(t *testing.T, path, body string) {

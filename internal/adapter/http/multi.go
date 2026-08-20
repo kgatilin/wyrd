@@ -116,7 +116,13 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 		// the agent's first turn, instead of starting on the first tool call.
 		// Deliberately does not wait for the load, so it never blocks.
 		if rest == "/api/warm" {
-			_, loaded := s.multi.Loaded(name)
+			state, loaded := s.multi.Loaded(name)
+			if loaded {
+				// Already parsed, so the load hook that normally warms the
+				// review report has been and gone. Warm it here instead —
+				// still in the background, so the answer below is immediate.
+				s.WarmWorktree(name, state)
+			}
 			body := map[string]any{"worktree": name, "loaded": loaded}
 			// A worktree whose load failed would otherwise look identical to
 			// one that is merely cold; say so at the first touch.

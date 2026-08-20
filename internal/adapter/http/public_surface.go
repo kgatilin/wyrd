@@ -34,10 +34,7 @@ func (s *Server) handlePublicSurfaceJSON(w nethttp.ResponseWriter, r *nethttp.Re
 
 	snap := state.Snapshot()
 	active := s.currentWorktree(r)
-	baseRef := r.URL.Query().Get("base")
-	if baseRef == "" {
-		baseRef = defaultReviewBaseRef
-	}
+	baseRef := reviewBaseRefOf(r)
 
 	surface := publicapi.Project(snap.Packages)
 
@@ -45,7 +42,7 @@ func (s *Server) handlePublicSurfaceJSON(w nethttp.ResponseWriter, r *nethttp.Re
 	var publicDiff *publicapi.Diff
 	if s.multiMode() && active != "" {
 		var err error
-		base, err = s.reviewBase(r, active, baseRef)
+		base, err = s.reviewBase(r.Context(), active, baseRef)
 		if err != nil {
 			nethttp.Error(w, err.Error(), nethttp.StatusInternalServerError)
 			return

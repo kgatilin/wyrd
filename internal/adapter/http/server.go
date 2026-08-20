@@ -24,6 +24,7 @@ import (
 	"net"
 	nethttp "net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kgatilin/archai/internal/buildinfo"
@@ -55,6 +56,17 @@ type Server struct {
 	// page footer. Defaults to buildinfo.Resolve() when unset so tests
 	// and out-of-band callers see a usable value.
 	version buildinfo.Info
+
+	// reports holds the built architecture review report per
+	// (worktree, base ref) so opening the panel reads an answer instead
+	// of commissioning one. See archmotif_report_cache.go.
+	reports *reportCache
+
+	// watched records the State whose model events each worktree's cached
+	// reports are invalidated by, so the subscription is made once per
+	// State and remade when a worktree is re-created.
+	watchedMu sync.Mutex
+	watched   map[string]*serve.State
 }
 
 // WithVersion stores the build identity reported by the dashboard
@@ -107,7 +119,7 @@ func NewServer(state *serve.State) (*Server, error) {
 	if state == nil {
 		return nil, errors.New("http: nil state")
 	}
-	return &Server{state: state}, nil
+	return newServer(&Server{state: state}), nil
 }
 
 // NewMultiServer constructs a multi-worktree Server backed by the
@@ -118,7 +130,16 @@ func NewMultiServer(multi *serve.MultiState) (*Server, error) {
 	if multi == nil {
 		return nil, errors.New("http: nil multi-state")
 	}
-	return &Server{multi: multi}, nil
+	return newServer(&Server{multi: multi}), nil
+}
+
+// newServer completes a Server with the pieces both modes need. Both
+// constructors go through it so a single-worktree daemon and a repo-level one
+// cannot end up with different caching behaviour.
+func newServer(s *Server) *Server {
+	s.reports = newReportCache(s.buildReport)
+	s.watched = map[string]*serve.State{}
+	return s
 }
 
 // Serve listens on addr and serves HTTP requests until ctx is

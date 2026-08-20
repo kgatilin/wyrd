@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"fmt"
 	nethttp "net/http"
 
@@ -24,17 +25,14 @@ func (s *Server) handleUIGraphJSON(w nethttp.ResponseWriter, r *nethttp.Request)
 
 	snap := state.Snapshot()
 	active := s.currentWorktree(r)
-	baseRef := r.URL.Query().Get("base")
-	if baseRef == "" {
-		baseRef = defaultReviewBaseRef
-	}
+	baseRef := reviewBaseRefOf(r)
 
 	var base serve.ReviewBase
 	var d *diff.Diff
 	var publicDiff *publicapi.Diff
 	if s.multiMode() && active != "" {
 		var err error
-		base, err = s.reviewBase(r, active, baseRef)
+		base, err = s.reviewBase(r.Context(), active, baseRef)
 		if err != nil {
 			nethttp.Error(w, err.Error(), nethttp.StatusInternalServerError)
 			return
@@ -80,11 +78,11 @@ func (s *Server) handleUIGraphJSON(w nethttp.ResponseWriter, r *nethttp.Request)
 // the architecture diff and the file diff answer the same question — the one
 // the reviewer asked, "what did this branch change", rather than "how does
 // this branch differ from wherever the base has got to".
-func (s *Server) reviewBase(r *nethttp.Request, active, baseRef string) (serve.ReviewBase, error) {
+func (s *Server) reviewBase(ctx context.Context, active, baseRef string) (serve.ReviewBase, error) {
 	if s.multi == nil || baseRef == "" || active == "" {
 		return serve.ReviewBase{}, nil
 	}
-	base, err := s.multi.ReviewBase(r.Context(), active, baseRef)
+	base, err := s.multi.ReviewBase(ctx, active, baseRef)
 	if err != nil {
 		return base, fmt.Errorf("resolve review base %q: %w", baseRef, err)
 	}
