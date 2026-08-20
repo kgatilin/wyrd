@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/kgatilin/archai/internal/clustering"
 )
 
 // Compact text rendering for the LLM-facing tool results.
@@ -108,7 +110,7 @@ func shortEndpoint(id, home string) string {
 // `type:path.Recv.Method`, ...) relative to home. The kind prefix is dropped;
 // same-package symbols become bare names, others become <lastsegment>.<Name>.
 func shortArchmotifID(id, home string) string {
-	pkg := extractPackagePath(id)
+	pkg := clustering.PackagePathOf(id)
 	body := id
 	if i := strings.IndexByte(body, ':'); i >= 0 {
 		body = body[i+1:]
@@ -588,7 +590,7 @@ func dominantArchmotifPackage(idSets ...[]string) string {
 	counts := map[string]int{}
 	for _, set := range idSets {
 		for _, id := range set {
-			if p := extractPackagePath(id); p != "" {
+			if p := clustering.PackagePathOf(id); p != "" {
 				counts[p]++
 			}
 		}

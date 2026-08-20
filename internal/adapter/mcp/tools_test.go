@@ -445,27 +445,6 @@ func TestSemanticCluster_NoRetrieval(t *testing.T) {
 	}
 }
 
-// TestArchmotifIDToRetrievalID tests the ID mapping between archmotif and retrieval.
-func TestArchmotifIDToRetrievalID(t *testing.T) {
-	cases := []struct {
-		amid string
-		want string
-	}{
-		{"type:internal/domain.PackageModel", "internal/domain.PackageModel"},
-		{"fn:internal/service.Generate", "internal/service.Generate"},
-		{"method:internal/domain.State.Method", "internal/domain.State.Method"},
-		{"field:internal/domain.State.Name", ""}, // fields not indexed
-		{"pkg:internal/domain", ""},              // packages not indexed
-		{"file:internal/domain/model.go", ""},    // files not indexed
-	}
-	for _, tc := range cases {
-		got := archmotifIDToRetrievalID(tc.amid)
-		if got != tc.want {
-			t.Errorf("archmotifIDToRetrievalID(%q) = %q, want %q", tc.amid, got, tc.want)
-		}
-	}
-}
-
 // TestMemberOwnerID verifies the member-to-owner ID mapping for collapse_members.
 func TestMemberOwnerID(t *testing.T) {
 	cases := []struct {
@@ -600,66 +579,6 @@ func TestBuildCollapsedGraph_SelfLoopRemoval(t *testing.T) {
 	// Graph should still be valid
 	if collapsed == nil {
 		t.Fatal("collapsed graph is nil")
-	}
-}
-
-// TestBuildSemanticKNNGraph_RegistersPackages verifies that buildSemanticKNNGraph
-// correctly registers package nodes before adding symbol nodes. This test exercises
-// the same code path the MCP handler uses (real archmotifimport.NewBuilder construction).
-// It would fail with "unknown packageID" if packages aren't registered first.
-func TestBuildSemanticKNNGraph_RegistersPackages(t *testing.T) {
-	// Create test nodes spanning two packages with mock embeddings.
-	// The node IDs use archmotif format: "type:pkg/path.Name" and "fn:pkg/path.Name"
-	nodes := []semanticNode{
-		{
-			archmotifID: "type:internal/domain.PackageModel",
-			retrievalID: "internal/domain.PackageModel",
-			vec:         []float32{1.0, 0.0, 0.0, 0.0},
-		},
-		{
-			archmotifID: "type:internal/domain.InterfaceDef",
-			retrievalID: "internal/domain.InterfaceDef",
-			vec:         []float32{0.9, 0.1, 0.0, 0.0},
-		},
-		{
-			archmotifID: "fn:internal/service.Generate",
-			retrievalID: "internal/service.Generate",
-			vec:         []float32{0.0, 1.0, 0.0, 0.0},
-		},
-		{
-			archmotifID: "fn:internal/service.NewService",
-			retrievalID: "internal/service.NewService",
-			vec:         []float32{0.0, 0.9, 0.1, 0.0},
-		},
-	}
-
-	// Build the semantic kNN graph. This MUST NOT fail — if it does, the package
-	// registration order is wrong.
-	graph, edgeCount, err := buildSemanticKNNGraph(nodes, 2, 0.0)
-	if err != nil {
-		t.Fatalf("buildSemanticKNNGraph failed: %v", err)
-	}
-
-	// Verify we got the expected structure.
-	if graph == nil {
-		t.Fatal("graph is nil")
-	}
-
-	// With 4 nodes and knn=2, we expect 8 directed edges (each node connects to 2 neighbors).
-	if edgeCount != 8 {
-		t.Errorf("expected 8 edges, got %d", edgeCount)
-	}
-
-	// Verify nodes are present in the graph: 4 symbol nodes + 2 package nodes.
-	// (buildSemanticKNNGraph registers package nodes before symbols)
-	if graph.NodeCount() != 6 {
-		t.Errorf("expected 6 nodes (4 symbols + 2 packages), got %d", graph.NodeCount())
-	}
-
-	// Verify the graph can be used with spectral clustering (the actual consumer).
-	// This implicitly validates that the graph structure is correct.
-	if graph.EdgeCount() == 0 {
-		t.Error("graph has no edges — semantic edges were not added")
 	}
 }
 

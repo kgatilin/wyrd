@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +17,7 @@ import (
 	archmotifAdapter "github.com/kgatilin/archai/internal/adapter/archmotif"
 	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
 	"github.com/kgatilin/archai/internal/apply"
+	"github.com/kgatilin/archai/internal/clustering"
 	"github.com/kgatilin/archai/internal/diff"
 	"github.com/kgatilin/archai/internal/domain"
 	"github.com/kgatilin/archai/internal/plugin"
@@ -595,10 +595,6 @@ func builtinToolDefinitions() []ToolDefinition {
 						"type":        "integer",
 						"minimum":     1,
 						"description": "Nearest neighbors for the semantic similarity graph (default 8).",
-					},
-					"include_members": map[string]any{
-						"type":        "boolean",
-						"description": "Return the full membership of every cluster on BOTH sides (ids only) as JSON, instead of the sampled text verdict. For callers that plot the two partitions against each other — the review UI's domains canvas draws structural clusters × semantic clusters as a contingency grid and needs both memberships. Off by default: the 2xK dump is unbounded in the node count, and reading the verdict does not need it. Narrow the selector if the response exceeds the size limit.",
 					},
 				},
 			},
@@ -2209,6 +2205,9 @@ type spectralClusterArgs struct {
 	CollapseMembers bool             `json:"collapse_members"` // contract method/field nodes into owning type
 }
 
+// spectralSelector is the wire shape of the lenses' `selector` argument. It is
+// decoded here, next to the tool schema that documents it, and converted to the
+// transport-free clustering.Selector the analyses take.
 type spectralSelector struct {
 	Package            string   `json:"package"`
 	IncludeSubpackages *bool    `json:"include_subpackages"`
@@ -2220,6 +2219,18 @@ type spectralSelector struct {
 	// replaces package-path scoping (Package/IncludeSubpackages are ignored).
 	// Requires a configured review base.
 	Diff bool `json:"diff"`
+}
+
+// domain converts the decoded argument to the selector the analyses take.
+// EdgeKinds has no counterpart: it is read by the handlers that pass it
+// straight to the clusterer, not by node selection.
+func (s spectralSelector) domain() clustering.Selector {
+	return clustering.Selector{
+		Package:            s.Package,
+		IncludeSubpackages: s.IncludeSubpackages,
+		NodeKinds:          s.NodeKinds,
+		Diff:               s.Diff,
+	}
 }
 
 // spectralClusterResponse is the output structure for spectral_cluster.
@@ -2327,7 +2338,7 @@ func handleSpectralCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 	}
 
 	// Compute node subset matching the selector.
-	nodeIDs := selectNodes(graph, snap.Packages, args.Selector)
+	nodeIDs := clustering.SelectNodes(graph, snap.Packages, args.Selector.domain())
 	if len(nodeIDs) == 0 {
 		return errorResult("no nodes match the selector"), nil
 	}
@@ -2442,7 +2453,7 @@ func buildCollapsedGraph(original *archmotifimport.Graph, selectedNodeIDs []stri
 	// Collect unique packages from surviving nodes to register first.
 	pkgPaths := make(map[string]bool)
 	for id := range survivingNodes {
-		pkgPath := extractPackagePath(id)
+		pkgPath := clustering.PackagePathOf(id)
 		pkgPaths[pkgPath] = true
 	}
 	sortedPkgs := make([]string, 0, len(pkgPaths))
@@ -2468,7 +2479,7 @@ func buildCollapsedGraph(original *archmotifimport.Graph, selectedNodeIDs []stri
 	sort.Strings(sortedSurviving)
 
 	for _, id := range sortedSurviving {
-		pkgPath := extractPackagePath(id)
+		pkgPath := clustering.PackagePathOf(id)
 		pkgID := "pkg:" + pkgPath
 		if strings.HasPrefix(id, "fn:") {
 			if err := b.AddFunction(id, pkgID); err != nil {
@@ -2668,42 +2679,18 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 		return errorResult("no packages loaded"), nil
 	}
 
-	// Build archmotif graph to use selectNodes for consistent filtering
+	// Build archmotif graph so the selector filters the same way every lens does.
 	graph, err := archmotifAdapter.ToArchmotifGraph(snap.Packages, snap.Overlay)
 	if err != nil {
 		return errorResult(fmt.Sprintf("building graph: %v", err)), nil
 	}
 
-	// Get selected archmotif node IDs
-	archmotifNodeIDs := selectNodes(graph, snap.Packages, args.Selector)
+	archmotifNodeIDs := clustering.SelectNodes(graph, snap.Packages, args.Selector.domain())
 	if len(archmotifNodeIDs) == 0 {
 		return errorResult("no nodes match the selector"), nil
 	}
 
-	// Map archmotif node IDs to retrieval index keys and collect vectors.
-	// Archmotif IDs: type:pkg.Name, fn:pkg.Name, method:pkg.Recv.Method, field:pkg.Struct.Field
-	// Retrieval IDs: pkg.Name (no prefix)
-	var nodesWithVectors []semanticNode
-	droppedCount := 0
-
-	for _, amid := range archmotifNodeIDs {
-		rid := archmotifIDToRetrievalID(amid)
-		if rid == "" {
-			droppedCount++
-			continue
-		}
-		vec, ok := vidx.Vector(rid)
-		if !ok || len(vec) == 0 {
-			droppedCount++
-			continue
-		}
-		nodesWithVectors = append(nodesWithVectors, semanticNode{
-			archmotifID: amid,
-			retrievalID: rid,
-			vec:         vec,
-		})
-	}
-
+	nodesWithVectors, droppedCount := clustering.SemanticNodes(archmotifNodeIDs, vidx)
 	if len(nodesWithVectors) < 2 {
 		return errorResult(fmt.Sprintf("only %d nodes have embeddings (need at least 2); %d dropped",
 			len(nodesWithVectors), droppedCount)), nil
@@ -2716,8 +2703,8 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 	}
 	minSim := args.MinSim // default 0.0 (no floor)
 
-	// Build semantic kNN graph using archmotifimport.Builder
-	semanticGraph, edgeCount, err := buildSemanticKNNGraph(nodesWithVectors, knn, minSim)
+	// Build semantic kNN graph over embedding similarity.
+	semanticGraph, edgeCount, err := clustering.SemanticGraph(nodesWithVectors, knn, minSim)
 	if err != nil {
 		return errorResult(fmt.Sprintf("building semantic graph: %v", err)), nil
 	}
@@ -2725,7 +2712,7 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 	// Collect surviving node IDs for spectral clustering
 	survivingNodeIDs := make([]string, len(nodesWithVectors))
 	for i, nv := range nodesWithVectors {
-		survivingNodeIDs[i] = nv.archmotifID
+		survivingNodeIDs[i] = nv.ArchmotifID
 	}
 
 	// Parse K
@@ -2804,264 +2791,6 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 	}
 
 	return text(renderSemanticCluster(resp))
-}
-
-// archmotifIDToRetrievalID converts an archmotif node ID to a retrieval index key.
-// Archmotif IDs have kind prefixes (type:, fn:, method:, field:, pkg:, file:).
-// Retrieval IDs are just "pkg.SymbolName" with no prefix — and, for a method,
-// "pkg.Receiver.Method", which is the same string archmotif prefixes with
-// "method:". The kinds that map to "" are the ones retrieval has no node for.
-func archmotifIDToRetrievalID(amid string) string {
-	switch {
-	case strings.HasPrefix(amid, "type:"):
-		// type:internal/domain.PackageModel -> internal/domain.PackageModel
-		return strings.TrimPrefix(amid, "type:")
-	case strings.HasPrefix(amid, "fn:"):
-		// fn:internal/service.Generate -> internal/service.Generate
-		return strings.TrimPrefix(amid, "fn:")
-	case strings.HasPrefix(amid, "method:"):
-		// method:internal/domain.StructName.MethodName -> internal/domain.StructName.MethodName
-		// Methods are retrieval nodes of their own, under the same id.
-		return strings.TrimPrefix(amid, "method:")
-	case strings.HasPrefix(amid, "field:"):
-		// field:internal/domain.StructName.FieldName -> not indexed in retrieval
-		return ""
-	case strings.HasPrefix(amid, "pkg:"):
-		// pkg:internal/domain -> packages are not indexed in retrieval
-		return ""
-	case strings.HasPrefix(amid, "file:"):
-		// file:internal/domain/model.go -> files are not indexed in retrieval
-		return ""
-	}
-	return ""
-}
-
-// semanticNode holds an archmotif node ID with its retrieval ID and embedding vector.
-type semanticNode struct {
-	archmotifID string
-	retrievalID string
-	vec         []float32
-}
-
-// buildSemanticKNNGraph constructs an archmotif graph with semantic edges.
-// Each node gets edges to its top-k most similar neighbors (by cosine similarity).
-// Returns the graph and the edge count.
-func buildSemanticKNNGraph(nodes []semanticNode, knn int, minSim float64) (*archmotifimport.Graph, int, error) {
-	b := archmotifimport.NewBuilder()
-
-	// Pass 1: Collect unique packages and register them first.
-	// archmotifimport.Builder requires parent package nodes to exist
-	// before AddType/AddFunction can reference them.
-	pkgPaths := make(map[string]bool)
-	for _, n := range nodes {
-		pkgPath := extractPackagePath(n.archmotifID)
-		pkgPaths[pkgPath] = true
-	}
-	// Sort for deterministic output.
-	sortedPkgs := make([]string, 0, len(pkgPaths))
-	for p := range pkgPaths {
-		sortedPkgs = append(sortedPkgs, p)
-	}
-	sort.Strings(sortedPkgs)
-	for _, pkgPath := range sortedPkgs {
-		if err := b.AddPackage("pkg:"+pkgPath, "", ""); err != nil {
-			return nil, 0, fmt.Errorf("adding package %s: %w", pkgPath, err)
-		}
-	}
-
-	// Pass 2: Add all symbol nodes (types/functions).
-	// archmotif expects typed nodes; we add them as type nodes with empty role.
-	for _, n := range nodes {
-		pkgPath := extractPackagePath(n.archmotifID)
-		pkgID := "pkg:" + pkgPath
-		// Determine whether this is a function or a type based on the ID prefix.
-		if strings.HasPrefix(n.archmotifID, "fn:") {
-			if err := b.AddFunction(n.archmotifID, pkgID); err != nil {
-				return nil, 0, fmt.Errorf("adding node %s: %w", n.archmotifID, err)
-			}
-		} else {
-			// type:, method:, field: - add as type node
-			if err := b.AddType(n.archmotifID, pkgID, false, ""); err != nil {
-				return nil, 0, fmt.Errorf("adding node %s: %w", n.archmotifID, err)
-			}
-		}
-	}
-
-	// Compute pairwise cosine similarities and build kNN edges
-	edgeCount := 0
-	for i, ni := range nodes {
-		// Compute similarity to all other nodes
-		type simPair struct {
-			idx int
-			sim float64
-		}
-		var similarities []simPair
-		for j, nj := range nodes {
-			if i == j {
-				continue
-			}
-			sim := cosineSimilarity64(ni.vec, nj.vec)
-			if sim >= minSim {
-				similarities = append(similarities, simPair{idx: j, sim: sim})
-			}
-		}
-
-		// Sort by similarity descending
-		sort.Slice(similarities, func(a, b int) bool {
-			return similarities[a].sim > similarities[b].sim
-		})
-
-		// Take top-k neighbors
-		limit := knn
-		if limit > len(similarities) {
-			limit = len(similarities)
-		}
-
-		for _, sp := range similarities[:limit] {
-			nj := nodes[sp.idx]
-			// Add edge with "references" kind (archmotifimport's valid kind for
-			// semantic similarity; the underlying meaning is "these symbols are
-			// semantically related").
-			// Note: directed edge from ni to nj; the graph's undirected view will symmetrize.
-			if err := b.AddDependency(ni.archmotifID, nj.archmotifID, archmotifimport.DependencyReferences); err != nil {
-				// Edge may already exist from the reverse direction; skip duplicates
-				continue
-			}
-			edgeCount++
-		}
-	}
-
-	g, err := b.Build()
-	return g, edgeCount, err
-}
-
-// cosineSimilarity64 computes cosine similarity between two float32 vectors,
-// returning a float64 result.
-func cosineSimilarity64(a, b []float32) float64 {
-	if len(a) != len(b) || len(a) == 0 {
-		return 0
-	}
-	var dot, normA, normB float64
-	for i := range a {
-		dot += float64(a[i]) * float64(b[i])
-		normA += float64(a[i]) * float64(a[i])
-		normB += float64(b[i]) * float64(b[i])
-	}
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
-}
-
-// selectNodes returns archmotif node IDs matching the selector.
-func selectNodes(graph *spectralcluster.Graph, packages []domain.PackageModel, sel spectralSelector) []string {
-	// Build a set of package paths matching the selector.
-	includeSubpkgs := true
-	if sel.IncludeSubpackages != nil {
-		includeSubpkgs = *sel.IncludeSubpackages
-	}
-
-	matchingPkgs := map[string]bool{}
-	for _, pkg := range packages {
-		if sel.Package == "" {
-			matchingPkgs[pkg.Path] = true
-		} else if pkg.Path == sel.Package {
-			matchingPkgs[pkg.Path] = true
-		} else if includeSubpkgs && strings.HasPrefix(pkg.Path, sel.Package+"/") {
-			matchingPkgs[pkg.Path] = true
-		}
-	}
-
-	// Build node kind filter.
-	nodeKindFilter := map[string]bool{}
-	for _, k := range sel.NodeKinds {
-		nodeKindFilter[k] = true
-	}
-
-	// Collect matching node IDs.
-	// Archmotif node IDs have format: "pkg:<path>", "type:<path>.<Name>",
-	// "fn:<path>.<Name>", "method:<path>.<RecvName>.<MethodName>",
-	// "field:<path>.<StructName>.<FieldName>".
-	var nodeIDs []string
-	for _, n := range graph.Nodes() {
-		// Parse the node ID to extract package path.
-		pkgPath := extractPackagePath(n.ID)
-		if !matchingPkgs[pkgPath] {
-			continue
-		}
-
-		// Filter by node kind.
-		if len(nodeKindFilter) > 0 {
-			kindStr := string(n.Kind)
-			if !nodeKindFilter[kindStr] {
-				continue
-			}
-		}
-
-		// Exclude package and file containers by default (we want
-		// symbol-level clustering, not the structural layout).
-		if (n.Kind == "package" || n.Kind == "file") && len(sel.NodeKinds) == 0 {
-			continue
-		}
-
-		nodeIDs = append(nodeIDs, n.ID)
-	}
-
-	sort.Strings(nodeIDs)
-	return nodeIDs
-}
-
-// extractPackagePath extracts the package path from an archmotif node ID.
-func extractPackagePath(id string) string {
-	// ID formats:
-	//   pkg:<path>             -> <path>
-	//   type:<path>.<Name>     -> <path>
-	//   fn:<path>.<Name>       -> <path>
-	//   method:<path>.<Recv>.<Method> -> <path>
-	//   field:<path>.<Struct>.<Field> -> <path>
-	switch {
-	case strings.HasPrefix(id, "pkg:"):
-		return strings.TrimPrefix(id, "pkg:")
-	case strings.HasPrefix(id, "type:"):
-		return extractPathBeforeLastDot(strings.TrimPrefix(id, "type:"))
-	case strings.HasPrefix(id, "fn:"):
-		return extractPathBeforeLastDot(strings.TrimPrefix(id, "fn:"))
-	case strings.HasPrefix(id, "method:"):
-		// method:<path>.<Recv>.<Method> - need to strip last two segments
-		rest := strings.TrimPrefix(id, "method:")
-		return extractPathBeforeLastNDots(rest, 2)
-	case strings.HasPrefix(id, "field:"):
-		// field:<path>.<Struct>.<Field> - need to strip last two segments
-		rest := strings.TrimPrefix(id, "field:")
-		return extractPathBeforeLastNDots(rest, 2)
-	case strings.HasPrefix(id, "file:"):
-		// file:<path>/<basename> -> strip the trailing /<basename>
-		rest := strings.TrimPrefix(id, "file:")
-		if i := strings.LastIndex(rest, "/"); i >= 0 {
-			return rest[:i]
-		}
-		return rest
-	}
-	return ""
-}
-
-func extractPathBeforeLastDot(s string) string {
-	idx := strings.LastIndex(s, ".")
-	if idx < 0 {
-		return s
-	}
-	return s[:idx]
-}
-
-func extractPathBeforeLastNDots(s string, n int) string {
-	for i := 0; i < n; i++ {
-		idx := strings.LastIndex(s, ".")
-		if idx < 0 {
-			return s
-		}
-		s = s[:idx]
-	}
-	return s
 }
 
 // mapNodeIDsToSymbols converts archmotif node IDs to archai symbol IDs.
@@ -3147,7 +2876,7 @@ func handleComponents(state *serve.State, rawArgs json.RawMessage) (ToolResult, 
 	// Collect all symbol-level node IDs (exclude package nodes).
 	var nodeIDs []string
 	for _, n := range graph.Nodes() {
-		pkgPath := extractPackagePath(n.ID)
+		pkgPath := clustering.PackagePathOf(n.ID)
 		if !matchingPkgs[pkgPath] {
 			continue
 		}
@@ -3289,7 +3018,7 @@ func handleTrophicLayers(state *serve.State, rawArgs json.RawMessage) (ToolResul
 
 	var nodeIDs []string
 	for _, n := range graph.Nodes() {
-		if !matchingPkgs[extractPackagePath(n.ID)] {
+		if !matchingPkgs[clustering.PackagePathOf(n.ID)] {
 			continue
 		}
 		// trophic_layers is a behavioral (flow) analysis. Structural kinds
@@ -3432,7 +3161,7 @@ func handleFileHotspots(state *serve.State, rawArgs json.RawMessage) (ToolResult
 		if n.Kind != "file" {
 			continue
 		}
-		if matchingPkgs[extractPackagePath(n.ID)] {
+		if matchingPkgs[clustering.PackagePathOf(n.ID)] {
 			fileIDs = append(fileIDs, n.ID)
 		}
 	}

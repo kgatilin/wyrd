@@ -1,4 +1,4 @@
-package mcp
+package clustering
 
 import (
 	"strings"
@@ -61,9 +61,9 @@ func TestDiffRegionNodes_RegionIsChangedCluster(t *testing.T) {
 		t.Fatalf("ToArchmotifGraph: %v", err)
 	}
 
-	region, meta, emsg := diffRegionNodes(graph, base, wt)
-	if emsg != "" {
-		t.Fatalf("diffRegionNodes: %s", emsg)
+	region, meta, err := DiffRegionNodes(graph, base, wt)
+	if err != nil {
+		t.Fatalf("DiffRegionNodes: %v", err)
 	}
 	if meta == nil || meta.SeedCount < 1 {
 		t.Fatalf("expected a seeded region, got meta=%+v", meta)
@@ -99,8 +99,8 @@ func TestDiffRegionNodes_NoChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ToArchmotifGraph: %v", err)
 	}
-	_, _, emsg := diffRegionNodes(graph, base, base)
-	if emsg == "" {
-		t.Error("expected a 'no changes' message for identical base/worktree")
+	_, _, err = DiffRegionNodes(graph, base, base)
+	if err == nil {
+		t.Error("expected a 'no changes' error for identical base/worktree")
 	}
 }
