@@ -352,11 +352,20 @@ All take `{package, include_subpackages}` and run on the package subgraph.
   so `status` shows progress right after a restart.
 - **Verdict lenses sample, membership lenses dump.** `latent_domains` emits
   clusters on *both* the structural and semantic side, so it always returns a
-  capped member **sample** (`buildClusterSummaries`, not the full-150-per-cluster
+  capped member **sample** (`clusterSummaries`, not the full-150-per-cluster
   `buildClusterInfos` that `spectral_cluster`/`semantic_cluster` use) — its
   product is the AMI verdict + glue + modularity, not membership. Full membership
   ⇒ call the single-sided lens. Without this the 2×K full dump blew past 70KB on
   a large region.
+- **An argument that lifts that cap is a bug, not a feature.** `include_members`
+  did exactly that, for the domains canvas, and on a real repository the reply
+  came back as `{"error":"result_too_large","bytes":340464,"limit":262144}` after
+  the better part of a minute of computing — `clampToolResult` enforces
+  `maxResultBytes` on every `Dispatch` result, in the same package. It is gone. A
+  client that needs both partitions in full reads `GET /api/archmotif/domains`,
+  which is not the agent transport and has no such ceiling. Bounding it instead
+  would have been worse: a partition silently missing members draws a grid that
+  looks complete.
 
 ### Where the code lives
 
@@ -364,12 +373,19 @@ All take `{package, include_subpackages}` and run on the package subgraph.
   `internal/adapter/archmotif/exporter.go` (→ archmotif graph).
 - Analysis: `github.com/kgatilin/archmotif/pkg/{components,filestats,trophic,spectralcluster}`.
   `spectralcluster` owns the modularity-validated auto-K, the modularity metric,
-  and the exposed spectrum. `semantic_cluster` reuses it over a kNN graph built
-  in `tools.go` (`buildSemanticKNNGraph`) from retrieval-service embedding vectors.
+  and the exposed spectrum.
+- **`internal/clustering` owns what the clustering lenses share**, transport-free:
+  node selection by selector (`SelectNodes`, `DiffRegionNodes`), the semantic kNN
+  graph over embedding vectors (`SemanticGraph`, over a `Vectors` port so the
+  retrieval service is injected rather than reached for), and the whole
+  latent-domains analysis (`LatentDomains` — both clusterings, AMI/NMI agreement,
+  glue detection, verdict). Two surfaces call it and neither holds a copy of the
+  maths: the MCP tool and the review UI's domains endpoint.
 - MCP handlers: `internal/adapter/mcp/tools.go` (`handle*`, registered in
   `builtinToolDefinitions` + `Dispatch`). `latent_domains` lives in its own
-  `internal/adapter/mcp/latent_domains.go` (NMI/AMI math + glue detection) — kept
-  out of `tools.go`, which is itself the god-file these lenses flag.
+  `internal/adapter/mcp/latent_domains.go`, which is now argument decoding,
+  readiness gating and the sampled text verdict — kept out of `tools.go`, which
+  is itself the god-file these lenses flag.
 - Readiness: `handleStatus` + `indexingGate` (`tools.go`) report/gate on
   `retrieval.Service.IndexStatus()` (`internal/retrieval/service.go`). The
   non-blocking parse path is `MultiState.Loaded`/`ensureLoad` (`multistate.go`)
@@ -683,20 +699,52 @@ the best-matching pairs sit on the diagonal. One row smeared across many
 columns is a structural blob hiding semantic domains, and the header names the
 glue holding it together.
 
-- Data: one `latent_domains` call with `include_members: true` over the
-  `LensPort` (`data/lens.ts` + `adapters/httpLensSource.ts`), so both
-  partitions come out of a single solve. Three calls would make the grid depend
-  on the solver returning the same partition three times running.
-- Readiness first: `status` says whether the dense pass is still running or no
-  embedder is configured. The structural half is never drawn on its own — half
-  a grid answers a different question than the one asked.
+- Data: `GET /w/<worktree>/api/archmotif/domains?scope=diff|repo|package` →
+  `internal/adapter/http/archmotif_domains.go` → `clustering.LatentDomains` —
+  the same analysis the MCP `latent_domains` tool runs, so both partitions come
+  out of a single solve. Asking for them separately would make the grid depend
+  on the solver returning the same partition twice running.
+- **The browser does not go through the agent's result budget.** `Dispatch`
+  clamps every MCP tool result at `maxResultBytes` (256 KiB,
+  `internal/adapter/mcp/result_budget.go`) to protect an agent's context window
+  and the NATS bridge behind it. A full partition of a few thousand symbols is
+  larger than that however it is encoded, so the canvas fetching it through
+  `/api/mcp/tools/call` capped the whole feature at small repositories — it
+  computed for the better part of a minute and then got `result_too_large`. A
+  browser fetching the data for the page it is rendering is neither of those
+  callers, so it reads its own endpoint and gets the partition whole.
+- **The partition is a shared node list plus a label per node per side**:
+  `{nodes: [id, …], structural: {k, modularity, dominant_share, labels: [int, …]},
+  semantic: {…}}`, `-1` for a symbol a side did not place. A node id is written
+  once whatever the number of sides, where a member-list-per-cluster shape wrote
+  every id twice — measured on this repository at 46 bytes per node against 94.
+  The client joins the two sides by index, not by id lookup
+  (`web/src/domain/archMotifDomains.ts`).
+- Readiness first, over the `LensPort` (`data/lens.ts`): `status` is cheap and
+  says whether the dense pass is still running or no embedder is configured. The
+  partition comes over a second port (`data/domains.ts` +
+  `adapters/httpDomainsSource.ts`) because it is a second transport, not a
+  second tool. The structural half is never drawn on its own — half a grid
+  answers a different question than the one asked.
 - Scope: the `diff` region, the whole `repo` (types and functions only), or one
   package, which is the entry the report's god-package row uses.
+- **Repo scope drops methods and fields because the analysis is roughly cubic.**
+  Measured warm on this repository: 187 nodes 0.2s, 438 (repo scope) 0.4s, 794
+  (a diff region) 4.5s, 1,997 (every symbol kind) 44s. The wall is the two dense
+  eigendecompositions inside `spectralcluster` — `spectral_cluster` alone over
+  1,997 nodes takes 94s, because its auto-K search re-clusters at every
+  candidate; `latent_domains` avoids that on the structural side by mirroring
+  the K the semantic side settled on. The kNN similarity pass is ~2.4x cheaper
+  than it was (unit-normalized vectors, each pair measured once, bounded top-k —
+  benchmarked both ways in `internal/clustering`) but it is only about 6% of the
+  time at that size. Cutting the rest means a sparse eigensolver in archmotif,
+  not a tighter loop here.
 - Cross-cell flow is drawn for the selected or hovered cell alone; all of it at
   once is the hairball the grid replaced.
 - Model: `web/src/domain/archMotifDomains.ts` (pure, tested); view
   `components/ArchMotifCanvas.tsx`; harness
-  `testing/harness/archmotif-canvas.harness.ts`.
+  `testing/harness/archmotif-canvas.harness.ts`. `mountAppDom` takes a `domains`
+  responder, so the DOM specs answer without a daemon.
 
 ### Event Model
 
