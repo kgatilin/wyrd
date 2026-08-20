@@ -125,8 +125,8 @@ func TestHandleAPISearch(t *testing.T) {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 
-	if len(resp.Results) == 0 {
-		t.Error("expected at least one result")
+	if len(resp.Hits) == 0 {
+		t.Fatal("expected at least one hit")
 	}
 
 	// Verify dense flag is present in response
@@ -134,42 +134,29 @@ func TestHandleAPISearch(t *testing.T) {
 	if !resp.Dense {
 		t.Error("expected dense=true with noop embedder")
 	}
-}
 
-func TestHandleAPISearchGraph(t *testing.T) {
-	server := setupRetrievalTestServer(t)
-
-	body := `{"query": "Handler", "k": 5, "hops": 1}`
-	req := httptest.NewRequest(http.MethodPost, "/api/search_graph", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	server.handleAPISearchGraph(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp searchGraphResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-
-	if len(resp.Nodes) == 0 {
-		t.Error("expected at least one node")
-	}
-
-	// Check that we got Handler
+	// One endpoint answers both halves: the symbols the query text matched are
+	// marked as seeds, and the wiring around them travels with them.
 	nodeIDs := make(map[string]bool)
-	for _, n := range resp.Nodes {
-		nodeIDs[n.ID] = true
+	seeds := 0
+	for _, h := range resp.Hits {
+		nodeIDs[h.ID] = true
+		if h.Seed {
+			seeds++
+			if h.TextScore <= 0 {
+				t.Errorf("seed %q carries no text score", h.ID)
+			}
+		}
 	}
 	if !nodeIDs["internal/handler.Handler"] {
-		t.Error("expected Handler node in subgraph")
+		t.Error("expected the Handler node in the answer")
+	}
+	if seeds == 0 {
+		t.Error("expected at least one hit marked as a seed")
 	}
 
-	// The diffusion diagnostics travel with the subgraph: how many hits seeded
-	// it, how crisply it separates, and whether the node cap trimmed it.
+	// The diffusion diagnostics travel with the hits: how many of them seeded
+	// the region, how crisply it separates, and whether the cap trimmed it.
 	if resp.SeedCount == 0 {
 		t.Error("expected a non-zero seed_count")
 	}
@@ -177,7 +164,7 @@ func TestHandleAPISearchGraph(t *testing.T) {
 		t.Errorf("conductance = %v, want a fraction in [0,1]", resp.Conductance)
 	}
 	if resp.Truncated {
-		t.Errorf("a %d-node subgraph should not report truncation", len(resp.Nodes))
+		t.Errorf("a %d-node answer should not report truncation", len(resp.Hits))
 	}
 }
 

@@ -58,7 +58,6 @@ func TestRenderSubgraph_CompactAndRoundTrippable(t *testing.T) {
 		Dense:     true,
 		NodeCount: 3,
 		EdgeCount: 2,
-		Diffusion: &diffusionStats{Conductance: 0.21384719, SeedCount: 5},
 		Nodes: []nodeInfo{
 			{ID: home + ".Dispatch", Kind: "func", Package: home, Name: "Dispatch",
 				File: home + "/tools.go", Line: 10,
@@ -103,11 +102,6 @@ func TestRenderSubgraph_CompactAndRoundTrippable(t *testing.T) {
 	if !strings.Contains(out, "Dispatch --uses--> serve.State") {
 		t.Errorf("cross-package edge endpoint not shortened:\n%s", out)
 	}
-	// The cut quality is reported next to the size, rounded like every other
-	// metric in these renders.
-	if !strings.Contains(out, "conductance 0.214") || !strings.Contains(out, "5 seeds") {
-		t.Errorf("diffusion diagnostics missing from header:\n%s", out)
-	}
 	// No float score noise anywhere.
 	assertNoFloatNoise(t, out)
 }
@@ -120,6 +114,103 @@ func TestRenderSubgraph_ExpandOmitsDiffusion(t *testing.T) {
 	})
 	if strings.Contains(out, "conductance") {
 		t.Errorf("expand output carries a cut it never made:\n%s", out)
+	}
+}
+
+func TestRenderSearch_SeparatesHitsFromRegionAndReportsTheCut(t *testing.T) {
+	home := "internal/adapter/mcp"
+	r := searchResult{
+		Dense:       true,
+		Conductance: 0.21384719,
+		SeedCount:   2,
+		Hits: []searchHit{
+			{nodeInfo: nodeInfo{ID: home + ".Dispatch", Kind: "func", Package: home, Name: "Dispatch",
+				File: home + "/tools.go", Line: 10,
+				Signature: "Dispatch(res internal/adapter/mcp.ToolResult) *internal/adapter/mcp.RPCError",
+				Doc:       "Dispatch routes a call.", Score: 0.12013965764586908},
+				Seed: true, TextScore: 0.4132876},
+			{nodeInfo: nodeInfo{ID: home + ".ToolResult", Kind: "struct", Package: home, Name: "ToolResult",
+				File: home + "/tools.go", Line: 86, Signature: "type ToolResult struct"},
+				Seed: true, TextScore: 0.2},
+			{nodeInfo: nodeInfo{ID: "internal/serve.State", Kind: "struct", Package: "internal/serve", Name: "State",
+				File: "internal/serve/state.go", Line: 37, Score: 0.031}},
+		},
+		Edges: []edgeInfo{
+			{From: home + ".Dispatch", To: home + ".ToolResult", Kind: "returns"},
+			{From: home + ".Dispatch", To: "internal/serve.State", Kind: "uses"},
+		},
+	}
+	out := renderSearch("dispatch", r)
+
+	// One answer, two sections: what the text matched and what the graph added.
+	hits := strings.Index(out, "hits  (matched the query text)")
+	region := strings.Index(out, "region  (what the hits diffuse into)")
+	if hits < 0 || region < 0 || hits > region {
+		t.Fatalf("hits and region sections missing or out of order:\n%s", out)
+	}
+	if strings.Index(out, "Dispatch  (res ToolResult)") > region {
+		t.Errorf("a seed was printed under the region:\n%s", out)
+	}
+	if strings.Index(out, "State") < region {
+		t.Errorf("a diffused node was printed under the hits:\n%s", out)
+	}
+	// The cut quality is reported next to the size, rounded like every other
+	// metric in these renders.
+	if !strings.Contains(out, "conductance 0.214") || !strings.Contains(out, "2 seeds") {
+		t.Errorf("diffusion diagnostics missing from header:\n%s", out)
+	}
+	if !strings.Contains(out, "2 hits") || !strings.Contains(out, "region 1 nodes / 2 edges") {
+		t.Errorf("header counts wrong:\n%s", out)
+	}
+	// The home package is declared once and never repeated on the body lines.
+	if strings.Count(out, home+".") != 0 {
+		t.Errorf("home package path repeated in body:\n%s", out)
+	}
+	if !strings.Contains(out, "home "+home) {
+		t.Errorf("missing home header:\n%s", out)
+	}
+	if !strings.Contains(out, "Dispatch --uses--> serve.State") {
+		t.Errorf("cross-package edge endpoint not shortened:\n%s", out)
+	}
+	assertNoFloatNoise(t, out)
+}
+
+func TestRenderSearch_LeadsWithTheTopHitNotTheBiggestPackage(t *testing.T) {
+	// One decisive hit, and a tail of weak ones that happen to share a package.
+	// Picking home by majority put that tail first and read as a wrong answer,
+	// though the ranking underneath was right.
+	top := "internal/retrieval"
+	tail := "internal/adapter/mcp"
+	hit := func(pkg, name string, score float64, seed bool) searchHit {
+		return searchHit{
+			nodeInfo: nodeInfo{ID: pkg + "." + name, Kind: "func", Package: pkg, Name: name},
+			Seed:     seed, TextScore: score,
+		}
+	}
+	out := renderSearch("fuseCalibrated", searchResult{
+		SeedCount: 3,
+		Hits: []searchHit{
+			hit(top, "Service.fuseCalibrated", 0.83, true),
+			hit(tail, "trophicVerdict", 0.02, true),
+			hit(tail, "expectedMutualInfo", 0.01, true),
+		},
+	})
+
+	if !strings.Contains(out, "home "+top) {
+		t.Errorf("home is not the top hit's package:\n%s", out)
+	}
+	if strings.Index(out, "fuseCalibrated\n") > strings.Index(out, "trophicVerdict") {
+		t.Errorf("the answer leads with the weak tail:\n%s", out)
+	}
+}
+
+func TestRenderSearch_NoMatches(t *testing.T) {
+	out := renderSearch("nothing", searchResult{})
+	if !strings.Contains(out, "no matches") {
+		t.Errorf("empty answer must say so:\n%s", out)
+	}
+	if strings.Contains(out, "conductance") {
+		t.Errorf("a search that found nothing reports a cut it never made:\n%s", out)
 	}
 }
 

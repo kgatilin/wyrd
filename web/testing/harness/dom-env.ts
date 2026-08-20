@@ -166,7 +166,7 @@ export interface MountOptions {
    * Answers POST /api/search. Without it the ask panel's requests fail, which
    * is itself a state worth testing.
    */
-  search?: (query: string, k: number) => { results: unknown[]; dense: boolean };
+  search?: (query: string, k: number) => { hits: unknown[]; dense: boolean };
   /**
    * Answers GET /api/gitdiff. Without it the file diff reports a read error,
    * which is itself a state worth testing.

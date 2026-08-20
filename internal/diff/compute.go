@@ -397,6 +397,7 @@ func normalizeFunction(v domain.FunctionDef) domain.FunctionDef {
 func normalizeMethod(v domain.MethodDef) domain.MethodDef {
 	v.Span = domain.Span{}
 	v.Calls = nil
+	v.Doc = ""
 	return v
 }
 

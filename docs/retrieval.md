@@ -39,7 +39,8 @@ type LexicalIndex interface { // BM25 inverted index (always available)
 ```
 
 `retrieval.Service` orchestrates them: `Index` / `Refresh` (maintain indexes),
-`Search` / `SearchGraph` / `Expand` / `Node` (query).
+`Search` / `Expand` / `Node` (query). There is one search — `Search` — and it
+returns both the hits and the community around them.
 
 **Adapters:**
 
@@ -56,11 +57,22 @@ type LexicalIndex interface { // BM25 inverted index (always available)
 One graph node = one retrieval unit (`chunk == node`). Embedded text =
 enclosing header (`package …`) + signature + docstring + **body** (read from disk
 via the symbol's source `Span`, captured by the Go reader). An `Embeddable`
-predicate per node decides what gets a vector (default: `func`/`iface`/`struct`/
-`type` yes; `const`/`var`/`error` no). Oversized bodies are split along AST
+predicate per node decides what gets a vector (default:
+`func`/`method`/`iface`/`struct`/`type` yes; `const`/`var`/`error` no).
+Oversized bodies are split along AST
 statement boundaries into budget-sized sub-chunks (signature as header on each),
 then **mean-pooled + L2-normalized into a single vector** — so the index stays
 one vector per node. Budget ≈ 2048 chars (~512 tokens).
+
+Node ids follow uigraph's scheme, `{package}.{Symbol}`, and a method extends it
+the same way uigraph's members do: `{package}.{Receiver}.{Method}`. Methods are
+nodes of their own because a struct's span stops at its type declaration — its
+methods are separate declarations, so without a node each their bodies are not
+in the corpus at all. Interface methods get no node: an interface's span already
+covers its whole declaration, method set included, and there is no body to read.
+Their calls hang off the method node, and a `contains` edge ties a type to its
+methods; that edge is structural, so it carries no diffusion weight, but
+traversals over all edges (`expand`, an answer's induced edges) walk it.
 
 ### Asymmetric embedding (task instructions)
 
@@ -76,13 +88,20 @@ adapter applies them by model family:
 
 The Qwen3 task string is configurable (`ARCHAI_EMBED_QUERY_INSTRUCTION`).
 
-### Graph search (`search_graph`)
+### Search is one operation
 
-`search` answers "where does this live"; `search_graph` answers "what does it
-hang together with". It runs the same hybrid search, then hands the calibrated
-masses to a local graph partition — the Andersen–Chung–Lang push approximation
-of personalized PageRank, followed by a sweep cut — and returns the community
-the hits sit in. Design and references: `docs/features/search-diffusion/design.md`.
+There is a single search, and it answers "where does this live" and "what does
+it hang together with" in one response. The text channels score what the query
+matches; that score is the weight each match carries into a local graph
+partition — the Andersen–Chung–Lang push approximation of personalized
+PageRank, followed by a sweep cut — which returns the community the hits sit
+in. Design and references: `docs/features/search-diffusion/design.md`.
+
+The answer is one node list plus the edges induced among those nodes: the
+seeds first (`seed: true`, in text-relevance order, carrying `text_score`),
+then what the diffusion reached (in diffusion-mass order). A seed is never
+dropped — not by `hops`, not by the payload cap — because a search that hides
+its own hits is not a search.
 
 - **Seeds carry their mass.** Personalization is proportional to the fused
   relevance of each hit, so the top hit pulls the region toward itself and a
@@ -102,12 +121,17 @@ the hits sit in. Design and references: `docs/features/search-diffusion/design.m
   through the middle of a hairball, which is the "nothing coherent found" signal.
 - **Two bounds sit on top.** `hops` is a hard radius: nothing farther than that
   many undirected edges from a seed is returned, however much mass it collected.
-  `MaxGraphNodes` is the payload cap, applied last and by mass, and reported as
-  `truncated`.
+  `MaxGraphNodes` is the payload cap on the region, applied last and by mass,
+  and reported as `truncated`.
+- **Filters constrain the seeds, not the region.** `filters.kinds` /
+  `filters.package_prefix` say what the query text may match; the community
+  around a match is the wiring you asked the graph for, and filtering that
+  would answer a different question.
 
-Node `score` is the degree-normalized diffusion mass — an ordering within one
-response, never a threshold across queries. Every knob lives in
-`retrieval.Params` (`internal/retrieval/params.go`).
+Node `score` is the degree-normalized diffusion mass and `text_score` the
+calibrated text mass on seeds — both order within one response, never a
+threshold across queries. Every knob lives in `retrieval.Params`
+(`internal/retrieval/params.go`).
 
 ### Graceful degradation
 
@@ -152,31 +176,26 @@ exposed over HTTP and MCP on the same `serve` process.
 
 JSON endpoints on the serve process. In multi-worktree mode they are also
 available under `/w/{worktree}/…`. Edge `kind` values: `uses`, `returns`,
-`implements`, `calls`.
+`implements`, `calls`, `contains`.
 
-### `POST /api/search` — hybrid search
+### `POST /api/search` — the hits and the community around them
 ```bash
 curl -XPOST :8800/api/search -d '{
   "query": "split function body into chunks",
   "k": 5,
+  "hops": 1,
   "filters": { "kinds": ["func","iface"], "package_prefix": "internal/retrieval" }
 }'
 ```
 ```jsonc
-{ "results": [ { "node_id", "kind", "file", "doc", "snippet", "score" } ], "dense": true }
-```
-
-### `POST /api/search_graph` — the community around the hits
-```bash
-curl -XPOST :8800/api/search_graph -d '{ "query": "retrieval service", "k": 2, "hops": 1 }'
-```
-```jsonc
-{ "nodes": [ { "id","kind","package","name","signature","doc","score" } ],
+{ "hits": [ { "id","kind","package","name","file","line","signature","doc",
+              "score", "seed": true, "text_score": 0.31 } ],
   "edges": [ { "from","to","kind" } ], "dense": true,
   "conductance": 0.11, "seed_count": 2, "truncated": false }
 ```
-Nodes come back in diffusion-mass order (`score`), highest first. See
-[Graph search](#graph-search-search_graph) for what the extra fields mean.
+The hits the query text matched come first, marked `seed` and ordered by
+`text_score`; the nodes the diffusion reached follow in `score` order. See
+[Search is one operation](#search-is-one-operation) for what the rest means.
 
 ### `POST /api/expand` — neighbours of given nodes
 ```bash
@@ -215,8 +234,7 @@ Mirror the HTTP endpoints; callable via the MCP registry or
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `search` | `{query, k, filters}` | ranked nodes |
-| `search_graph` | `{query, k, hops}` | community subgraph + `conductance` / `seed_count` / `truncated` |
+| `search` | `{query, k, hops, filters}` | seeds + community, edges, `conductance` / `seed_count` / `truncated` |
 | `expand` | `{node_ids, hops, edges}` | neighbour nodes |
 | `get_node` | `{id}` | node body + edges |
 | `refresh` | `{}` | reindex counts |

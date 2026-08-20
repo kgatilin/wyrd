@@ -108,21 +108,13 @@ func graphTools() []toolCmd {
 		},
 		{
 			name:  "search",
-			short: "Hybrid semantic + lexical code search",
+			short: "Hybrid semantic + lexical search, and the community around the hits",
 			flags: []argFlag{
 				{name: "query", kind: argString, path: "query", required: true, usage: "Search query"},
-				{name: "k", kind: argInt, path: "k", usage: "Max results (default 10)"},
-				{name: "kind", kind: argStringSlice, path: "filters.kinds", usage: "Symbol kinds to include (repeatable)"},
-				{name: "package-prefix", kind: argString, path: "filters.package_prefix", usage: "Only symbols under this package prefix"},
-			},
-		},
-		{
-			name:  "search_graph",
-			short: "Search returning the community around the hits",
-			flags: []argFlag{
-				{name: "query", kind: argString, path: "query", required: true, usage: "Search query"},
-				{name: "k", kind: argInt, path: "k", usage: "Max seed results (default 10)"},
+				{name: "k", kind: argInt, path: "k", usage: "Text hits that seed the search (default 10)"},
 				{name: "hops", kind: argInt, path: "hops", usage: "Hard radius cap in edges from the seeds (default 1)"},
+				{name: "kind", kind: argStringSlice, path: "filters.kinds", usage: "Symbol kinds the query may match (repeatable)"},
+				{name: "package-prefix", kind: argString, path: "filters.package_prefix", usage: "Only match symbols under this package prefix"},
 			},
 		},
 		{
@@ -137,7 +129,7 @@ func graphTools() []toolCmd {
 		{
 			name:  "get_node",
 			short: "Full detail (source + edges) for one symbol",
-			flags: []argFlag{{name: "id", kind: argString, path: "id", required: true, usage: "Node ID (package.SymbolName)"}},
+			flags: []argFlag{{name: "id", kind: argString, path: "id", required: true, usage: "Node ID (package.SymbolName, or package.Receiver.Method)"}},
 		},
 		{name: "components", short: "Connected components of a package subgraph", flags: pkgFlags},
 		{name: "file_hotspots", short: "Structurally overloaded files in a package", flags: pkgFlags},

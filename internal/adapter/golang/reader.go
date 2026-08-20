@@ -391,7 +391,7 @@ func (r *reader) collectMethodsByReceiver(pkg *packages.Package, astFiles map[st
 			fn := named.Method(i)
 			sig := fn.Type().(*types.Signature)
 			method := r.convertMethod(fn, sig)
-			method.Span = r.findMethodDeclSpan(pkg, astFiles, name, fn.Name())
+			method.Span, method.Doc = r.findMethodDecl(pkg, astFiles, name, fn.Name())
 			methodsByReceiver[name] = append(methodsByReceiver[name], method)
 		}
 	}
@@ -1102,8 +1102,12 @@ func (r *reader) findFuncDeclSpan(pkg *packages.Package, astFiles map[string]*as
 	return domain.Span{}
 }
 
-// findMethodDeclSpan locates the AST FuncDecl for a method on the given receiver type.
-func (r *reader) findMethodDeclSpan(pkg *packages.Package, astFiles map[string]*ast.File, receiverType, methodName string) domain.Span {
+// findMethodDecl locates the AST FuncDecl for a method on the given receiver
+// type and returns its span and doc comment. The receiver check is what makes
+// it usable for docs at all: getDocComment matches a FuncDecl by name alone, so
+// a method and a package-level function sharing a name in one file would swap
+// their comments.
+func (r *reader) findMethodDecl(pkg *packages.Package, astFiles map[string]*ast.File, receiverType, methodName string) (domain.Span, string) {
 	moduleDir := ""
 	if pkg.Module != nil {
 		moduleDir = pkg.Module.Dir
@@ -1128,22 +1132,30 @@ func (r *reader) findMethodDeclSpan(pkg *packages.Package, astFiles map[string]*
 				recvType = star.X
 			}
 			if ident, ok := recvType.(*ast.Ident); ok && ident.Name == receiverType {
-				return r.getSpan(pkg.Fset, moduleDir, fd.Pos(), fd.End())
+				return r.getSpan(pkg.Fset, moduleDir, fd.Pos(), fd.End()), declDoc(fd)
 			}
 			// Handle generic receiver T[P]
 			if idx, ok := recvType.(*ast.IndexExpr); ok {
 				if ident, ok := idx.X.(*ast.Ident); ok && ident.Name == receiverType {
-					return r.getSpan(pkg.Fset, moduleDir, fd.Pos(), fd.End())
+					return r.getSpan(pkg.Fset, moduleDir, fd.Pos(), fd.End()), declDoc(fd)
 				}
 			}
 			if idx, ok := recvType.(*ast.IndexListExpr); ok {
 				if ident, ok := idx.X.(*ast.Ident); ok && ident.Name == receiverType {
-					return r.getSpan(pkg.Fset, moduleDir, fd.Pos(), fd.End())
+					return r.getSpan(pkg.Fset, moduleDir, fd.Pos(), fd.End()), declDoc(fd)
 				}
 			}
 		}
 	}
-	return domain.Span{}
+	return domain.Span{}, ""
+}
+
+// declDoc returns a function declaration's doc comment text, or "".
+func declDoc(fd *ast.FuncDecl) string {
+	if fd.Doc == nil {
+		return ""
+	}
+	return fd.Doc.Text()
 }
 
 // findValueSpecSpan locates the AST ValueSpec for a const or var declaration.

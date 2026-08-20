@@ -134,27 +134,27 @@ type FooService struct {}
 	}
 
 	// Search should still work via BM25
-	results, denseUsed, err := svc.Search(ctx, "FooService", 10, Filters{})
+	found, err := svc.Search(ctx, "FooService", SearchOptions{K: 10})
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
 
-	if denseUsed {
-		t.Error("expected denseUsed to be false")
+	if found.Dense {
+		t.Error("expected Dense to be false")
 	}
 
-	if len(results) == 0 {
+	if len(found.Hits) == 0 {
 		t.Error("expected at least one result from BM25")
 	}
 
-	if len(results) > 0 && results[0].NodeID != "internal/pkg.FooService" {
-		t.Errorf("expected FooService, got %s", results[0].NodeID)
+	if len(found.Hits) > 0 && found.Hits[0].ID != "internal/pkg.FooService" {
+		t.Errorf("expected FooService, got %s", found.Hits[0].ID)
 	}
 
 	// The lexical channel alone still carries the full mass, so a lone hit
 	// gets all of it rather than the (1−β) share of a convex mix.
-	if len(results) > 0 && (results[0].Score <= 0 || results[0].Score > 1) {
-		t.Errorf("score = %v, want a calibrated mass in (0,1]", results[0].Score)
+	if len(found.Hits) > 0 && (found.Hits[0].TextScore <= 0 || found.Hits[0].TextScore > 1) {
+		t.Errorf("text score = %v, want a calibrated mass in (0,1]", found.Hits[0].TextScore)
 	}
 }
 
@@ -209,21 +209,21 @@ type BarHandler struct {}
 	}
 
 	// Search should use both dense and BM25
-	results, denseUsed, err := svc.Search(ctx, "BarHandler", 10, Filters{})
+	found, err := svc.Search(ctx, "BarHandler", SearchOptions{K: 10})
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
 
-	if !denseUsed {
-		t.Error("expected denseUsed to be true")
+	if !found.Dense {
+		t.Error("expected Dense to be true")
 	}
 
-	if len(results) == 0 {
+	if len(found.Hits) == 0 {
 		t.Error("expected at least one result")
 	}
 
-	if len(results) > 0 && results[0].NodeID != "internal/svc.BarHandler" {
-		t.Errorf("expected BarHandler, got %s", results[0].NodeID)
+	if len(found.Hits) > 0 && found.Hits[0].ID != "internal/svc.BarHandler" {
+		t.Errorf("expected BarHandler, got %s", found.Hits[0].ID)
 	}
 }
 
@@ -349,26 +349,35 @@ func TestSearchFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Filters constrain what the query text may match — the seeds — and not
+	// the region the diffusion grows around them, so every assertion here is
+	// about the hits marked as seeds.
 	t.Run("filter by package prefix", func(t *testing.T) {
-		results, _, err := svc.Search(ctx, "Service", 10, Filters{PackagePrefix: "internal/a"})
+		found, err := svc.Search(ctx, "Service", SearchOptions{K: 10, Filters: Filters{PackagePrefix: "internal/a"}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, r := range results {
-			if r.NodeID != "internal/a.Service" && r.NodeID != "internal/a.NewService" {
-				t.Errorf("unexpected result from package filter: %s", r.NodeID)
+		for _, h := range found.Hits {
+			if !h.Seed {
+				continue
+			}
+			if h.ID != "internal/a.Service" && h.ID != "internal/a.NewService" {
+				t.Errorf("unexpected seed from package filter: %s", h.ID)
 			}
 		}
 	})
 
 	t.Run("filter by kind", func(t *testing.T) {
-		results, _, err := svc.Search(ctx, "Service", 10, Filters{Kinds: []string{"func"}})
+		found, err := svc.Search(ctx, "Service", SearchOptions{K: 10, Filters: Filters{Kinds: []string{"func"}}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, r := range results {
-			if r.Kind != "func" {
-				t.Errorf("expected kind=func, got %s for %s", r.Kind, r.NodeID)
+		for _, h := range found.Hits {
+			if !h.Seed {
+				continue
+			}
+			if h.Kind != "func" {
+				t.Errorf("expected kind=func, got %s for %s", h.Kind, h.ID)
 			}
 		}
 	})

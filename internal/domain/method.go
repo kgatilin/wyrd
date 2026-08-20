@@ -144,6 +144,10 @@ type MethodDef struct {
 	// for concrete methods (on structs), not interface method signatures.
 	Span Span
 
+	// Doc is the documentation comment on the method declaration. Populated
+	// alongside Span, so it too is empty for interface method signatures.
+	Doc string
+
 	// Calls is the list of static call edges from this method's body to
 	// other functions/methods within the loaded package set. Populated by
 	// the Go reader's call-extraction pass.

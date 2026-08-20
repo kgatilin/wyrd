@@ -2,8 +2,9 @@ import type { UIGraph } from '../types';
 import type { AskState } from './state';
 
 /**
- * A search hit exactly as the daemon returns it (POST /api/search).
- * Snake_case: this is the wire shape, not the app's model.
+ * A search hit as the ask flow consumes it — the daemon's wire shape narrowed
+ * to the fields the projection uses (`web/src/data/search.ts` maps onto it).
+ * Snake_case: this is a wire shape, not the app's model.
  */
 export interface RawAskHit {
   node_id: string;
@@ -13,13 +14,17 @@ export interface RawAskHit {
   file?: string;
   line?: number;
   doc?: string;
-  snippet?: string;
   score?: number;
+  /** The query text matched this symbol; the rest is the region around it. */
+  seed?: boolean;
 }
 
 /** A hit resolved against the loaded graph. */
 export interface AskHit {
-  /** Retrieval node id — the same string as the card row's `Internal.id`. */
+  /**
+   * Retrieval node id — the same string as the card row's `Internal.id`, or a
+   * member's `Member.id` when the hit is a method.
+   */
   nodeId: string;
   kind: string;
   name: string;
@@ -29,10 +34,22 @@ export interface AskHit {
   line: number;
   doc: string;
   score: number;
+  /**
+   * The query text matched this symbol. False means the graph diffusion
+   * reached it from a seed — it is the answer's context, not its match.
+   */
+  seed: boolean;
   /** The package is a component in the loaded graph, so the hit can be shown. */
   inGraph: boolean;
-  /** The symbol itself is a row on that component's card. */
+  /** The symbol itself is drawable — a row on that component's card, or a member of one. */
   symbolInGraph: boolean;
+  /**
+   * The card row that carries the hit: the hit itself when it is a top-level
+   * symbol, its receiver type when it is a method. The canvas draws internals,
+   * not members, so this — not `nodeId` — is what a projection selects on. '' when
+   * the hit resolved to nothing drawable.
+   */
+  internalId: string;
 }
 
 /** The component/symbol set an ask projects the canvas down to. */
@@ -62,16 +79,17 @@ export interface AskHitGroup {
 
 /**
  * Map raw search hits onto the loaded graph. The retrieval node id and the
- * uigraph `Internal.id` share one scheme ("{package}.{Symbol}"), so a hit is a
- * card row lookup — no id translation. Hits whose package is not in the graph
- * survive as unresolved rows: a query that matched code the current projection
- * cannot draw should say so, not silently return fewer results.
+ * uigraph `Internal.id` share one scheme ("{package}.{Symbol}"), and a method's
+ * id extends it the same way uigraph's `Member.id` does
+ * ("{package}.{Receiver}.{Method}"), so a hit is a lookup — no id translation.
+ * Hits whose package is not in the graph survive as unresolved rows: a query
+ * that matched code the current projection cannot draw should say so, not
+ * silently return fewer results.
  */
 export function resolveAskHits(graph: UIGraph | null, raw: RawAskHit[]): AskHit[] {
-  const internalsByComponent = buildGraphIndex(graph);
+  const index = buildGraphIndex(graph);
   return raw.map((hit) => {
-    const packageId = hit.package || fallbackPackage(internalsByComponent, hit.node_id) || '';
-    const internals = internalsByComponent.get(packageId);
+    const packageId = hit.package || fallbackPackage(index, hit.node_id) || '';
     return {
       nodeId: hit.node_id,
       kind: hit.kind ?? '',
@@ -81,8 +99,8 @@ export function resolveAskHits(graph: UIGraph | null, raw: RawAskHit[]): AskHit[
       line: hit.line ?? 0,
       doc: hit.doc ?? '',
       score: hit.score ?? 0,
-      inGraph: internals != null,
-      symbolInGraph: internals != null && internals.has(hit.node_id),
+      seed: hit.seed !== false,
+      ...locate(index, packageId, hit.node_id),
     };
   });
 }
@@ -93,16 +111,10 @@ export function resolveAskHits(graph: UIGraph | null, raw: RawAskHit[]): AskHit[
  * each hit can still be drawn.
  */
 export function reresolveAskHits(graph: UIGraph | null, hits: AskHit[]): AskHit[] {
-  const internalsByComponent = buildGraphIndex(graph);
+  const index = buildGraphIndex(graph);
   return hits.map((hit) => {
-    const packageId = hit.packageId || fallbackPackage(internalsByComponent, hit.nodeId) || '';
-    const internals = internalsByComponent.get(packageId);
-    return {
-      ...hit,
-      packageId,
-      inGraph: internals != null,
-      symbolInGraph: internals != null && internals.has(hit.nodeId),
-    };
+    const packageId = hit.packageId || fallbackPackage(index, hit.nodeId) || '';
+    return { ...hit, packageId, ...locate(index, packageId, hit.nodeId) };
   });
 }
 
@@ -116,7 +128,7 @@ export function buildAskProjection(hits: AskHit[], detailOnly: boolean): AskProj
   for (const hit of hits) {
     if (!hit.inGraph) continue;
     componentIds.add(hit.packageId);
-    if (hit.symbolInGraph) internalIds.add(hit.nodeId);
+    if (hit.internalId) internalIds.add(hit.internalId);
   }
   if (componentIds.size === 0) return null;
   return { componentIds, internalIds, detailOnly };
@@ -139,12 +151,36 @@ export function groupAskHits(hits: AskHit[]): AskHitGroup[] {
   return groups;
 }
 
-function buildGraphIndex(graph: UIGraph | null): Map<string, Set<string>> {
-  const internalsByComponent = new Map<string, Set<string>>();
+/**
+ * What each component draws, keyed by symbol id: an internal maps to itself, a
+ * member to the internal whose card row carries it. One map answers both "can
+ * this hit be drawn" and "on which row" — a method hit resolves to a member id
+ * that no internal has, and selecting on it alone would draw an empty card.
+ */
+type GraphIndex = Map<string, Map<string, string>>;
+
+function buildGraphIndex(graph: UIGraph | null): GraphIndex {
+  const index: GraphIndex = new Map();
   for (const component of graph?.components ?? []) {
-    internalsByComponent.set(component.id, new Set(component.internals.map((internal) => internal.id)));
+    const rows = new Map<string, string>();
+    for (const internal of component.internals) {
+      rows.set(internal.id, internal.id);
+      for (const member of internal.members) rows.set(member.id, internal.id);
+    }
+    index.set(component.id, rows);
   }
-  return internalsByComponent;
+  return index;
+}
+
+/** Where a hit lands on the canvas, given the package it claims. */
+function locate(
+  index: GraphIndex,
+  packageId: string,
+  nodeId: string,
+): { inGraph: boolean; symbolInGraph: boolean; internalId: string } {
+  const rows = index.get(packageId);
+  const internalId = rows?.get(nodeId) ?? '';
+  return { inGraph: rows != null, symbolInGraph: internalId !== '', internalId };
 }
 
 /**
@@ -152,9 +188,9 @@ function buildGraphIndex(graph: UIGraph | null): Map<string, Set<string>> {
  * daemon did not send the package. Package paths contain dots, so splitting on
  * the last dot would guess; matching known components cannot.
  */
-function fallbackPackage(internalsByComponent: Map<string, Set<string>>, nodeId: string): string | null {
+function fallbackPackage(index: GraphIndex, nodeId: string): string | null {
   let best: string | null = null;
-  for (const componentId of internalsByComponent.keys()) {
+  for (const componentId of index.keys()) {
     if (!nodeId.startsWith(componentId + '.')) continue;
     if (best == null || componentId.length > best.length) best = componentId;
   }

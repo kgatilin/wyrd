@@ -200,12 +200,81 @@ func TestBuildNodes_Signatures(t *testing.T) {
 	}
 }
 
+func TestBuildNodes_MethodsAreNodesOfTheirOwn(t *testing.T) {
+	models := []domain.PackageModel{
+		{
+			Path: "internal/retrieval",
+			Structs: []domain.StructDef{
+				{
+					Name: "Service",
+					Methods: []domain.MethodDef{
+						{
+							Name:    "Search",
+							Params:  []domain.ParamDef{{Name: "q", Type: domain.TypeRef{Name: "string"}}},
+							Returns: []domain.TypeRef{{Name: "SearchResult"}, {Name: "error"}},
+							Doc:     "Search is the whole search operation.\n",
+							Span:    domain.Span{File: "internal/retrieval/query.go", StartLine: 10, StartByte: 100, EndByte: 400},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	byID := make(map[string]Node)
+	for _, n := range BuildNodes(models) {
+		byID[n.ID] = n
+	}
+
+	n, ok := byID["internal/retrieval.Service.Search"]
+	if !ok {
+		t.Fatalf("method node missing; got %v", byID)
+	}
+	if n.Kind != "method" {
+		t.Errorf("kind: got %q, want method", n.Kind)
+	}
+	// ID == Package + "." + Name is the invariant every consumer splits on.
+	if n.Package+"."+n.Name != n.ID {
+		t.Errorf("id/name disagree: %q + %q != %q", n.Package, n.Name, n.ID)
+	}
+	if n.Signature != "func (Service) Search(q string) (SearchResult, error)" {
+		t.Errorf("signature: got %q", n.Signature)
+	}
+	if n.Doc == "" || n.Span.StartByte != 100 {
+		t.Errorf("doc/span not carried: %q %+v", n.Doc, n.Span)
+	}
+	// The body is the point: without an embeddable node per method the corpus
+	// holds no text for it at all — a struct's span stops at its type
+	// declaration.
+	if !n.Embeddable {
+		t.Error("method node is not embeddable")
+	}
+}
+
+func TestBuildNodes_InterfaceMethodsStayInTheirInterface(t *testing.T) {
+	models := []domain.PackageModel{
+		{
+			Path: "pkg",
+			Interfaces: []domain.InterfaceDef{
+				{Name: "Reader", Methods: []domain.MethodDef{{Name: "Read"}}},
+			},
+		},
+	}
+
+	for _, n := range BuildNodes(models) {
+		if n.ID == "pkg.Reader.Read" {
+			t.Fatal("interface method got a node; it has no body, and the interface's span already covers its signature")
+		}
+	}
+}
+
 func TestIsEmbeddable(t *testing.T) {
 	tests := []struct {
 		kind     string
 		expected bool
 	}{
 		{"func", true},
+		{"method", true},
 		{"iface", true},
 		{"class", true},
 		{"type", true},

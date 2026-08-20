@@ -11,14 +11,17 @@ type Node struct {
 	// "{PackagePath}.{SymbolName}" (e.g., "internal/serve.State").
 	ID string
 
-	// Kind identifies the symbol type. Values: iface, class, func, type,
-	// const, var, error. Matches uigraph's Internal.Kind.
+	// Kind identifies the symbol type. Values: iface, class, func, method,
+	// type, const, var, error. Matches uigraph's Internal.Kind, plus method
+	// for the members uigraph hangs off a type rather than listing beside it.
 	Kind string
 
 	// Package is the package path relative to the module root.
 	Package string
 
-	// Name is the symbol name without package prefix.
+	// Name is the symbol name without package prefix. For a method it is
+	// "Receiver.Method", so ID == Package + "." + Name holds for every kind —
+	// the invariant every consumer that splits an ID relies on.
 	Name string
 
 	// Signature is the human-readable type signature (for funcs, methods,
@@ -70,6 +73,27 @@ func BuildNodes(models []domain.PackageModel) []Node {
 				Span:       s.Span,
 				Embeddable: isEmbeddable("class"),
 			})
+		}
+
+		// Methods, one node each. A struct's span covers only its type
+		// declaration — its methods are separate declarations elsewhere in the
+		// file — so without these the body of every method in the repository is
+		// missing from the corpus, and a search for a method by name matches
+		// nothing at all.
+		for _, s := range model.Structs {
+			for _, m := range s.Methods {
+				name := s.Name + "." + m.Name
+				nodes = append(nodes, Node{
+					ID:         nodeID(model.Path, name),
+					Kind:       "method",
+					Package:    model.Path,
+					Name:       name,
+					Signature:  methodSignature(s.Name, m),
+					Doc:        m.Doc,
+					Span:       m.Span,
+					Embeddable: isEmbeddable("method"),
+				})
+			}
 		}
 
 		// Functions
@@ -155,11 +179,11 @@ func nodeID(pkgPath, symbolName string) string {
 // for dense search. This is the default predicate; it can be made
 // configurable in the future.
 //
-// Embeddable: func, method (captured as part of struct), iface, class, type
+// Embeddable: func, method, iface, class, type
 // Not embeddable: const, var, error (typically too small to benefit)
 func isEmbeddable(kind string) bool {
 	switch kind {
-	case "func", "iface", "class", "type":
+	case "func", "method", "iface", "class", "type":
 		return true
 	case "const", "var", "error":
 		return false
@@ -170,8 +194,20 @@ func isEmbeddable(kind string) bool {
 
 // Signature helpers to generate human-readable signatures
 
+// interfaceSignature stays at the type line: an interface's span covers its
+// whole declaration, so the method set is already in the node's body text and
+// searchable there. Only a struct hides its methods behind separate
+// declarations, which is why those get nodes of their own.
 func interfaceSignature(iface domain.InterfaceDef) string {
 	return "type " + domain.NameWithTypeParams(iface.Name, iface.TypeParams) + " interface"
+}
+
+// methodSignature renders a method the way its declaration reads. The domain
+// does not record whether the receiver is a pointer, so the value form stands
+// for both; what matters is that the receiver type is named at all, since a
+// method name on its own is ambiguous across a package.
+func methodSignature(recv string, m domain.MethodDef) string {
+	return "func (" + recv + ") " + m.Signature()
 }
 
 func structSignature(s domain.StructDef) string {
