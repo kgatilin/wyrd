@@ -243,8 +243,15 @@ func renderSubgraph(seed string, r subgraphResult) string {
 		ec = len(r.Edges)
 	}
 	fmt.Fprintf(&b, "%s  ·  %d nodes / %d edges%s\n", head, nc, ec, tag)
+	if d := r.Diffusion; d != nil {
+		// Conductance is the headline quality number: it says whether the
+		// region is a community or an arbitrary slice of a hairball, so it is
+		// reported next to the size the reader would otherwise judge by.
+		fmt.Fprintf(&b, "cut  conductance %.3f (0 = isolated community, 1 = no boundary)  ·  %d seeds\n",
+			d.Conductance, d.SeedCount)
+	}
 	if r.Truncated {
-		b.WriteString("(truncated to fit the response budget — narrow the query or lower k/hops)\n")
+		b.WriteString("(truncated to the node cap — narrow the query or lower k/hops)\n")
 	}
 	if home != "" {
 		fmt.Fprintf(&b, "home %s   · bare names are in this package\n", home)

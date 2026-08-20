@@ -94,10 +94,18 @@ type searchGraphRequest struct {
 }
 
 // searchGraphResponse is the JSON response for POST /api/search_graph.
+//
+// Beyond the subgraph itself it carries the diagnostics of the cut that
+// produced it: conductance rates how crisply the region separates from the rest
+// of the graph, seed_count how many hits seeded the diffusion, and truncated
+// whether the node cap trimmed a larger community.
 type searchGraphResponse struct {
-	Nodes []retrieval.NodeInfo `json:"nodes"`
-	Edges []retrieval.EdgeInfo `json:"edges"`
-	Dense bool                 `json:"dense"`
+	Nodes       []retrieval.NodeInfo `json:"nodes"`
+	Edges       []retrieval.EdgeInfo `json:"edges"`
+	Dense       bool                 `json:"dense"`
+	Conductance float64              `json:"conductance"`
+	SeedCount   int                  `json:"seed_count"`
+	Truncated   bool                 `json:"truncated"`
 }
 
 // handleAPISearchGraph handles POST /api/search_graph.
@@ -140,24 +148,27 @@ func (s *Server) handleAPISearchGraph(w nethttp.ResponseWriter, r *nethttp.Reque
 		hops = 1
 	}
 
-	subgraph, denseUsed, err := svc.SearchGraph(r.Context(), req.Query, k, hops)
+	found, denseUsed, err := svc.SearchGraph(r.Context(), req.Query, k, hops)
 	if err != nil {
 		writeJSONErrorText(w, nethttp.StatusInternalServerError, err.Error())
 		return
 	}
 
-	if subgraph.Nodes == nil {
-		subgraph.Nodes = []retrieval.NodeInfo{}
+	if found.Nodes == nil {
+		found.Nodes = []retrieval.NodeInfo{}
 	}
-	if subgraph.Edges == nil {
-		subgraph.Edges = []retrieval.EdgeInfo{}
+	if found.Edges == nil {
+		found.Edges = []retrieval.EdgeInfo{}
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(searchGraphResponse{
-		Nodes: subgraph.Nodes,
-		Edges: subgraph.Edges,
-		Dense: denseUsed,
+		Nodes:       found.Nodes,
+		Edges:       found.Edges,
+		Dense:       denseUsed,
+		Conductance: found.Conductance,
+		SeedCount:   found.SeedCount,
+		Truncated:   found.Truncated,
 	})
 }
 

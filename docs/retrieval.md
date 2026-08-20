@@ -3,7 +3,8 @@
 archai is a **stateful retrieval service over a Go codebase**. Every symbol in
 the AST graph (func / method / struct / interface / type / const / var / error)
 becomes a *node*; nodes get a dense embedding + a BM25 lexical index. Search is
-hybrid (dense cosine + BM25, fused with RRF) and can expand along graph edges.
+hybrid (dense cosine + BM25, fused into a calibrated relevance mass) and can
+expand along graph edges.
 The index lives in `.archai/cache/` and refreshes incrementally by content hash.
 
 Boundary: archai answers **"what in the code is relevant"** (knowledge). It does
@@ -75,6 +76,39 @@ adapter applies them by model family:
 
 The Qwen3 task string is configurable (`ARCHAI_EMBED_QUERY_INSTRUCTION`).
 
+### Graph search (`search_graph`)
+
+`search` answers "where does this live"; `search_graph` answers "what does it
+hang together with". It runs the same hybrid search, then hands the calibrated
+masses to a local graph partition — the Andersen–Chung–Lang push approximation
+of personalized PageRank, followed by a sweep cut — and returns the community
+the hits sit in. Design and references: `docs/features/search-diffusion/design.md`.
+
+- **Seeds carry their mass.** Personalization is proportional to the fused
+  relevance of each hit, so the top hit pulls the region toward itself and a
+  marginal one barely moves it.
+- **Edges are weighted by kind** (`calls` 1.0, `implements` 0.8, `uses`/`returns`
+  0.6). The weight map is also the participation list: a kind it does not name
+  contributes no edge at all.
+- **Hubs are damped.** Each edge is divided by `(d_u·d_v)^τ`, so a path through
+  a symbol half the codebase touches costs more than a path between two
+  ordinarily connected ones. This is what stops shared helpers turning up on
+  every query.
+- **The cut is a sweep, not a top-N.** The region is the mass-ordered prefix of
+  minimum **conductance** (fraction of edge weight crossing its boundary), so
+  its size follows the query: a narrow question yields a small dense community,
+  a broad one a larger region. `conductance` ∈ [0,1] comes back with the result
+  — low means a real community, high means the best available cut still runs
+  through the middle of a hairball, which is the "nothing coherent found" signal.
+- **Two bounds sit on top.** `hops` is a hard radius: nothing farther than that
+  many undirected edges from a seed is returned, however much mass it collected.
+  `MaxGraphNodes` is the payload cap, applied last and by mass, and reported as
+  `truncated`.
+
+Node `score` is the degree-normalized diffusion mass — an ordering within one
+response, never a threshold across queries. Every knob lives in
+`retrieval.Params` (`internal/retrieval/params.go`).
+
 ### Graceful degradation
 
 If the embedder is unavailable (e.g. Ollama not running), dense search is
@@ -132,14 +166,17 @@ curl -XPOST :8800/api/search -d '{
 { "results": [ { "node_id", "kind", "file", "doc", "snippet", "score" } ], "dense": true }
 ```
 
-### `POST /api/search_graph` — search + graph expand
+### `POST /api/search_graph` — the community around the hits
 ```bash
 curl -XPOST :8800/api/search_graph -d '{ "query": "retrieval service", "k": 2, "hops": 1 }'
 ```
 ```jsonc
-{ "nodes": [ { "id","kind","package","name","signature","doc" } ],
-  "edges": [ { "from","to","kind" } ], "dense": true }
+{ "nodes": [ { "id","kind","package","name","signature","doc","score" } ],
+  "edges": [ { "from","to","kind" } ], "dense": true,
+  "conductance": 0.11, "seed_count": 2, "truncated": false }
 ```
+Nodes come back in diffusion-mass order (`score`), highest first. See
+[Graph search](#graph-search-search_graph) for what the extra fields mean.
 
 ### `POST /api/expand` — neighbours of given nodes
 ```bash
@@ -155,7 +192,7 @@ curl -XPOST :8800/api/expand -d '{
 
 ### `GET /api/node/{id}` — full node detail (body + edges)
 ```bash
-curl ":8800/api/node/internal/retrieval.rrfFuse"
+curl ":8800/api/node/internal/retrieval.NewService"
 ```
 ```jsonc
 { "node_id","kind","package","name","file","signature","doc","body","edges":[…] }
@@ -179,7 +216,7 @@ Mirror the HTTP endpoints; callable via the MCP registry or
 | Tool | Arguments | Returns |
 |---|---|---|
 | `search` | `{query, k, filters}` | ranked nodes |
-| `search_graph` | `{query, k, hops}` | subgraph (nodes + edges) |
+| `search_graph` | `{query, k, hops}` | community subgraph + `conductance` / `seed_count` / `truncated` |
 | `expand` | `{node_ids, hops, edges}` | neighbour nodes |
 | `get_node` | `{id}` | node body + edges |
 | `refresh` | `{}` | reindex counts |

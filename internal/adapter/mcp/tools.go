@@ -316,7 +316,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		// Retrieval tools
 		{
 			Name:        "search",
-			Description: "Hybrid semantic + lexical code search: dense vector similarity (when an embedder is configured) and BM25 lexical matching, fused with reciprocal rank fusion. Reach for it to find code by meaning — what something does or is about — when you don't have an exact name or a known symbol to navigate from; prefer literal text search for exact strings and direct go-to-definition / find-references when the symbol is already known. Returns a flat ranked list; use plain `search` to find WHERE something lives, and `search_graph` instead when you need HOW it connects to the rest of the code. Each result carries node_id, kind, file, line, doc, and a source snippet, so file:line lets you jump straight to the code. Scores are fused RRF ranks (small values, often ~0.03), not absolute 0..1 relevance — use them only to order results, never as a cutoff threshold. The `dense` flag in the response is true when the vector layer contributed to ranking for this query and false when results are BM25-only (no embedder / empty vector index) — a hint about recall, not result validity. Results reflect the last indexed snapshot; symbols written since then stay invisible until you call `refresh`. Narrow noise with filters.kinds / filters.package_prefix when you already know the symbol kind or package.",
+			Description: "Hybrid semantic + lexical code search: dense vector similarity (when an embedder is configured) and BM25 lexical matching, fused into a calibrated relevance mass. Reach for it to find code by meaning — what something does or is about — when you don't have an exact name or a known symbol to navigate from; prefer literal text search for exact strings and direct go-to-definition / find-references when the symbol is already known. Returns a flat ranked list; use plain `search` to find WHERE something lives, and `search_graph` instead when you need HOW it connects to the rest of the code. Each result carries node_id, kind, file, line, doc, and a source snippet, so file:line lets you jump straight to the code. Scores are calibrated relevance masses in (0,1]: a probability distribution over the whole candidate pool, summing to ≈1 across it, so the returned top-k is a slice of that distribution and sums to less. They are meaningful only for ordering within one response — a mass is not comparable across queries and never a cutoff threshold. The `dense` flag in the response is true when the vector layer contributed to ranking for this query and false when results are BM25-only (no embedder / empty vector index) — a hint about recall, not result validity. Results reflect the last indexed snapshot; symbols written since then stay invisible until you call `refresh`. Narrow noise with filters.kinds / filters.package_prefix when you already know the symbol kind or package.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -349,7 +349,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "search_graph",
-			Description: "Like `search`, but returns a subgraph instead of a flat list: the matching seed symbols plus their neighbors up to `hops` away via uses/returns/implements/calls edges. Default to this over plain `search` when the question is about connections rather than location — impact analysis, dependency tracing, or 'what calls / implements / returns X'. Output grows fast with `k` and `hops` (a broad query can return hundreds of nodes and edges), so keep `k` small (~5) and `hops` at 1–2 unless you deliberately want a wider blast radius. Same snapshot freshness (call `refresh` to pick up new code) and same RRF scoring semantics as `search`.",
+			Description: "Like `search`, but returns a subgraph instead of a flat list: the min-conductance community around the query's hits. The hits seed a graph diffusion (ACL push + sweep cut) weighted by the same calibrated relevance masses `search` returns, run over uses/returns/implements/calls edges with per-kind weights and hub damping so shared glue symbols stop turning up on every query. Default to this over plain `search` when the question is about connections rather than location — impact analysis, dependency tracing, or 'what calls / implements / returns X'. The result size is query-adaptive: the sweep keeps growing the region while its boundary keeps getting cheaper, so a narrow question yields a small dense community and a broad one a larger region; `truncated` reports that the node cap cut it short. `hops` is a hard radius cap on top of that — nothing farther than that many edges from a seed is returned, whatever mass it collected — so keep it at 1–2 unless you deliberately want a wider blast radius. `conductance` is the fraction of edge weight crossing the region's boundary, in [0,1]: low means the query landed on a genuine community, high means the best cut still runs through the middle of a hairball, which is the 'search found nothing coherent' signal. Node scores are degree-normalized diffusion masses, meaningful for ordering within one response and nothing else. Same snapshot freshness as `search` — call `refresh` to pick up new code.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -1716,6 +1716,17 @@ type subgraphResult struct {
 	NodeCount int  `json:"node_count,omitempty"`
 	EdgeCount int  `json:"edge_count,omitempty"`
 	Truncated bool `json:"truncated,omitempty"`
+	// Diffusion carries the local-partition diagnostics search_graph produces.
+	// Nil for expand, which walks edges instead of cutting a community.
+	Diffusion *diffusionStats `json:"diffusion,omitempty"`
+}
+
+// diffusionStats describes the cut search_graph made: how crisply the returned
+// community separates from the rest of the graph, and how many search hits
+// seeded the diffusion that found it.
+type diffusionStats struct {
+	Conductance float64 `json:"conductance"`
+	SeedCount   int     `json:"seed_count"`
 }
 
 // cappedSubgraph bounds a subgraph for LLM consumption: it keeps at most
@@ -1804,13 +1815,13 @@ func handleSearchGraph(state *serve.State, rawArgs json.RawMessage) (ToolResult,
 	}
 
 	ctx := context.Background()
-	subgraph, denseUsed, err := svc.SearchGraph(ctx, args.Query, k, hops)
+	found, denseUsed, err := svc.SearchGraph(ctx, args.Query, k, hops)
 	if err != nil {
 		return errorResult(fmt.Sprintf("search_graph failed: %v", err)), nil
 	}
 
-	nodes := make([]nodeInfo, len(subgraph.Nodes))
-	for i, n := range subgraph.Nodes {
+	nodes := make([]nodeInfo, len(found.Nodes))
+	for i, n := range found.Nodes {
 		nodes[i] = nodeInfo{
 			ID:        n.ID,
 			Kind:      n.Kind,
@@ -1824,12 +1835,17 @@ func handleSearchGraph(state *serve.State, rawArgs json.RawMessage) (ToolResult,
 		}
 	}
 
-	edges := make([]edgeInfo, len(subgraph.Edges))
-	for i, e := range subgraph.Edges {
+	edges := make([]edgeInfo, len(found.Edges))
+	for i, e := range found.Edges {
 		edges[i] = edgeInfo{From: e.From, To: e.To, Kind: e.Kind}
 	}
 
-	return text(renderSubgraph(args.Query, cappedSubgraph(nodes, edges, denseUsed)))
+	result := cappedSubgraph(nodes, edges, denseUsed)
+	result.Diffusion = &diffusionStats{Conductance: found.Conductance, SeedCount: found.SeedCount}
+	// The retrieval-side node cap fires before the response budget, so a region
+	// cut there is a partial view even when this budget had room to spare.
+	result.Truncated = result.Truncated || found.Truncated
+	return text(renderSubgraph(args.Query, result))
 }
 
 // expandArgs is the input schema for the expand tool.
