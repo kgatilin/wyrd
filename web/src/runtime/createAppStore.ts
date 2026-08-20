@@ -6,15 +6,19 @@ import { createEffects } from '../effects';
 import { createElkLayout } from '../adapters/elkLayout';
 import { createHttpGraphSource } from '../adapters/httpGraphSource';
 import { createHttpSearchSource } from '../adapters/httpSearchSource';
+import { createHttpLensSource } from '../adapters/httpLensSource';
 import { createDomViewport, type DomViewport } from '../adapters/domViewport';
 import { createBrowserNavigation } from '../adapters/browserNavigation';
+import type { LensPort } from '../domain/ports';
 
 /**
  * App-level composition root. Builds the real elk + http + DOM-viewport adapters,
  * wires them into the store, and returns the store plus the viewport (App binds
- * the viewport to its canvas element on mount).
+ * the viewport to its canvas element on mount) and the lens port (the domains
+ * canvas calls the daemon's analysis tools directly, as the file diff calls
+ * its endpoint — a view over the review, not part of its state machine).
  */
-export function createAppStore(): { store: AppStore; viewport: DomViewport } {
+export function createAppStore(): { store: AppStore; viewport: DomViewport; lens: LensPort } {
   const viewport = createDomViewport();
   const effects = createEffects({
     graphSource: createHttpGraphSource(),
@@ -24,5 +28,5 @@ export function createAppStore(): { store: AppStore; viewport: DomViewport } {
     viewport,
   });
   const store = createStore(initialState, update, effects);
-  return { store, viewport };
+  return { store, viewport, lens: createHttpLensSource() };
 }

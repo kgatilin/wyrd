@@ -614,6 +614,10 @@ func builtinToolDefinitions() []ToolDefinition {
 						"minimum":     1,
 						"description": "Nearest neighbors for the semantic similarity graph (default 8).",
 					},
+					"include_members": map[string]any{
+						"type":        "boolean",
+						"description": "Return the full membership of every cluster on BOTH sides (ids only) as JSON, instead of the sampled text verdict. For callers that plot the two partitions against each other — the review UI's domains canvas draws structural clusters × semantic clusters as a contingency grid and needs both memberships. Off by default: the 2xK dump is unbounded in the node count, and reading the verdict does not need it. Narrow the selector if the response exceeds the size limit.",
+					},
 				},
 			},
 		},

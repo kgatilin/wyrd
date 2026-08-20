@@ -30,12 +30,15 @@ import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
 import { SourceDrawer, type SaveSourceResult, type SourceDrawerState } from './components/SourceDrawer';
 import { ArchMotifPanel } from './components/ArchMotifPanel';
+import { ArchMotifCanvas } from './components/ArchMotifCanvas';
 import { AskPanel } from './components/AskPanel';
 import { DiffOverlay, useDiffSession } from './components/DiffOverlay';
 import { SymbolGraphOverlay } from './components/SymbolGraphOverlay';
 import { PAN_MARGIN, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './view/viewportConstants';
 import { PinnedMarker } from './components/PinnedMarker';
 import type { SymbolFocusTarget } from './domain/symbolFocus';
+import type { ArchMotifScope } from './domain/state';
+import type { LensPort } from './domain/ports';
 
 /**
  * Embed mode (?embed=1): render just the review canvas + reviewbar — no
@@ -52,18 +55,18 @@ const EMBED =
  * now drives data/layout/semantic state. AppContent renders once a graph exists.
  */
 export default function App() {
-  const [{ store, viewport }] = useState(() => createAppStore());
+  const [{ store, viewport, lens }] = useState(() => createAppStore());
   useEffect(() => {
     store.dispatch({ type: 'GraphRequested' });
   }, [store]);
   return (
     <StoreProvider store={store}>
-      <AppRoot viewport={viewport} />
+      <AppRoot viewport={viewport} lens={lens} />
     </StoreProvider>
   );
 }
 
-function AppRoot({ viewport }: { viewport: DomViewport }) {
+function AppRoot({ viewport, lens }: { viewport: DomViewport; lens: LensPort }) {
   const theme = useStore((s) => s.ui.theme);
   const load = useStore((s) => s.load);
   const graph = useStore((s) => s.graph);
@@ -85,7 +88,7 @@ function AppRoot({ viewport }: { viewport: DomViewport }) {
   if (!graph || pending) {
     return <LoadingScreen theme={theme} worktree={pending} />;
   }
-  return <AppContent graph={graph} viewport={viewport} />;
+  return <AppContent graph={graph} viewport={viewport} lens={lens} />;
 }
 
 function LoadingScreen({
@@ -129,7 +132,7 @@ function LoadingScreen({
  *                                                  └──► geometry consumers (BCGroups, EdgeLayer,
  *                                                       Component map, canvasDimensions)
  */
-function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport }) {
+function AppContent({ graph, viewport, lens }: { graph: UIGraph; viewport: DomViewport; lens: LensPort }) {
   // Store-owned data/layout/semantic state (Plan 2a/2c). The viewport (zoom/pan/
   // scroll) remains a local island.
   const dispatch = useDispatch();
@@ -144,6 +147,7 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
   const leftTab = useStore((s) => s.ui.leftTab);
   const ask = useStore((s) => s.ask);
   const archMotifOpen = useStore((s) => s.ui.archMotifOpen);
+  const archMotifCanvas = useStore((s) => s.ui.archMotifCanvas);
   const markers = useStore((s) => s.markers);
   const activeMarkerId = useStore((s) => s.ui.activeMarkerId);
   const reviewViewId = useStore((s) => s.ui.reviewViewId);
@@ -575,6 +579,23 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
     dispatch({ type: 'ArchMotifToggled' });
   };
 
+  // A diff region only exists where a review base does, so the scope is
+  // downgraded here rather than letting the canvas ask for one that cannot be
+  // computed. It is also why the stored default is `diff`: on a branch the
+  // first question is about the branch, on main it is about the repository.
+  const domainsScope: ArchMotifScope =
+    archMotifCanvas.scope.kind === 'diff' && !showDiff ? { kind: 'repo' } : archMotifCanvas.scope;
+
+  const toggleDomainsCanvas = () => {
+    if (archMotifCanvas.open) {
+      dispatch({ type: 'ArchMotifCanvasClosed' });
+      return;
+    }
+    setSourceViewer(null);
+    setSymbolFocus(null);
+    dispatch({ type: 'ArchMotifCanvasOpened', scope: domainsScope });
+  };
+
   const openSourceFile = (path: string) => {
     setSymbolFocus(null);
     const seq = ++sourceRequestSeq.current;
@@ -691,6 +712,8 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
         onRefresh={refreshGraph}
         refreshing={load.status === 'loading'}
         onMetrics={toggleArchMotifPanel}
+        onDomains={toggleDomainsCanvas}
+        domainsOn={archMotifCanvas.open}
         onDiff={() => setDiffOpen(true)}
         onAsk={() => {
           if (leftCollapsed) dispatch({ type: 'LeftCollapsedToggled' });
@@ -1055,6 +1078,24 @@ function AppContent({ graph, viewport }: { graph: UIGraph; viewport: DomViewport
 
           {/* Legend */}
           <Legend showDiff={showDiff} />
+
+          {/* The domains canvas takes the whole centre pane while it is open:
+              it answers a different question than the review canvas, and the
+              two side by side would only compete for the same space. The left
+              rail stays, and Esc comes back. */}
+          {archMotifCanvas.open && (
+            <ArchMotifCanvas
+              graph={graph}
+              worktree={activeWorktree}
+              scope={domainsScope}
+              hasBase={showDiff}
+              lens={lens}
+              symbolPanelOpen={symbolFocus != null}
+              onScopeChange={(scope) => dispatch({ type: 'ArchMotifScopeChanged', scope })}
+              onSymbolFocus={setSymbolFocus}
+              onClose={() => dispatch({ type: 'ArchMotifCanvasClosed' })}
+            />
+          )}
           {symbolFocus && (
             <SymbolGraphOverlay
               graph={graph}

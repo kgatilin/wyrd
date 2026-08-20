@@ -10,6 +10,10 @@ export interface AppBarProps {
   refreshing?: boolean;
   /** Open the ArchMotif analysis panel */
   onMetrics?: () => void;
+  /** Open the domains canvas: structural clusters against semantic ones */
+  onDomains?: () => void;
+  /** The domains canvas is up in place of the review canvas */
+  domainsOn?: boolean;
   /** Open the file-level diff of the reviewed branch */
   onDiff?: () => void;
   /** Open the ask panel and put the cursor in its question box */
@@ -26,6 +30,8 @@ export function AppBar({
   onRefresh,
   refreshing = false,
   onMetrics,
+  onDomains,
+  domainsOn = false,
   onDiff,
   onAsk,
   asking = false,
@@ -76,6 +82,13 @@ export function AppBar({
         title="Open ArchMotif package metrics"
       >
         ArchMotif
+      </button>
+      <button
+        className={`hf-btn ${domainsOn ? 'on' : ''}`}
+        onClick={onDomains}
+        title="Read the structural clusters against the semantic ones"
+      >
+        Domains
       </button>
       <button
         className="hf-btn"

@@ -122,6 +122,14 @@ function chromeSlice(state: AppState, event: Event): AppState {
       return { ...state, ui: { ...state.ui, leftCollapsed: !state.ui.leftCollapsed } };
     case 'ArchMotifToggled':
       return { ...state, ui: { ...state.ui, archMotifOpen: !state.ui.archMotifOpen } };
+    case 'ArchMotifCanvasOpened':
+      return { ...state, ui: { ...state.ui, archMotifCanvas: { open: true, scope: event.scope } } };
+    case 'ArchMotifCanvasClosed':
+      // The scope survives a close: reopening lands back on the question the
+      // reviewer was asking, not on the default one.
+      return { ...state, ui: { ...state.ui, archMotifCanvas: { ...state.ui.archMotifCanvas, open: false } } };
+    case 'ArchMotifScopeChanged':
+      return { ...state, ui: { ...state.ui, archMotifCanvas: { ...state.ui.archMotifCanvas, scope: event.scope } } };
     case 'ZoomChanged':
       return { ...state, ui: { ...state.ui, zoom: event.zoom } };
     case 'ReviewViewChanged': {

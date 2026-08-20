@@ -14,6 +14,15 @@ export interface SearchPort {
   search(query: string, options: { k: number; worktree?: string }): Promise<{ hits: RawAskHit[]; dense: boolean }>;
 }
 
+/**
+ * One call to a daemon analysis lens (an MCP tool). The payload is `unknown`
+ * on purpose: a port carries the transport, and each caller owns the shape of
+ * the tool it asked for.
+ */
+export interface LensPort {
+  call(name: string, args: Record<string, unknown>, options: { worktree?: string }): Promise<unknown>;
+}
+
 export interface NavigationPort {
   focusWorktree(name: string): void;
 }
