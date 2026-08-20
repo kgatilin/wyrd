@@ -1,270 +1,286 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchArchReport } from '../data/archReport';
+import {
+  baseLabel,
+  indexNote,
+  rowActions,
+  totalsLabel,
+  type ArchReport,
+  type ReportAction,
+  type ReportItem,
+  type ReportSection,
+} from '../domain/archReport';
 
-export interface ArchMotifPanelProps {
-  worktree: string;
+/**
+ * The architecture review report: what this branch did to the structure and
+ * where, or — with no base to compare against — what to refactor next.
+ *
+ * A section exists only for a state a reviewer acts on, so every row names a
+ * finding, what to do about it, and where to click. A section whose state has
+ * not occurred is one line: a clean branch reads as a handful of "none" lines
+ * rather than a grid of figures nobody acts on. The figures that remain sit in
+ * the muted footer, where nothing pretends they are a finding.
+ */
+
+export interface ArchReportSession {
+  status: 'loading' | 'ready' | 'error';
+  report: ArchReport | null;
+  error: string | null;
+  /** A re-read is in flight over a report already on screen. */
+  refreshing: boolean;
+  /** Re-read the report — the Refresh button, and the model-changed SSE. */
+  reload: () => void;
 }
 
-interface ArchMotifMetrics {
-  schema: string;
-  scope: string;
-  nodes: number;
-  edges: number;
-  components: number;
-  layeringScore: number;
-  acyclic: boolean;
-  cycles: ArchMotifCycle[];
-  topCoupling: ArchMotifPackageMetric[];
-  godPackages: ArchMotifPackageMetric[];
-  packages: ArchMotifPackageMetric[];
-  embeddings: ArchMotifEmbeddingStatus;
-  warnings?: string[];
-}
-
-interface ArchMotifPackageMetric {
-  id: string;
-  name: string;
-  group: string;
-  layer?: string;
-  aggregate?: string;
-  fanIn: number;
-  fanOut: number;
-  degree: number;
-  instability: number;
-  dependsOn: string[];
-  usedBy: string[];
-}
-
-interface ArchMotifCycle {
-  packages: string[];
-  edges: number;
-}
-
-interface ArchMotifEmbeddingStatus {
-  textGraphPath?: string;
-  vectorGraphPath?: string;
-  hasTextGraph: boolean;
-  hasVectors: boolean;
-  vectorCount: number;
-  updatedAt?: string;
-  binary?: string;
-}
-
-interface ArchMotifEmbedResponse {
-  status: 'ready' | 'failed' | 'unavailable';
-  message: string;
-  embeddings: ArchMotifEmbeddingStatus;
-  stdout?: string;
-  stderr?: string;
-}
-
-export function ArchMotifPanel({ worktree }: ArchMotifPanelProps) {
-  const [metrics, setMetrics] = useState<ArchMotifMetrics | null>(null);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [error, setError] = useState<string | null>(null);
-  const [embedding, setEmbedding] = useState<'idle' | 'running'>('idle');
-  const [embedMessage, setEmbedMessage] = useState<string | null>(null);
-
-  const loadMetrics = useCallback(async () => {
-    setStatus('loading');
-    setError(null);
-    try {
-      const res = await fetch(archMotifMetricsURL(worktree));
-      if (!res.ok) {
-        const msg = await res.text();
-        throw new Error(msg.trim() || `HTTP ${res.status}`);
-      }
-      const next = (await res.json()) as ArchMotifMetrics;
-      setMetrics(next);
-      setStatus('ready');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setStatus('error');
-    }
-  }, [worktree]);
+/**
+ * Fetches and caches the report, held by the app rather than by the panel: the
+ * panel is an overlay the reviewer opens and closes, and re-reading both
+ * package models on every open is seconds of daemon work for an answer that
+ * has not changed.
+ *
+ * Nothing else caches it — the endpoint has no ETag and the daemon rebuilds
+ * the whole report per request — so this is the only cache there is. It is
+ * dropped when the worktree or base changes, and re-read on the same
+ * model-changed SSE that reloads the canvas: the report and the canvas must
+ * never end up describing different working trees.
+ */
+export function useArchReportSession(
+  worktree: string,
+  baseRef: string,
+  open: boolean
+): ArchReportSession {
+  const key = `${worktree}\n${baseRef}`;
+  const [token, setToken] = useState(0);
+  const [data, setData] = useState<{
+    status: 'loading' | 'ready' | 'error';
+    report: ArchReport | null;
+    error: string | null;
+  }>({ status: 'loading', report: null, error: null });
+  const [refreshing, setRefreshing] = useState(false);
+  // Which report is loaded or in flight, worktree and base included. While
+  // this matches, the effect below is a no-op — that is what makes reopening
+  // the panel free, and a switch of worktree or base a fresh read.
+  const loaded = useRef<string | null>(null);
 
   useEffect(() => {
-    void loadMetrics();
-  }, [loadMetrics]);
-
-  const runEmbeddings = async () => {
-    if (embedding === 'running') return;
-    setEmbedding('running');
-    setEmbedMessage(null);
-    try {
-      const res = await fetch(archMotifEmbedURL(worktree), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        const msg = await res.text();
-        throw new Error(msg.trim() || `HTTP ${res.status}`);
+    if (!open) return;
+    const stamp = `${key}#${token}`;
+    if (loaded.current === stamp) return;
+    // A reload of the same review is a refresh: the report on screen stays
+    // while the daemon is asked again, instead of blinking back to a spinner
+    // under a chatty model-changed stream.
+    const isRefresh = loaded.current !== null && loaded.current.startsWith(`${key}#`);
+    loaded.current = stamp;
+    let cancelled = false;
+    if (isRefresh) setRefreshing(true);
+    else setData({ status: 'loading', report: null, error: null });
+    fetchArchReport(worktree, baseRef).then(
+      (report) => {
+        if (cancelled) return;
+        setRefreshing(false);
+        setData({ status: 'ready', report, error: null });
+      },
+      (err: unknown) => {
+        if (cancelled) return;
+        setRefreshing(false);
+        // A failed read is not a cache entry: reopening should ask the daemon
+        // again instead of replaying the same error. A failed *refresh* leaves
+        // the last report the daemon actually answered on screen.
+        loaded.current = null;
+        if (isRefresh) return;
+        setData({
+          status: 'error',
+          report: null,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
-      const result = (await res.json()) as ArchMotifEmbedResponse;
-      setEmbedMessage(result.message || result.status);
-      await loadMetrics();
-    } catch (err) {
-      setEmbedMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setEmbedding('idle');
-    }
-  };
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [open, key, token, worktree, baseRef]);
 
-  if (status === 'loading' && !metrics) {
+  const reload = useCallback(() => setToken((n) => n + 1), []);
+  return { ...data, refreshing, reload };
+}
+
+export interface ArchMotifPanelProps {
+  /** The cached session, owned by the app (see useArchReportSession). */
+  session: ArchReportSession;
+  /**
+   * Runs a row's gesture on the canvas. One entry point rather than six
+   * callbacks, because `rowActions` already decided what a row offers — the
+   * app only has to carry each kind out.
+   */
+  onAction: (action: ReportAction) => void;
+}
+
+export function ArchMotifPanel({ session, onAction }: ArchMotifPanelProps) {
+  const { report, status, error, refreshing, reload } = session;
+
+  if (!report) {
     return (
-      <div className="hf-motif-panel">
-        <div className="hf-motif-loading">
-          <span className="hf-motif-spinner" aria-hidden="true" />
-          Reading package graph
-        </div>
+      <div className="hf-report">
+        {status === 'error' ? (
+          <div className="hf-report-error">{error ?? 'Failed to read the review report'}</div>
+        ) : (
+          <div className="hf-report-loading">
+            <span className="hf-report-spinner" aria-hidden="true" />
+            Reading the architecture
+          </div>
+        )}
       </div>
     );
   }
 
-  if (status === 'error' && !metrics) {
-    return (
-      <div className="hf-motif-panel">
-        <div className="hf-motif-error">{error ?? 'Failed to load ArchMotif metrics'}</div>
-      </div>
-    );
-  }
-
-  if (!metrics) return null;
-  const cycles = metrics.cycles ?? [];
-  const topCoupling = metrics.topCoupling ?? [];
-  const godPackages = metrics.godPackages ?? [];
+  const note = indexNote(report.index);
+  const base = baseLabel(report);
+  const warnings = report.warnings ?? [];
 
   return (
-    <div className="hf-motif-panel">
-      <div className="hf-motif-actions">
-        <button className="hf-source-action" type="button" onClick={loadMetrics}>
+    <div className="hf-report">
+      <div className="hf-report-head">
+        <span className={`hf-report-mode ${report.mode}`}>
+          {report.mode === 'review' ? 'this branch' : 'whole repository'}
+        </span>
+        {base && <span className="hf-report-base">{base}</span>}
+        <span className="hf-spacer" />
+        <button className="hf-source-action" type="button" onClick={reload}>
           Refresh
         </button>
-        <button
-          className="hf-source-action primary"
-          type="button"
-          onClick={runEmbeddings}
-          disabled={embedding === 'running'}
-        >
-          {embedding === 'running' ? 'Embedding...' : 'Embed'}
-        </button>
       </div>
 
-      {status === 'loading' && (
-        <div className="hf-motif-inline">
-          <span className="hf-motif-spinner" aria-hidden="true" />
-          Refreshing metrics
+      {refreshing && (
+        <div className="hf-report-inline">
+          <span className="hf-report-spinner" aria-hidden="true" />
+          Refreshing
         </div>
       )}
-      {error && <div className="hf-motif-error">{error}</div>}
-      {embedMessage && <div className="hf-motif-message">{embedMessage}</div>}
 
-      <div className="hf-motif-grid">
-        <Metric label="packages" value={metrics.nodes} />
-        <Metric label="deps" value={metrics.edges} />
-        <Metric label="parts" value={metrics.components} />
-        <Metric label="layer" value={`${Math.round(metrics.layeringScore * 100)}%`} />
+      {/* A section that could not run is not a section that found nothing. */}
+      {warnings.map((warning, index) => (
+        <div key={index} className="hf-report-warning">
+          did not run: {warning}
+        </div>
+      ))}
+
+      {note && <div className="hf-report-index">{note}</div>}
+
+      {report.sections.map((section) => (
+        <SectionView key={section.id} section={section} onAction={onAction} />
+      ))}
+
+      <div className="hf-report-totals">{totalsLabel(report.totals)}</div>
+    </div>
+  );
+}
+
+function SectionView({
+  section,
+  onAction,
+}: {
+  section: ReportSection;
+  onAction: (action: ReportAction) => void;
+}) {
+  if (section.state === 'ok') {
+    return (
+      <div className="hf-report-section ok" data-section={section.id}>
+        <span className="hf-report-section-title">{section.title}</span>
+        <span className="hf-report-summary">{section.summary}</span>
       </div>
+    );
+  }
+  return (
+    <section className="hf-report-section flag" data-section={section.id}>
+      <div className="hf-report-section-head">
+        <span className="hf-report-section-title">{section.title}</span>
+        <strong className="hf-report-count">{section.count}</strong>
+      </div>
+      <div className="hf-report-summary">{section.summary}</div>
+      {section.items.map((item, index) => (
+        <RowView key={`${section.id}:${index}`} section={section} item={item} onAction={onAction} />
+      ))}
+      {section.more ? <div className="hf-report-more">and {section.more} more</div> : null}
+    </section>
+  );
+}
 
-      <section className="hf-motif-section">
-        <div className="hf-motif-section-head">
-          <span>Structure</span>
-          <strong className={metrics.acyclic ? 'ok' : 'warn'}>{metrics.acyclic ? 'DAG' : `${cycles.length} cycles`}</strong>
-        </div>
-        {cycles.length === 0 ? (
-          <div className="hf-motif-empty">No package cycles</div>
-        ) : (
-          cycles.slice(0, 4).map((cycle, idx) => (
-            <div key={idx} className="hf-motif-row">
-              <span className="hf-motif-row-main">{cycle.packages.join(' -> ')}</span>
-              <span className="hf-motif-row-value">{cycle.edges}</span>
-            </div>
-          ))
-        )}
-      </section>
-
-      <section className="hf-motif-section">
-        <div className="hf-motif-section-head">
-          <span>Coupling</span>
-          <strong>{topCoupling.length}</strong>
-        </div>
-        {topCoupling.map((pkg) => (
-          <PackageMetricRow key={pkg.id} metric={pkg} />
-        ))}
-      </section>
-
-      {godPackages.length > 0 && (
-        <section className="hf-motif-section">
-          <div className="hf-motif-section-head">
-            <span>Hotspots</span>
-            <strong>{godPackages.length}</strong>
-          </div>
-          {godPackages.map((pkg) => (
-            <PackageMetricRow key={pkg.id} metric={pkg} />
+function RowView({
+  section,
+  item,
+  onAction,
+}: {
+  section: ReportSection;
+  item: ReportItem;
+  onAction: (action: ReportAction) => void;
+}) {
+  const actions = rowActions(section, item);
+  return (
+    <div className="hf-report-row">
+      <button
+        className="hf-report-row-main"
+        type="button"
+        disabled={!actions.primary}
+        title={actions.primary ? actionTitle(actions.primary) : item.text}
+        onClick={() => actions.primary && onAction(actions.primary)}
+      >
+        <span className="hf-report-row-head">
+          <span className="hf-report-row-text">{item.text}</span>
+          {item.tag && <span className={`hf-report-tag ${item.tag}`}>{item.tag}</span>}
+        </span>
+        {item.detail && <span className="hf-report-row-detail">{item.detail}</span>}
+      </button>
+      {actions.extra.length > 0 && (
+        <div className="hf-report-row-acts">
+          {actions.extra.map((action) => (
+            <button
+              key={action.kind}
+              className={`hf-report-act ${action.kind}`}
+              type="button"
+              title={actionTitle(action)}
+              onClick={() => onAction(action)}
+            >
+              {actionGlyph(action)}
+            </button>
           ))}
-        </section>
+        </div>
       )}
-
-      <section className="hf-motif-section">
-        <div className="hf-motif-section-head">
-          <span>Embeddings</span>
-          <strong className={metrics.embeddings.hasVectors ? 'ok' : 'warn'}>
-            {metrics.embeddings.hasVectors ? `${metrics.embeddings.vectorCount} vec` : 'missing'}
-          </strong>
-        </div>
-        <div className="hf-motif-kv">
-          <span>text graph</span>
-          <strong>{metrics.embeddings.hasTextGraph ? 'ready' : 'not generated'}</strong>
-        </div>
-        <div className="hf-motif-kv">
-          <span>vector graph</span>
-          <strong>{metrics.embeddings.hasVectors ? 'ready' : 'not generated'}</strong>
-        </div>
-        {metrics.embeddings.updatedAt && (
-          <div className="hf-motif-kv">
-            <span>updated</span>
-            <strong>{new Date(metrics.embeddings.updatedAt).toLocaleString()}</strong>
-          </div>
-        )}
-      </section>
     </div>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="hf-motif-metric">
-      <strong>{value}</strong>
-      <span>{label}</span>
-    </div>
-  );
+function actionGlyph(action: ReportAction): string {
+  switch (action.kind) {
+    case 'focus':
+      return '⌖';
+    case 'wiring':
+      return '⇄';
+    case 'highlight':
+      return '◎';
+    case 'diff':
+      return '±';
+    case 'source':
+      return '<>';
+    case 'domains':
+      return 'Domains';
+  }
 }
 
-function PackageMetricRow({ metric }: { metric: ArchMotifPackageMetric }) {
-  return (
-    <div className="hf-motif-row">
-      <span className="hf-motif-row-main" title={metric.id}>
-        {metric.id}
-      </span>
-      <span className="hf-motif-row-value">
-        {metric.fanIn}/{metric.fanOut}
-      </span>
-    </div>
-  );
-}
-
-function archMotifMetricsURL(worktree: string): string {
-  if (worktree) return `/w/${encodeURIComponent(worktree)}/api/archmotif/metrics`;
-  return `${currentWorktreePrefix()}/api/archmotif/metrics`;
-}
-
-function archMotifEmbedURL(worktree: string): string {
-  if (worktree) return `/w/${encodeURIComponent(worktree)}/api/archmotif/embed`;
-  return `${currentWorktreePrefix()}/api/archmotif/embed`;
-}
-
-function currentWorktreePrefix(): string {
-  if (typeof window === 'undefined') return '';
-  const match = window.location.pathname.match(/^\/w\/[^/]+/);
-  return match?.[0] ?? '';
+function actionTitle(action: ReportAction): string {
+  switch (action.kind) {
+    case 'focus':
+      return `Show ${action.componentId} on the canvas`;
+    case 'wiring':
+      return `Open the wiring of ${action.memberId ?? action.internalId}`;
+    case 'highlight':
+      return action.edges.length === 1
+        ? `Accent ${action.edges[0].from} → ${action.edges[0].to} on the canvas`
+        : `Accent all ${action.edges.length} edges of this cycle on the canvas`;
+    case 'diff':
+      return `Open the patch of ${action.file}`;
+    case 'source':
+      return `Read ${action.file}`;
+    case 'domains':
+      return `Cluster ${action.package} structurally and semantically`;
+  }
 }

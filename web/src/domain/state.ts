@@ -62,6 +62,17 @@ export interface ArchMotifCanvasState {
   scope: ArchMotifScope;
 }
 
+/**
+ * A package-to-package edge accented on the canvas, both ends component ids.
+ * The report points at one edge (a new dependency) or at a whole set of them
+ * (a cycle), and pointing is all this is — it changes what is drawn boldly,
+ * never what is drawn.
+ */
+export interface HighlightedEdge {
+  from: string;
+  to: string;
+}
+
 export interface AppUI {
   theme: 'dark' | 'light';
   focusId: string | null;
@@ -74,6 +85,12 @@ export interface AppUI {
   archMotifOpen: boolean;
   /** ArchMotif domains canvas — replaces the review canvas while open. */
   archMotifCanvas: ArchMotifCanvasState;
+  /**
+   * Edges the review report asked the canvas to accent. It lives in the store
+   * rather than in the panel because the canvas draws it: closing the panel
+   * leaves the finding on screen, which is the point of pointing at it.
+   */
+  highlightedEdges: HighlightedEdge[];
   activeChangeId: string | null;
   activeMarkerId: string | null;
   zoom: number;
@@ -168,6 +185,7 @@ export const initialState: AppState = {
     leftCollapsed: false,
     archMotifOpen: false,
     archMotifCanvas: { open: false, scope: { kind: 'diff' } },
+    highlightedEdges: [],
     activeChangeId: null,
     activeMarkerId: null,
     zoom: 1,

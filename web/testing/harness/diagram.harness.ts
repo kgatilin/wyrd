@@ -27,6 +27,19 @@ export class DiagramHarness extends ComponentHarness {
   async edgeCount(): Promise<number> {
     return this.root.locator('.hf-edge').count();
   }
+  /**
+   * Ids of the edges the review report is pointing at, in render order. The
+   * accent is what a highlight row is for, so the spec asks for the ids rather
+   * than for a count.
+   */
+  async highlightedEdgeIds(): Promise<string[]> {
+    const paths = await this.root.locator('.hf-edge-hot .hf-edge').all();
+    const ids: string[] = [];
+    for (const path of paths) {
+      ids.push(((await path.getAttribute('id')) ?? '').replace(/^epath-/, ''));
+    }
+    return ids;
+  }
   /** Count of edges carrying a diff class. */
   async diffEdgeCount(): Promise<number> {
     return this.root.locator('.hf-edge.added, .hf-edge.removed, .hf-edge.changed').count();

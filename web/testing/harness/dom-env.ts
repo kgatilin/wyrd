@@ -178,6 +178,12 @@ export interface MountOptions {
    */
   source?: (path: string) => { path?: string; content: string; hash?: string };
   /**
+   * Answers GET /api/archmotif/report — the architecture review report.
+   * Without it the panel reports a read error, which is itself a state worth
+   * testing.
+   */
+  report?: (baseRef: string) => unknown;
+  /**
    * Answers POST /api/mcp/tools/call — the daemon's analysis lenses. Return
    * the payload; the MCP ToolResult envelope is added here, so a spec writes
    * the tool's own shape. Without it the domains canvas reports the lens
@@ -203,6 +209,10 @@ export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promi
     if (url.includes('/api/source') && options?.source) {
       const file = new URLSearchParams(url.split('?')[1] ?? '').get('file') ?? '';
       return okJson({ path: file, ...options.source(file) });
+    }
+    if (url.includes('/api/archmotif/report') && options?.report) {
+      const base = new URLSearchParams(url.split('?')[1] ?? '').get('base') ?? '';
+      return okJson(options.report(base));
     }
     if (url.includes('/api/mcp/tools/call') && options?.lens) {
       const body = JSON.parse(String(init?.body ?? '{}')) as {

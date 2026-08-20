@@ -1,4 +1,5 @@
 import type { Edge, Component } from '../types';
+import type { HighlightedEdge } from '../domain/state';
 
 export interface EdgeLayerProps {
   /** All edges to render */
@@ -14,6 +15,13 @@ export interface EdgeLayerProps {
   focusId: string | null;
   /** Set of IDs that have comments (for markers on edges) */
   commentTargets?: Set<string>;
+  /**
+   * Package edges the review report is pointing at — one new dependency, or
+   * every edge of a cycle. They are drawn accented; everything else keeps the
+   * appearance it had, because the accent answers "which of these" and not
+   * "which of these exist".
+   */
+  highlightedEdges?: readonly HighlightedEdge[];
   /** Callback to add a comment on an edge */
   onAddComment?: (target: { type: string; id: string }, event: React.MouseEvent) => void;
 }
@@ -164,8 +172,11 @@ export function EdgeLayer({
   showDiff,
   focusId,
   commentTargets,
+  highlightedEdges,
   onAddComment,
 }: EdgeLayerProps) {
+  const highlighted = new Set((highlightedEdges ?? []).map((edge) => `${edge.from}\u0000${edge.to}`));
+  const isHighlighted = (edge: Edge) => highlighted.has(`${edge.from}\u0000${edge.to}`);
   const hasComment = (id: string) => commentTargets?.has(id) ?? false;
   const isRelated = (e: Edge) => !focusId || e.from === focusId || e.to === focusId;
 
@@ -221,17 +232,18 @@ export function EdgeLayer({
 
         const focused = focusId && isRelated(edge);
         const dimmed = focusId && !isRelated(edge);
+        const hot = isHighlighted(edge);
 
         return (
           <g
             key={edge.id}
-            className={`${focused ? 'hf-edge-focused' : ''} ${dimmed ? 'hf-edge-dimmed' : ''}`}
+            className={`${focused ? 'hf-edge-focused' : ''} ${dimmed ? 'hf-edge-dimmed' : ''} ${hot ? 'hf-edge-hot' : ''}`}
           >
             {/* Main path */}
             <path
               id={`epath-${edge.id}`}
               d={r.path}
-              className={`hf-edge ${diffCls}`}
+              className={`hf-edge ${diffCls} ${hot ? 'hot' : ''}`}
               markerEnd={marker}
             />
 

@@ -1,4 +1,4 @@
-import type { AppState } from './state';
+import type { AppState, HighlightedEdge } from './state';
 import type { Event } from './events';
 import { resolveAskHits, reresolveAskHits } from './ask';
 import { initialExpanded, selectReviewGraph } from './derive';
@@ -45,7 +45,13 @@ function focusSlice(state: AppState, event: Event): AppState {
     case 'FocusCleared':
       return { ...state, ui: { ...state.ui, focusId: null } };
     case 'CanvasCleared':
-      return { ...state, ui: { ...state.ui, focusId: null, activeMarkerId: null }, pendingComment: null };
+      return {
+        ...state,
+        // Clicking the empty canvas puts everything down, the report's
+        // pointer included.
+        ui: { ...state.ui, focusId: null, activeMarkerId: null, highlightedEdges: [] },
+        pendingComment: null,
+      };
     case 'ChangeActivated': {
       const { change } = event;
       const drillIn = !!(change.internal || change.member || change.port);
@@ -130,6 +136,18 @@ function chromeSlice(state: AppState, event: Event): AppState {
       return { ...state, ui: { ...state.ui, archMotifCanvas: { ...state.ui.archMotifCanvas, open: false } } };
     case 'ArchMotifScopeChanged':
       return { ...state, ui: { ...state.ui, archMotifCanvas: { ...state.ui.archMotifCanvas, scope: event.scope } } };
+    case 'EdgesHighlighted':
+      // Clicking the same row again takes the accent off. A pointer you cannot
+      // put down accumulates, and two findings accented at once read as one.
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          highlightedEdges: sameEdges(state.ui.highlightedEdges, event.edges) ? [] : event.edges,
+        },
+      };
+    case 'EdgesHighlightCleared':
+      return { ...state, ui: { ...state.ui, highlightedEdges: [] } };
     case 'ZoomChanged':
       return { ...state, ui: { ...state.ui, zoom: event.zoom } };
     case 'ReviewViewChanged': {
@@ -474,6 +492,11 @@ function commentsSlice(state: AppState, event: Event): AppState {
     default:
       return state;
   }
+}
+
+/** Same edges in the same order — what one row of the report points at. */
+function sameEdges(a: readonly HighlightedEdge[], b: readonly HighlightedEdge[]): boolean {
+  return a.length === b.length && a.every((edge, i) => edge.from === b[i].from && edge.to === b[i].to);
 }
 
 export function update(state: AppState, event: Event): AppState {

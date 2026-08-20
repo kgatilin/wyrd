@@ -499,6 +499,88 @@ is X handled" as architecture instead of as a file list.
   `testing/harness/ask-panel.harness.ts`; `mountAppDom` takes a `search`
   responder so the DOM specs answer without a daemon.
 
+### The architecture report in the review UI
+
+`ArchMotif` in the app bar opens the review report: what this branch did to the
+structure and where, or — with no base to compare against — what to refactor
+next. Every row is a state the reviewer acts on, so it names the finding, what
+to do about it, and where to click.
+
+- Data: `GET /w/<worktree>/api/archmotif/report?base=main` →
+  `internal/adapter/http/archmotif_report.go` → `internal/archreview.Build`.
+  The base models come through the same `s.reviewBase` the uigraph handler
+  uses, and the changed hunks through the same `internal/adapter/git.Diff` the
+  file-diff handler uses, so the report, the canvas and the patch list describe
+  one working tree against one base.
+- **Two modes, two vocabularies.** A base plus a non-empty model diff gives
+  `mode: "review"` (`group_cycles_new`, `edges_new`, `inversions_new`,
+  `unused_exports_new`, `impact`, `hotspot_growth`, `orphans_new`); anything
+  else gives `mode: "repo"` (`group_cycles`, `inversions`, `god_files`,
+  `god_packages`, `islands`, `unused_exports`). The ids differ even where the
+  measurement is the same, because "this branch added it" and "the repository
+  has it" carry different actions.
+- **A section whose state has not occurred renders as one line.** A clean
+  branch reads as a handful of "none" lines. `totals` is a muted footer,
+  `index` appears only while the embedding index is in the way, and `warnings`
+  are rendered as `did not run: …` — a section that could not run must never
+  read as a section that found nothing.
+- **A row's gesture is read off the shape of its target.** `rowActions`
+  (`web/src/domain/archReport.ts`, pure and tested) looks at `target`: edges
+  accent them on the canvas, `internalId` opens the wiring panel, `file` opens
+  its patch (with `<>` beside it for the source), a bare `componentId` focuses
+  the package. A section the server grows later inherits the mapping without a
+  client change. The one exception is the god-package row, which also offers
+  `Domains` — the jump into the domains canvas scoped to that package, because
+  the action there is the section's finding rather than the target's shape.
+- Ids need no translation anywhere in the client: the server already writes
+  `componentId` as a package path, `internalId` as `{package}.{Symbol}` and
+  `file` as module-relative, which is what uigraph calls them.
+- **An accent on an edge nothing draws answers nothing.** Highlighting is
+  `ui.highlightedEdges` (package edges, both ends component ids), painted by
+  `EdgeLayer` as `hf-edge-hot`. The review projection draws the changed
+  packages, so a highlight row also focuses the package it names, which pulls
+  that package and its edge neighbours into the projection. Clicking the row
+  again puts the accent down, and so does a click on the empty canvas.
+- **The session is cached in the app, not in the panel** (`useArchReportSession`,
+  exported from `ArchMotifPanel.tsx`): the daemon rebuilds both package models,
+  both graphs and the model diff on every request, so reopening the overlay
+  must not pay for that again. It is re-read on `Refresh` and on the same
+  `model-changed` SSE that reloads the canvas and the file diff.
+- Harness `testing/harness/archmotif-panel.harness.ts`; `mountAppDom` takes a
+  `report` responder, so the DOM specs answer without a daemon.
+- What this replaced: a grid of package counts, a degree-sorted coupling table
+  and an `Embed` button that shelled out to an external `archmotif` binary to
+  write `.arch/archmotif/packages-vec.graphml`, which no lens read. None of the
+  figures had an action attached; `layer 100%` was `1 − cycleEdges/edges` and
+  therefore always 100%, since Go forbids package import cycles and a cycle
+  lives one level up, on the group graph `internal/archreview` collapses to;
+  and the whole grid was computed over the repository with no base, which is
+  the one comparison a reviewer came for.
+
+### Domains canvas in the review UI
+
+`Domains` in the app bar — or a god-package row in the report — replaces the
+review canvas with the repository's structural clusters laid against its
+semantic ones: rows are structural clusters, columns semantic ones, ordered so
+the best-matching pairs sit on the diagonal. One row smeared across many
+columns is a structural blob hiding semantic domains, and the header names the
+glue holding it together.
+
+- Data: one `latent_domains` call with `include_members: true` over the
+  `LensPort` (`data/lens.ts` + `adapters/httpLensSource.ts`), so both
+  partitions come out of a single solve. Three calls would make the grid depend
+  on the solver returning the same partition three times running.
+- Readiness first: `status` says whether the dense pass is still running or no
+  embedder is configured. The structural half is never drawn on its own — half
+  a grid answers a different question than the one asked.
+- Scope: the `diff` region, the whole `repo` (types and functions only), or one
+  package, which is the entry the report's god-package row uses.
+- Cross-cell flow is drawn for the selected or hovered cell alone; all of it at
+  once is the hairball the grid replaced.
+- Model: `web/src/domain/archMotifDomains.ts` (pure, tested); view
+  `components/ArchMotifCanvas.tsx`; harness
+  `testing/harness/archmotif-canvas.harness.ts`.
+
 ### Event Model
 
 Declarative event-driven architecture declarations (`.arch/events.yaml`) with

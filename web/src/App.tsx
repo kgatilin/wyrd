@@ -29,7 +29,7 @@ import { Legend } from './components/Legend';
 import { CanvasToolbar } from './components/CanvasToolbar';
 import { Tree, TreeFocusTarget } from './components/Tree';
 import { SourceDrawer, type SaveSourceResult, type SourceDrawerState } from './components/SourceDrawer';
-import { ArchMotifPanel } from './components/ArchMotifPanel';
+import { ArchMotifPanel, useArchReportSession } from './components/ArchMotifPanel';
 import { ArchMotifCanvas } from './components/ArchMotifCanvas';
 import { AskPanel } from './components/AskPanel';
 import { DiffOverlay, useDiffSession } from './components/DiffOverlay';
@@ -38,6 +38,7 @@ import { PAN_MARGIN, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './view/viewportConsta
 import { PinnedMarker } from './components/PinnedMarker';
 import type { SymbolFocusTarget } from './domain/symbolFocus';
 import type { ArchMotifScope } from './domain/state';
+import type { ReportAction } from './domain/archReport';
 import type { LensPort } from './domain/ports';
 
 /**
@@ -148,6 +149,7 @@ function AppContent({ graph, viewport, lens }: { graph: UIGraph; viewport: DomVi
   const ask = useStore((s) => s.ask);
   const archMotifOpen = useStore((s) => s.ui.archMotifOpen);
   const archMotifCanvas = useStore((s) => s.ui.archMotifCanvas);
+  const highlightedEdges = useStore((s) => s.ui.highlightedEdges);
   const markers = useStore((s) => s.markers);
   const activeMarkerId = useStore((s) => s.ui.activeMarkerId);
   const reviewViewId = useStore((s) => s.ui.reviewViewId);
@@ -232,6 +234,10 @@ function AppContent({ graph, viewport, lens }: { graph: UIGraph; viewport: DomVi
   // it again costs nothing and lands back on the file being read.
   const diffSession = useDiffSession(activeWorktree, reviewBaseRef, diffOpen);
   const reloadDiff = diffSession.reload;
+  // Same arrangement as the file diff: the app owns the report, the panel
+  // renders it, so opening the panel again costs nothing.
+  const reportSession = useArchReportSession(activeWorktree, reviewBaseRef, archMotifOpen);
+  const reloadReport = reportSession.reload;
   const related = useMemo(() => relatedIds(displayGraph, focusId), [displayGraph, focusId]);
 
   // Whether the collapsed "View" popover has anything to offer at all.
@@ -276,17 +282,19 @@ function AppContent({ graph, viewport, lens }: { graph: UIGraph; viewport: DomVi
       if (refreshTimer) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
         dispatch({ type: 'GraphRequested', worktree: activeWorktree || undefined, source: 'auto' });
-        // The working tree moved, so the cached file diff is as stale as the
-        // canvas was. Re-read it too, or the two halves of the review would
-        // start describing different working trees.
+        // The working tree moved, so the cached file diff and the cached
+        // report are as stale as the canvas was. Re-read them too, or the
+        // canvas, the patch list and the report would start describing
+        // different working trees.
         reloadDiff();
+        reloadReport();
       }, 250);
     });
     return () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       events.close();
     };
-  }, [activeWorktree, dispatch, graph, reloadDiff]);
+  }, [activeWorktree, dispatch, graph, reloadDiff, reloadReport]);
 
   // Determine if diff mode is active (semantic — raw graph)
   const showDiff = graph.pr != null;
@@ -628,6 +636,53 @@ function AppContent({ graph, viewport, lens }: { graph: UIGraph; viewport: DomVi
     setDiffOpen(true);
   };
 
+  // Land on a package: focus expands it and pulls its edge neighbours into the
+  // projection, and the scroll brings it into view even when it was already
+  // focused (in which case selecting it again would only unfocus it).
+  const focusComponent = (componentId: string) => {
+    if (storeApi.getState().ui.focusId !== componentId) {
+      dispatch({ type: 'ComponentSelected', id: componentId });
+    }
+    dispatch({ type: 'ScrollToComponentRequested', id: componentId });
+  };
+
+  // One gesture from a report row. The panel decided which gesture the row
+  // offers; this is the only place that knows how to carry each one out.
+  const runReportAction = (action: ReportAction) => {
+    switch (action.kind) {
+      case 'focus':
+        focusComponent(action.componentId);
+        return;
+      case 'wiring':
+        setSymbolFocus({
+          componentId: action.componentId,
+          internalId: action.internalId,
+          memberId: action.memberId,
+        });
+        return;
+      case 'highlight':
+        dispatch({ type: 'EdgesHighlighted', edges: action.edges });
+        // An accented edge nothing draws is no answer, and the review
+        // projection shows the changed packages, not every end of a cycle.
+        if (action.focus) focusComponent(action.focus);
+        return;
+      case 'diff':
+        openFileDiff(action.file);
+        return;
+      case 'source':
+        openSourceFile(action.file);
+        return;
+      case 'domains':
+        // The jump out of the report and into the canvas: the panel would
+        // only sit on top of the grid it just asked for.
+        setSourceViewer(null);
+        setSymbolFocus(null);
+        if (archMotifOpen) dispatch({ type: 'ArchMotifToggled' });
+        dispatch({ type: 'ArchMotifCanvasOpened', scope: { kind: 'package', package: action.package } });
+        return;
+    }
+  };
+
   const saveSourceFile = async (path: string, content: string, baseHash: string): Promise<SaveSourceResult> => {
     const res = await fetch(sourceAPIURL(path, activeWorktree), {
       method: 'PUT',
@@ -711,7 +766,7 @@ function AppContent({ graph, viewport, lens }: { graph: UIGraph; viewport: DomVi
         onThemeToggle={() => dispatch({ type: 'ThemeToggled' })}
         onRefresh={refreshGraph}
         refreshing={load.status === 'loading'}
-        onMetrics={toggleArchMotifPanel}
+        onReport={toggleArchMotifPanel}
         onDomains={toggleDomainsCanvas}
         domainsOn={archMotifCanvas.open}
         onDiff={() => setDiffOpen(true)}
@@ -994,6 +1049,7 @@ function AppContent({ graph, viewport, lens }: { graph: UIGraph; viewport: DomVi
               showDiff={showDiff}
               focusId={focusId}
               commentTargets={commentTargets}
+              highlightedEdges={highlightedEdges}
             />
 
             <RelationLayer
@@ -1105,7 +1161,7 @@ function AppContent({ graph, viewport, lens }: { graph: UIGraph; viewport: DomVi
           )}
         </div>
 
-        {/* ArchMotif metrics — an overlay over the canvas, opened from the app
+        {/* The review report — an overlay over the canvas, opened from the app
             bar, instead of a permanent right rail eating canvas width. */}
         {archMotifOpen && (
           <div className="hf-motif-overlay">
@@ -1113,13 +1169,13 @@ function AppContent({ graph, viewport, lens }: { graph: UIGraph; viewport: DomVi
               <span>ARCHMOTIF</span>
               <button
                 className="hf-motif-overlay-close"
-                title="Close ArchMotif"
+                title="Close the review report"
                 onClick={() => dispatch({ type: 'ArchMotifToggled' })}
               >
                 ×
               </button>
             </div>
-            <ArchMotifPanel worktree={activeWorktree} />
+            <ArchMotifPanel session={reportSession} onAction={runReportAction} />
           </div>
         )}
         <SourceDrawer source={sourceViewer} onClose={() => setSourceViewer(null)} onSave={saveSourceFile} />

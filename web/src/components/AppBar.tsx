@@ -8,8 +8,8 @@ export interface AppBarProps {
   onRefresh?: () => void;
   /** True while graph data is being reloaded */
   refreshing?: boolean;
-  /** Open the ArchMotif analysis panel */
-  onMetrics?: () => void;
+  /** Open the architecture review report */
+  onReport?: () => void;
   /** Open the domains canvas: structural clusters against semantic ones */
   onDomains?: () => void;
   /** The domains canvas is up in place of the review canvas */
@@ -29,7 +29,7 @@ export function AppBar({
   onThemeToggle,
   onRefresh,
   refreshing = false,
-  onMetrics,
+  onReport,
   onDomains,
   domainsOn = false,
   onDiff,
@@ -78,8 +78,8 @@ export function AppBar({
       </button>
       <button
         className="hf-btn"
-        onClick={onMetrics}
-        title="Open ArchMotif package metrics"
+        onClick={onReport}
+        title="What this branch did to the structure, or what to refactor next"
       >
         ArchMotif
       </button>

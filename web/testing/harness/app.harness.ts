@@ -9,6 +9,7 @@ import { MarkerHarness } from './marker.harness';
 import { SymbolWiringHarness } from './symbol-wiring.harness';
 import { AskPanelHarness } from './ask-panel.harness';
 import { ArchMotifCanvasHarness } from './archmotif-canvas.harness';
+import { ArchMotifPanelHarness } from './archmotif-panel.harness';
 import { DiffOverlayHarness } from './diff-overlay.harness';
 import { SourceDrawerHarness } from './source-drawer.harness';
 
@@ -51,6 +52,11 @@ export class AppHarness extends ComponentHarness {
   /** The domains canvas (whether or not it is open). */
   domains(): ArchMotifCanvasHarness {
     return new ArchMotifCanvasHarness(this.root, this.env);
+  }
+
+  /** The architecture review report (whether or not it is open). */
+  report(): ArchMotifPanelHarness {
+    return new ArchMotifPanelHarness(this.root, this.env);
   }
 
   /** The file-diff overlay (whether or not it is open). */
