@@ -318,6 +318,13 @@ All take `{package, include_subpackages}` and run on the package subgraph.
 - **Auto-K must validate by quality, not just the gap.** On a hairball there is
   no clean eigengap, so picking the largest gap returns a degenerate K. Cluster
   at each candidate and keep the K with the best modularity instead.
+- **`components.Analyze` is not free at symbol granularity.** It solves an
+  eigenvector centrality per component, and a codebase's symbols form one large
+  component: a dense n×n matrix and a hundred power iterations. On 2,000 symbols
+  that measured 0.5–1.2s, and the review report's islands section threw the
+  centre away — it only wanted the singletons. That one call was most of what a
+  repo-mode report cost. Ask the lens for a *centre*; count degrees yourself
+  (`side.isolatedSymbols`) when the question is "what is unconnected".
 - **Model cache** (`internal/serve/model_cache.go`) is keyed on the binary's
   build version + executable stamp. After `make install`, restart the daemon and
   `refresh`, or a parser-logic change is masked by a stale cache.

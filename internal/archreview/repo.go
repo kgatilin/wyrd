@@ -195,27 +195,20 @@ func repoIslands(head *side, ports portRules) Section {
 	}
 
 	// Symbol level: a declaration with no edge in or out at all.
-	if len(head.symbolNodes) > 0 {
-		result := components.Analyze(head.graph, head.symbolNodes)
-		var singletons []symbol
-		for _, component := range result.Components {
-			if component.Size != 1 || len(component.Members) != 1 {
-				continue
-			}
-			sym, ok := head.symbols[component.Members[0]]
-			if !ok || ports.isPort(sym, head) {
-				continue
-			}
-			singletons = append(singletons, sym)
+	var singletons []symbol
+	for _, sym := range head.isolatedSymbols() {
+		if ports.isPort(sym, head) {
+			continue
 		}
-		sort.Slice(singletons, func(i, j int) bool { return singletons[i].label() < singletons[j].label() })
-		for _, sym := range singletons {
-			items = append(items, Item{
-				Text:   sym.label(),
-				Detail: "no edge in or out (tests not in graph) — delete it, or wire it up",
-				Target: sym.target(),
-			})
-		}
+		singletons = append(singletons, sym)
+	}
+	sort.Slice(singletons, func(i, j int) bool { return singletons[i].label() < singletons[j].label() })
+	for _, sym := range singletons {
+		items = append(items, Item{
+			Text:   sym.label(),
+			Detail: "no edge in or out (tests not in graph) — delete it, or wire it up",
+			Target: sym.target(),
+		})
 	}
 
 	return makeSection(

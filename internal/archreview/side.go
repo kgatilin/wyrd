@@ -372,6 +372,43 @@ func (s *side) sortedEdges() []Edge {
 	return out
 }
 
+// isolatedSymbols returns the declarations with no edge, of any kind, to
+// another declaration — the singletons of the symbol projection, in the order
+// symbolNodes carries.
+//
+// This is a degree test, not an analysis, which is why it is written here
+// rather than delegated. archmotif's components lens answers the same question,
+// but it also solves an eigenvector centrality per component, and a codebase's
+// symbols form one large component: that is a dense n×n power iteration whose
+// centre this section then discards — on a few thousand symbols, a second of
+// work for an answer a single pass over the edges gives. Self-loops are skipped
+// so a recursive function still reads as isolated, matching the undirected
+// projection the lens builds.
+func (s *side) isolatedSymbols() []symbol {
+	inGraph := make(map[string]bool, len(s.symbolNodes))
+	for _, node := range s.symbolNodes {
+		inGraph[node] = true
+	}
+	linked := make(map[string]bool, len(s.symbolNodes))
+	for _, e := range s.graph.Edges() {
+		if e.From == e.To || !inGraph[e.From] || !inGraph[e.To] {
+			continue
+		}
+		linked[e.From] = true
+		linked[e.To] = true
+	}
+	out := make([]symbol, 0, len(s.symbolNodes))
+	for _, node := range s.symbolNodes {
+		if linked[node] {
+			continue
+		}
+		if sym, ok := s.symbols[node]; ok {
+			out = append(out, sym)
+		}
+	}
+	return out
+}
+
 // crossIn is how many flow edges reach the node from another package.
 func (s *side) crossIn(node string) int {
 	total := 0

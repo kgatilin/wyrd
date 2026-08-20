@@ -14,7 +14,8 @@
 // expose — while policy tags come from internal/policy. Only the
 // strongly-connected-component search over the group graph is local: Go forbids
 // package import cycles, so cycles exist one level up, on a graph archmotif is
-// never handed.
+// never handed. The one other local computation is the isolated-symbol scan,
+// which is a degree test rather than an analysis (see side.isolatedSymbols).
 //
 // Click targets are expressed in uigraph's id conventions (component id =
 // package path, internal id = "{package}.{Symbol}", member id =
