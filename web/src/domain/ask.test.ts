@@ -24,7 +24,14 @@ const graph: UIGraph = {
       tech: 'Go',
       desc: '',
       bc: 'root',
-      internals: [{ id: 'internal/retrieval.Service', kind: 'class', name: 'Service', members: [] }],
+      internals: [
+        {
+          id: 'internal/retrieval.Service',
+          kind: 'class',
+          name: 'Service',
+          members: [{ id: 'internal/retrieval.Service.Search', kind: 'method', name: 'Search' }],
+        },
+      ],
       ports: [],
     },
   ],
@@ -60,6 +67,21 @@ describe('resolveAskHits', () => {
     expect(resolved.packageId).toBe('internal/adapter/http');
     expect(resolved.name).toBe('Server');
     expect(resolved.symbolInGraph).toBe(true);
+  });
+
+  it('lands a method hit on the row of the type that declares it', () => {
+    const [resolved] = resolveAskHits(graph, [
+      hit({
+        node_id: 'internal/retrieval.Service.Search',
+        package: 'internal/retrieval',
+        name: 'Service.Search',
+        kind: 'method',
+      }),
+    ]);
+    expect(resolved.symbolInGraph).toBe(true);
+    // The canvas draws internals; selecting on the member id alone would narrow
+    // the card to a row it does not have and draw it empty.
+    expect(resolved.internalId).toBe('internal/retrieval.Service');
   });
 
   it('keeps a hit whose package is not in the graph, flagged as undrawable', () => {
@@ -100,6 +122,14 @@ describe('buildAskProjection', () => {
     const projection = buildAskProjection(hits, true)!;
     expect([...projection.componentIds].sort()).toEqual(['internal/adapter/http', 'internal/retrieval']);
     expect(projection.internalIds.size).toBe(2);
+  });
+
+  it('selects the declaring type when the answer is a method', () => {
+    const hits = resolveAskHits(graph, [
+      hit({ node_id: 'internal/retrieval.Service.Search', package: 'internal/retrieval', kind: 'method' }),
+    ]);
+    const projection = buildAskProjection(hits, true)!;
+    expect([...projection.internalIds]).toEqual(['internal/retrieval.Service']);
   });
 
   it('is null when nothing landed in the graph, so the review stays up', () => {

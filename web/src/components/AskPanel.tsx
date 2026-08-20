@@ -19,7 +19,12 @@ const DEPTHS = [10, 20, 50];
 
 /**
  * Ask a question of the indexed code and read the answer as architecture: the
- * ranked hits here, the packages they live in on the canvas.
+ * ranked answer here, the packages it spans on the canvas.
+ *
+ * The answer has two kinds of row. A *hit* is what the query text matched; a
+ * *related* row is what the graph diffusion reached from those hits, and it is
+ * marked as such — it is the answer's context, and the reader has to be able to
+ * tell the two apart at a glance.
  */
 export function AskPanel({
   ask,
@@ -32,6 +37,8 @@ export function AskPanel({
   onDepthChange,
 }: AskPanelProps) {
   const [draft, setDraft] = useState(ask.query);
+  const seedCount = ask.hits.filter((hit) => hit.seed).length;
+  const relatedCount = ask.hits.length - seedCount;
   // A cleared ask (or one restored from elsewhere) resets the box.
   useEffect(() => setDraft(ask.query), [ask.query]);
 
@@ -72,7 +79,8 @@ export function AskPanel({
         {ask.status === 'ready' && (
           <>
             <span>
-              {ask.hits.length} {ask.hits.length === 1 ? 'hit' : 'hits'} · {packageCount}{' '}
+              {seedCount} {seedCount === 1 ? 'hit' : 'hits'}
+              {relatedCount > 0 && ` · ${relatedCount} related`} · {packageCount}{' '}
               {packageCount === 1 ? 'package' : 'packages'}
             </span>
             <span className={`hf-ask-mode ${ask.dense ? 'dense' : ''}`} title={
@@ -122,14 +130,21 @@ export function AskPanel({
             {group.hits.map((hit) => (
               <div
                 key={hit.nodeId}
-                className={`hf-ask-hit ${ask.activeHitId === hit.nodeId ? 'active' : ''} ${hit.inGraph ? '' : 'off-graph'}`}
+                className={`hf-ask-hit ${ask.activeHitId === hit.nodeId ? 'active' : ''} ${hit.inGraph ? '' : 'off-graph'} ${hit.seed ? '' : 'related'}`}
                 onClick={() => hit.inGraph && onHitClick(hit)}
-                title={hit.inGraph ? hit.nodeId : `${hit.nodeId} — not in the loaded graph`}
+                title={
+                  hit.inGraph
+                    ? hit.seed
+                      ? hit.nodeId
+                      : `${hit.nodeId} — reached from the hits through the graph`
+                    : `${hit.nodeId} — not in the loaded graph`
+                }
               >
                 <div className="hf-ask-hit-row">
                   <span className={`hf-ask-kind ${hit.kind}`}>{hit.kind}</span>
                   <span className="hf-ask-hit-name">{hit.name}</span>
-                  {!hit.symbolInGraph && hit.inGraph && <span className="hf-ask-hit-flag">package only</span>}
+                  {!hit.seed && <span className="hf-ask-hit-flag">related</span>}
+                  {hit.seed && !hit.symbolInGraph && hit.inGraph && <span className="hf-ask-hit-flag">package only</span>}
                   {!hit.inGraph && <span className="hf-ask-hit-flag">off canvas</span>}
                 </div>
                 {hit.doc && <div className="hf-ask-hit-doc">{hit.doc}</div>}

@@ -7,7 +7,7 @@ import "github.com/kgatilin/archai/internal/domain"
 // bulk that pushed a single get_package past 1 MB on large packages. The
 // digest keeps only the symbol *surface* (signatures, synopses, locations);
 // bodies come from get_node/read_file and the dependency graph from
-// expand/search_graph.
+// search/expand.
 const (
 	// digestDefaultLimit caps how many symbols one get_package page returns.
 	// Chosen so a typical package returns its whole surface in one call
@@ -77,12 +77,12 @@ type implDigest struct {
 
 // pageInfo describes which slice of a package's symbols a digest carries.
 type pageInfo struct {
-	Offset    int  `json:"offset"`
-	Limit     int  `json:"limit"`
-	Total     int  `json:"total"`
-	Returned  int  `json:"returned"`
-	Truncated bool `json:"truncated"`
-	NextOffset int `json:"next_offset,omitempty"`
+	Offset     int  `json:"offset"`
+	Limit      int  `json:"limit"`
+	Total      int  `json:"total"`
+	Returned   int  `json:"returned"`
+	Truncated  bool `json:"truncated"`
+	NextOffset int  `json:"next_offset,omitempty"`
 }
 
 // countSymbols returns the per-kind census for a package.

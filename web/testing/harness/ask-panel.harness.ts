@@ -34,10 +34,16 @@ export class AskPanelHarness extends ComponentHarness {
     return Promise.all(heads.map((head) => head.text()));
   }
 
-  /** Hit symbol names, in rank order. */
+  /** Answer rows' symbol names, in rank order — hits and related alike. */
   async hits(): Promise<string[]> {
     const names = await this.env.rootLocator('.hf-ask-hit-name').all();
     return Promise.all(names.map((name) => name.text()));
+  }
+
+  /** Names of the rows the graph added rather than the query text. */
+  async relatedHits(): Promise<string[]> {
+    const rows = await this.env.rootLocator('.hf-ask-hit.related .hf-ask-hit-name').all();
+    return Promise.all(rows.map((row) => row.text()));
   }
 
   async clickHit(name: string): Promise<void> {

@@ -3,17 +3,18 @@
 Design for unifying archai's search signals — dense embeddings, BM25, and the
 code graph with its spectral machinery — into one principled search operation.
 The output of search is always a **subgraph** (rendered on the review canvas,
-returned by the `search_graph` MCP tool), so the goal is a query-adaptive,
-low-noise subgraph with calibrated per-node scores, not a flat ranked list.
+returned by the `search` MCP tool), so the goal is a query-adaptive, low-noise
+subgraph with calibrated per-node scores, not a flat ranked list.
 
 Status: §3.1–§3.4 are implemented and have replaced the RRF + BFS + PPR
-pipeline described below — calibrated fusion in `Search`, weighted seeds,
-edge-kind weights and hub damping, and the push + sweep cut in `SearchGraph`
-(with `hops` retained as a hard radius bound on top of the sweep). The flat
-`search` tool keeps its list shape and inherits the calibrated masses. Not yet
-built: the semantic edge mix (λ, §3.2), the roll-up and edge-mass filtering of
-§3.5, and the parameterizations of §4 (A↔B connection mode, direction and edge
-masks).
+pipeline described below — calibrated fusion, weighted seeds, edge-kind weights
+and hub damping, and the push + sweep cut (with `hops` retained as a hard radius
+bound on top of the sweep). The two entrypoints of §4 are now one: `search` and
+`search_graph` have collapsed into a single `Service.Search` and a single MCP
+tool, whose answer carries the seeds (marked, with their text mass) and the
+community around them in one node list. Not yet built: the semantic edge mix
+(λ, §3.2), the roll-up and edge-mass filtering of §3.5, and the remaining
+parameterizations of §4 (A↔B connection mode, direction and edge masks).
 
 ---
 
@@ -118,7 +119,9 @@ within one response — never a cross-query threshold.
 
 - **Edge-kind weights**: `calls: 1.0, implements: 0.8, uses/returns: 0.6`
   (starting values; all knobs). `contains` does not participate in diffusion —
-  it is used only for roll-up (§3.5).
+  it is used only for roll-up (§3.5). It is a real edge in the graph since
+  methods became nodes: a type contains its methods, and giving that edge a
+  weight would hand every type the relevance of everything its methods touch.
 - **Hub damping**: `W_uv ← W_uv / (d_u·d_v)^τ` with the *pre-damping*
   weighted degrees, `τ ≈ 0.25–0.5`. The symmetric normalization in `S`
   already suppresses hub flow partially; τ is the extra knob aimed squarely
@@ -181,9 +184,10 @@ both the node set and the line set.
   "what does this depend on" / "what depends on this" / neutral canvas view.
 
 One function with a parameter struct `{y, edge_mask, direction, α, ε, τ, λ,
-β}` serves both the canvas and MCP `search_graph`: tune it against what the
+β}` serves both the canvas and the MCP `search` tool: tune it against what the
 canvas shows, and the MCP tool inherits the same behavior — it is literally
-one code path.
+one code path. (Built: `Service.Search` + `SearchOptions`; the direction and
+edge-mask parameters are still to come.)
 
 ---
 

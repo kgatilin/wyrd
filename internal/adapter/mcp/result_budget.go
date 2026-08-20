@@ -83,8 +83,8 @@ func oversizeHint(tool string, bytes int) string {
 	switch tool {
 	case "get_package", "extract":
 		return base + "Page it with a smaller `limit` (and advance `offset`), filter to one `kinds` group, or read individual symbols with get_node."
-	case "search", "search_graph":
-		return base + "Lower `k` (and `hops` for search_graph), or add filters to narrow the result set."
+	case "search":
+		return base + "Lower `k` and `hops`, or add filters to narrow what the query matches."
 	case "expand":
 		return base + "Expand from fewer node_ids, reduce `hops`, or restrict `edges` to specific kinds."
 	default:

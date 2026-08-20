@@ -2939,6 +2939,8 @@ body {
 }
 .hf-ask-hit:hover { background: var(--bg-hover); }
 .hf-ask-hit.active { border-left-color: var(--accent); background: var(--accent-bg); }
+.hf-ask-hit.related { opacity: 0.72; }
+.hf-ask-hit.related .hf-ask-hit-name { color: var(--fg-1); }
 .hf-ask-hit.off-graph { opacity: 0.5; cursor: default; }
 .hf-ask-hit.off-graph:hover { background: transparent; }
 .hf-ask-hit-row { display: flex; align-items: center; gap: 6px; }

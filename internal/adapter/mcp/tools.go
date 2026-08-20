@@ -182,7 +182,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "get_package",
-			Description: "Return a bounded digest of a single package's symbol surface — signatures, one-line synopses, and locations for its interfaces, structs, functions, types, consts, vars, and errors — identified by its module-relative path. Omits source bodies, call edges, and dependency lists (get them via get_node and expand/search_graph) so the response stays within the size budget. Large packages paginate via offset/limit; kinds narrows to specific symbol kinds.",
+			Description: "Return a bounded digest of a single package's symbol surface — signatures, one-line synopses, and locations for its interfaces, structs, functions, types, consts, vars, and errors — identified by its module-relative path. Omits source bodies, call edges, and dependency lists (get them via get_node and expand) so the response stays within the size budget. Large packages paginate via offset/limit; kinds narrows to specific symbol kinds.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -316,7 +316,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		// Retrieval tools
 		{
 			Name:        "search",
-			Description: "Hybrid semantic + lexical code search: dense vector similarity (when an embedder is configured) and BM25 lexical matching, fused into a calibrated relevance mass. Reach for it to find code by meaning — what something does or is about — when you don't have an exact name or a known symbol to navigate from; prefer literal text search for exact strings and direct go-to-definition / find-references when the symbol is already known. Returns a flat ranked list; use plain `search` to find WHERE something lives, and `search_graph` instead when you need HOW it connects to the rest of the code. Each result carries node_id, kind, file, line, doc, and a source snippet, so file:line lets you jump straight to the code. Scores are calibrated relevance masses in (0,1]: a probability distribution over the whole candidate pool, summing to ≈1 across it, so the returned top-k is a slice of that distribution and sums to less. They are meaningful only for ordering within one response — a mass is not comparable across queries and never a cutoff threshold. The `dense` flag in the response is true when the vector layer contributed to ranking for this query and false when results are BM25-only (no embedder / empty vector index) — a hint about recall, not result validity. Results reflect the last indexed snapshot; symbols written since then stay invisible until you call `refresh`. Narrow noise with filters.kinds / filters.package_prefix when you already know the symbol kind or package.",
+			Description: "The one code search, and it answers WHERE something lives and HOW it connects in the same call. Dense vector similarity (when an embedder is configured) and BM25 lexical matching are fused into a calibrated relevance mass per symbol; that mass is then the weight each hit carries into a graph diffusion (Andersen-Chung-Lang push + min-conductance sweep cut) over calls/implements/uses/returns edges, with per-kind weights and hub damping so shared glue symbols stop turning up on every query. The response is therefore one node list plus the edges among those nodes: first the symbols the query text matched (`seed: true`, in text-relevance order), then the community they sit in (in diffusion-mass order). Reach for it to find code by meaning, to trace impact, and to ask 'what calls / implements / returns X' — prefer `search_files` for exact strings not yet indexed. `k` is how many text hits seed the search; those hits always come back, even when the diffusion places them nowhere. The region around them is query-adaptive — the sweep grows it while the boundary keeps getting cheaper — so a narrow question yields a small dense community and a broad one a larger region; `truncated` reports that the node cap trimmed it (seeds are never trimmed). `hops` is a hard radius on that region — nothing farther than that many edges from a seed comes back, whatever mass it collected — so keep it at 1-2 unless you deliberately want a wider blast radius. `conductance` is the fraction of edge weight crossing the region's boundary, in [0,1]: low means the query landed on a genuine community, high means the best cut still runs through the middle of a hairball, which is the 'nothing coherent found' signal. `filters` narrow what the query text may match, not the region it grows into — that region is the wiring you asked the graph for. Scores order within one response and nothing else: `score` is the diffusion mass, `text_score` the calibrated text mass on seeds; neither is comparable across queries and neither is a cutoff. The `dense` flag is true when the vector layer contributed and false when the seeds are BM25-only (no embedder / empty vector index) — a hint about recall, not validity. Node ids are `package.Symbol` for a package-level symbol and `package.Receiver.Method` for a method, which is searchable in its own right and returned as kind `method`. Results reflect the last indexed snapshot; symbols written since then stay invisible until you call `refresh`.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -326,16 +326,20 @@ func builtinToolDefinitions() []ToolDefinition {
 					},
 					"k": map[string]any{
 						"type":        "integer",
-						"description": "Maximum number of results to return (default 10).",
+						"description": "How many text hits seed the search and are guaranteed in the answer (default 10).",
+					},
+					"hops": map[string]any{
+						"type":        "integer",
+						"description": "Hard radius on the region grown around the seeds, in edges (default 1).",
 					},
 					"filters": map[string]any{
 						"type":        "object",
-						"description": "Optional filters to constrain results.",
+						"description": "Optional filters on what the query text may match. They constrain the seeds, not the region around them.",
 						"properties": map[string]any{
 							"kinds": map[string]any{
 								"type":        "array",
 								"items":       map[string]any{"type": "string"},
-								"description": "Symbol kinds to include (iface, class, func, type, const, var, error).",
+								"description": "Symbol kinds to include (iface, class, func, method, type, const, var, error).",
 							},
 							"package_prefix": map[string]any{
 								"type":        "string",
@@ -348,37 +352,15 @@ func builtinToolDefinitions() []ToolDefinition {
 			},
 		},
 		{
-			Name:        "search_graph",
-			Description: "Like `search`, but returns a subgraph instead of a flat list: the min-conductance community around the query's hits. The hits seed a graph diffusion (ACL push + sweep cut) weighted by the same calibrated relevance masses `search` returns, run over uses/returns/implements/calls edges with per-kind weights and hub damping so shared glue symbols stop turning up on every query. Default to this over plain `search` when the question is about connections rather than location — impact analysis, dependency tracing, or 'what calls / implements / returns X'. The result size is query-adaptive: the sweep keeps growing the region while its boundary keeps getting cheaper, so a narrow question yields a small dense community and a broad one a larger region; `truncated` reports that the node cap cut it short. `hops` is a hard radius cap on top of that — nothing farther than that many edges from a seed is returned, whatever mass it collected — so keep it at 1–2 unless you deliberately want a wider blast radius. `conductance` is the fraction of edge weight crossing the region's boundary, in [0,1]: low means the query landed on a genuine community, high means the best cut still runs through the middle of a hairball, which is the 'search found nothing coherent' signal. Node scores are degree-normalized diffusion masses, meaningful for ordering within one response and nothing else. Same snapshot freshness as `search` — call `refresh` to pick up new code.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"query": map[string]any{
-						"type":        "string",
-						"description": "Natural language or keyword query to search for.",
-					},
-					"k": map[string]any{
-						"type":        "integer",
-						"description": "Maximum number of search results to use as seeds (default 10).",
-					},
-					"hops": map[string]any{
-						"type":        "integer",
-						"description": "Number of hops to expand from seed nodes (default 1).",
-					},
-				},
-				"required": []string{"query"},
-			},
-		},
-		{
 			Name:        "expand",
-			Description: "Expand from node IDs you already have (from a prior `search` or `search_graph` result) to their neighbors via graph edges, up to `hops` away. This is the breadth tool — it walks outward from many nodes at once and returns lightweight node summaries plus edges, without source bodies; use `get_node` when you instead need the full code of one symbol. Use expand to widen the graph around symbols you've already found without re-running a query. Restrict `edges` to specific kinds (uses, returns, implements, calls) to keep the result focused; node IDs use the package.SymbolName format returned by search.",
+			Description: "Expand from node IDs you already have (from a prior `search` result) to their neighbors via graph edges, up to `hops` away. This is the breadth tool — it walks outward from many nodes at once and returns lightweight node summaries plus edges, without source bodies; use `get_node` when you instead need the full code of one symbol. Use expand to widen the graph around symbols you've already found without re-running a query. Restrict `edges` to specific kinds (uses, returns, implements, calls, contains) to keep the result focused; node IDs use the format search returns — package.SymbolName, or package.Receiver.Method for a method. A method's own calls hang off the method node, and `contains` is what ties a type to its methods, so expanding a type with `edges` unset reaches through it to what its methods touch.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"node_ids": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
-						"description": "Node IDs to expand from (format: package.SymbolName).",
+						"description": "Node IDs to expand from (format: package.SymbolName, or package.Receiver.Method for a method).",
 					},
 					"hops": map[string]any{
 						"type":        "integer",
@@ -387,7 +369,7 @@ func builtinToolDefinitions() []ToolDefinition {
 					"edges": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
-						"description": "Edge kinds to traverse (uses, returns, implements, calls). Empty means all.",
+						"description": "Edge kinds to traverse (uses, returns, implements, calls, contains). Empty means all.",
 					},
 				},
 				"required": []string{"node_ids"},
@@ -395,13 +377,13 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "get_node",
-			Description: "Return full detail for a single symbol — its complete source body and incident edges — given a node_id (package.SymbolName) from a `search` or `search_graph` result. This is the depth tool: one node, with its actual code; use `expand` instead when you want to walk edges across many nodes without bodies. Use it to read the code once search has located the symbol.",
+			Description: "Return full detail for a single symbol — its complete source body and incident edges — given a node_id (package.SymbolName, or package.Receiver.Method for a method) from a `search` result. This is the depth tool: one node, with its actual code; use `expand` instead when you want to walk edges across many nodes without bodies. Use it to read the code once search has located the symbol.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"id": map[string]any{
 						"type":        "string",
-						"description": "Node ID in format package.SymbolName.",
+						"description": "Node ID in format package.SymbolName, or package.Receiver.Method for a method.",
 					},
 				},
 				"required": []string{"id"},
@@ -409,7 +391,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "refresh",
-			Description: "Rebuild the retrieval indexes from the current model snapshot, picking up code written since the last index. `search` and `search_graph` read this snapshot, so newly added or changed symbols stay invisible to them until you refresh. Returns counts of reindexed and removed nodes.",
+			Description: "Rebuild the retrieval indexes from the current model snapshot, picking up code written since the last index. `search` reads this snapshot, so newly added or changed symbols stay invisible to them until you refresh. Returns counts of reindexed and removed nodes.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -425,7 +407,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "embedding_coverage",
-			Description: "Report dense-embedding coverage over the indexed graph: how many nodes are embeddable (func/iface/struct/type) versus how many actually carry a vector, broken down by kind, plus a capped sample of embeddable nodes still missing an embedding. Answers \"are embeddings built for everything, or is something not built?\" Non-embeddable kinds (const/var/error/field/file/package) are reported but never counted as missing — they are excluded from dense search by design. A nonzero missing count with dense_available=true usually means the embedder failed on those nodes or a refresh is needed.",
+			Description: "Report dense-embedding coverage over the indexed graph: how many nodes are embeddable (func/method/iface/struct/type) versus how many actually carry a vector, broken down by kind, plus a capped sample of embeddable nodes still missing an embedding. Answers \"are embeddings built for everything, or is something not built?\" Non-embeddable kinds (const/var/error/field/file/package) are reported but never counted as missing — they are excluded from dense search by design. A nonzero missing count with dense_available=true usually means the embedder failed on those nodes or a refresh is needed.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -623,7 +605,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "read_file",
-			Description: "Read a UTF-8 source file by its repo-relative path, confined to the daemon's project root. Use it to read the exact bytes of a file the graph tools located: search/search_graph give file:line, read_file gives the full text. Paths resolve against the project root and may not escape it. Large files are truncated with a trailing notice.",
+			Description: "Read a UTF-8 source file by its repo-relative path, confined to the daemon's project root. Use it to read the exact bytes of a file the graph tools located: search gives file:line, read_file gives the full text. Paths resolve against the project root and may not escape it. Large files are truncated with a trailing notice.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -708,8 +690,6 @@ func dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleGetBoundedContext(state, rawArgs)
 	case "search":
 		return handleSearch(state, rawArgs)
-	case "search_graph":
-		return handleSearchGraph(state, rawArgs)
 	case "expand":
 		return handleExpand(state, rawArgs)
 	case "get_node":
@@ -866,7 +846,7 @@ type getPackageArgs struct {
 // surface (signatures, synopses, locations) rather than the full
 // PackageModel — the model's call edges, dependency list, and source spans
 // are the bulk that pushed a raw dump past 1 MB. Read a symbol's body with
-// get_node; trace its edges with expand/search_graph. Large packages
+// get_node; trace its edges with search/expand. Large packages
 // paginate via offset/limit; kinds narrows to specific symbol kinds.
 // Missing/empty paths and unknown packages come back as IsError=true tool
 // results (not JSON-RPC errors) so the model can see the message and recover.
@@ -1603,9 +1583,7 @@ func errorResult(msg string) ToolResult {
 const (
 	// maxSearchK caps how many hits search returns regardless of requested k.
 	maxSearchK = 50
-	// maxSnippetBytes clips each search hit's source snippet.
-	maxSnippetBytes = 600
-	// maxSubgraphNodes / maxSubgraphEdges cap search_graph and expand output.
+	// maxSubgraphNodes / maxSubgraphEdges cap search and expand output.
 	maxSubgraphNodes = 150
 	maxSubgraphEdges = 400
 	// maxSubgraphSig / maxSubgraphDoc clip per-node signature and doc text.
@@ -1621,6 +1599,7 @@ const (
 type searchArgs struct {
 	Query   string        `json:"query"`
 	K       int           `json:"k"`
+	Hops    int           `json:"hops"`
 	Filters searchFilters `json:"filters"`
 }
 
@@ -1629,23 +1608,33 @@ type searchFilters struct {
 	PackagePrefix string   `json:"package_prefix"`
 }
 
-// searchResult is the response structure for the search tool.
+// searchResult is the response structure for the search tool: the query's own
+// hits and the community they sit in as one node list, the edges among those
+// nodes, and the diagnostics of the cut that chose them.
 type searchResult struct {
-	Results []searchResultItem `json:"results"`
-	Dense   bool               `json:"dense"`
+	Hits  []searchHit `json:"hits"`
+	Edges []edgeInfo  `json:"edges"`
+	Dense bool        `json:"dense"`
+	// Conductance rates the region's boundary, SeedCount how many hits
+	// personalized the diffusion that found it.
+	Conductance float64 `json:"conductance"`
+	SeedCount   int     `json:"seed_count"`
+	// NodeCount / EdgeCount are the pre-cap totals; Truncated is set when the
+	// response budget trimmed the region.
+	NodeCount int  `json:"node_count,omitempty"`
+	EdgeCount int  `json:"edge_count,omitempty"`
+	Truncated bool `json:"truncated,omitempty"`
 }
 
-type searchResultItem struct {
-	NodeID  string  `json:"node_id"`
-	Kind    string  `json:"kind"`
-	File    string  `json:"file"`
-	Line    int     `json:"line"`
-	Doc     string  `json:"doc"`
-	Snippet string  `json:"snippet"`
-	Score   float32 `json:"score"`
+// searchHit is a node of the answer plus which side of the search put it there.
+type searchHit struct {
+	nodeInfo
+	Seed      bool    `json:"seed,omitempty"`
+	TextScore float64 `json:"text_score,omitempty"`
 }
 
-// handleSearch performs hybrid code search.
+// handleSearch runs the one search operation: text relevance seeds a graph
+// diffusion, and the hits plus the community around them come back together.
 func handleSearch(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
 	var args searchArgs
 	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
@@ -1671,42 +1660,107 @@ func handleSearch(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 	if k > maxSearchK {
 		k = maxSearchK
 	}
-
-	ctx := context.Background()
-	filters := retrieval.Filters{
-		Kinds:         args.Filters.Kinds,
-		PackagePrefix: args.Filters.PackagePrefix,
+	hops := args.Hops
+	if hops <= 0 {
+		hops = 1
 	}
 
-	results, denseUsed, err := svc.Search(ctx, args.Query, k, filters)
+	ctx := context.Background()
+	found, err := svc.Search(ctx, args.Query, retrieval.SearchOptions{
+		K:    k,
+		Hops: hops,
+		Filters: retrieval.Filters{
+			Kinds:         args.Filters.Kinds,
+			PackagePrefix: args.Filters.PackagePrefix,
+		},
+	})
 	if err != nil {
 		return errorResult(fmt.Sprintf("search failed: %v", err)), nil
 	}
 
-	items := make([]searchResultItem, len(results))
-	for i, r := range results {
-		items[i] = searchResultItem{
-			NodeID:  r.NodeID,
-			Kind:    r.Kind,
-			File:    r.File,
-			Line:    r.Line,
-			Doc:     firstLine(r.Doc, maxSubgraphDoc),
-			Snippet: clip(r.Snippet, maxSnippetBytes),
-			Score:   r.Score,
+	hits := make([]searchHit, len(found.Hits))
+	for i, h := range found.Hits {
+		hits[i] = searchHit{
+			nodeInfo: nodeInfo{
+				ID:        h.ID,
+				Kind:      h.Kind,
+				Package:   h.Package,
+				Name:      h.Name,
+				File:      h.File,
+				Line:      h.Line,
+				Signature: clip(h.Signature, maxSubgraphSig),
+				Doc:       firstLine(h.Doc, maxSubgraphDoc),
+				Score:     h.Score,
+			},
+			Seed:      h.Seed,
+			TextScore: h.TextScore,
 		}
 	}
 
-	return text(renderSearch(args.Query, searchResult{Results: items, Dense: denseUsed}))
+	edges := make([]edgeInfo, len(found.Edges))
+	for i, e := range found.Edges {
+		edges[i] = edgeInfo{From: e.From, To: e.To, Kind: e.Kind}
+	}
+
+	result := cappedSearch(hits, edges, found.Dense)
+	result.Conductance = found.Conductance
+	result.SeedCount = found.SeedCount
+	// The retrieval-side node cap fires before the response budget, so a region
+	// cut there is a partial view even when this budget had room to spare.
+	result.Truncated = result.Truncated || found.Truncated
+	return text(renderSearch(args.Query, result))
 }
 
-// searchGraphArgs is the input schema for the search_graph tool.
-type searchGraphArgs struct {
-	Query string `json:"query"`
-	K     int    `json:"k"`
-	Hops  int    `json:"hops"`
+// cappedSearch bounds a search answer for LLM consumption. The response budget
+// is spent on the region alone: seeds are what the caller asked for and are
+// never dropped, however many of them there are.
+func cappedSearch(hits []searchHit, edges []edgeInfo, dense bool) searchResult {
+	totalNodes, totalEdges := len(hits), len(edges)
+	truncated := false
+	kept := make([]searchHit, 0, len(hits))
+	room := maxSubgraphNodes
+	for _, h := range hits {
+		if h.Seed {
+			kept = append(kept, h)
+			continue
+		}
+		if room <= 0 {
+			truncated = true
+			continue
+		}
+		room--
+		kept = append(kept, h)
+	}
+
+	keptIDs := make(map[string]bool, len(kept))
+	for _, h := range kept {
+		keptIDs[h.ID] = true
+	}
+	filtered := make([]edgeInfo, 0, len(edges))
+	for _, e := range edges {
+		if !keptIDs[e.From] || !keptIDs[e.To] {
+			continue
+		}
+		if len(filtered) >= maxSubgraphEdges {
+			break
+		}
+		filtered = append(filtered, e)
+	}
+	if len(filtered) < totalEdges {
+		truncated = true
+	}
+
+	return searchResult{
+		Hits:      kept,
+		Edges:     filtered,
+		Dense:     dense,
+		NodeCount: totalNodes,
+		EdgeCount: totalEdges,
+		Truncated: truncated,
+	}
 }
 
-// subgraphResult is the response structure for search_graph and expand tools.
+// subgraphResult is the response structure for the expand tool.
 type subgraphResult struct {
 	Nodes []nodeInfo `json:"nodes"`
 	Edges []edgeInfo `json:"edges"`
@@ -1716,17 +1770,6 @@ type subgraphResult struct {
 	NodeCount int  `json:"node_count,omitempty"`
 	EdgeCount int  `json:"edge_count,omitempty"`
 	Truncated bool `json:"truncated,omitempty"`
-	// Diffusion carries the local-partition diagnostics search_graph produces.
-	// Nil for expand, which walks edges instead of cutting a community.
-	Diffusion *diffusionStats `json:"diffusion,omitempty"`
-}
-
-// diffusionStats describes the cut search_graph made: how crisply the returned
-// community separates from the rest of the graph, and how many search hits
-// seeded the diffusion that found it.
-type diffusionStats struct {
-	Conductance float64 `json:"conductance"`
-	SeedCount   int     `json:"seed_count"`
 }
 
 // cappedSubgraph bounds a subgraph for LLM consumption: it keeps at most
@@ -1784,68 +1827,6 @@ type edgeInfo struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	Kind string `json:"kind"`
-}
-
-// handleSearchGraph performs search and expands results into a subgraph.
-func handleSearchGraph(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
-	var args searchGraphArgs
-	if rpcErr := unmarshalArgs(rawArgs, &args); rpcErr != nil {
-		return ToolResult{}, rpcErr
-	}
-	if args.Query == "" {
-		return errorResult("missing required argument: query"), nil
-	}
-
-	if state == nil {
-		return errorResult("no state available"), nil
-	}
-
-	svc := state.Retrieval()
-	if svc == nil {
-		return errorResult("retrieval not initialized"), nil
-	}
-
-	k := args.K
-	if k <= 0 {
-		k = 10
-	}
-	hops := args.Hops
-	if hops <= 0 {
-		hops = 1
-	}
-
-	ctx := context.Background()
-	found, denseUsed, err := svc.SearchGraph(ctx, args.Query, k, hops)
-	if err != nil {
-		return errorResult(fmt.Sprintf("search_graph failed: %v", err)), nil
-	}
-
-	nodes := make([]nodeInfo, len(found.Nodes))
-	for i, n := range found.Nodes {
-		nodes[i] = nodeInfo{
-			ID:        n.ID,
-			Kind:      n.Kind,
-			Package:   n.Package,
-			Name:      n.Name,
-			File:      n.File,
-			Line:      n.Line,
-			Signature: clip(n.Signature, maxSubgraphSig),
-			Doc:       firstLine(n.Doc, maxSubgraphDoc),
-			Score:     n.Score,
-		}
-	}
-
-	edges := make([]edgeInfo, len(found.Edges))
-	for i, e := range found.Edges {
-		edges[i] = edgeInfo{From: e.From, To: e.To, Kind: e.Kind}
-	}
-
-	result := cappedSubgraph(nodes, edges, denseUsed)
-	result.Diffusion = &diffusionStats{Conductance: found.Conductance, SeedCount: found.SeedCount}
-	// The retrieval-side node cap fires before the response budget, so a region
-	// cut there is a partial view even when this budget had room to spare.
-	result.Truncated = result.Truncated || found.Truncated
-	return text(renderSubgraph(args.Query, result))
 }
 
 // expandArgs is the input schema for the expand tool.
@@ -2827,7 +2808,9 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 
 // archmotifIDToRetrievalID converts an archmotif node ID to a retrieval index key.
 // Archmotif IDs have kind prefixes (type:, fn:, method:, field:, pkg:, file:).
-// Retrieval IDs are just "pkg.SymbolName" with no prefix.
+// Retrieval IDs are just "pkg.SymbolName" with no prefix — and, for a method,
+// "pkg.Receiver.Method", which is the same string archmotif prefixes with
+// "method:". The kinds that map to "" are the ones retrieval has no node for.
 func archmotifIDToRetrievalID(amid string) string {
 	switch {
 	case strings.HasPrefix(amid, "type:"):
@@ -2837,9 +2820,9 @@ func archmotifIDToRetrievalID(amid string) string {
 		// fn:internal/service.Generate -> internal/service.Generate
 		return strings.TrimPrefix(amid, "fn:")
 	case strings.HasPrefix(amid, "method:"):
-		// method:internal/domain.StructName.MethodName -> not indexed in retrieval
-		// Retrieval indexes structs/interfaces, not individual methods
-		return ""
+		// method:internal/domain.StructName.MethodName -> internal/domain.StructName.MethodName
+		// Methods are retrieval nodes of their own, under the same id.
+		return strings.TrimPrefix(amid, "method:")
 	case strings.HasPrefix(amid, "field:"):
 		// field:internal/domain.StructName.FieldName -> not indexed in retrieval
 		return ""

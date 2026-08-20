@@ -69,27 +69,56 @@ func graphService(pairs [][2]string, hits []Scored, p Params) *Service {
 	return &Service{graph: callGraph(pairs), lindex: stubLexical{hits: hits}, params: p}
 }
 
-func searchRegion(t *testing.T, svc *Service, hops int) GraphSearchResult {
+func searchRegion(t *testing.T, svc *Service, hops int) SearchResult {
 	t.Helper()
-	got, _, err := svc.SearchGraph(context.Background(), "query", 10, hops)
+	got, err := svc.Search(context.Background(), "query", SearchOptions{K: 10, Hops: hops})
 	if err != nil {
-		t.Fatalf("SearchGraph: %v", err)
+		t.Fatalf("Search: %v", err)
 	}
 	return got
 }
 
-func regionIDs(res GraphSearchResult) []string {
-	ids := make([]string, len(res.Nodes))
-	for i, n := range res.Nodes {
-		ids[i] = n.ID
+// answerIDs is every node the search returned, seeds included.
+func answerIDs(res SearchResult) []string {
+	ids := make([]string, len(res.Hits))
+	for i, h := range res.Hits {
+		ids[i] = h.ID
 	}
 	return ids
 }
 
-func sortedRegionIDs(res GraphSearchResult) []string {
-	ids := regionIDs(res)
+// diffusedIDs is what the diffusion added to the seeds — the region proper,
+// which is what these tests are about. The seeds come back whether the
+// diffusion reaches them or not, so leaving them in would mask which side the
+// mass actually pulled.
+func diffusedIDs(res SearchResult) []string {
+	var ids []string
+	for _, h := range res.Hits {
+		if !h.Seed {
+			ids = append(ids, h.ID)
+		}
+	}
+	return ids
+}
+
+func sortedAnswerIDs(res SearchResult) []string {
+	ids := answerIDs(res)
 	sort.Strings(ids)
 	return ids
+}
+
+func sortedDiffusedIDs(res SearchResult) []string {
+	ids := diffusedIDs(res)
+	sort.Strings(ids)
+	return ids
+}
+
+// sortedWith returns ids plus extra, sorted — what a region-plus-seeds
+// assertion expects.
+func sortedWith(ids []string, extra ...string) []string {
+	out := append(append([]string{}, ids...), extra...)
+	sort.Strings(out)
+	return out
 }
 
 func sameIDs(got, want []string) bool {
@@ -111,28 +140,27 @@ func bridgedClusters() [][2]string {
 	return append(pairs, [2]string{"a1", "b1"})
 }
 
-// TestSearchGraphSeedMassPicksSide is the point of weighting the seeds: both
+// TestSearchSeedMassPicksSide is the point of weighting the seeds: both
 // clusters are seeded, and the side that wins is the side holding the relevance
 // mass. Uniform personalization — what the old ranking did — would leave the
 // two symmetric halves indistinguishable.
-func TestSearchGraphSeedMassPicksSide(t *testing.T) {
+func TestSearchSeedMassPicksSide(t *testing.T) {
 	cases := []struct {
-		name  string
-		hits  []Scored
-		want  []string
-		avoid []string
+		name string
+		hits []Scored
+		// want is what the diffusion added: both hits come back as seeds
+		// whichever side wins, so the region is where the mass shows.
+		want []string
 	}{
 		{
-			name:  "mass on cluster A",
-			hits:  []Scored{{ID: "a1", Score: 10}, {ID: "b1", Score: 0}},
-			want:  []string{"a1", "a2", "a3", "a4"},
-			avoid: []string{"b2", "b3", "b4"},
+			name: "mass on cluster A",
+			hits: []Scored{{ID: "a1", Score: 10}, {ID: "b1", Score: 0}},
+			want: []string{"a2", "a3", "a4"},
 		},
 		{
-			name:  "mass on cluster B",
-			hits:  []Scored{{ID: "b1", Score: 10}, {ID: "a1", Score: 0}},
-			want:  []string{"b1", "b2", "b3", "b4"},
-			avoid: []string{"a2", "a3", "a4"},
+			name: "mass on cluster B",
+			hits: []Scored{{ID: "b1", Score: 10}, {ID: "a1", Score: 0}},
+			want: []string{"b2", "b3", "b4"},
 		},
 	}
 
@@ -140,8 +168,12 @@ func TestSearchGraphSeedMassPicksSide(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := searchRegion(t, graphService(bridgedClusters(), tc.hits, graphParams()), 5)
 
-			if ids := sortedRegionIDs(got); !sameIDs(ids, tc.want) {
+			if ids := sortedDiffusedIDs(got); !sameIDs(ids, tc.want) {
 				t.Errorf("region = %v, want %v", ids, tc.want)
+			}
+			// The losing side's hit is still an answer: it matched the query.
+			if ids := sortedAnswerIDs(got); !sameIDs(ids, sortedWith(tc.want, "a1", "b1")) {
+				t.Errorf("answer = %v, want the region plus both seeds", ids)
 			}
 			if got.SeedCount != 2 {
 				t.Errorf("seed count = %d, want 2 (both hits seeded the diffusion)", got.SeedCount)
@@ -151,33 +183,44 @@ func TestSearchGraphSeedMassPicksSide(t *testing.T) {
 				t.Errorf("conductance = %v, want a small positive cut", got.Conductance)
 			}
 			if got.Truncated {
-				t.Errorf("region of %d nodes reported as truncated", len(got.Nodes))
+				t.Errorf("answer of %d nodes reported as truncated", len(got.Hits))
 			}
 		})
 	}
 }
 
-// TestSearchGraphOrdersByMass checks the contract consumers rely on when they
-// re-truncate the node list: the heaviest node comes first and mass never
-// climbs again further down.
-func TestSearchGraphOrdersByMass(t *testing.T) {
+// TestSearchOrdersSeedsThenMass checks the contract consumers rely on when they
+// re-truncate the node list: the query's own hits come first in text-relevance
+// order, and what the diffusion added follows in mass order, never climbing.
+func TestSearchOrdersSeedsThenMass(t *testing.T) {
 	hits := []Scored{{ID: "a1", Score: 10}, {ID: "b1", Score: 0}}
 	got := searchRegion(t, graphService(bridgedClusters(), hits, graphParams()), 5)
 
-	if len(got.Nodes) == 0 {
-		t.Fatal("empty region")
+	if len(got.Hits) < 3 {
+		t.Fatalf("answer of %d nodes is too small to order", len(got.Hits))
 	}
-	if got.Nodes[0].ID != "a1" {
-		t.Errorf("first node = %q, want the seed a1", got.Nodes[0].ID)
+	if ids := answerIDs(got)[:2]; !sameIDs(ids, []string{"a1", "b1"}) {
+		t.Errorf("answer opens with %v, want the seeds in text order", ids)
 	}
-	for i := 1; i < len(got.Nodes); i++ {
-		if got.Nodes[i].Score > got.Nodes[i-1].Score {
-			t.Errorf("mass rises at %d: %v after %v", i, got.Nodes[i], got.Nodes[i-1])
+	if !got.Hits[0].Seed || got.Hits[0].TextScore <= got.Hits[1].TextScore {
+		t.Errorf("seeds = %+v, %+v; want both marked and ordered by text mass", got.Hits[0], got.Hits[1])
+	}
+	region := got.Hits[2:]
+	for i := 1; i < len(region); i++ {
+		if region[i].Score > region[i-1].Score {
+			t.Errorf("mass rises at %d: %v after %v", i, region[i], region[i-1])
 		}
 	}
-	// The induced edges of a 4-clique are all six of them.
-	if len(got.Edges) != 6 {
-		t.Errorf("induced edges = %d, want 6", len(got.Edges))
+	// A node the diffusion found never claims a text score it does not have.
+	for _, h := range region {
+		if h.TextScore != 0 {
+			t.Errorf("region node %q carries text score %v", h.ID, h.TextScore)
+		}
+	}
+	// The six edges of the A clique, plus the bridge to the b1 seed: edges are
+	// induced over the whole answer, so keeping a seed keeps its wiring too.
+	if len(got.Edges) != 7 {
+		t.Errorf("induced edges = %d, want 7", len(got.Edges))
 	}
 }
 
@@ -207,21 +250,21 @@ func glueFixture() [][2]string {
 // region. Damping divides each edge by its endpoints' degrees, which costs the
 // links into the dense community more than the links to the sparse ring, and
 // the glue stops paying for itself.
-func TestSearchGraphHubDampingDropsGlue(t *testing.T) {
+func TestSearchHubDampingDropsGlue(t *testing.T) {
 	hits := []Scored{{ID: "a1", Score: 10}}
 	community := []string{"a1", "a2", "a3", "a4", "a5"}
 
 	undamped := graphParams()
 	undamped.HubDamping = 0
 	got := searchRegion(t, graphService(glueFixture(), hits, undamped), 5)
-	if ids := sortedRegionIDs(got); !sameIDs(ids, append(append([]string{}, community...), "glue")) {
+	if ids := sortedAnswerIDs(got); !sameIDs(ids, append(append([]string{}, community...), "glue")) {
 		t.Errorf("undamped region = %v, want the community plus glue", ids)
 	}
 
 	damped := graphParams()
 	damped.HubDamping = 1
 	got = searchRegion(t, graphService(glueFixture(), hits, damped), 5)
-	if ids := sortedRegionIDs(got); !sameIDs(ids, community) {
+	if ids := sortedAnswerIDs(got); !sameIDs(ids, community) {
 		t.Errorf("damped region = %v, want the community without glue", ids)
 	}
 }
@@ -240,16 +283,16 @@ func hopsFixture() [][2]string {
 // sweep wants the whole clique behind a1; hops=1 hands back only what is one
 // edge from the seed, and raising it releases the rest. Nothing in alpha or
 // epsilon expresses a radius, so this bound has to be enforced separately.
-func TestSearchGraphHopsCapsRadius(t *testing.T) {
+func TestSearchHopsCapsRadius(t *testing.T) {
 	hits := []Scored{{ID: "s", Score: 10}}
 
 	near := searchRegion(t, graphService(hopsFixture(), hits, graphParams()), 1)
-	if ids := sortedRegionIDs(near); !sameIDs(ids, []string{"a1", "s"}) {
+	if ids := sortedAnswerIDs(near); !sameIDs(ids, []string{"a1", "s"}) {
 		t.Errorf("hops=1 region = %v, want only the seed and its direct neighbour", ids)
 	}
 
 	wide := searchRegion(t, graphService(hopsFixture(), hits, graphParams()), 2)
-	if ids := sortedRegionIDs(wide); !sameIDs(ids, []string{"a1", "a2", "a3", "a4", "s"}) {
+	if ids := sortedAnswerIDs(wide); !sameIDs(ids, []string{"a1", "a2", "a3", "a4", "s"}) {
 		t.Errorf("hops=2 region = %v, want the whole community", ids)
 	}
 	// The cut is reported for the region the sweep chose, so trimming the
@@ -259,16 +302,17 @@ func TestSearchGraphHopsCapsRadius(t *testing.T) {
 	}
 }
 
-// TestSearchGraphMaxNodesTruncates checks the payload cap keeps the top of the
-// mass order and says so.
-func TestSearchGraphMaxNodesTruncates(t *testing.T) {
+// TestSearchMaxNodesTruncates checks the payload cap keeps the top of the mass
+// order and says so. It is spent on the region alone: the hits the query
+// matched are the answer, not the budget.
+func TestSearchMaxNodesTruncates(t *testing.T) {
 	hits := []Scored{{ID: "a1", Score: 10}, {ID: "b1", Score: 0}}
 
 	uncapped := graphParams()
 	uncapped.MaxGraphNodes = 0
 	full := searchRegion(t, graphService(bridgedClusters(), hits, uncapped), 5)
-	if len(full.Nodes) < 3 {
-		t.Fatalf("region of %d nodes is too small to test the cap", len(full.Nodes))
+	if len(diffusedIDs(full)) < 3 {
+		t.Fatalf("region of %d nodes is too small to test the cap", len(diffusedIDs(full)))
 	}
 
 	capped := graphParams()
@@ -278,11 +322,14 @@ func TestSearchGraphMaxNodesTruncates(t *testing.T) {
 	if !got.Truncated {
 		t.Error("Truncated = false, want true once the cap bites")
 	}
-	if len(got.Nodes) != 2 {
-		t.Fatalf("capped region = %d nodes, want 2", len(got.Nodes))
+	if ids := diffusedIDs(got); len(ids) != 2 {
+		t.Fatalf("capped region = %d nodes, want 2", len(ids))
 	}
-	if ids, want := regionIDs(got), regionIDs(full)[:2]; !sameIDs(ids, want) {
+	if ids, want := diffusedIDs(got), diffusedIDs(full)[:2]; !sameIDs(ids, want) {
 		t.Errorf("capped region = %v, want the mass-order prefix %v", ids, want)
+	}
+	if ids := answerIDs(got)[:2]; !sameIDs(ids, []string{"a1", "b1"}) {
+		t.Errorf("capped answer opens with %v, want both seeds kept", ids)
 	}
 	// The cut is a property of the region the sweep chose, not of the slice
 	// that fits in the response.
@@ -294,7 +341,7 @@ func TestSearchGraphMaxNodesTruncates(t *testing.T) {
 // TestSearchGraphEdgeKindWeightsGateParticipation covers the rule that the
 // weight map is the participation list: a kind it does not mention contributes
 // no edge, so a graph made entirely of that kind diffuses nowhere.
-func TestSearchGraphEdgeKindWeightsGateParticipation(t *testing.T) {
+func TestSearchEdgeKindWeightsGateParticipation(t *testing.T) {
 	pairs := cliquePairs("a1", "a2", "a3", "a4")
 	hits := []Scored{{ID: "a1", Score: 10}}
 
@@ -302,22 +349,22 @@ func TestSearchGraphEdgeKindWeightsGateParticipation(t *testing.T) {
 	delete(p.EdgeKindWeights, string(EdgeCalls))
 	got := searchRegion(t, graphService(pairs, hits, p), 5)
 
-	if ids := sortedRegionIDs(got); !sameIDs(ids, []string{"a1"}) {
-		t.Errorf("region = %v, want the isolated seed once calls edges are out", ids)
+	if ids := sortedAnswerIDs(got); !sameIDs(ids, []string{"a1"}) {
+		t.Errorf("answer = %v, want the isolated seed once calls edges are out", ids)
 	}
 	if len(got.Edges) != 0 {
 		t.Errorf("edges = %v, want none", got.Edges)
 	}
 }
 
-func TestSearchGraphDegenerate(t *testing.T) {
+func TestSearchDegenerate(t *testing.T) {
 	t.Run("no graph", func(t *testing.T) {
 		svc := &Service{lindex: stubLexical{hits: []Scored{{ID: "a1", Score: 10}}}, params: graphParams()}
 		got := searchRegion(t, svc, 1)
-		if len(got.Nodes) != 0 || len(got.Edges) != 0 {
-			t.Errorf("region = %+v, want empty", got.Subgraph)
+		if len(got.Hits) != 0 || len(got.Edges) != 0 {
+			t.Errorf("answer = %+v, want empty", got)
 		}
-		if got.Nodes == nil || got.Edges == nil {
+		if got.Hits == nil || got.Edges == nil {
 			t.Error("empty result must carry empty slices, not nil")
 		}
 	})
@@ -325,8 +372,8 @@ func TestSearchGraphDegenerate(t *testing.T) {
 	t.Run("no hits", func(t *testing.T) {
 		svc := graphService(bridgedClusters(), nil, graphParams())
 		got := searchRegion(t, svc, 1)
-		if len(got.Nodes) != 0 || len(got.Edges) != 0 {
-			t.Errorf("region = %+v, want empty", got.Subgraph)
+		if len(got.Hits) != 0 || len(got.Edges) != 0 {
+			t.Errorf("answer = %+v, want empty", got)
 		}
 		if got.SeedCount != 0 || got.Conductance != 0 || got.Truncated {
 			t.Errorf("diagnostics = %+v, want zeroed", got)

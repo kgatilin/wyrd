@@ -179,45 +179,101 @@ func dominantPackage(ids []string) string {
 
 func renderSearch(query string, r searchResult) string {
 	var b strings.Builder
+	var seeds, region []searchHit
+	for _, h := range r.Hits {
+		if h.Seed {
+			seeds = append(seeds, h)
+		} else {
+			region = append(region, h)
+		}
+	}
+
+	// Home is the top hit's package — the answer's anchor. It is read off the
+	// hits and not the whole answer, since the region can be larger than what
+	// the query matched and letting it decide which names print bare would
+	// rename the answer around its own periphery. Nor is it the *commonest*
+	// package among the hits: groups print home first, so a query with one
+	// decisive hit and a tail of weak ones elsewhere would lead with the tail —
+	// which reads as a wrong answer even when the ranking underneath is right.
+	home := ""
+	if len(seeds) > 0 {
+		home = seeds[0].Package
+	}
+
 	tag := ""
 	if r.Dense {
 		tag = "  ·  dense"
 	}
-	fmt.Fprintf(&b, "search %q  ·  %d hits%s\n", query, len(r.Results), tag)
-	if len(r.Results) == 0 {
+	fmt.Fprintf(&b, "search %q  ·  %d hits  ·  region %d nodes / %d edges%s\n",
+		query, len(seeds), len(region), len(r.Edges), tag)
+	if len(r.Hits) == 0 {
 		b.WriteString("(no matches — broaden the query or check filters)\n")
 		return b.String()
 	}
-	// Group by package, keeping first-appearance (rank) order of packages.
-	var order []string
-	byPkg := map[string][]searchResultItem{}
-	for _, it := range r.Results {
-		pkg, _ := splitNodeID(it.NodeID)
-		if _, seen := byPkg[pkg]; !seen {
-			order = append(order, pkg)
-		}
-		byPkg[pkg] = append(byPkg[pkg], it)
+	if r.SeedCount > 0 {
+		// Conductance is the headline quality number: it says whether the
+		// region is a community or an arbitrary slice of a hairball, so it is
+		// reported next to the size the reader would otherwise judge by.
+		fmt.Fprintf(&b, "cut  conductance %.3f (0 = isolated community, 1 = no boundary)  ·  %d seeds\n",
+			r.Conductance, r.SeedCount)
 	}
-	for _, pkg := range order {
-		fmt.Fprintf(&b, "%s\n", pkg)
-		for _, it := range byPkg[pkg] {
-			_, name := splitNodeID(it.NodeID)
-			loc := baseLoc(it.File, it.Line)
-			sig := sigTail(simplifyType(firstLine(it.Snippet, maxSubgraphSig), pkg), name)
-			if sig != "" {
-				fmt.Fprintf(&b, "  %s  %s   %s\n", name, sig, loc)
-			} else {
-				fmt.Fprintf(&b, "  %s  %s   %s\n", name, it.Kind, loc)
-			}
-			if d := firstLine(it.Doc, maxSubgraphDoc); d != "" {
-				fmt.Fprintf(&b, "    · %s\n", d)
-			}
+	if r.Truncated {
+		b.WriteString("(region truncated to the node cap — narrow the query or lower k/hops)\n")
+	}
+	if home != "" {
+		fmt.Fprintf(&b, "home %s   · bare names are in this package\n", home)
+	}
+
+	b.WriteString("\nhits  (matched the query text)\n")
+	writeHitGroups(&b, seeds, home)
+	if len(region) > 0 {
+		b.WriteString("\nregion  (what the hits diffuse into)\n")
+		writeHitGroups(&b, region, home)
+	}
+
+	if len(r.Edges) > 0 {
+		b.WriteString("\nedges  (src --kind--> dst)\n")
+		for _, line := range foldEdges(r.Edges, func(id string) string { return shortEndpoint(id, home) }) {
+			b.WriteString(line + "\n")
 		}
 	}
 	return b.String()
 }
 
-// --- search_graph / expand ---
+// writeHitGroups prints hits grouped by package, the home package first and
+// unlabelled, each group keeping the order it arrived in — which is the order
+// the search ranked them. The groups keep it too: a package appears where its
+// best hit did, so reading top to bottom is reading the ranking.
+func writeHitGroups(b *strings.Builder, hits []searchHit, home string) {
+	var order []string
+	byPkg := map[string][]searchHit{}
+	for _, h := range hits {
+		if _, seen := byPkg[h.Package]; !seen {
+			order = append(order, h.Package)
+		}
+		byPkg[h.Package] = append(byPkg[h.Package], h)
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		return order[i] == home && order[j] != home
+	})
+	for _, pkg := range order {
+		if pkg != home {
+			fmt.Fprintf(b, " %s\n", pkg)
+		}
+		for _, h := range byPkg[pkg] {
+			sig := sigTail(simplifyType(h.Signature, home), h.Name)
+			if sig == "" {
+				sig = h.Kind
+			}
+			fmt.Fprintf(b, "  %s  %s   %s\n", h.Name, sig, baseLoc(h.File, h.Line))
+			if d := firstLine(h.Doc, maxSubgraphDoc); d != "" {
+				fmt.Fprintf(b, "    · %s\n", d)
+			}
+		}
+	}
+}
+
+// --- expand ---
 
 func renderSubgraph(seed string, r subgraphResult) string {
 	var b strings.Builder
@@ -243,13 +299,6 @@ func renderSubgraph(seed string, r subgraphResult) string {
 		ec = len(r.Edges)
 	}
 	fmt.Fprintf(&b, "%s  ·  %d nodes / %d edges%s\n", head, nc, ec, tag)
-	if d := r.Diffusion; d != nil {
-		// Conductance is the headline quality number: it says whether the
-		// region is a community or an arbitrary slice of a hairball, so it is
-		// reported next to the size the reader would otherwise judge by.
-		fmt.Fprintf(&b, "cut  conductance %.3f (0 = isolated community, 1 = no boundary)  ·  %d seeds\n",
-			d.Conductance, d.SeedCount)
-	}
 	if r.Truncated {
 		b.WriteString("(truncated to the node cap — narrow the query or lower k/hops)\n")
 	}

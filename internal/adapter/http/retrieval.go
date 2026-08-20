@@ -14,7 +14,6 @@ import (
 // These are registered both at top-level and under /w/{name}/ in multi-worktree mode.
 func (s *Server) registerRetrievalRoutes(mux *nethttp.ServeMux) {
 	mux.HandleFunc("/api/search", s.handleAPISearch)
-	mux.HandleFunc("/api/search_graph", s.handleAPISearchGraph)
 	mux.HandleFunc("/api/expand", s.handleAPIExpand)
 	mux.HandleFunc("/api/node/", s.handleAPINode)
 	mux.HandleFunc("/api/refresh", s.handleAPIRefresh)
@@ -24,13 +23,23 @@ func (s *Server) registerRetrievalRoutes(mux *nethttp.ServeMux) {
 type searchRequest struct {
 	Query   string            `json:"query"`
 	K       int               `json:"k,omitempty"`
+	Hops    int               `json:"hops,omitempty"`
 	Filters retrieval.Filters `json:"filters,omitempty"`
 }
 
 // searchResponse is the JSON response for POST /api/search.
+//
+// Beyond the hits themselves it carries the diagnostics of the cut that grew
+// the region around them: conductance rates how crisply the region separates
+// from the rest of the graph, seed_count how many hits seeded the diffusion,
+// and truncated whether the node cap trimmed a larger community.
 type searchResponse struct {
-	Results []retrieval.Result `json:"results"`
-	Dense   bool               `json:"dense"`
+	Hits        []retrieval.Hit      `json:"hits"`
+	Edges       []retrieval.EdgeInfo `json:"edges"`
+	Dense       bool                 `json:"dense"`
+	Conductance float64              `json:"conductance"`
+	SeedCount   int                  `json:"seed_count"`
+	Truncated   bool                 `json:"truncated"`
 }
 
 // handleAPISearch handles POST /api/search.
@@ -68,104 +77,33 @@ func (s *Server) handleAPISearch(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if k <= 0 {
 		k = 10
 	}
-
-	results, denseUsed, err := svc.Search(r.Context(), req.Query, k, req.Filters)
-	if err != nil {
-		writeJSONErrorText(w, nethttp.StatusInternalServerError, err.Error())
-		return
-	}
-
-	if results == nil {
-		results = []retrieval.Result{}
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(searchResponse{
-		Results: results,
-		Dense:   denseUsed,
-	})
-}
-
-// searchGraphRequest is the JSON body for POST /api/search_graph.
-type searchGraphRequest struct {
-	Query string `json:"query"`
-	K     int    `json:"k,omitempty"`
-	Hops  int    `json:"hops,omitempty"`
-}
-
-// searchGraphResponse is the JSON response for POST /api/search_graph.
-//
-// Beyond the subgraph itself it carries the diagnostics of the cut that
-// produced it: conductance rates how crisply the region separates from the rest
-// of the graph, seed_count how many hits seeded the diffusion, and truncated
-// whether the node cap trimmed a larger community.
-type searchGraphResponse struct {
-	Nodes       []retrieval.NodeInfo `json:"nodes"`
-	Edges       []retrieval.EdgeInfo `json:"edges"`
-	Dense       bool                 `json:"dense"`
-	Conductance float64              `json:"conductance"`
-	SeedCount   int                  `json:"seed_count"`
-	Truncated   bool                 `json:"truncated"`
-}
-
-// handleAPISearchGraph handles POST /api/search_graph.
-func (s *Server) handleAPISearchGraph(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if r.Method != nethttp.MethodPost {
-		w.Header().Set("Allow", nethttp.MethodPost)
-		nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
-		return
-	}
-
-	var req searchGraphRequest
-	if err := readJSONBodyInto(r, &req); err != nil {
-		writeJSONErrorText(w, nethttp.StatusBadRequest, err.Error())
-		return
-	}
-
-	if req.Query == "" {
-		writeJSONErrorText(w, nethttp.StatusBadRequest, "missing query")
-		return
-	}
-
-	state := s.stateFor(r)
-	if state == nil {
-		writeJSONErrorText(w, nethttp.StatusServiceUnavailable, "no state available")
-		return
-	}
-
-	svc := state.Retrieval()
-	if svc == nil {
-		writeJSONErrorText(w, nethttp.StatusServiceUnavailable, "retrieval not initialized")
-		return
-	}
-
-	k := req.K
-	if k <= 0 {
-		k = 10
-	}
 	hops := req.Hops
 	if hops <= 0 {
 		hops = 1
 	}
 
-	found, denseUsed, err := svc.SearchGraph(r.Context(), req.Query, k, hops)
+	found, err := svc.Search(r.Context(), req.Query, retrieval.SearchOptions{
+		K:       k,
+		Hops:    hops,
+		Filters: req.Filters,
+	})
 	if err != nil {
 		writeJSONErrorText(w, nethttp.StatusInternalServerError, err.Error())
 		return
 	}
 
-	if found.Nodes == nil {
-		found.Nodes = []retrieval.NodeInfo{}
+	if found.Hits == nil {
+		found.Hits = []retrieval.Hit{}
 	}
 	if found.Edges == nil {
 		found.Edges = []retrieval.EdgeInfo{}
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(searchGraphResponse{
-		Nodes:       found.Nodes,
+	_ = json.NewEncoder(w).Encode(searchResponse{
+		Hits:        found.Hits,
 		Edges:       found.Edges,
-		Dense:       denseUsed,
+		Dense:       found.Dense,
 		Conductance: found.Conductance,
 		SeedCount:   found.SeedCount,
 		Truncated:   found.Truncated,

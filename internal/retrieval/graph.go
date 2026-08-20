@@ -2,6 +2,7 @@ package retrieval
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/kgatilin/archai/internal/domain"
 )
@@ -14,6 +15,15 @@ const (
 	EdgeReturns    EdgeKind = "returns"
 	EdgeImplements EdgeKind = "implements"
 	EdgeCalls      EdgeKind = "calls"
+
+	// EdgeContains ties a type to the methods declared on it. It is
+	// structural, not behavioural: the diffusion deliberately leaves it out
+	// (DefaultParams gives it no weight, and diffusionEdges reads that as "no
+	// edge"), or a type would inherit the relevance of everything its methods
+	// touch and turn into a hub the damping then has to fight. Traversals that
+	// take all edges — expand, the induced edge list of an answer — do walk it,
+	// which is how the aggregate view survives moving calls onto the methods.
+	EdgeContains EdgeKind = "contains"
 )
 
 // Edge represents a directed relationship between two nodes in the code graph.
@@ -53,32 +63,37 @@ func BuildGraph(models []domain.PackageModel) ([]Node, *Graph) {
 	}
 
 	// Build edges from domain model
+	b := &edgeBuilder{g: g, seen: make(map[string]bool)}
 	for _, model := range models {
-		buildEdgesFromModel(g, model)
+		b.fromModel(model)
 	}
 
 	return nodes, g
 }
 
-// buildEdgesFromModel extracts edges from a single PackageModel.
-func buildEdgesFromModel(g *Graph, model domain.PackageModel) {
+// edgeBuilder accumulates the graph's edges. It carries the dedup set because
+// the same relation is reported at more than one granularity — the Go reader
+// emits a struct's method dependencies from both the struct and the method —
+// and a duplicate is not harmless: diffusionEdges hands every copy to the
+// diffusion, which sums their weights and would quietly double the strength of
+// whichever relation happened to be reported twice.
+type edgeBuilder struct {
+	g    *Graph
+	seen map[string]bool
+}
+
+// fromModel extracts edges from a single PackageModel.
+func (b *edgeBuilder) fromModel(model domain.PackageModel) {
 	// Dependencies (uses, returns, implements)
 	for _, dep := range model.Dependencies {
 		if dep.To.External {
 			continue // Skip external dependencies
 		}
-		fromID := symbolRefToNodeID(dep.From)
-		toID := symbolRefToNodeID(dep.To)
-		if fromID == "" || toID == "" {
-			continue
-		}
-
 		kind := dependencyKindToEdgeKind(dep.Kind)
 		if kind == "" {
 			continue
 		}
-
-		addEdge(g, fromID, toID, kind)
+		b.add(symbolRefToNodeID(dep.From), symbolRefToNodeID(dep.To), kind)
 	}
 
 	// Implementations
@@ -86,12 +101,7 @@ func buildEdgesFromModel(g *Graph, model domain.PackageModel) {
 		if impl.Concrete.External || impl.Interface.External {
 			continue
 		}
-		fromID := symbolRefToNodeID(impl.Concrete)
-		toID := symbolRefToNodeID(impl.Interface)
-		if fromID == "" || toID == "" {
-			continue
-		}
-		addEdge(g, fromID, toID, EdgeImplements)
+		b.add(symbolRefToNodeID(impl.Concrete), symbolRefToNodeID(impl.Interface), EdgeImplements)
 	}
 
 	// Call edges from functions
@@ -101,33 +111,31 @@ func buildEdgesFromModel(g *Graph, model domain.PackageModel) {
 			if call.To.External {
 				continue
 			}
-			toID := symbolRefToNodeID(call.To)
-			if toID == "" {
-				continue
-			}
-			addEdge(g, fromID, toID, EdgeCalls)
+			b.add(fromID, symbolRefToNodeID(call.To), EdgeCalls)
 		}
 	}
 
-	// Call edges from struct methods
-	// For methods, edge originates from the struct (our nodes are symbol-level)
+	// Call edges from struct methods. They originate at the method, not at the
+	// receiver: a method is a node of its own, and attributing its calls to the
+	// type answers "who calls this" with the wrong symbol. The containment edge
+	// is what keeps the type reachable from them.
 	for _, s := range model.Structs {
 		structID := nodeID(model.Path, s.Name)
 		for _, method := range s.Methods {
+			methodID := nodeID(model.Path, s.Name+"."+method.Name)
+			b.add(structID, methodID, EdgeContains)
 			for _, call := range method.Calls {
 				if call.To.External {
 					continue
 				}
-				toID := symbolRefToNodeID(call.To)
-				if toID == "" {
-					continue
-				}
-				addEdge(g, structID, toID, EdgeCalls)
+				b.add(methodID, symbolRefToNodeID(call.To), EdgeCalls)
 			}
 		}
 	}
 
-	// Call edges from interface methods (if any)
+	// Call edges from interface methods (if any). Interface methods have no
+	// body and so no node; whatever the reader recorded on them folds onto the
+	// interface, which is where such a relation belongs anyway.
 	for _, iface := range model.Interfaces {
 		ifaceID := nodeID(model.Path, iface.Name)
 		for _, method := range iface.Methods {
@@ -135,14 +143,50 @@ func buildEdgesFromModel(g *Graph, model domain.PackageModel) {
 				if call.To.External {
 					continue
 				}
-				toID := symbolRefToNodeID(call.To)
-				if toID == "" {
-					continue
-				}
-				addEdge(g, ifaceID, toID, EdgeCalls)
+				b.add(ifaceID, symbolRefToNodeID(call.To), EdgeCalls)
 			}
 		}
 	}
+}
+
+// add records one edge, after resolving both endpoints onto nodes that exist
+// and dropping the duplicates.
+func (b *edgeBuilder) add(from, to string, kind EdgeKind) {
+	from, to = b.resolve(from), b.resolve(to)
+	if from == "" || to == "" || from == to {
+		return
+	}
+	key := from + "|" + to + "|" + string(kind)
+	if b.seen[key] {
+		return
+	}
+	b.seen[key] = true
+	addEdge(b.g, from, to, kind)
+}
+
+// resolve maps an edge endpoint onto a node the graph actually holds.
+//
+// The reader reports some relations against a member — "Iface.Method uses T" —
+// and not every member becomes a node (interface methods have no body to
+// search). Such an endpoint folds onto its owner, which is the granularity the
+// relation was also reported at, so the fold produces a duplicate rather than a
+// new claim. An endpoint that resolves to nothing is dropped: an edge into a
+// symbol the graph cannot name is a region slot spent on an answer no caller
+// can read.
+func (b *edgeBuilder) resolve(id string) string {
+	if id == "" {
+		return ""
+	}
+	if _, ok := b.g.NodesByID[id]; ok {
+		return id
+	}
+	if dot := strings.LastIndex(id, "."); dot > 0 {
+		owner := id[:dot]
+		if _, ok := b.g.NodesByID[owner]; ok {
+			return owner
+		}
+	}
+	return ""
 }
 
 // symbolRefToNodeID converts a SymbolRef to a node ID.

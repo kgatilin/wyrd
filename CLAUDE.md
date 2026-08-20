@@ -131,7 +131,7 @@ Node id scheme (see `internal/adapter/archmotif/exporter.go`):
 **Dogfood the MCP tools — do NOT explore archai with raw `grep`/`Read` first.**
 archai serves a live graph of its own source. To understand where something lives
 or how it is wired, reach for the archai MCP tools *before* shell search:
-`search`/`search_graph` (semantic + graph search for symbols/code), `get_node` /
+`search` (semantic + graph search for symbols/code, in one call), `get_node` /
 `get_package` / `list_packages` (inspect a node or package surface), `expand`
 (walk neighbors / callers / callees / implementers from a seed node). Use
 `grep`/`Read` only to read an exact span once a graph tool has located it. The
@@ -205,6 +205,45 @@ warm up with `archai daemon status`.
 The MCP thin client pings `POST /w/<worktree>/api/warm` as soon as it attaches,
 so that cold parse starts at client startup rather than on the agent's first
 tool call. The daemon separately warms only its *default* worktree at startup.
+
+### Search is one tool
+
+`search` is the only search: the text channels (dense embeddings + BM25) score
+what the query matches, and that calibrated mass is the seed weight of a graph
+diffusion (ACL push + min-conductance sweep cut) over calls/implements/uses/
+returns edges. So one call answers both "where does this live" and "how does it
+connect" — there is no `search_graph` any more, and no flat-list mode.
+
+- The answer is one node list plus the edges among those nodes: seeds first
+  (`seed: true`, in text-relevance order, carrying `text_score`), then what the
+  diffusion reached (in `score`, the degree-normalized diffusion mass).
+- **A seed is never dropped.** Neither `hops` nor the `MaxGraphNodes` payload
+  cap applies to the query's own hits — the cap is spent on the region. A
+  symbol the query named comes back even when it is isolated from everything
+  the diffusion found.
+- **`filters` constrain the seeds, not the region.** `kinds` /
+  `package_prefix` say what the text may match; the community around a match is
+  the wiring the caller asked the graph for, and filtering it would answer a
+  different question.
+- `conductance` is the quality signal (low = a real community, high = the best
+  cut still runs through a hairball). `hops` is a hard radius on top of the
+  sweep; keep it at 1–2.
+- **Methods are nodes** (`{pkg}.{Recv}.{Method}`, kind `method`), so a method is
+  findable by name and its body is in the corpus. It was not: a struct's span
+  stops at its type declaration, its methods are separate declarations, and
+  nothing else covered them — searching for a method by name matched nothing at
+  all. Interface methods stay inside their interface, whose span already covers
+  the signature and which has no body. A method's calls hang off the method, not
+  the receiver; a `contains` edge ties the type to its methods and is
+  deliberately absent from `EdgeKindWeights` (which `diffusionEdges` reads as
+  "no edge"), or a type would inherit the relevance of everything its methods
+  touch. Traversals over all edges — `expand`, an answer's induced edges — still
+  walk it.
+- One code path: `retrieval.Service.Search` + `SearchOptions`
+  (`internal/retrieval/query.go`), the MCP `search` tool
+  (`internal/adapter/mcp/tools.go`), and `POST /api/search`
+  (`internal/adapter/http/retrieval.go`). Design:
+  `docs/features/search-diffusion/design.md`, usage: `docs/retrieval.md`.
 
 ### Analysis lenses (MCP tools)
 
@@ -468,15 +507,27 @@ live in drawn as cards narrowed to the matched symbols. It answers "where
 is X handled" as architecture instead of as a file list.
 
 - Data: `POST /w/<worktree>/api/search` → `internal/adapter/http/retrieval.go`
-  → `retrieval.Service.Search` — hybrid dense (embeddings) + BM25, fused
-  with RRF. No new endpoint; the review UI and the MCP tool share one.
+  → `retrieval.Service.Search` — hybrid dense (embeddings) + BM25, fused into
+  a calibrated mass that then seeds the graph diffusion. No new endpoint; the
+  review UI and the MCP tool share one.
+- **The canvas draws the whole answer**, hits and region alike: the packages
+  the query matched *and* the community the diffusion reached from them, cards
+  narrowed to those symbols. The rail marks the difference — a row the graph
+  added is tagged `related` and dimmed, and the meta line counts them
+  separately (`2 hits · 1 related · 2 packages`) — because a neighbour read as
+  a match is a wrong answer, while a neighbour read as context is the point.
 - **Node ids are the join.** A retrieval `node_id` *is* uigraph's
   `Internal.id` (`{package}.{Symbol}`) and its package is the component id,
-  so a hit is a card-row lookup with no translation. `retrieval.Result` also
-  carries `package`/`name` explicitly: package paths contain dots, so a
-  client splitting the id would be guessing. `web/src/domain/ask.ts` still
+  so a hit is a card-row lookup with no translation. A hit also carries
+  `package`/`name` explicitly: package paths contain dots, so a client
+  splitting the id would be guessing. `web/src/domain/ask.ts` still
   keeps a longest-component-prefix fallback and resolves against the loaded
   graph, so a hit that cannot be drawn is *flagged*, never dropped.
+  A method hit joins the same way against uigraph's `Member.id`
+  (`{package}.{Receiver}.{Method}`), but the canvas draws internals, not
+  members, so the resolved hit also carries `internalId` — the receiver's row —
+  and that, not `nodeId`, is what the projection selects on. Selecting on the
+  member id narrows a card to a row it does not have and draws it empty.
 - **An ask replaces the review selection, not just filters it.** The `ask`
   option on `selectReviewGraph` overrides the review view's package
   allowlist *and* skips the diff projection: a question is asked of the
@@ -489,8 +540,9 @@ is X handled" as architecture instead of as a file list.
 - An answer expands the packages it matched (a collapsed card would hide
   the symbols asked about); `Clear` restores the expansion the review had
   before the first ask (`AskState.expandedBefore`).
-- **Depth is a count, never a score cutoff.** Fused RRF scores carry no
-  absolute relevance, so the panel offers `Hits 10/20/50` and no threshold.
+- **Depth is a count, never a score cutoff.** A calibrated mass orders one
+  response and means nothing across queries, so the panel offers
+  `Hits 10/20/50` and no threshold.
   The response's `dense` flag is reported as `semantic` vs `lexical only` —
   a recall difference worth saying out loud, not a failure.
 - Model: `web/src/domain/ask.ts` (pure, tested). View:

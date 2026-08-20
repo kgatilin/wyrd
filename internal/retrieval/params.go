@@ -41,7 +41,9 @@ type Params struct {
 	// carries more relevance than a plain type reference.
 	EdgeKindWeights map[string]float64
 
-	// MaxGraphNodes caps how many nodes a search_graph response carries.
+	// MaxGraphNodes caps how many diffusion-reached nodes a search answer
+	// carries. The seeds are not counted against it: they are what the query
+	// matched, and a search that drops its own hits to fit a budget is lying.
 	MaxGraphNodes int
 }
 

@@ -526,7 +526,7 @@ func (s *State) refreshRetrievalLocked(ctx context.Context, changedNodes []retri
 			fmt.Fprintf(os.Stderr, "serve: saving shared vector cache: %v\n", err)
 		}
 	}
-	// Rebuild the graph from the full model for expand/search_graph operations
+	// Rebuild the graph from the full model for search/expand operations
 	allModels := mapValues(s.packages)
 	_, graph := retrieval.BuildGraph(allModels)
 	s.retrieval.SetGraph(graph)
