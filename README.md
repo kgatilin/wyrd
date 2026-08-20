@@ -11,7 +11,7 @@ from one process:
 |---|---|---|
 | **People** | Browser review UI | The branch drawn as packages and symbols, with the patch one click away. |
 | **Agents** | 26 MCP tools | The same graph, queried before the agent greps. Search, callers, implementers, analysis lenses. |
-| **CI** | `archai-check` | 8.9 MB, no Node, exit 1 on a layer violation, a forbidden dependency, or drift from a locked target. |
+| **CI** | `archai-check` | 8.9 MB, no Node, exit 1 on a layer violation or a forbidden dependency. |
 
 ![The review canvas: a branch as packages and symbols](docs/img/overview.png)
 
@@ -49,6 +49,39 @@ Tagged releases publish prebuilt tarballs for linux and darwin on amd64 and
 arm64, with checksums: <https://github.com/kgatilin/archai/releases>.
 Building from source needs Go 1.25+ (and npm for the embedded review UI).
 
+### Embeddings need Ollama
+
+Semantic search, `Ask`, `semantic_cluster` and `latent_domains` run on vector
+embeddings, and archai builds those locally against [Ollama](https://ollama.com).
+It is the one external dependency, and it is optional:
+
+```bash
+brew install ollama && ollama serve      # or your platform's install
+ollama pull qwen3-embedding:0.6b         # the default model
+```
+
+That is all the setup there is — a daemon on `localhost:11434` with the model
+pulled, and archai indexes the repo on its own. Nothing leaves the machine.
+
+Without it archai still parses the graph, draws the review, answers the
+structural lenses and runs the CI gates; search degrades to lexical BM25 and the
+two embedding-backed lenses decline to run rather than guess. `archai graph
+status` says which state you are in (`dense_available`).
+
+Point it elsewhere with environment variables:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ARCHAI_EMBED_PROVIDER` | `ollama` | `ollama`, `openai`, or `noop` |
+| `ARCHAI_EMBED_ENDPOINT` | `http://localhost:11434` | Server to embed against |
+| `ARCHAI_EMBED_MODEL` | `qwen3-embedding:0.6b` | Embedding model |
+| `ARCHAI_EMBED_API_KEY` | — | Required by the `openai` provider; read from env only |
+| `ARCHAI_EMBED_DISABLE` | — | `1` turns embedding off entirely |
+
+`openai` targets any OpenAI-compatible `/v1/embeddings` endpoint. Selecting it
+without an API key falls back to no embeddings and says so, rather than crashing
+the daemon.
+
 ## Sixty seconds
 
 ```bash
@@ -81,6 +114,12 @@ menu controls focus (`Changed packages` → `Changed + linked` → `Whole repo`)
 which change kinds are visible (additions, removals, changed signatures,
 dependency changes), and how much of each package to draw (`Changed symbols` vs
 `Full package`). The left rail is the same review as a tree.
+
+Each file panel on a card carries two buttons: `<>` opens that file in the
+source drawer — on every panel, because a card you reached by searching has no
+diff at all — and `±` opens its patch in the file diff, on the panels the
+review painted as changed. Both name the file the same way the drawer does, so
+no surface can disagree about which file a card means.
 
 **Symbol wiring.** Click a symbol and you get its first-level relations, drawn
 as package blocks: who depends on it on the left, what it depends on on the
@@ -121,10 +160,32 @@ fan-in/fan-out and instability per package, and flags god-packages.
 
 ---
 
-## For agents: MCP
+## For agents: MCP or CLI
 
-archai runs as an MCP server over stdio. Wire it into Claude Code, Codex, or any
-MCP client with a `.mcp.json`:
+The graph has two front doors onto the same daemon, and an agent can use either.
+
+```bash
+archai serve --mcp-stdio      # MCP over stdio, for an MCP-capable client
+archai graph <tool> [flags]   # the same tools/call, from any shell
+```
+
+Neither computes anything locally: both proxy a `tools/call` to the repo-level
+daemon, so they see one parsed model and return the same payload. `archai graph
+status` prints byte-for-byte what the MCP `status` tool returns.
+
+| | MCP | `archai graph` |
+|---|---|---|
+| Wiring | `.mcp.json` | the binary on `PATH` |
+| Call | tool call | `archai graph <tool> --flag …` |
+| Arguments | JSON matching the tool's input schema | typed flags mirroring that same schema |
+| Result | ToolResult text | the same text, verbatim |
+| Coverage | 26 tools | 23 of them |
+
+Use MCP when the agent has an MCP client. Use the CLI when it has a shell and
+nothing else — a git hook, a CI step, a `codex exec` one-liner, a tmux-driven
+agent, or you at a prompt. Neither is a degraded mode of the other.
+
+### Wiring MCP
 
 ```json
 {
@@ -138,26 +199,45 @@ MCP client with a `.mcp.json`:
 ```
 
 The thin client attaches to (or starts) the repo-level daemon, so every worktree
-and every agent shares one parsed model.
+and every agent shares one parsed model. Works with Claude Code, Codex, or any
+MCP client.
 
-**Why an agent should reach for this before `grep`:** the graph returns
+### Wiring the CLI
+
+```bash
+archai daemon start                       # once per repo
+archai graph status                       # readiness, before anything else
+
+archai graph search --query "working-tree diff" --k 5
+archai graph get_node --id internal/adapter/git.Diff
+archai graph expand --node internal/adapter/git.Diff --edge calls --hops 1
+archai graph trophic_layers --package internal/adapter
+archai graph latent_domains --package internal/adapter/mcp
+
+archai graph search --daemon myrepo --query "retry policy"   # another repo's daemon
+```
+
+Every subcommand carries typed flags built from its tool's input schema, and
+`--daemon <name|pid>` reaches a daemon other than the current repo's.
+
+**Why an agent should reach for either before `grep`:** the graph returns
 architecture. Callers, implementers, the edge that crosses a package boundary —
 none of that is a text search result.
 
 ### Tools
 
-| Group | Tools |
-|---|---|
-| Inspect | `list_packages`, `get_package`, `get_node`, `extract`, `read_file`, `search_files` |
-| Search | `search` (hybrid dense + BM25, fused with RRF), `search_graph`, `expand` |
-| Analysis lenses | `components`, `file_hotspots`, `trophic_layers`, `spectral_cluster`, `semantic_cluster`, `latent_domains` |
-| Targets & drift | `lock_target`, `list_targets`, `set_current_target`, `diff`, `apply_diff`, `validate` |
-| Overlay | `list_bounded_contexts`, `get_bounded_context` |
-| Index | `status`, `refresh`, `embedding_coverage` |
+| Group | Tools | CLI |
+|---|---|---|
+| Inspect | `list_packages`, `get_package`, `get_node`, `extract` | yes |
+| Search | `search` (hybrid dense + BM25), `search_graph` (graph diffusion), `expand` | yes |
+| Analysis lenses | `components`, `file_hotspots`, `trophic_layers`, `spectral_cluster`, `semantic_cluster`, `latent_domains` | yes |
+| Overlay | `list_bounded_contexts`, `get_bounded_context` | yes |
+| Index | `status`, `refresh`, `embedding_coverage` | yes |
+| File access | `read_file`, `search_files` | — a shell has `cat` and `grep` |
 
-Every tool is also a CLI subcommand — `archai graph search --query "working-tree
-diff"`, `archai graph trophic_layers --package internal/adapter` — proxied to the
-running daemon, so the live graph is reachable from any shell or script.
+File access is two of the three tools with no CLI twin — they exist for MCP
+clients that have no filesystem tools of their own, and a shell needs neither.
+The third takes a YAML patch body, which belongs in a file rather than a flag.
 
 ### The analysis lenses
 
@@ -182,10 +262,21 @@ subpackages.
 - **`components`** — connected components over all edges. Singletons mean
   something is unlinked.
 
-Search and the embedding-backed lenses need vectors. Embeddings run locally
-against **Ollama** by default, or against any OpenAI-compatible
-`/v1/embeddings` endpoint. They are content-addressed and cached per repository
-under `~/.arch/embeddings/`, so a fresh worktree re-parses but does not re-embed.
+### Search is a diffusion over the graph
+
+`search` runs a dense pass and a BM25 pass and calibrates both onto a comparable
+mass before combining them, so a hit's score reflects how good the match was
+rather than only where it ranked. `search_graph` then spends that mass on the
+graph: seeds are personalized in proportion to their relevance and a
+min-conductance sweep cut (Andersen–Chung–Lang) returns the community those hits
+sit in. The region is query-adaptive, the cut's cost comes back as
+`conductance` — a "did this query find anything coherent" signal — and edge
+weights are divided by endpoint degrees so paths through glue nodes stop
+collecting mass on every query. Design notes:
+[`docs/features/search-diffusion/design.md`](docs/features/search-diffusion/design.md).
+
+Vectors are content-addressed and cached per repository under
+`~/.arch/embeddings/`, so a fresh worktree re-parses but does not re-embed.
 
 Indexing never blocks the transport: a cold daemon answers
 `{status: "loading"}` or `{status: "indexing", embedded, embeddable}` right
@@ -199,7 +290,6 @@ away. Poll `status` and retry.
 archai-check all       # layer rules + dependency policy
 archai-check overlay   # layer rules only
 archai-check policy    # dependency policy only
-archai-check target    # drift against a locked target
 ```
 
 Each command exits non-zero when its gate fails and prints the offending edges,
@@ -212,10 +302,10 @@ one per line.
 - run: go run github.com/kgatilin/archai/cmd/archai-check@latest all
 ```
 
-The gates live in `internal/check` and are shared with `archai overlay check`,
-`archai policy check` and `archai validate`, so the binary you run locally and
-the binary CI runs cannot disagree about what passes. This repository gates
-itself the same way — see `.github/workflows/ci.yml` and `make archai-check`.
+The gates live in `internal/check` and are shared with `archai overlay check`
+and `archai policy check`, so the binary you run locally and the binary CI runs
+cannot disagree about what passes. This repository gates itself the same way —
+see `.github/workflows/ci.yml` and `make archai-check`.
 
 ### Declaring the rules
 
@@ -249,19 +339,6 @@ policy:
     - "@domain !~> @adapters"
 ```
 
-### Targets: freeze an architecture, then diff against it
-
-```bash
-archai target lock v1 --description "Post-refactor baseline"
-archai target use v1
-archai diff                # what has drifted since
-archai validate            # same, but exits non-zero (CI mode)
-```
-
-A target is a full model snapshot under `.arch/targets/<id>/`. The point is to
-agree on a shape once and let the gate hold it, instead of relitigating it in
-review.
-
 ### Two binaries, on purpose
 
 | Binary | Contents | Size |
@@ -286,7 +363,7 @@ archai diagram generate ./internal/...              # pub.d2 + internal.d2 per p
 archai diagram generate ./internal/... --pub        # exported symbols only
 archai diagram generate ./... -o architecture.d2    # one combined diagram
 archai diagram split docs/architecture.d2           # combined → per-package specs
-archai diagram compose ./internal/... --spec --output docs/target.d2
+archai diagram compose ./internal/... --spec --output docs/spec.d2
 ```
 
 Output lands in each package's `.arch/` directory. Symbols carry stereotypes —
@@ -307,33 +384,6 @@ Render with the [D2 CLI](https://d2lang.com/): `d2 --watch architecture.d2`.
 
 ---
 
-## Event model
-
-For systems that are event-driven, each component declares its event interface
-as data in `.arch/events.yaml` — what it emits, what it observes, what it folds
-into state — and archai validates the composed set and projects it into the
-graph.
-
-The model is **event-sourced choreography**: a durable event is appended once
-and may be observed independently by any number of components and folds.
-Single-handler semantics are opt-in per slot (`delivery: exclusive`), never the
-default. Validation catches namespace ownership conflicts, role disagreements
-between producers and observers, folds whose subjects disagree about the
-partition key, and a component receiving its own emitted kind.
-
-Codegen is template-driven and language-neutral: templates live in your project
-under `.arch/templates/*.tmpl`, archai renders them against a stable data model
-and never learns your types. There is no `--lang` flag.
-
-```bash
-archai plugin events validate
-archai plugin events gen
-```
-
-Full reference: [`docs/event-model.md`](docs/event-model.md).
-
----
-
 ## How it works
 
 ```
@@ -349,10 +399,10 @@ fn/method ─calls | usesType | returns→ type | fn      (behavioural flow)
 struct ─implements→ interface
 ```
 
-Node ids are stable and readable: `pkg:<path>`, `file:<path>/<base>`,
-`type:<path>.<Name>`, `fn:<path>.<Name>`, `method:<path>.<Recv>.<Name>`.
-The same id is the key in the retrieval index, the canvas, and the MCP
-responses, so nothing in the stack has to translate between them.
+A node id is just `<package>.<Symbol>` — `internal/adapter/git.Diff`. The same
+string is the key in the retrieval index, the id of the row on the review
+canvas, and the argument to `get_node` / `expand`, so a search hit is a card
+lookup and nothing in the stack has to translate between the two.
 
 Internally archai is hexagonal: domain models with no dependencies at the
 centre, a service layer over ports, adapters for each format (Go reader, D2
@@ -371,7 +421,7 @@ type ModelReader interface {
 
 Everything past that port — the graph, the architecture diff, the file diff, the
 review UI, wiring, sequences, ask, the MCP tools, the analysis lenses, layer
-rules, targets, the CI gate — is language-blind. A new language is a new reader.
+rules, the CI gate — is language-blind. A new language is a new reader.
 A Java reader lived behind this port and was removed without touching anything
 to the right of it.
 
@@ -383,7 +433,6 @@ to the right of it.
 |---|---|
 | [`docs/user-guide.md`](docs/user-guide.md) | Installation, quick start, project setup, browser UI, editor integration |
 | [`docs/mcp-server-guide.md`](docs/mcp-server-guide.md) | MCP transport, server modes, tool reference, agent workflows |
-| [`docs/event-model.md`](docs/event-model.md) | Event model format, validation rules, codegen |
 | [`docs/retrieval.md`](docs/retrieval.md) | Retrieval service: chunking, embedders, hybrid search |
 | [`docs/roadmap.md`](docs/roadmap.md) | What is not built yet |
 
