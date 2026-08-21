@@ -568,6 +568,11 @@ triggered by, or folds it, and its payload twice: as an example object first,
 then as the schema. Esc puts the detail down, and a second Esc closes the
 canvas.
 
+The header counts what was read: components, kinds, how many components came
+from an AsyncAPI document, and one chip per unhealthy state — `orphan`,
+`starved`, `ambiguous` — counted separately, because a single total names
+none of the three findings.
+
 An imported node is marked `asyncapi` and says so in its detail, because it is
 not validated. A component nothing reaches and that reaches nothing is drawn
 with a dashed border rather than dropped — a declaration reaching nobody is the

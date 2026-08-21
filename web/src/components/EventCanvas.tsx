@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EventModelPort } from '../domain/ports';
 import {
   componentById,
+  healthCounts,
   isolatedComponents,
   kindByName,
   linkId,
   sectionsOf,
+  UNHEALTHY,
   type EventComponent,
   type EventModel,
   type EventSlot,
@@ -176,6 +178,13 @@ function useEventModel(events: EventModelPort, worktree: string, reloadToken: nu
   return session;
 }
 
+/** What each unhealthy state means, for the header chips. */
+const HEALTH_HINTS: Record<string, string> = {
+  orphan: 'appended by somebody, and no component takes it as an input or folds it into state',
+  starved: 'taken as an input or folded into state, and no component appends it',
+  ambiguous: 'declared delivery: exclusive, but not by exactly one input',
+};
+
 function Header({
   model,
   zoom,
@@ -190,7 +199,7 @@ function Header({
   onClose: () => void;
 }) {
   const imported = model?.components.filter((c) => c.source === 'asyncapi').length ?? 0;
-  const unhealthy = model?.kinds.filter((k) => k.health && k.health !== 'ok').length ?? 0;
+  const health = healthCounts(model?.kinds ?? []);
 
   return (
     <div className="hf-events-head">
@@ -201,8 +210,16 @@ function Header({
         <div className="hf-events-stats">
           <span className="hf-events-stat">{model.components.length} components</span>
           <span className="hf-events-stat">{model.kinds.length} kinds</span>
-          {imported > 0 && <span className="hf-events-stat import">{imported} imported</span>}
-          {unhealthy > 0 && <span className="hf-events-stat warn">{unhealthy} unreached</span>}
+          {imported > 0 && (
+            <span className="hf-events-stat import" title="components read from an AsyncAPI document rather than events.yaml">
+              {imported} imported
+            </span>
+          )}
+          {UNHEALTHY.filter((state) => health[state] > 0).map((state) => (
+            <span key={state} className="hf-events-stat warn" title={HEALTH_HINTS[state]}>
+              {health[state]} {state}
+            </span>
+          ))}
         </div>
       )}
       <div className="hf-events-legend">

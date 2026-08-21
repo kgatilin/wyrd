@@ -182,6 +182,26 @@ export function slotCount(component: EventComponent): number {
   return sections.inputs.length + sections.outputs.length + sections.stateEvents.length;
 }
 
+/** The three ways a kind can be unhealthy, in the order the header lists them. */
+export const UNHEALTHY: EventHealth[] = ['orphan', 'starved', 'ambiguous'];
+
+/**
+ * How many kinds sit in each unhealthy state.
+ *
+ * Counted per state rather than rolled into one number: "orphan" (appended and
+ * observed by nobody), "starved" (observed and appended by nobody) and
+ * "ambiguous" (declared exclusive without exactly one input) are three
+ * different findings, and a single total names none of them.
+ */
+export function healthCounts(kinds: EventKind[]): Record<EventHealth, number> {
+  const counts: Record<EventHealth, number> = { ok: 0, orphan: 0, starved: 0, ambiguous: 0 };
+  for (const kind of kinds) {
+    const health = kind.health;
+    if (health && health in counts) counts[health as EventHealth] += 1;
+  }
+  return counts;
+}
+
 export function kindByName(model: EventModel): Map<string, EventKind> {
   return new Map(model.kinds.map((kind) => [kind.name, kind]));
 }

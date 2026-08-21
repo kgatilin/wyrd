@@ -196,6 +196,21 @@ test('a kind shows the payload as an object before it shows the schema', async (
   expect(JSON.parse(schema).properties.op.type).toBe('string');
 });
 
+test('the header names each unhealthy state rather than totalling them', async ({ page }) => {
+  const kinds = [
+    { ...eventModel.kinds[0], health: 'starved' },
+    { ...eventModel.kinds[1], health: 'orphan' },
+  ];
+  const canvas = await openCanvas(page, { ...eventModel, kinds });
+  await canvas.waitForDiagram();
+
+  // "2 unreached" would name neither finding: one kind nobody appends and one
+  // nobody observes are opposite problems.
+  const stats = await canvas.stats();
+  expect(stats).toContain('1 orphan');
+  expect(stats).toContain('1 starved');
+});
+
 test('Esc puts the detail down first and the canvas second', async ({ page }) => {
   const canvas = await openCanvas(page);
   await canvas.waitForDiagram();
