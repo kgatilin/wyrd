@@ -39,6 +39,43 @@ type Config struct {
 	Diagrams        DiagramConfig             `yaml:"diagrams,omitempty"`
 	Policy          PolicyConfig              `yaml:"policy,omitempty"`
 	Ports           Ports                     `yaml:"ports,omitempty"`
+	Events          EventsConfig              `yaml:"events,omitempty"`
+}
+
+// EventsConfig declares where this project keeps its event declarations.
+//
+// The events plugin always scans every `.arch/` directory, which fits a
+// project that stores each component's declaration beside its code. A project
+// that generates all of them into one folder instead says so here, rather than
+// rearranging its tree to be discoverable:
+//
+//	events:
+//	  sources:
+//	    - path: .event-schemas
+//	      include: "*.asyncapi.yaml"
+//
+// Sources are additive: declaring one adds a place to look, it does not turn
+// the `.arch/` convention off.
+type EventsConfig struct {
+	Sources []EventSource `yaml:"sources,omitempty"`
+}
+
+// EventSource is one declared directory of event declarations.
+type EventSource struct {
+	// Path is the directory to scan, relative to the project root. Scanned
+	// recursively. Required.
+	Path string `yaml:"path"`
+
+	// Include is a glob narrowing which files count. A pattern without "/"
+	// matches the file name; one with "/" matches the path relative to Path.
+	// Empty reads every file whose name names a format — `events.yaml`,
+	// `asyncapi.yaml`, and their `<component>.` prefixed forms.
+	Include string `yaml:"include,omitempty"`
+
+	// Format forces how matched files are parsed: "events" or "asyncapi".
+	// Empty infers it per file from the name, which is what a directory
+	// holding both formats needs.
+	Format string `yaml:"format,omitempty"`
 }
 
 // PolicyConfig declares the dependency policy: which package-to-package

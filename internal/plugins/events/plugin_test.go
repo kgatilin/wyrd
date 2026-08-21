@@ -860,3 +860,43 @@ func TestPlugin_GenCmd_NoFormatFlag(t *testing.T) {
 		t.Errorf("--no-format should write the template output verbatim: %q", got)
 	}
 }
+
+func TestPlugin_ReadsDeclarationsFromWhereTheOverlaySaysTheyAre(t *testing.T) {
+	root := t.TempDir()
+	schemas := filepath.Join(root, ".event-schemas")
+	if err := os.MkdirAll(schemas, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	doc := "version: 2\ncomponent: billing\nowns: billing\n" +
+		"outputs:\n  - kind: billing.invoice.issued\n    pattern: svc.{account}.billing.issued\n"
+	if err := os.WriteFile(filepath.Join(schemas, "billing.events.yaml"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &Plugin{}
+	if err := p.Init(context.Background(), &hostStub{root: root}, ""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	// No overlay: a flat directory that follows no convention is invisible.
+	model, err := p.loadModel("")
+	if err != nil {
+		t.Fatalf("loadModel: %v", err)
+	}
+	if len(model.Components) != 0 {
+		t.Fatalf("components = %v, want none before the project says where to look", model.Components)
+	}
+
+	overlayDoc := "module: example.com/app\nevents:\n  sources:\n    - path: .event-schemas\n"
+	if err := os.WriteFile(filepath.Join(root, "wyrd.yaml"), []byte(overlayDoc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	model, err = p.loadModel("")
+	if err != nil {
+		t.Fatalf("loadModel after declaring the source: %v", err)
+	}
+	if model.Components["billing"] == nil {
+		t.Fatalf("components = %v, want billing", model.Components)
+	}
+}

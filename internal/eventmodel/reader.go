@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
 	yamlv3 "gopkg.in/yaml.v3"
 )
@@ -17,8 +19,48 @@ type declarationFile struct {
 	parse func(string) (*Component, error)
 }
 
+// Format names one of the two declaration formats.
+type Format string
+
+const (
+	// FormatEvents is the events.yaml schema wyrd owns.
+	FormatEvents Format = "events"
+	// FormatAsyncAPI is an AsyncAPI 3 document carrying x-eventlog.
+	FormatAsyncAPI Format = "asyncapi"
+)
+
+// Location is a declared place to look for event declarations, on top of the
+// `.arch/` convention Read always follows.
+//
+// The convention assumes a project keeps each component's declaration next to
+// that component's code. Plenty of projects instead generate every schema into
+// one directory — a flat list of `<component>.asyncapi.yaml` — and nothing
+// about that layout is wrong, so a project says where its schemas live rather
+// than moving them to be found.
+type Location struct {
+	// Path is the directory to scan, relative to the scan root (an absolute
+	// path is taken as-is). Scanned recursively.
+	Path string
+
+	// Include is a glob narrowing which files in Path count. A pattern with
+	// no "/" matches against the file name; one with a "/" matches against
+	// the path relative to Path. Empty means every file whose name names a
+	// format (see FormatOf).
+	Include string
+
+	// Format forces how the matched files are parsed. Empty infers it from
+	// each file's name, which is what a directory holding both formats needs.
+	Format Format
+}
+
 // Read discovers every event declaration under root and composes them into a
-// Model. Two formats are read from the same `.arch/` directory:
+// Model, with no configured sources — see ReadSources.
+func Read(root string) (*Model, error) {
+	return ReadSources(root, nil)
+}
+
+// ReadSources discovers every event declaration under root and composes them
+// into a Model. Two formats are read:
 //
 //   - `events.yaml` — the native format, parsed strictly (unknown fields are
 //     errors, because typos in a format wyrd owns are typos);
@@ -30,11 +72,22 @@ type declarationFile struct {
 // the canvas, the MCP tools — works without knowing which one a component came
 // from. Parse errors are returned immediately; validation runs separately via
 // Validate.
-func Read(root string) (*Model, error) {
+//
+// Every `.arch/` and `.wyrd/` directory under root is always scanned. sources
+// adds directories on top of that: declaring one never turns the convention
+// off, so a project that generates most of its schemas into one folder can
+// still keep a hand-written declaration beside the code it describes.
+func ReadSources(root string, sources []Location) (*Model, error) {
 	files, err := findDeclarationFiles(root)
 	if err != nil {
 		return nil, err
 	}
+	extra, err := findSourceFiles(root, sources)
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, extra...)
+	files = dedupeByPath(files)
 
 	model := &Model{Components: make(map[string]*Component)}
 	for _, file := range files {
@@ -97,6 +150,120 @@ func findDeclarationFiles(root string) ([]declarationFile, error) {
 		return nil
 	})
 	return out, err
+}
+
+// findSourceFiles resolves the configured sources into declaration files.
+// A source naming a directory that does not exist is an error: it is a
+// statement about where this project keeps its schemas, and silently reading
+// zero components from a typo is the failure this whole path exists to fix.
+func findSourceFiles(root string, sources []Location) ([]declarationFile, error) {
+	var out []declarationFile
+	for _, src := range sources {
+		dir := src.Path
+		if dir == "" {
+			return nil, fmt.Errorf("eventmodel: event source with no path")
+		}
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(root, dir)
+		}
+		info, err := os.Stat(dir)
+		if err != nil {
+			return nil, fmt.Errorf("eventmodel: event source %s: %w", src.Path, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("eventmodel: event source %s: not a directory", src.Path)
+		}
+
+		err = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				switch d.Name() {
+				case ".git", ".worktrees", "node_modules", "vendor":
+					if filepath.Clean(path) != filepath.Clean(dir) {
+						return filepath.SkipDir
+					}
+				}
+				return nil
+			}
+			rel, relErr := filepath.Rel(dir, path)
+			if relErr != nil {
+				return relErr
+			}
+			match, matchErr := matchesInclude(src.Include, filepath.ToSlash(rel))
+			if matchErr != nil {
+				return fmt.Errorf("eventmodel: event source %s: include %q: %w", src.Path, src.Include, matchErr)
+			}
+			if !match {
+				return nil
+			}
+			format := src.Format
+			if format == "" {
+				format = FormatOf(d.Name())
+			}
+			switch format {
+			case FormatEvents:
+				out = append(out, declarationFile{path, parseEventsFile})
+			case FormatAsyncAPI:
+				out = append(out, declarationFile{path, parseAsyncAPIFile})
+			case "":
+				// A file in a scanned directory whose name names no format —
+				// a README, a JSON Schema a document $refs. Not an error.
+			default:
+				return fmt.Errorf("eventmodel: event source %s: unknown format %q (want %q or %q)",
+					src.Path, format, FormatEvents, FormatAsyncAPI)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// matchesInclude reports whether rel (slash-separated, relative to the source
+// directory) is selected by pattern. An empty pattern selects everything and
+// leaves the choice to FormatOf.
+func matchesInclude(pattern, rel string) (bool, error) {
+	if pattern == "" {
+		return true, nil
+	}
+	if strings.Contains(pattern, "/") {
+		return path.Match(pattern, rel)
+	}
+	return path.Match(pattern, path.Base(rel))
+}
+
+// FormatOf infers a declaration format from a file name. It recognises the two
+// conventional names and their `<component>.` prefixed forms, which is how a
+// directory holding one file per component is written.
+func FormatOf(name string) Format {
+	switch {
+	case name == eventsFileName || strings.HasSuffix(name, "."+eventsFileName):
+		return FormatEvents
+	case name == asyncAPIFileName || strings.HasSuffix(name, "."+asyncAPIFileName):
+		return FormatAsyncAPI
+	}
+	return ""
+}
+
+// dedupeByPath drops files discovered twice — a source pointing at a directory
+// that also holds a `.arch/`, say — keeping the first occurrence so the
+// convention's parser wins over a source's forced format.
+func dedupeByPath(files []declarationFile) []declarationFile {
+	seen := make(map[string]struct{}, len(files))
+	out := files[:0:0]
+	for _, f := range files {
+		key := filepath.Clean(f.path)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, f)
+	}
+	return out
 }
 
 // rawComponent is the YAML structure for parsing. Field names match the

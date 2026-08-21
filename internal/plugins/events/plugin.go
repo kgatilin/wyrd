@@ -27,6 +27,7 @@ import (
 
 	adapterem "github.com/kgatilin/wyrd/internal/adapter/eventmodel"
 	"github.com/kgatilin/wyrd/internal/eventmodel"
+	"github.com/kgatilin/wyrd/internal/overlay"
 	"github.com/kgatilin/wyrd/internal/plugin"
 )
 
@@ -122,7 +123,9 @@ func (p *Plugin) UIComponents() []plugin.UIComponent {
 }
 
 // loadModel reads and composes the event model from the given root,
-// falling back to the host's RepoRoot if root is empty.
+// falling back to the host's RepoRoot if root is empty. Where the
+// declarations live is the project's call, so the root's overlay is
+// consulted for extra locations before the scan.
 func (p *Plugin) loadModel(root string) (*eventmodel.Model, error) {
 	if root == "" {
 		root = p.host.RepoRoot()
@@ -130,7 +133,34 @@ func (p *Plugin) loadModel(root string) (*eventmodel.Model, error) {
 	if root == "" {
 		return nil, fmt.Errorf("events: repo root unavailable")
 	}
-	return eventmodel.Read(root)
+	locations, err := eventLocations(root)
+	if err != nil {
+		return nil, err
+	}
+	return eventmodel.ReadSources(root, locations)
+}
+
+// eventLocations reads events.sources out of the project overlay at root.
+// A project with no overlay, or one that declares no sources, is scanned by
+// the `.arch/` convention alone.
+func eventLocations(root string) ([]eventmodel.Location, error) {
+	path := overlay.DiscoverPath(root)
+	if path == "" {
+		return nil, nil
+	}
+	cfg, err := overlay.Load(path)
+	if err != nil {
+		return nil, fmt.Errorf("events: %w", err)
+	}
+	out := make([]eventmodel.Location, 0, len(cfg.Events.Sources))
+	for _, src := range cfg.Events.Sources {
+		out = append(out, eventmodel.Location{
+			Path:    src.Path,
+			Include: src.Include,
+			Format:  eventmodel.Format(src.Format),
+		})
+	}
+	return out, nil
 }
 
 // validateCmd returns the `validate` subcommand.

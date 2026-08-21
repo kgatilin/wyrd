@@ -162,6 +162,34 @@ it anyway; the skip list only filters subdirectories.
 The component id must be unique across the entire scanned tree. Duplicate ids
 cause a parse error.
 
+### Declaring where the schemas live
+
+The `.arch/` convention fits a project that keeps each component's declaration
+next to that component's code. A project that generates every schema into one
+directory instead says so in its `wyrd.yaml`:
+
+```yaml
+events:
+  sources:
+    - path: .event-schemas       # directory, relative to the project root
+      include: "*.asyncapi.yaml" # optional glob
+      format: asyncapi           # optional; inferred per file when omitted
+```
+
+- `path` is required and is scanned recursively.
+- `include` narrows which files count. A pattern without `/` matches the file
+  name; one with a `/` matches the path relative to `path`. Omitting it reads
+  every file whose name names a format: `events.yaml`, `asyncapi.yaml`, and
+  their prefixed forms `<component>.events.yaml` and
+  `<component>.asyncapi.yaml`. Anything else in the directory is left alone.
+- `format` (`events` or `asyncapi`) forces the parser, for a directory whose
+  file names say nothing about the format.
+
+Sources are **additive**: declaring one adds a place to look and never turns
+the `.arch/` walk off, so a generated folder and a hand-written declaration
+beside its code coexist. A `path` that does not exist is an error — it is a
+statement about this project, and a typo must not read as zero components.
+
 ## Format Reference
 
 ```yaml

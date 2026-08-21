@@ -493,3 +493,122 @@ owns: visible
 		t.Error("component 'hidden' should have been skipped (inside testdata subdir)")
 	}
 }
+
+// nativeDoc is the smallest well-formed native declaration; the tests below
+// care about where a file was found, not what it says.
+func nativeDoc(component string) string {
+	return "version: 2\ncomponent: " + component + "\nowns: " + component + "\n" +
+		"outputs:\n  - kind: " + component + ".thing.happened\n    pattern: svc.{scope}." + component + ".happened\n"
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReadSourcesFindsAFlatDirectoryOfDeclarations(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".event-schemas", "billing.events.yaml"), nativeDoc("billing"))
+	writeFile(t, filepath.Join(root, ".event-schemas", "shipping.events.yaml"), nativeDoc("shipping"))
+	// A file that names no format shares the directory and must be ignored
+	// rather than parsed and failed: generated schema folders hold more than
+	// declarations.
+	writeFile(t, filepath.Join(root, ".event-schemas", "README.md"), "not a declaration\n")
+
+	model, err := ReadSources(root, []Location{{Path: ".event-schemas"}})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(model.Components) != 2 {
+		t.Fatalf("components = %d, want 2: %v", len(model.Components), model.Components)
+	}
+	for _, id := range []string{"billing", "shipping"} {
+		if _, ok := model.Components[id]; !ok {
+			t.Errorf("missing component %q", id)
+		}
+	}
+}
+
+func TestReadSourcesAddsToTheArchConventionRatherThanReplacingIt(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "billing", ".arch", "events.yaml"), nativeDoc("billing"))
+	writeFile(t, filepath.Join(root, "schemas", "shipping.events.yaml"), nativeDoc("shipping"))
+
+	model, err := ReadSources(root, []Location{{Path: "schemas"}})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(model.Components) != 2 {
+		t.Fatalf("components = %d, want both the conventional and the declared one", len(model.Components))
+	}
+}
+
+func TestReadSourcesIncludeNarrowsAndForcedFormatOverridesTheName(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "schemas", "billing.events.yaml"), nativeDoc("billing"))
+	writeFile(t, filepath.Join(root, "schemas", "shipping.events.yaml"), nativeDoc("shipping"))
+
+	model, err := ReadSources(root, []Location{{Path: "schemas", Include: "billing.*"}})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(model.Components) != 1 || model.Components["billing"] == nil {
+		t.Fatalf("components = %v, want only billing", model.Components)
+	}
+
+	// A directory whose names say nothing about the format still reads when
+	// the project states it.
+	other := t.TempDir()
+	writeFile(t, filepath.Join(other, "schemas", "billing.yaml"), nativeDoc("billing"))
+	model, err = ReadSources(other, []Location{{Path: "schemas", Format: FormatEvents}})
+	if err != nil {
+		t.Fatalf("read with forced format: %v", err)
+	}
+	if model.Components["billing"] == nil {
+		t.Fatalf("components = %v, want billing", model.Components)
+	}
+}
+
+func TestReadSourcesScansNestedDirectories(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "schemas", "billing", "billing.events.yaml"), nativeDoc("billing"))
+
+	model, err := ReadSources(root, []Location{{Path: "schemas"}})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if model.Components["billing"] == nil {
+		t.Fatalf("components = %v, want billing found below the source directory", model.Components)
+	}
+}
+
+func TestReadSourcesRejectsADirectoryThatIsNotThere(t *testing.T) {
+	root := t.TempDir()
+	_, err := ReadSources(root, []Location{{Path: "schemas"}})
+	if err == nil {
+		t.Fatal("want an error: a source is a statement about this project, and a typo must not read as zero components")
+	}
+	if !strings.Contains(err.Error(), "schemas") {
+		t.Errorf("error = %v, want it to name the source", err)
+	}
+}
+
+func TestReadSourcesDoesNotParseAFileTwice(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "billing", ".arch", "events.yaml"), nativeDoc("billing"))
+
+	// The source covers the same file the convention already found. Reading it
+	// twice would report it as a duplicate component id against itself.
+	model, err := ReadSources(root, []Location{{Path: "billing"}})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(model.Components) != 1 {
+		t.Fatalf("components = %d, want 1", len(model.Components))
+	}
+}
