@@ -570,8 +570,15 @@ canvas.
 
 The header counts what was read: components, kinds, how many components came
 from an AsyncAPI document, and one chip per unhealthy state — `orphan`,
-`starved`, `ambiguous` — counted separately, because a single total names
-none of the three findings.
+`starved`, `ambiguous` — counted separately, because a single total names none
+of the three findings.
+
+Those chips are selections, not readouts. An orphan has no observer and a
+starved kind has no producer, so neither sits on an edge and the diagram cannot
+point at either; clicking the chip lists the kinds it counted, says which
+component appends or observes each, and accents those components. Opening a
+kind from the list accents whoever declared it, so a kind travelling no edge at
+all still lands the reader on a node.
 
 An imported node is marked `asyncapi` and says so in its detail, because it is
 not validated. A component nothing reaches and that reaches nothing is drawn

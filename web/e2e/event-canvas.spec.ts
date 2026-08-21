@@ -200,15 +200,30 @@ test('the header names each unhealthy state rather than totalling them', async (
   const kinds = [
     { ...eventModel.kinds[0], health: 'starved' },
     { ...eventModel.kinds[1], health: 'orphan' },
+    // Appended by audit and observed by nobody, so it travels no edge and the
+    // diagram has nothing to draw for it.
+    { name: 'audit.event.rolled', pattern: 'svc.audit.{scope}.rolled', health: 'orphan', producers: ['audit'] },
   ];
   const canvas = await openCanvas(page, { ...eventModel, kinds });
   await canvas.waitForDiagram();
 
-  // "2 unreached" would name neither finding: one kind nobody appends and one
+  // "3 unreached" would name neither finding: kinds nobody appends and kinds
   // nobody observes are opposite problems.
   const stats = await canvas.stats();
-  expect(stats).toContain('1 orphan');
+  expect(stats).toContain('2 orphan');
   expect(stats).toContain('1 starved');
+
+  // The chip is the way in: an orphan sits on no edge, so the diagram cannot
+  // point at it and the list has to.
+  await canvas.clickStat('2 orphan');
+  expect(await canvas.detailTitle()).toBe('2 orphan');
+  expect(await canvas.detailKinds()).toEqual(['connectors.event.call.completed', 'audit.event.rolled']);
+
+  // Opening one accents the component that declared it, which is the whole
+  // answer to "where do I look" for a kind with no edge of its own.
+  await canvas.clickDetailKind('audit.event.rolled');
+  expect(await canvas.detailTitle()).toBe('audit.event.rolled');
+  expect(await canvas.accentedNodeCount()).toBe(1);
 });
 
 test('Esc puts the detail down first and the canvas second', async ({ page }) => {

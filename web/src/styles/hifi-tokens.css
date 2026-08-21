@@ -3400,6 +3400,15 @@ body {
 }
 .hf-events-stat.warn { color: var(--chg-fg); border-color: var(--chg-line); }
 .hf-events-stat.import { color: var(--syn-fn); border-color: var(--layer-internal-line); }
+/* A chip that counts something the reader can be taken to is a button. */
+button.hf-events-stat {
+  background: none;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+button.hf-events-stat:hover { background: var(--bg-hover); }
+button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; }
 
 .hf-events-legend { display: flex; gap: 12px; margin-left: auto; }
 .hf-events-legend-item {

@@ -202,6 +202,16 @@ export function healthCounts(kinds: EventKind[]): Record<EventHealth, number> {
   return counts;
 }
 
+/** The kinds sitting in one unhealthy state, in the order the model lists them. */
+export function kindsInState(model: EventModel | null, health: EventHealth): EventKind[] {
+  return (model?.kinds ?? []).filter((kind) => kind.health === health);
+}
+
+/** Every component that appends a kind, is triggered by it, or folds it. */
+export function participantsOf(kind: EventKind): string[] {
+  return [...new Set([...(kind.producers ?? []), ...(kind.triggers ?? []), ...(kind.folders ?? [])])];
+}
+
 export function kindByName(model: EventModel): Map<string, EventKind> {
   return new Map(model.kinds.map((kind) => [kind.name, kind]));
 }

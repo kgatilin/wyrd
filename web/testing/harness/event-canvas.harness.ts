@@ -43,6 +43,11 @@ export class EventCanvasHarness extends ComponentHarness {
     return Promise.all(chips.map((chip) => chip.text()));
   }
 
+  /** Click a header chip — the ones that count something open a list of it. */
+  async clickStat(text: string): Promise<void> {
+    await (await this.env.rootLocator('.hf-events-stat').filterByText(text).first()).click();
+  }
+
   /** The notice shown in place of a diagram, or null when one is drawn. */
   async notice(): Promise<string | null> {
     if ((await this.env.rootLocator('.hf-events-notice').count()) === 0) return null;

@@ -4,11 +4,15 @@ import {
   componentById,
   healthCounts,
   isolatedComponents,
+  kindsInState,
   kindByName,
   linkId,
+  participantsOf,
   sectionsOf,
   UNHEALTHY,
   type EventComponent,
+  type EventHealth,
+  type EventKind,
   type EventModel,
   type EventSlot,
 } from '../domain/eventModel';
@@ -119,6 +123,8 @@ export function EventCanvas({ worktree, events, reloadToken = 0, onClose }: Even
     <div className="hf-events">
       <Header
         model={model}
+        selected={selected}
+        onSelect={setSelected}
         zoom={zoom}
         onZoom={(next) => setZoom(clampZoom(next))}
         onFit={fit}
@@ -149,11 +155,22 @@ export function EventCanvas({ worktree, events, reloadToken = 0, onClose }: Even
   );
 }
 
-/** What the reader clicked: a node, or the bundle of kinds on one edge. */
+/**
+ * What the reader clicked: a node, the bundle of kinds on one edge, one kind,
+ * or a header chip.
+ *
+ * A chip is a selection rather than a readout because the kinds it counts are
+ * the ones the diagram cannot show: an orphan has no observer and a starved
+ * kind has no producer, so neither sits on an edge, and a reader told there
+ * are two of them has nowhere to look. Selecting the chip lists them and
+ * accents the components that declared them.
+ */
 type Selection =
   | { kind: 'component'; id: string }
   | { kind: 'link'; from: string; to: string }
-  | { kind: 'event'; name: string };
+  | { kind: 'event'; name: string }
+  | { kind: 'health'; health: EventHealth }
+  | { kind: 'imported' };
 
 function useEventModel(events: EventModelPort, worktree: string, reloadToken: number): Session {
   const [session, setSession] = useState<Session>({ status: 'loading' });
@@ -187,12 +204,16 @@ const HEALTH_HINTS: Record<string, string> = {
 
 function Header({
   model,
+  selected,
+  onSelect,
   zoom,
   onZoom,
   onFit,
   onClose,
 }: {
   model: EventModel | null;
+  selected: Selection | null;
+  onSelect: (selection: Selection | null) => void;
   zoom: number;
   onZoom: (zoom: number) => void;
   onFit: () => void;
@@ -211,15 +232,27 @@ function Header({
           <span className="hf-events-stat">{model.components.length} components</span>
           <span className="hf-events-stat">{model.kinds.length} kinds</span>
           {imported > 0 && (
-            <span className="hf-events-stat import" title="components read from an AsyncAPI document rather than events.yaml">
+            <button
+              className={`hf-events-stat import${selected?.kind === 'imported' ? ' on' : ''}`}
+              title="Components read from an AsyncAPI document rather than events.yaml"
+              onClick={() => onSelect(selected?.kind === 'imported' ? null : { kind: 'imported' })}
+            >
               {imported} imported
-            </span>
+            </button>
           )}
-          {UNHEALTHY.filter((state) => health[state] > 0).map((state) => (
-            <span key={state} className="hf-events-stat warn" title={HEALTH_HINTS[state]}>
-              {health[state]} {state}
-            </span>
-          ))}
+          {UNHEALTHY.filter((state) => health[state] > 0).map((state) => {
+            const on = selected?.kind === 'health' && selected.health === state;
+            return (
+              <button
+                key={state}
+                className={`hf-events-stat warn${on ? ' on' : ''}`}
+                title={HEALTH_HINTS[state]}
+                onClick={() => onSelect(on ? null : { kind: 'health', health: state })}
+              >
+                {health[state]} {state}
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="hf-events-legend">
@@ -279,7 +312,7 @@ function Diagram({
   // Which nodes and links the current selection lights up. Selecting a
   // component accents everything it touches, so the question "what does this
   // component talk to" is answered by one click rather than by tracing lines.
-  const accented = useMemo(() => accentOf(selected, layout), [selected, layout]);
+  const accented = useMemo(() => accentOf(selected, layout, model), [selected, layout, model]);
 
   return (
     <svg
@@ -431,11 +464,32 @@ function ComponentNode({
 /** Nodes and links the current selection accents. */
 function accentOf(
   selected: Selection | null,
-  layout: EventLayout
+  layout: EventLayout,
+  model: EventModel | null
 ): { active: boolean; nodes: Set<string>; links: Set<string> } {
   const nodes = new Set<string>();
   const links = new Set<string>();
   if (!selected) return { active: false, nodes, links };
+
+  if (selected.kind === 'imported') {
+    for (const component of model?.components ?? []) {
+      if (component.source === 'asyncapi') nodes.add(component.id);
+    }
+    return { active: true, nodes, links };
+  }
+
+  // A chip accents whoever declared the kinds it counts. Those kinds are the
+  // ones with no edge to accent — that is what makes them findings — so the
+  // node is the only place a reader can be pointed at.
+  if (selected.kind === 'health') {
+    for (const kind of kindsInState(model, selected.health)) {
+      for (const id of participantsOf(kind)) nodes.add(id);
+      for (const laid of layout.links) {
+        if (laid.link.kinds.some((flow) => flow.kind === kind.name)) links.add(laid.link.id);
+      }
+    }
+    return { active: true, nodes, links };
+  }
 
   if (selected.kind === 'component') {
     nodes.add(selected.id);
@@ -457,13 +511,19 @@ function accentOf(
   }
 
   // A kind lights up every edge that carries it, which is how a broadcast event
-  // with four observers is seen as one append rather than four arrows.
+  // with four observers is seen as one append rather than four arrows — and
+  // every component that declared it, so a kind travelling no edge at all
+  // still points at the component to look at.
   for (const laid of layout.links) {
     if (laid.link.kinds.some((flow) => flow.kind === selected.name)) {
       links.add(laid.link.id);
       nodes.add(laid.link.from);
       nodes.add(laid.link.to);
     }
+  }
+  const kind = kindByName(model ?? { components: [], flows: [], kinds: [] }).get(selected.name);
+  if (kind) {
+    for (const id of participantsOf(kind)) nodes.add(id);
   }
   return { active: true, nodes, links };
 }
@@ -491,7 +551,105 @@ function Detail({
         <LinkDetail model={model} from={selection.from} to={selection.to} onSelect={onSelect} />
       )}
       {selection.kind === 'event' && <KindDetail model={model} name={selection.name} onSelect={onSelect} />}
+      {selection.kind === 'health' && (
+        <HealthDetail model={model} health={selection.health} onSelect={onSelect} />
+      )}
+      {selection.kind === 'imported' && <ImportedDetail model={model} onSelect={onSelect} />}
     </aside>
+  );
+}
+
+/**
+ * What a header chip opens: the kinds it counted, and who declared them.
+ *
+ * An orphan and a starved kind are both absent from the diagram — one has no
+ * observer, the other has no producer, and neither sits on an edge — so the
+ * list is where a reader finds them. Each row opens the kind, which names
+ * everyone that appends, is triggered by, or folds it.
+ */
+function HealthDetail({
+  model,
+  health,
+  onSelect,
+}: {
+  model: EventModel;
+  health: EventHealth;
+  onSelect: (selection: Selection | null) => void;
+}) {
+  const kinds = kindsInState(model, health);
+
+  return (
+    <>
+      <h2 className="hf-events-detail-title">
+        {kinds.length} {health}
+      </h2>
+      <p className="hf-events-detail-desc">{HEALTH_HINTS[health]}</p>
+      <ul className="hf-events-slots">
+        {kinds.map((kind) => (
+          <li key={kind.name}>
+            <button className="hf-events-slot" onClick={() => onSelect({ kind: 'event', name: kind.name })}>
+              <span className="hf-events-slot-kind">{kind.name}</span>
+              <span className="hf-events-tag excl">{health}</span>
+              <span className="hf-events-slot-pattern">{whereItHangs(kind, health)}</span>
+              {kind.pattern && <span className="hf-events-slot-pattern">{kind.pattern}</span>}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+/** The component a finding is anchored to — the answer to "where do I look". */
+function whereItHangs(kind: EventKind, health: EventHealth): string {
+  const producers = kind.producers ?? [];
+  const observers = [...(kind.triggers ?? []), ...(kind.folders ?? [])];
+  if (health === 'starved') {
+    return observers.length > 0 ? `observed by ${observers.join(', ')}` : 'observed by nobody';
+  }
+  if (health === 'ambiguous') {
+    return `appended by ${producers.join(', ')} — ${kind.triggers?.length ?? 0} input(s)`;
+  }
+  return producers.length > 0 ? `appended by ${producers.join(', ')}` : 'appended by nobody';
+}
+
+/** The components read from an AsyncAPI document rather than from events.yaml. */
+function ImportedDetail({
+  model,
+  onSelect,
+}: {
+  model: EventModel;
+  onSelect: (selection: Selection | null) => void;
+}) {
+  const imported = model.components.filter((component) => component.source === 'asyncapi');
+
+  return (
+    <>
+      <h2 className="hf-events-detail-title">{imported.length} imported</h2>
+      <p className="hf-events-detail-desc">
+        Read from an AsyncAPI 3 document with the x-eventlog extension. Their addresses are in wire
+        coordinates and their partition key is taken as declared, so the conventions wyrd checks over
+        events.yaml are not checked over them.
+      </p>
+      <ul className="hf-events-slots">
+        {imported.map((component) => (
+          <li key={component.id}>
+            <button
+              className="hf-events-slot"
+              onClick={() => onSelect({ kind: 'component', id: component.id })}
+            >
+              <span className="hf-events-slot-kind">{component.id}</span>
+              {component.instances && component.instances.length > 0 && (
+                <span className="hf-events-tag role">{component.instances.join(', ')}</span>
+              )}
+              {component.source_file && (
+                <span className="hf-events-slot-pattern">{component.source_file}</span>
+              )}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
