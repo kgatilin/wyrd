@@ -385,6 +385,73 @@ func TestPlugin_HTTPHandler(t *testing.T) {
 	}
 }
 
+// A kind carries an example beside its schema, with $refs already followed:
+// the canvas has no way to resolve "#/types/Hold" against the component that
+// declared it, so the projection resolves it here.
+func TestPlugin_HTTPHandler_KindExample(t *testing.T) {
+	root := filepath.Join(testdataRoot(t), "shop")
+
+	p := &Plugin{}
+	if err := p.Init(context.Background(), &hostStub{root: root}, ""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	srv := httptest.NewServer(p.HTTPHandlers()[0].Handler)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("http.Get: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result modelView
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	byName := make(map[string]kindView, len(result.Kinds))
+	for _, kind := range result.Kinds {
+		byName[kind.Name] = kind
+	}
+
+	// inventory.event.reserved is declared as a bare $ref to a local type.
+	reserved, ok := byName["inventory.event.reserved"]
+	if !ok {
+		t.Fatal("no kind view for inventory.event.reserved")
+	}
+	object, ok := reserved.Example.(map[string]any)
+	if !ok {
+		t.Fatalf("example = %#v, want an object", reserved.Example)
+	}
+	if object["OrderID"] != "string" {
+		t.Errorf("example[OrderID] = %#v, want \"string\"", object["OrderID"])
+	}
+	lines, ok := object["Lines"].([]any)
+	if !ok || len(lines) != 1 {
+		t.Fatalf("example[Lines] = %#v, want one element", object["Lines"])
+	}
+	line, ok := lines[0].(map[string]any)
+	if !ok || line["Sku"] != "string" {
+		t.Errorf("example line = %#v, want the Line type expanded", lines[0])
+	}
+
+	// An imported declaration reads the same way; its schema is inline, so
+	// the example is built from the payload the AsyncAPI document states.
+	authorize, ok := byName["payments.command.authorize"]
+	if !ok {
+		t.Fatal("no kind view for payments.command.authorize")
+	}
+	command, ok := authorize.Example.(map[string]any)
+	if !ok {
+		t.Fatalf("example = %#v, want an object", authorize.Example)
+	}
+	// `currency` declares a default, and a stated value beats a placeholder.
+	if command["currency"] != "EUR" {
+		t.Errorf("example[currency] = %#v, want \"EUR\"", command["currency"])
+	}
+}
+
 // An empty repo answers with empty lists rather than nulls, so the canvas
 // iterates the response without a guard on every field.
 func TestPlugin_HTTPHandler_EmptyRepo(t *testing.T) {

@@ -81,6 +81,11 @@ type kindView struct {
 	Triggers  []string `json:"triggers,omitempty"`
 	Folders   []string `json:"folders,omitempty"`
 	Schema    any      `json:"schema,omitempty"`
+	// Example is one instance of Schema, rendered so a reader can see the
+	// payload as an object rather than compile the schema in their head.
+	// Derived here rather than in the canvas because a `$ref` resolves
+	// against the declaring component, which the wire shape does not carry.
+	Example any `json:"example,omitempty"`
 }
 
 // buildModelView projects the composed model and its graph onto the wire shape.
@@ -178,6 +183,9 @@ func kindViews(m *eventmodel.Model, g *eventmodel.Graph) []kindView {
 	descriptions := make(map[string]string)
 	classes := make(map[string]string)
 	schemas := make(map[string]any)
+	// The component a kind's schema came from, kept because $ref resolution
+	// is relative to it.
+	schemaOwners := make(map[string]*eventmodel.Component)
 
 	ids := make([]string, 0, len(m.Components))
 	for id := range m.Components {
@@ -198,6 +206,7 @@ func kindViews(m *eventmodel.Model, g *eventmodel.Graph) []kindView {
 				}
 				if _, seen := schemas[slot.Kind]; !seen && !slot.Schema.IsZero() {
 					schemas[slot.Kind] = slot.Schema.Raw
+					schemaOwners[slot.Kind] = comp
 				}
 			}
 		}
@@ -228,6 +237,7 @@ func kindViews(m *eventmodel.Model, g *eventmodel.Graph) []kindView {
 			Triggers:     triggers[name],
 			Folders:      folders[name],
 			Schema:       schemas[name],
+			Example:      eventmodel.ExampleOf(m, schemaOwners[name], eventmodel.SchemaNode{Raw: schemas[name]}),
 		})
 	}
 	return out

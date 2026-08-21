@@ -61,6 +61,8 @@ export interface EventKind {
   triggers?: string[];
   folders?: string[];
   schema?: unknown;
+  /** One instance of `schema`, built by the daemon with $refs followed. */
+  example?: unknown;
 }
 
 export interface EventModel {

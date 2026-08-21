@@ -100,6 +100,12 @@ export class EventCanvasHarness extends ComponentHarness {
     await (await this.env.rootLocator('.hf-events-slot-kind').filterByText(kind).first()).click();
   }
 
+  /** The payload blocks in the detail rail, in the order they are shown. */
+  async payloads(): Promise<string[]> {
+    const blocks = await this.env.rootLocator('.hf-events-schema').all();
+    return Promise.all(blocks.map((block) => block.text()));
+  }
+
   /** Fact values in the detail rail, paired with their labels. */
   async facts(): Promise<Record<string, string>> {
     const labels = await this.env.rootLocator('.hf-events-facts-label').all();

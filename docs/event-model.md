@@ -549,15 +549,24 @@ that kind triggers the target or is only folded by it — the bipartite graph
 collapsed onto the components, which is what a reader of an event model looks
 at. Empty repos answer with empty lists, never nulls.
 
+A kind carries its payload schema and an `example` — one instance of that
+schema, with `$ref`s already followed. The example is built here rather than in
+the canvas because a ref resolves against the component that declared the
+schema, and the wire shape does not carry that. Where the schema states a value
+(`const`, `example`, `examples`, `default`, an `enum`) the example uses it;
+everywhere else it carries a placeholder naming the type. A recursive type
+expands once and stops.
+
 ### Canvas
 
 The **Events** button in the app bar opens the event canvas over the review
 canvas. One node per component, one edge per component pair labelled with what
 travels it, solid for a trigger and dashed for a fold. Clicking a node accents
 everything it touches and opens its three lists; clicking a kind shows its
-subject, partition coordinates, class, schema owner, payload schema and everyone
-that appends, is triggered by, or folds it. Esc puts the detail down, and a
-second Esc closes the canvas.
+subject, partition coordinates, class, schema owner, everyone that appends, is
+triggered by, or folds it, and its payload twice: as an example object first,
+then as the schema. Esc puts the detail down, and a second Esc closes the
+canvas.
 
 An imported node is marked `asyncapi` and says so in its detail, because it is
 not validated. A component nothing reaches and that reaches nothing is drawn

@@ -591,9 +591,19 @@ function KindDetail({
       <Participants label="Appended by" ids={kind.producers} onSelect={onSelect} />
       <Participants label="Triggers" ids={kind.triggers} onSelect={onSelect} />
       <Participants label="Folded by" ids={kind.folders} onSelect={onSelect} />
+      {kind.example !== undefined && kind.example !== null && (
+        <>
+          <h3 className="hf-events-section-title">
+            Payload <span className="hf-events-section-hint">example</span>
+          </h3>
+          <pre className="hf-events-schema">{JSON.stringify(kind.example, null, 2)}</pre>
+        </>
+      )}
       {kind.schema != null && (
         <>
-          <h3 className="hf-events-section-title">Payload</h3>
+          <h3 className="hf-events-section-title">
+            Payload <span className="hf-events-section-hint">schema</span>
+          </h3>
           <pre className="hf-events-schema">{JSON.stringify(kind.schema, null, 2)}</pre>
         </>
       )}

@@ -79,7 +79,8 @@ const eventModel = {
       owner: 'connectors',
       producers: ['router'],
       triggers: ['connectors'],
-      schema: { type: 'object', properties: { op: { type: 'string' } } },
+      schema: { type: 'object', properties: { op: { type: 'string' }, tries: { type: 'integer' } } },
+      example: { op: 'string', tries: 0 },
     },
     {
       name: 'connectors.event.call.completed',
@@ -174,6 +175,25 @@ test('a kind opens from a component, and names everyone it reaches', async ({ pa
   // The coordinates the document declared, not every {slot} of the address:
   // {group} selects the port instance and keys nothing.
   expect(facts.partition).toBe('scope');
+});
+
+test('a kind shows the payload as an object before it shows the schema', async ({ page }) => {
+  const canvas = await openCanvas(page);
+  await canvas.waitForDiagram();
+
+  await canvas.clickNode('connectors');
+  await canvas.clickDetailKind('connectors.command.call');
+
+  // The example comes first: a schema states what may be on the wire, and a
+  // reader opening a kind wants to see what is on it.
+  const sections = await canvas.detailSections();
+  expect(sections).toContain('Payload example');
+  expect(sections).toContain('Payload schema');
+  expect(sections.indexOf('Payload example')).toBeLessThan(sections.indexOf('Payload schema'));
+
+  const [example, schema] = await canvas.payloads();
+  expect(JSON.parse(example)).toEqual({ op: 'string', tries: 0 });
+  expect(JSON.parse(schema).properties.op.type).toBe('string');
 });
 
 test('Esc puts the detail down first and the canvas second', async ({ page }) => {
