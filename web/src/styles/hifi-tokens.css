@@ -3637,3 +3637,27 @@ body {
   overflow-x: auto;
   max-height: 320px;
 }
+
+.hf-events-zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.hf-events-zoom button {
+  background: none;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  color: var(--fg-2);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 7px;
+  cursor: pointer;
+}
+.hf-events-zoom button:hover { color: var(--fg-0); border-color: var(--line-3); }
+.hf-events-zoom-level {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--fg-3);
+  min-width: 36px;
+  text-align: center;
+}

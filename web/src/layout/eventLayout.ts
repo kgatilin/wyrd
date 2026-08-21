@@ -1,7 +1,7 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkNode, ElkExtendedEdge } from 'elkjs';
 import type { EventComponent, EventLink, EventModel } from '../domain/eventModel';
-import { buildLinks, slotCount } from '../domain/eventModel';
+import { buildLinks, shortKind, slotCount } from '../domain/eventModel';
 
 /**
  * Layout for the event canvas.
@@ -24,11 +24,29 @@ const ELK_OPTIONS: Record<string, string> = {
   'elk.edgeRouting': 'ORTHOGONAL',
   'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
   'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
-  'elk.spacing.nodeNode': '56',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '120',
-  'elk.spacing.edgeNode': '32',
-  'elk.spacing.edgeEdge': '18',
+  'elk.spacing.nodeNode': '52',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '150',
+  'elk.spacing.edgeNode': '24',
+  'elk.spacing.edgeEdge': '14',
+  // Edge labels are handed to ELK with their measured size, so it routes
+  // around them instead of leaving them to land wherever they land. The side
+  // is ELK's choice: forcing every label below its edge adds a label's height
+  // of vertical space per edge, which on a model of any size is most of the
+  // diagram.
+  'elk.spacing.edgeLabel': '6',
+  'elk.layered.edgeLabels.sideSelection': 'SMART_DOWN',
 };
+
+/** Label geometry, shared with the renderer so ELK reserves what gets drawn. */
+export const LABEL_HEIGHT = 18;
+export function labelText(link: EventLink): string {
+  const first = shortKind(link.kinds[0].kind);
+  return link.kinds.length === 1 ? first : `${first} +${link.kinds.length - 1}`;
+}
+export function labelWidth(text: string): number {
+  // The label is 10px JetBrains Mono; 6.2px a glyph plus the box padding.
+  return text.length * 6.2 + 12;
+}
 
 export const NODE_WIDTH = 208;
 const NODE_BASE_HEIGHT = 62;
@@ -93,11 +111,15 @@ export async function layoutEventModel(model: EventModel): Promise<EventLayout> 
   // edge is dropped rather than pointing at a node that does not exist.
   const drawable = links.filter((link) => known.has(link.from) && known.has(link.to));
 
-  const edges: ElkExtendedEdge[] = drawable.map((link, index) => ({
-    id: `e${index}`,
-    sources: [link.from],
-    targets: [link.to],
-  }));
+  const edges: ElkExtendedEdge[] = drawable.map((link, index) => {
+    const text = labelText(link);
+    return {
+      id: `e${index}`,
+      sources: [link.from],
+      targets: [link.to],
+      labels: [{ text, width: labelWidth(text), height: LABEL_HEIGHT }],
+    };
+  });
 
   const laid = await elk.layout({
     id: 'root',
@@ -128,8 +150,14 @@ export async function layoutEventModel(model: EventModel): Promise<EventLayout> 
     if (!link) return [];
     const points = edgePoints(edge, positions.get(link.from), positions.get(link.to));
     if (points.length < 2) return [];
-    const mid = midpoint(points);
-    return [{ link, points, labelX: mid.x, labelY: mid.y }];
+    // ELK's placement when it made one, the polyline's own middle when it did
+    // not — an edge it could not place a label on still gets a drawn one.
+    const placed = edge.labels?.[0];
+    const spot =
+      placed && placed.x != null && placed.y != null
+        ? { x: placed.x + (placed.width ?? 0) / 2, y: placed.y + (placed.height ?? LABEL_HEIGHT) / 2 }
+        : midpoint(points);
+    return [{ link, points, labelX: spot.x, labelY: spot.y }];
   });
 
   return {

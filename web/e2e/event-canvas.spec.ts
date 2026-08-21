@@ -193,6 +193,25 @@ test('Esc puts the detail down first and the canvas second', async ({ page }) =>
   });
 });
 
+test('the diagram opens fitted to the pane, and the zoom is adjustable', async ({ page }) => {
+  const canvas = await openCanvas(page);
+  await canvas.waitForDiagram();
+
+  // Whatever the pane's size, the diagram opens inside it and never above 1:1
+  // — scaling a small model up to fill a screen makes it look like a large one.
+  const fitted = parseInt(await canvas.zoom(), 10);
+  expect(fitted).toBeGreaterThan(0);
+  expect(fitted).toBeLessThanOrEqual(100);
+
+  // The readout is a rounded view of the real scale, so this asserts the
+  // direction and the round trip rather than arithmetic on a rounded number.
+  await canvas.zoomIn();
+  expect(parseInt(await canvas.zoom(), 10)).toBeGreaterThan(fitted);
+
+  await canvas.fit();
+  expect(parseInt(await canvas.zoom(), 10)).toBe(fitted);
+});
+
 test('an empty model says where declarations go instead of drawing nothing', async ({ page }) => {
   const canvas = await openCanvas(page, { components: [], flows: [], kinds: [] });
 

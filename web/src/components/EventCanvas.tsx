@@ -6,12 +6,11 @@ import {
   kindByName,
   linkId,
   sectionsOf,
-  shortKind,
   type EventComponent,
   type EventModel,
   type EventSlot,
 } from '../domain/eventModel';
-import { layoutEventModel, linkPath, type EventLayout } from '../layout/eventLayout';
+import { LABEL_HEIGHT, labelText, labelWidth, layoutEventModel, linkPath, type EventLayout } from '../layout/eventLayout';
 
 /**
  * The event canvas: who appends what, and who it reaches.
@@ -27,6 +26,16 @@ import { layoutEventModel, linkPath, type EventLayout } from '../layout/eventLay
  * that exchanges six events and makes the shape unreadable at exactly the
  * moment it starts being interesting.
  */
+
+/** Room around the diagram so a node's border is never on the stage edge. */
+const PADDING = 32;
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 2;
+const ZOOM_STEP = 1.25;
+
+function clampZoom(zoom: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+}
 
 type Session =
   | { status: 'loading' }
@@ -45,6 +54,8 @@ export function EventCanvas({ worktree, events, reloadToken = 0, onClose }: Even
   const session = useEventModel(events, worktree, reloadToken);
   const [layout, setLayout] = useState<EventLayout | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
 
   const model = session.status === 'ready' ? session.model : null;
 
@@ -70,6 +81,23 @@ export function EventCanvas({ worktree, events, reloadToken = 0, onClose }: Even
   // A new model is a new picture; a selection into the old one means nothing.
   useEffect(() => setSelected(null), [model]);
 
+  // Fit each new diagram to the stage. A model of any size lays out wider than
+  // a viewport, and opening onto the top-left corner of one shows a reader four
+  // nodes and no shape. Never above 1:1 — scaling three nodes up to fill a
+  // screen makes them look like something they are not.
+  const fit = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage || !layout || layout.width === 0) return;
+    const scale = Math.min(
+      1,
+      stage.clientWidth / (layout.width + PADDING * 2),
+      stage.clientHeight / (layout.height + PADDING * 2)
+    );
+    setZoom(Math.max(MIN_ZOOM, scale));
+  }, [layout]);
+
+  useEffect(fit, [fit]);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
@@ -87,9 +115,15 @@ export function EventCanvas({ worktree, events, reloadToken = 0, onClose }: Even
 
   return (
     <div className="hf-events">
-      <Header model={model} onClose={onClose} />
+      <Header
+        model={model}
+        zoom={zoom}
+        onZoom={(next) => setZoom(clampZoom(next))}
+        onFit={fit}
+        onClose={onClose}
+      />
       <div className="hf-events-body">
-        <div className="hf-events-stage">
+        <div className="hf-events-stage" ref={stageRef}>
           {session.status === 'loading' && <Notice text="Reading declarations…" />}
           {session.status === 'error' && <Notice text={session.error} tone="error" />}
           {session.status === 'ready' && session.model.components.length === 0 && (
@@ -99,6 +133,7 @@ export function EventCanvas({ worktree, events, reloadToken = 0, onClose }: Even
             <Diagram
               model={model}
               layout={layout}
+              zoom={zoom}
               selected={selected}
               onSelect={setSelected}
             />
@@ -141,7 +176,19 @@ function useEventModel(events: EventModelPort, worktree: string, reloadToken: nu
   return session;
 }
 
-function Header({ model, onClose }: { model: EventModel | null; onClose: () => void }) {
+function Header({
+  model,
+  zoom,
+  onZoom,
+  onFit,
+  onClose,
+}: {
+  model: EventModel | null;
+  zoom: number;
+  onZoom: (zoom: number) => void;
+  onFit: () => void;
+  onClose: () => void;
+}) {
   const imported = model?.components.filter((c) => c.source === 'asyncapi').length ?? 0;
   const unhealthy = model?.kinds.filter((k) => k.health && k.health !== 'ok').length ?? 0;
 
@@ -172,6 +219,18 @@ function Header({ model, onClose }: { model: EventModel | null; onClose: () => v
           folded into state
         </span>
       </div>
+      <div className="hf-events-zoom">
+        <button onClick={() => onZoom(zoom / ZOOM_STEP)} title="Zoom out">
+          −
+        </button>
+        <span className="hf-events-zoom-level">{Math.round(zoom * 100)}%</span>
+        <button onClick={() => onZoom(zoom * ZOOM_STEP)} title="Zoom in">
+          +
+        </button>
+        <button onClick={onFit} title="Fit the diagram to the pane">
+          Fit
+        </button>
+      </div>
       <button className="hf-events-close" onClick={onClose} title="Close (Esc)">
         ×
       </button>
@@ -186,16 +245,19 @@ function Notice({ text, tone }: { text: string; tone?: 'error' }) {
 function Diagram({
   model,
   layout,
+  zoom,
   selected,
   onSelect,
 }: {
   model: EventModel;
   layout: EventLayout;
+  zoom: number;
   selected: Selection | null;
   onSelect: (selection: Selection | null) => void;
 }) {
   const isolated = useMemo(() => isolatedComponents(model), [model]);
-  const PADDING = 32;
+  const width = layout.width + PADDING * 2;
+  const height = layout.height + PADDING * 2;
 
   // Which nodes and links the current selection lights up. Selecting a
   // component accents everything it touches, so the question "what does this
@@ -205,8 +267,9 @@ function Diagram({
   return (
     <svg
       className="hf-events-svg"
-      width={layout.width + PADDING * 2}
-      height={layout.height + PADDING * 2}
+      width={width * zoom}
+      height={height * zoom}
+      viewBox={`0 0 ${width} ${height}`}
       onClick={() => onSelect(null)}
     >
       <defs>
@@ -263,14 +326,21 @@ function Diagram({
 }
 
 function LinkLabel({ laid }: { laid: EventLayout['links'][number] }) {
-  const kinds = laid.link.kinds;
-  const first = shortKind(kinds[0].kind);
-  const label = kinds.length === 1 ? first : `${first} +${kinds.length - 1}`;
-  const width = label.length * 6.2 + 12;
+  // The same text and width the layout reserved space for; measuring it twice
+  // differently is how a label ends up not fitting the gap made for it.
+  const label = labelText(laid.link);
+  const width = labelWidth(label);
 
   return (
     <g transform={`translate(${laid.labelX}, ${laid.labelY})`}>
-      <rect className="hf-events-label-bg" x={-width / 2} y={-9} width={width} height={18} rx={3} />
+      <rect
+        className="hf-events-label-bg"
+        x={-width / 2}
+        y={-LABEL_HEIGHT / 2}
+        width={width}
+        height={LABEL_HEIGHT}
+        rx={3}
+      />
       <text className="hf-events-label-text" textAnchor="middle" dy="4">
         {label}
       </text>

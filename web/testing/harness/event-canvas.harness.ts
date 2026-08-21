@@ -62,6 +62,19 @@ export class EventCanvasHarness extends ComponentHarness {
     return this.env.rootLocator('.hf-events-node.on').count();
   }
 
+  /** The zoom readout, e.g. "82%". */
+  async zoom(): Promise<string> {
+    return (await this.env.rootLocator('.hf-events-zoom-level').first()).text();
+  }
+
+  async zoomIn(): Promise<void> {
+    await (await this.env.rootLocator('.hf-events-zoom button').filterByText('+').first()).click();
+  }
+
+  async fit(): Promise<void> {
+    await (await this.env.rootLocator('.hf-events-zoom button').filterByText('Fit').first()).click();
+  }
+
   async isDetailOpen(): Promise<boolean> {
     return (await this.env.rootLocator('.hf-events-detail').count()) > 0;
   }
