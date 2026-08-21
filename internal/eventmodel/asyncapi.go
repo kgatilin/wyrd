@@ -87,9 +87,45 @@ type asyncAPIRootExt struct {
 	Vocabulary string             `yaml:"vocabulary"`
 	Identity   asyncAPIIdentity   `yaml:"identity"`
 	Addressing asyncAPIAddressing `yaml:"addressing"`
-	Owns       []string           `yaml:"owns"`
-	Key        []string           `yaml:"key"`
+	Owns       yamlStringList     `yaml:"owns"`
+	Key        yamlStringList     `yaml:"key"`
 	Port       *asyncAPIPort      `yaml:"port"`
+}
+
+// yamlStringList reads a YAML field that is a list of strings in some documents
+// and a bare string in others. `owns` is the field that forces it: a component
+// owning one address prefix writes it as a scalar, and rejecting that would
+// mean rejecting the format as it is actually written. Every list-shaped
+// x-eventlog field takes the same type, so which of them a document happens to
+// collapse to a scalar is not a thing wyrd has an opinion about.
+type yamlStringList []string
+
+// UnmarshalYAML accepts a scalar, a sequence, or a null. Anything else is an
+// error: a mapping where a list of names belongs is a mistake worth naming
+// rather than a shape to guess at.
+func (s *yamlStringList) UnmarshalYAML(value *yamlv3.Node) error {
+	switch value.Kind {
+	case yamlv3.ScalarNode:
+		if value.Tag == "!!null" {
+			*s = nil
+			return nil
+		}
+		var one string
+		if err := value.Decode(&one); err != nil {
+			return err
+		}
+		*s = yamlStringList{one}
+		return nil
+	case yamlv3.SequenceNode:
+		var many []string
+		if err := value.Decode(&many); err != nil {
+			return err
+		}
+		*s = many
+		return nil
+	default:
+		return fmt.Errorf("line %d: want a string or a list of strings", value.Line)
+	}
 }
 
 type asyncAPIIdentity struct {
@@ -103,8 +139,8 @@ type asyncAPIAddressing struct {
 }
 
 type asyncAPIPort struct {
-	Parameter string   `yaml:"parameter"`
-	Instances []string `yaml:"instances"`
+	Parameter string         `yaml:"parameter"`
+	Instances yamlStringList `yaml:"instances"`
 }
 
 type asyncAPIChannel struct {
@@ -115,12 +151,12 @@ type asyncAPIChannel struct {
 }
 
 type asyncAPIParam struct {
-	Description string   `yaml:"description"`
-	Enum        []string `yaml:"enum"`
+	Description string         `yaml:"description"`
+	Enum        yamlStringList `yaml:"enum"`
 }
 
 type asyncAPIChannelExt struct {
-	Partition []string `yaml:"partition"`
+	Partition yamlStringList `yaml:"partition"`
 }
 
 type asyncAPIOp struct {
@@ -132,8 +168,8 @@ type asyncAPIOp struct {
 }
 
 type asyncAPIOpExt struct {
-	Role      string   `yaml:"role"`
-	Instances []string `yaml:"instances"`
+	Role      string         `yaml:"role"`
+	Instances yamlStringList `yaml:"instances"`
 }
 
 type asyncAPIRef struct {
@@ -234,7 +270,7 @@ func componentFromAsyncAPI(doc *asyncAPIDoc, path string) (*Component, error) {
 		ID:           id,
 		Owns:         doc.Eventlog.Identity.Service,
 		Description:  doc.Info.Description,
-		PartitionKey: doc.Eventlog.Key,
+		PartitionKey: []string(doc.Eventlog.Key),
 		Types:        map[string]SchemaNode{},
 		Extra:        asyncAPIComponentExtra(doc),
 		Source:       SourceAsyncAPI,
@@ -355,13 +391,13 @@ func slotExtra(op asyncAPIOp, channel asyncAPIChannel, msg asyncAPIMessage, form
 		extra["action"] = op.Action
 	}
 	if len(op.Eventlog.Instances) > 0 {
-		extra["instances"] = op.Eventlog.Instances
+		extra["instances"] = []string(op.Eventlog.Instances)
 	}
 	if class := msg.Eventlog.Class; class != "" {
 		extra["class"] = class
 	}
 	if len(channel.Eventlog.Partition) > 0 {
-		extra["partition"] = channel.Eventlog.Partition
+		extra["partition"] = []string(channel.Eventlog.Partition)
 	}
 	if format != "" {
 		extra["schema_format"] = format
@@ -387,7 +423,7 @@ func asyncAPIComponentExtra(doc *asyncAPIDoc) map[string]any {
 		extra["vocabulary"] = v
 	}
 	if len(doc.Eventlog.Owns) > 0 {
-		extra["owns_addresses"] = doc.Eventlog.Owns
+		extra["owns_addresses"] = []string(doc.Eventlog.Owns)
 	}
 	if p := doc.Eventlog.Addressing.Prefix; p != "" {
 		extra["addressing_prefix"] = p
@@ -403,7 +439,7 @@ func asyncAPIComponentExtra(doc *asyncAPIDoc) map[string]any {
 			extra["port_parameter"] = port.Parameter
 		}
 		if len(port.Instances) > 0 {
-			extra["port_instances"] = port.Instances
+			extra["port_instances"] = []string(port.Instances)
 		}
 	}
 	if len(extra) == 0 {

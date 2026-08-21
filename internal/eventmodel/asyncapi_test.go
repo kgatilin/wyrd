@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -479,5 +480,81 @@ inputs:
 	}
 	if !reflect.DeepEqual(kinds, []FindingKind{KindStarvedInput}) {
 		t.Errorf("findings = %v, want exactly one starved-input", kinds)
+	}
+}
+
+// A document that writes every list-shaped x-eventlog field as a bare scalar.
+// Real generators emit this whenever the list has one element, and a component
+// that owns one address prefix is the common case, not the exception.
+const scalarShapedDoc = `
+asyncapi: 3.0.0
+id: urn:eventlog:svc.app:meters
+info:
+  title: meters
+  version: "1"
+x-eventlog:
+  vocabulary: eventlog-asyncapi/1
+  identity: {service: meters}
+  addressing: {prefix: svc.app, tenant: tenant}
+  owns: svc.app.{tenant}.meters.{reading}
+  key: reading
+  port: {parameter: id, instances: eventlog}
+
+channels:
+  meters.READING.command.record:
+    address: svc.app.{tenant}.meters.{reading}.command.record
+    parameters:
+      reading: {description: Partition coordinate.}
+    messages:
+      meters.command.record: {$ref: '#/components/messages/meters.command.record'}
+    x-eventlog:
+      partition: reading
+
+operations:
+  command.meters.READING.command.record:
+    action: receive
+    channel: {$ref: '#/channels/meters.READING.command.record'}
+    x-eventlog: {role: command, instances: eventlog}
+
+components:
+  messages:
+    meters.command.record:
+      name: meters.command.record
+      x-eventlog: {class: command}
+      payload: {type: object}
+`
+
+func TestParseAsyncAPIAcceptsScalarWhereAListIsAllowed(t *testing.T) {
+	path := writeAsyncAPI(t, filepath.Join(t.TempDir(), "meters"), scalarShapedDoc)
+	comp, err := parseAsyncAPIFile(path)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if got := comp.PartitionKey; !reflect.DeepEqual(got, []string{"reading"}) {
+		t.Errorf("partition key = %v, want [reading]", got)
+	}
+	if got := comp.Extra["owns_addresses"]; !reflect.DeepEqual(got, []string{"svc.app.{tenant}.meters.{reading}"}) {
+		t.Errorf("owns addresses = %v", got)
+	}
+	if got := comp.Extra["port_instances"]; !reflect.DeepEqual(got, []string{"eventlog"}) {
+		t.Errorf("port instances = %v", got)
+	}
+	if got := kindsOf(comp.Inputs); !reflect.DeepEqual(got, []string{"meters.command.record"}) {
+		t.Errorf("inputs = %v", got)
+	}
+
+	// Extra must carry a plain []string, not the decoder's own type: the graph
+	// reads these back through a type switch that only knows []string and []any.
+	if got := comp.Inputs[0].Extra["partition"]; !reflect.DeepEqual(got, []string{"reading"}) {
+		t.Errorf("slot partition = %#v, want []string{\"reading\"}", got)
+	}
+}
+
+func TestParseAsyncAPIRejectsAMappingWhereAListBelongs(t *testing.T) {
+	body := strings.Replace(scalarShapedDoc, "  key: reading", "  key: {name: reading}", 1)
+	path := writeAsyncAPI(t, filepath.Join(t.TempDir(), "meters"), body)
+	if _, err := parseAsyncAPIFile(path); err == nil {
+		t.Fatal("want an error naming the shape, got nil")
 	}
 }
