@@ -1,4 +1,4 @@
-schema: archai/v1
+schema: wyrd/v1
 package: internal/adapter/http
 name: http
 layer: transport
@@ -3986,7 +3986,7 @@ functions:
       source_file: dashboard.go
       doc: |
         collectTargetYAMLFiles walks root and returns every *.yaml / *.yml
-        file. Duplicated from cmd/archai/main.go intentionally — pulling the
+        file. Duplicated from cmd/wyrd/main.go intentionally — pulling the
         CLI helper into a shared package would widen the dependency surface
         of the http adapter for no real gain.
     - name: collectUsedBy
@@ -4268,7 +4268,7 @@ functions:
       source_file: diff_targets.go
       doc: |
         findProjectYAMLSpecs locates per-package .arch/*.yaml files, skipping
-        the .arch/targets/ subtree. Mirrors the CLI helper in cmd/archai but
+        the .arch/targets/ subtree. Mirrors the CLI helper in cmd/wyrd but
         lives here to keep adapter/http free of a cmd/ dependency.
       calls:
         - to:
@@ -4638,7 +4638,7 @@ functions:
       doc: |
         moduleRel strips the module prefix from a fully-qualified package
         path. An input without the module prefix is returned unchanged,
-        which is the format used throughout the archai model.
+        which is the format used throughout the wyrd model.
     - name: packageMatchesSearch
       params:
         - name: pkg
@@ -5484,7 +5484,7 @@ constants:
     - name: cookieName
       type:
         name: untyped string
-      value: '"archai_worktree"'
+      value: '"wyrd_worktree"'
       exported: false
       source_file: server.go
       doc: |

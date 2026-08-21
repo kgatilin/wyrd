@@ -5,10 +5,10 @@ import (
 	"fmt"
 	nethttp "net/http"
 
-	"github.com/kgatilin/archai/internal/adapter/uigraph"
-	"github.com/kgatilin/archai/internal/diff"
-	"github.com/kgatilin/archai/internal/publicapi"
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/adapter/uigraph"
+	"github.com/kgatilin/wyrd/internal/diff"
+	"github.com/kgatilin/wyrd/internal/publicapi"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 const defaultReviewBaseRef = "main"
@@ -64,7 +64,7 @@ func (s *Server) handleUIGraphJSON(w nethttp.ResponseWriter, r *nethttp.Request)
 	if g.PR != nil {
 		g.PR.Title = "Architecture Review"
 		g.PR.Branch = active
-		g.PR.Agent = "archai"
+		g.PR.Agent = "wyrd"
 		if g.Repo.Compare != "" {
 			g.PR.Summary = "Compared " + g.Repo.Compare
 		}

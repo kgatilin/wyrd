@@ -7,8 +7,8 @@ import (
 	nethttp "net/http"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/adapter/mcp"
-	"github.com/kgatilin/archai/internal/buildinfo"
+	"github.com/kgatilin/wyrd/internal/adapter/mcp"
+	"github.com/kgatilin/wyrd/internal/buildinfo"
 )
 
 // handleAPIVersion serves GET /api/version → buildinfo.Info as JSON.

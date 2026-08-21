@@ -6,10 +6,10 @@ import (
 	nethttp "net/http"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/adapter/git"
-	"github.com/kgatilin/archai/internal/archreview"
-	"github.com/kgatilin/archai/internal/plugin"
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/adapter/git"
+	"github.com/kgatilin/wyrd/internal/archreview"
+	"github.com/kgatilin/wyrd/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 // The daemon calls WarmWorktree through this port the moment a worktree's

@@ -1,5 +1,5 @@
-schema: archai/v1
-package: cmd/archai
+schema: wyrd/v1
+package: cmd/wyrd
 name: main
 layer: cli
 functions:
@@ -143,7 +143,7 @@ functions:
          2. Fallback: parse Go sources under ./... via the Go reader.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: findCurrentYAMLSpecs
         - to:
@@ -192,7 +192,7 @@ functions:
         loadTargetModel loads the frozen model from .arch/targets/<id>/model/.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: collectYAMLFiles
         - to:
@@ -219,11 +219,11 @@ functions:
       source_file: main.go
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: extract.go
             symbol: newExtractCmd
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: version.go
             symbol: newVersionCmd
     - name: newExtractCmd
@@ -234,7 +234,7 @@ functions:
       exported: false
       source_file: extract.go
       doc: |
-        newExtractCmd returns the `archai extract <path>` command.
+        newExtractCmd returns the `wyrd extract <path>` command.
 
         extract mirrors the MCP `extract` tool but from the CLI: it loads the
         Go packages rooted at <path> (default ".") via the same adapter the
@@ -252,11 +252,11 @@ functions:
       exported: false
       source_file: version.go
       doc: |
-        newVersionCmd returns the `archai version` command. Output is a
-        single line: `archai <version>`.
+        newVersionCmd returns the `wyrd version` command. Output is a
+        single line: `wyrd <version>`.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: version.go
             symbol: resolveVersion
     - name: printOverlayViolations
@@ -286,7 +286,7 @@ functions:
         assigned layer so the "layer B" half of each line is accurate.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: violationCount
     - name: resolveOverlay
@@ -303,7 +303,7 @@ functions:
         resolveOverlay determines the overlay path and accompanying go.mod
         path used by the generate command. When explicitPath is non-empty
         it is used verbatim (and the adjacent go.mod is looked up); when
-        empty we auto-detect ./archai.yaml in the working directory.
+        empty we auto-detect ./wyrd.yaml in the working directory.
         Returns empty strings when no overlay is found.
     - name: resolveVersion
       returns:
@@ -312,7 +312,7 @@ functions:
       source_file: version.go
       doc: |
         resolveVersion returns the effective version string used by
-        `archai version`. It prefers the linker-injected Version; if that
+        `wyrd version`. It prefers the linker-injected Version; if that
         hasn't been set it tries debug.ReadBuildInfo so module-managed
         installs report their module version instead of the literal "dev".
     - name: runCompose
@@ -381,18 +381,18 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runDiff handles `archai diff`. It loads the current model from the
+        runDiff handles `wyrd diff`. It loads the current model from the
         project's per-package .arch/*.yaml files (falling back to parsing Go
         sources if no specs are present) and the target model from
         .arch/targets/<id>/model/, computes a structured diff and prints it in
         the requested format.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: loadCurrentModel
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: loadTargetModel
         - to:
@@ -431,25 +431,25 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runDiffApply handles `archai diff apply <patch.yaml>`. It loads the patch,
+        runDiffApply handles `wyrd diff apply <patch.yaml>`. It loads the patch,
         resolves the active target, rebuilds the current + target models, invokes
         apply.Apply, and overwrites the target snapshot's model/ tree with the
         result.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: loadCurrentModel
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: loadTargetModel
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: validatePatch
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: writeTargetModels
         - to:
@@ -476,19 +476,19 @@ functions:
       exported: false
       source_file: extract.go
       doc: |
-        runExtract implements `archai extract`. It reuses the same golang
+        runExtract implements `wyrd extract`. It reuses the same golang
         reader wired into `serve` and the MCP `extract` tool.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: extract.go
             symbol: dumpExtract
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: extract.go
             symbol: extractModels
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: extract.go
             symbol: streamExtract
     - name: runGenerate
@@ -510,7 +510,7 @@ functions:
         runGenerate executes the diagram generation command.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: resolveOverlay
         - to:
@@ -565,11 +565,11 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runListDaemons handles `archai list-daemons`. It prints a small
+        runListDaemons handles `wyrd list-daemons`. It prints a small
         table of live daemons keyed by worktree name.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: formatUptime
         - to:
@@ -590,7 +590,7 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runMCPThinClient implements the `archai serve --mcp-stdio` thin
+        runMCPThinClient implements the `wyrd serve --mcp-stdio` thin
         client. It resolves the worktree's running HTTP daemon (auto-starting
         one if necessary) and runs the MCP stdio transport in client mode.
       calls:
@@ -622,26 +622,26 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runOverlayCheck executes `archai overlay check`. It loads the overlay,
+        runOverlayCheck executes `wyrd overlay check`. It loads the overlay,
         validates it against the adjacent go.mod, extracts the current Go
         model, merges the overlay to detect layer-rule violations, and prints
         a human-readable report. Returns a non-nil error (which Cobra turns
         into a non-zero exit code) when validation fails or violations exist.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: printOverlayViolations
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: resolveOverlay
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: trimModulePrefix
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: violationCount
         - to:
@@ -691,12 +691,12 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runSequence handles `archai sequence <target>`. It parses the target,
+        runSequence handles `wyrd sequence <target>`. It parses the target,
         loads the current model (YAML specs preferred, Go reader fallback),
         builds the call-sequence tree and emits it in the requested format.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: loadCurrentModel
         - to:
@@ -731,7 +731,7 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runServe handles `archai serve`. It wires SIGINT/SIGTERM into a
+        runServe handles `wyrd serve`. It wires SIGINT/SIGTERM into a
         cancellable context and dispatches between three operational modes:
 
          1. Default: long-running HTTP daemon (no --mcp-stdio).
@@ -744,7 +744,7 @@ functions:
             sees whatever was loaded at startup.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: runMCPThinClient
         - to:
@@ -837,7 +837,7 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runTargetDelete handles `archai target delete <id>`.
+        runTargetDelete handles `wyrd target delete <id>`.
       calls:
         - to:
             package: internal/target
@@ -859,7 +859,7 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runTargetList handles `archai target list`.
+        runTargetList handles `wyrd target list`.
       calls:
         - to:
             package: internal/target
@@ -885,12 +885,12 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runTargetLock handles `archai target lock <id>`. It (optionally)
+        runTargetLock handles `wyrd target lock <id>`. It (optionally)
         regenerates per-package YAML specs and then freezes them plus
-        archai.yaml into .arch/targets/<id>/.
+        wyrd.yaml into .arch/targets/<id>/.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: resolveOverlay
         - to:
@@ -941,7 +941,7 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runTargetShow handles `archai target show <id>`.
+        runTargetShow handles `wyrd target show <id>`.
       calls:
         - to:
             package: internal/target
@@ -963,7 +963,7 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runTargetUse handles `archai target use <id>`.
+        runTargetUse handles `wyrd target use <id>`.
       calls:
         - to:
             package: internal/target
@@ -985,15 +985,15 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runValidate handles `archai validate`. It exits 0 when current matches
+        runValidate handles `wyrd validate`. It exits 0 when current matches
         target, non-zero otherwise. Output format is controlled by --format.
       calls:
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: loadCurrentModel
         - to:
-            package: cmd/archai
+            package: cmd/wyrd
             file: main.go
             symbol: loadTargetModel
         - to:
@@ -1032,7 +1032,7 @@ functions:
       exported: false
       source_file: main.go
       doc: |
-        runWhere handles `archai where`. It prints the URL of the daemon
+        runWhere handles `wyrd where`. It prints the URL of the daemon
         currently serving this worktree (if any) and exits non-zero when no
         daemon is recorded or the record is stale.
       calls:
@@ -1170,16 +1170,16 @@ variables:
       exported: true
       source_file: version.go
       doc: |
-        Version is the archai binary version. Defaults to "dev" for
+        Version is the wyrd binary version. Defaults to "dev" for
         unversioned builds and is overridden at build time via ldflags:
 
-        	go build -ldflags "-X main.Version=v0.1.0" ./cmd/archai
+        	go build -ldflags "-X main.Version=v0.1.0" ./cmd/wyrd
 
         When Version is still "dev" at runtime we fall back to debug.ReadBuildInfo
         so `go install` / `go run` users get a meaningful version when available.
 dependencies:
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: extract.go
         symbol: dumpExtract
       to:
@@ -1188,7 +1188,7 @@ dependencies:
         external: true
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: extract.go
         symbol: dumpExtract
       to:
@@ -1196,7 +1196,7 @@ dependencies:
         symbol: PackageModel
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: extract.go
         symbol: extractModels
       to:
@@ -1205,7 +1205,7 @@ dependencies:
         external: true
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: extract.go
         symbol: extractModels
       to:
@@ -1213,7 +1213,7 @@ dependencies:
         symbol: PackageModel
       kind: returns
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: formatUptime
       to:
@@ -1222,7 +1222,7 @@ dependencies:
         external: true
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: loadCurrentModel
       to:
@@ -1231,7 +1231,7 @@ dependencies:
         external: true
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: loadCurrentModel
       to:
@@ -1239,7 +1239,7 @@ dependencies:
         symbol: PackageModel
       kind: returns
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: loadTargetModel
       to:
@@ -1248,7 +1248,7 @@ dependencies:
         external: true
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: loadTargetModel
       to:
@@ -1256,7 +1256,7 @@ dependencies:
         symbol: PackageModel
       kind: returns
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: extract.go
         symbol: newExtractCmd
       to:
@@ -1264,7 +1264,7 @@ dependencies:
         symbol: Command
       kind: returns
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: version.go
         symbol: newVersionCmd
       to:
@@ -1272,7 +1272,7 @@ dependencies:
         symbol: Command
       kind: returns
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: printOverlayViolations
       to:
@@ -1281,7 +1281,7 @@ dependencies:
         external: true
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: printOverlayViolations
       to:
@@ -1289,7 +1289,7 @@ dependencies:
         symbol: Violation
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runCompose
       to:
@@ -1297,7 +1297,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runDiff
       to:
@@ -1305,7 +1305,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runDiffApply
       to:
@@ -1313,7 +1313,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: extract.go
         symbol: runExtract
       to:
@@ -1321,7 +1321,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runGenerate
       to:
@@ -1329,7 +1329,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runListDaemons
       to:
@@ -1337,7 +1337,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runMCPThinClient
       to:
@@ -1346,7 +1346,7 @@ dependencies:
         external: true
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runOverlayCheck
       to:
@@ -1354,7 +1354,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runSequence
       to:
@@ -1362,7 +1362,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runServe
       to:
@@ -1370,7 +1370,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runSplit
       to:
@@ -1378,7 +1378,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runTargetDelete
       to:
@@ -1386,7 +1386,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runTargetList
       to:
@@ -1394,7 +1394,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runTargetLock
       to:
@@ -1402,7 +1402,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runTargetShow
       to:
@@ -1410,7 +1410,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runTargetUse
       to:
@@ -1418,7 +1418,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runValidate
       to:
@@ -1426,7 +1426,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: runWhere
       to:
@@ -1434,7 +1434,7 @@ dependencies:
         symbol: Command
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: extract.go
         symbol: streamExtract
       to:
@@ -1443,7 +1443,7 @@ dependencies:
         external: true
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: extract.go
         symbol: streamExtract
       to:
@@ -1451,7 +1451,7 @@ dependencies:
         symbol: PackageModel
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: validatePatch
       to:
@@ -1459,7 +1459,7 @@ dependencies:
         symbol: Diff
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: violationCount
       to:
@@ -1467,7 +1467,7 @@ dependencies:
         symbol: Violation
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: writeTargetModels
       to:
@@ -1476,7 +1476,7 @@ dependencies:
         external: true
       kind: uses
     - from:
-        package: cmd/archai
+        package: cmd/wyrd
         file: main.go
         symbol: writeTargetModels
       to:

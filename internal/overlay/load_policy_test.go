@@ -8,7 +8,7 @@ import (
 
 func TestLoadComposed_PolicyFragmentComposition(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "archai.yaml"), `module: github.com/example/app
+	writeFile(t, filepath.Join(root, "wyrd.yaml"), `module: github.com/example/app
 
 layers:
   domain:
@@ -42,7 +42,7 @@ policy:
     - "@serve !~> internal/hack"
 `)
 
-	cfg, err := LoadComposed(filepath.Join(root, "archai.yaml"))
+	cfg, err := LoadComposed(filepath.Join(root, "wyrd.yaml"))
 	if err != nil {
 		t.Fatalf("LoadComposed: %v", err)
 	}
@@ -79,7 +79,7 @@ policy:
 
 func TestLoadComposed_PolicyDedup(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "archai.yaml"), `module: github.com/example/app
+	writeFile(t, filepath.Join(root, "wyrd.yaml"), `module: github.com/example/app
 
 layers:
   domain:
@@ -114,7 +114,7 @@ policy:
     - "@domain !~> internal/legacy"
 `)
 
-	cfg, err := LoadComposed(filepath.Join(root, "archai.yaml"))
+	cfg, err := LoadComposed(filepath.Join(root, "wyrd.yaml"))
 	if err != nil {
 		t.Fatalf("LoadComposed: %v", err)
 	}
@@ -143,7 +143,7 @@ policy:
 
 func TestLoadComposed_PolicyOrdering(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "archai.yaml"), `module: github.com/example/app
+	writeFile(t, filepath.Join(root, "wyrd.yaml"), `module: github.com/example/app
 
 layers:
   domain:
@@ -167,7 +167,7 @@ policy:
     - "z-rule"
 `)
 
-	cfg, err := LoadComposed(filepath.Join(root, "archai.yaml"))
+	cfg, err := LoadComposed(filepath.Join(root, "wyrd.yaml"))
 	if err != nil {
 		t.Fatalf("LoadComposed: %v", err)
 	}
@@ -181,7 +181,7 @@ policy:
 
 func TestLoadComposed_PolicyDenyByDefaultInFragmentError(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "archai.yaml"), `module: github.com/example/app
+	writeFile(t, filepath.Join(root, "wyrd.yaml"), `module: github.com/example/app
 
 layers:
   domain:
@@ -197,7 +197,7 @@ policy:
   deny_by_default: false
 `)
 
-	_, err := LoadComposed(filepath.Join(root, "archai.yaml"))
+	_, err := LoadComposed(filepath.Join(root, "wyrd.yaml"))
 	if err == nil {
 		t.Fatal("expected error for deny_by_default in fragment, got nil")
 	}
@@ -212,7 +212,7 @@ policy:
 func TestLoadComposed_PolicyRootOnlyUnchanged(t *testing.T) {
 	root := t.TempDir()
 	denyTrue := true
-	writeFile(t, filepath.Join(root, "archai.yaml"), `module: github.com/example/app
+	writeFile(t, filepath.Join(root, "wyrd.yaml"), `module: github.com/example/app
 
 layers:
   domain:
@@ -233,7 +233,7 @@ policy:
     - "@domain !~> internal/hack"
 `)
 
-	cfg, err := LoadComposed(filepath.Join(root, "archai.yaml"))
+	cfg, err := LoadComposed(filepath.Join(root, "wyrd.yaml"))
 	if err != nil {
 		t.Fatalf("LoadComposed: %v", err)
 	}
@@ -259,7 +259,7 @@ policy:
 func TestLoadComposed_PolicyFragmentOnlyNoRoot(t *testing.T) {
 	// Root has no policy block; fragment adds one
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "archai.yaml"), `module: github.com/example/app
+	writeFile(t, filepath.Join(root, "wyrd.yaml"), `module: github.com/example/app
 
 layers:
   domain:
@@ -275,7 +275,7 @@ layer_rules:
     - "@domain -> internal/debug"
 `)
 
-	cfg, err := LoadComposed(filepath.Join(root, "archai.yaml"))
+	cfg, err := LoadComposed(filepath.Join(root, "wyrd.yaml"))
 	if err != nil {
 		t.Fatalf("LoadComposed: %v", err)
 	}

@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/embed/noop"
-	"github.com/kgatilin/archai/internal/adapter/lindex/bm25"
-	"github.com/kgatilin/archai/internal/adapter/vindex/brute"
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/adapter/embed/noop"
+	"github.com/kgatilin/wyrd/internal/adapter/lindex/bm25"
+	"github.com/kgatilin/wyrd/internal/adapter/vindex/brute"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // TestExpandBFS tests graph expansion with hops and edge filtering.

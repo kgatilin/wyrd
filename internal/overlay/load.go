@@ -105,13 +105,13 @@ func findPackageOverlayFragments(root string) ([]string, error) {
 		switch name {
 		case ".git", ".worktrees", ".claude", "bin", "vendor", "node_modules":
 			return filepath.SkipDir
-		case ".arch":
+		case ".arch", ".wyrd":
 			rel, relErr := filepath.Rel(root, path)
 			if relErr != nil {
 				return relErr
 			}
 			rel = filepath.ToSlash(rel)
-			if rel == ".arch" || strings.HasPrefix(rel, ".arch/targets") || strings.HasPrefix(rel, ".arch/.worktree") {
+			if rel == name || strings.HasPrefix(rel, name+"/targets") || strings.HasPrefix(rel, name+"/.worktree") {
 				return filepath.SkipDir
 			}
 			fragmentPath := filepath.Join(path, packageOverlayFileName)
@@ -262,11 +262,31 @@ func modulePackage(module, pkgPath string) string {
 	return module + "/" + pkgPath
 }
 
-// FileName is the name of the project overlay document, at the project
-// (or repository) root.
-const FileName = "archai.yaml"
+// FileName is the canonical name of the project overlay document, at the
+// project (or repository) root.
+const FileName = "wyrd.yaml"
 
-// ServeHTTPAddr reads <root>/archai.yaml and returns its
+// LegacyFileName is the overlay name from before the tool was renamed
+// from archai to wyrd. Every discovery path accepts both, preferring
+// FileName, so existing projects load unchanged.
+const LegacyFileName = "archai.yaml"
+
+// DiscoverPath returns the overlay document at root: <root>/wyrd.yaml
+// when it exists, else the legacy <root>/archai.yaml, else "".
+func DiscoverPath(root string) string {
+	if root == "" {
+		root = "."
+	}
+	for _, name := range []string{FileName, LegacyFileName} {
+		p := filepath.Join(root, name)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// ServeHTTPAddr reads the project overlay at root and returns its
 // serve.http_addr — the address the project pins its review daemon to,
 // so the URL survives a restart and can be bookmarked.
 //
@@ -274,18 +294,12 @@ const FileName = "archai.yaml"
 // default (a kernel-assigned port). A malformed serve block is a hard
 // error: silently binding a random port instead of the configured one is
 // exactly the surprise the setting exists to remove. Only the serve
-// block is validated, so a partially-formed archai.yaml (no module, no
+// block is validated, so a partially-formed overlay (no module, no
 // layers) still yields an address.
 func ServeHTTPAddr(root string) (string, error) {
-	if root == "" {
-		root = "."
-	}
-	path := filepath.Join(root, FileName)
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", fmt.Errorf("overlay: stat %s: %w", path, err)
+	path := DiscoverPath(root)
+	if path == "" {
+		return "", nil
 	}
 	cfg, err := Load(path)
 	if err != nil {

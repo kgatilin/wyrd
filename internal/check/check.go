@@ -1,15 +1,15 @@
 // Package check runs the CI-facing architecture gates: overlay layer
 // rules, the dependency policy, and drift against a locked target.
 //
-// It exists so the gate a developer runs locally (`archai overlay check`,
-// `archai policy check`, `archai validate`) and the gate CI runs
-// (`archai-check`, the slim validation-only binary) are literally the same
+// It exists so the gate a developer runs locally (`wyrd overlay check`,
+// `wyrd policy check`, `wyrd validate`) and the gate CI runs
+// (`wyrd-check`, the slim validation-only binary) are literally the same
 // code — including the wording of the report, which is the thing people
 // grep in build logs.
 //
 // The package deliberately depends on nothing heavy: overlay, policy,
 // diff, target and the domain model, plus whatever ModelReader the caller
-// wires in. That is what lets cmd/archai-check link at a fraction of the
+// wires in. That is what lets cmd/wyrd-check link at a fraction of the
 // full binary's size — no diagram renderer, no HTTP server, no MCP
 // surface, no embedded review UI.
 package check
@@ -17,7 +17,7 @@ package check
 import (
 	"context"
 
-	"github.com/kgatilin/archai/internal/service"
+	"github.com/kgatilin/wyrd/internal/service"
 )
 
 // Checker runs the architecture gates against a project. Readers are

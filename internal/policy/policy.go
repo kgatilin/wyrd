@@ -1,7 +1,7 @@
-// Package policy evaluates archai's dependency policy: a concise,
+// Package policy evaluates wyrd's dependency policy: a concise,
 // path-based description of which package-to-package edges are allowed,
 // forbidden, or constrained by graph reachability. It compiles the policy
-// DSL carried in the archai.yaml overlay (overlay.PolicyConfig) into rules
+// DSL carried in the wyrd.yaml overlay (overlay.PolicyConfig) into rules
 // over the package dependency graph and reports violations.
 //
 // The policy is deliberately terse. A rule is one line:
@@ -21,7 +21,7 @@
 // See docs/features/dependency-policy/design.md.
 package policy
 
-import "github.com/kgatilin/archai/internal/domain"
+import "github.com/kgatilin/wyrd/internal/domain"
 
 // Op is a policy operator.
 type Op int

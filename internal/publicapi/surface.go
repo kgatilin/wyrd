@@ -1,4 +1,4 @@
-// Package publicapi projects Archai package models into the exported Go package
+// Package publicapi projects Wyrd package models into the exported Go package
 // surface used by review scopes and future API targets.
 package publicapi
 
@@ -8,10 +8,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
-const Schema = "archai.public-surface/v0"
+const Schema = "wyrd.public-surface/v0"
 
 type Surface struct {
 	Schema      string              `json:"schema"`

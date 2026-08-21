@@ -3,10 +3,10 @@ package serve
 import (
 	"path/filepath"
 
-	"github.com/kgatilin/archai/internal/retrieval"
+	"github.com/kgatilin/wyrd/internal/retrieval"
 )
 
-// vectorCacheDirName is the archai-home subdirectory holding the per-repo
+// vectorCacheDirName is the wyrd-home subdirectory holding the per-repo
 // shared vector caches.
 const vectorCacheDirName = "embeddings"
 
@@ -28,14 +28,14 @@ type VectorCacheProvider interface {
 }
 
 // VectorCacheDir returns the directory holding the shared vector cache for a
-// repository: <archai home>/embeddings/<repo key>, alongside the daemon
+// repository: <wyrd home>/embeddings/<repo key>, alongside the daemon
 // registry and keyed the same way.
 //
 // Pass the MAIN worktree root (worktree.RepoRoot) so a daemon started from a
 // linked worktree resolves to the same directory as one started from the
 // repo root — sharing across worktrees is the entire point.
 func VectorCacheDir(repoRoot string) (string, error) {
-	base, err := archaiHome()
+	base, err := wyrdHome()
 	if err != nil {
 		return "", err
 	}

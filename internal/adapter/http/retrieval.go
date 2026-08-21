@@ -7,7 +7,7 @@ import (
 	nethttp "net/http"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/retrieval"
+	"github.com/kgatilin/wyrd/internal/retrieval"
 )
 
 // registerRetrievalRoutes wires the retrieval API endpoints.

@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// TestE2E_MCPStdio spawns `archai serve --mcp-stdio` as a subprocess in
+// TestE2E_MCPStdio spawns `wyrd serve --mcp-stdio` as a subprocess in
 // a throwaway Go module and drives it through initialize → tools/list →
 // tools/call for each of the three tools, asserting the responses.
 func TestE2E_MCPStdio(t *testing.T) {
@@ -24,12 +24,12 @@ func TestE2E_MCPStdio(t *testing.T) {
 
 	// Build the CLI binary from the repo root (two levels up from cwd).
 	binDir := t.TempDir()
-	binPath := filepath.Join(binDir, "archai")
+	binPath := filepath.Join(binDir, "wyrd")
 	build := exec.Command("go", "build", "-o", binPath, ".")
 	build.Stdout = os.Stdout
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
-		t.Fatalf("build archai: %v", err)
+		t.Fatalf("build wyrd: %v", err)
 	}
 
 	// Create a minimal Go module with two packages so the daemon has

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/kgatilin/archai/internal/diff"
+	"github.com/kgatilin/wyrd/internal/diff"
 )
 
 // itemLimit caps a section's rows. What is cut is counted in Section.More, so

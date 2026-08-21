@@ -3,8 +3,8 @@ package plugin
 import (
 	"sort"
 
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 // Model is the unified read-only view of the project's architecture
@@ -14,19 +14,19 @@ import (
 //
 // Provenance: every Package carries Layer/Aggregate fields populated
 // by overlay.Merge, so callers can tell whether a piece of metadata
-// came from code or from archai.yaml without an extra source field.
+// came from code or from wyrd.yaml without an extra source field.
 // A future Source field can be added without changing this struct's
 // shape.
 type Model struct {
 	// Module is the Go module path from go.mod
-	// (e.g. "github.com/kgatilin/archai").
+	// (e.g. "github.com/kgatilin/wyrd").
 	Module string
 
 	// Packages is the merged list of code-extracted packages with
 	// overlay-assigned Layer/Aggregate populated where applicable.
 	Packages []*domain.PackageModel
 
-	// Layers lists the architectural layers declared in archai.yaml.
+	// Layers lists the architectural layers declared in wyrd.yaml.
 	// Empty when no overlay is loaded.
 	Layers []*Layer
 
@@ -44,11 +44,11 @@ type Model struct {
 	Aggregates []*Aggregate
 
 	// Configs lists fully-qualified type names tagged as
-	// configuration entry points by archai.yaml.
+	// configuration entry points by wyrd.yaml.
 	Configs []*ConfigType
 }
 
-// Layer is one entry from archai.yaml's layers map.
+// Layer is one entry from wyrd.yaml's layers map.
 type Layer struct {
 	// Name is the layer identifier (e.g. "domain", "application").
 	Name string
@@ -70,10 +70,10 @@ type LayerRule struct {
 
 // BoundedContext groups aggregates into a DDD-style context and
 // (optionally) records its context-map relationships with other
-// contexts. Populated from archai.yaml's bounded_contexts: map
+// contexts. Populated from wyrd.yaml's bounded_contexts: map
 // (M14, issue #72).
 type BoundedContext struct {
-	// Name is the context identifier (map key in archai.yaml).
+	// Name is the context identifier (map key in wyrd.yaml).
 	Name string
 
 	// Description is the optional human-readable summary.
@@ -99,17 +99,17 @@ type BoundedContext struct {
 	Relationship string
 }
 
-// Aggregate is one entry from archai.yaml's aggregates map.
+// Aggregate is one entry from wyrd.yaml's aggregates map.
 type Aggregate struct {
 	// Name is the aggregate identifier.
 	Name string
 
 	// Root is the fully-qualified type name of the aggregate root,
-	// e.g. "github.com/kgatilin/archai/internal/domain.PackageModel".
+	// e.g. "github.com/kgatilin/wyrd/internal/domain.PackageModel".
 	Root string
 }
 
-// ConfigType is one entry from archai.yaml's configs list.
+// ConfigType is one entry from wyrd.yaml's configs list.
 type ConfigType struct {
 	// FQTypeName is the fully-qualified type name flagged as a
 	// configuration entry point.

@@ -25,9 +25,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	adapterem "github.com/kgatilin/archai/internal/adapter/eventmodel"
-	"github.com/kgatilin/archai/internal/eventmodel"
-	"github.com/kgatilin/archai/internal/plugin"
+	adapterem "github.com/kgatilin/wyrd/internal/adapter/eventmodel"
+	"github.com/kgatilin/wyrd/internal/eventmodel"
+	"github.com/kgatilin/wyrd/internal/plugin"
 )
 
 // Plugin holds the in-memory state of the events plugin. The Host
@@ -56,7 +56,7 @@ func (p *Plugin) Init(_ context.Context, host plugin.Host, _ string) error {
 }
 
 // CLICommands implements plugin.Plugin. Contributes validate, graph and gen
-// subcommands under `archai plugin events`.
+// subcommands under `wyrd plugin events`.
 func (p *Plugin) CLICommands() []plugin.CLICommand {
 	return []plugin.CLICommand{
 		{Cmd: p.validateCmd()},
@@ -306,11 +306,11 @@ func (p *Plugin) genCmd() *cobra.Command {
 		Long: `Render each component's event declaration through project-supplied
 templates.
 
-archai owns the declaration format, its validation and its graph; the PROJECT
+wyrd owns the declaration format, its validation and its graph; the PROJECT
 owns the binding. Templates live in the project (default: .arch/templates/*.tmpl
-under the root), archai never learns the project's types, and nothing archai
+under the root), wyrd never learns the project's types, and nothing wyrd
 produces is a runtime dependency of the generated code. There is deliberately no
---lang flag: a language generator built into archai would invert that split.
+--lang flag: a language generator built into wyrd would invert that split.
 
 Each template is rendered once per component. The output file name is the
 template name minus its .tmpl suffix, and it must contain "` + generatedMarker + `" —
@@ -429,7 +429,7 @@ Template data model and helper functions: see docs/event-model.md.`,
 
 // formatGenerated canonicalizes generated Go before it is written.
 //
-// This is not archai learning the project's types — go/format is purely
+// This is not wyrd learning the project's types — go/format is purely
 // syntactic. It is here because generated files are committed: unformatted
 // output makes every diff noisy, and a template that emits invalid Go should
 // fail at generation time rather than at compile time. Files of any other

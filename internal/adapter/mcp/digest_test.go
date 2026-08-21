@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // fixturePackage builds an in-memory package with one of each major symbol

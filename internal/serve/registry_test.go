@@ -8,9 +8,9 @@ import (
 )
 
 func TestGlobalRegistry_Isolation(t *testing.T) {
-	// Use a temp dir for ARCHAI_HOME so we don't pollute ~/.arch.
+	// Use a temp dir for WYRD_HOME so we don't pollute ~/.arch.
 	tmpHome := t.TempDir()
-	t.Setenv("ARCHAI_HOME", tmpHome)
+	t.Setenv("WYRD_HOME", tmpHome)
 
 	// Create a fake project root.
 	projectRoot := filepath.Join(t.TempDir(), "myproject")
@@ -87,7 +87,7 @@ func TestGlobalRegistry_Isolation(t *testing.T) {
 
 func TestGlobalRegistry_StaleCleanup(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("ARCHAI_HOME", tmpHome)
+	t.Setenv("WYRD_HOME", tmpHome)
 
 	projectRoot := filepath.Join(t.TempDir(), "staleproject")
 	if err := os.MkdirAll(projectRoot, 0o755); err != nil {
@@ -130,7 +130,7 @@ func TestGlobalRegistry_StaleCleanup(t *testing.T) {
 
 func TestGlobalRegistry_MultipleRepos(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("ARCHAI_HOME", tmpHome)
+	t.Setenv("WYRD_HOME", tmpHome)
 
 	// Create two fake project roots.
 	project1 := filepath.Join(t.TempDir(), "project1")

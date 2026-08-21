@@ -1,11 +1,11 @@
 package yaml
 
-import "github.com/kgatilin/archai/internal/domain"
+import "github.com/kgatilin/wyrd/internal/domain"
 
 // toSpec converts a domain PackageModel to the YAML schema.
 func toSpec(model domain.PackageModel, publicOnly bool) PackageSpec {
 	spec := PackageSpec{
-		Schema:    "archai/v1",
+		Schema:    "wyrd/v1",
 		Package:   model.Path,
 		Name:      model.Name,
 		Layer:     model.Layer,

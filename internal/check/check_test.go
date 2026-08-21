@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // stubReader returns a fixed model, standing in for the Go source or the
@@ -25,12 +25,12 @@ func (s *stubReader) Read(_ context.Context, paths []string) ([]domain.PackageMo
 	return s.models, s.err
 }
 
-// writeProject lays out a minimal module with an archai.yaml overlay and
+// writeProject lays out a minimal module with an wyrd.yaml overlay and
 // returns the overlay and go.mod paths.
 func writeProject(t *testing.T, module, overlayYAML string) (overlayPath, goModPath string) {
 	t.Helper()
 	dir := t.TempDir()
-	overlayPath = filepath.Join(dir, "archai.yaml")
+	overlayPath = filepath.Join(dir, "wyrd.yaml")
 	goModPath = filepath.Join(dir, "go.mod")
 	if err := os.WriteFile(overlayPath, []byte(overlayYAML), 0o644); err != nil {
 		t.Fatalf("writing overlay: %v", err)

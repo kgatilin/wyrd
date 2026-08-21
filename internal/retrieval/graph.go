@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // EdgeKind represents the type of edge in the code graph.

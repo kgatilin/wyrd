@@ -10,7 +10,7 @@ import (
 
 // graph.go exposes the daemon-backed MCP tools (search, the analysis
 // lenses, node/package inspection, …) as first-class CLI commands under
-// `archai graph <tool>`. Each command is named after its MCP tool and
+// `wyrd graph <tool>`. Each command is named after its MCP tool and
 // carries typed flags mirroring that tool's input schema; at run time it
 // does not compute anything locally — it proxies a tools/call to a running
 // daemon via callDaemonTool, so the same graph that MCP clients query is
@@ -55,7 +55,7 @@ type toolCmd struct {
 
 // graphTools is the registry of proxied tools. apply_diff is intentionally
 // omitted — it takes a whole YAML patch body and already has the local
-// `archai apply` command.
+// `wyrd apply` command.
 func graphTools() []toolCmd {
 	pkgFlags := []argFlag{
 		{name: "package", kind: argString, path: "package", required: true, usage: "Package path to analyze"},
@@ -173,7 +173,7 @@ func graphTools() []toolCmd {
 	}
 }
 
-// newGraphCmd builds the `archai graph` group. The --daemon flag is
+// newGraphCmd builds the `wyrd graph` group. The --daemon flag is
 // persistent so every subcommand inherits it.
 func newGraphCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -184,7 +184,7 @@ lenses (trophic_layers, spectral_cluster, latent_domains, …), and node/package
 inspection — as CLI commands. Each subcommand proxies a tools/call to a running
 daemon rather than computing locally, so the live graph is reachable from any
 shell. By default it targets the current repo's daemon; use --daemon <name|pid>
-to reach another. Start a daemon first with 'archai daemon start'.`,
+to reach another. Start a daemon first with 'wyrd daemon start'.`,
 	}
 	cmd.PersistentFlags().String("daemon", "", "Target daemon by name or pid (default: current repo's daemon)")
 	for _, t := range graphTools() {

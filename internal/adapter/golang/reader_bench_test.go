@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// findArchaiRoot walks up from the test's CWD looking for go.mod with the
-// archai module path, so the benchmark can self-host on the archai source
+// findWyrdRoot walks up from the test's CWD looking for go.mod with the
+// wyrd module path, so the benchmark can self-host on the wyrd source
 // tree regardless of where `go test` is invoked.
-func findArchaiRoot(tb testing.TB) string {
+func findWyrdRoot(tb testing.TB) string {
 	tb.Helper()
 	dir, err := os.Getwd()
 	if err != nil {
@@ -20,13 +20,13 @@ func findArchaiRoot(tb testing.TB) string {
 		gomod := filepath.Join(dir, "go.mod")
 		if data, err := os.ReadFile(gomod); err == nil {
 			s := string(data)
-			if strContains(s, "module github.com/kgatilin/archai") {
+			if strContains(s, "module github.com/kgatilin/wyrd") {
 				return dir
 			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			tb.Fatal("could not locate archai module root from cwd")
+			tb.Fatal("could not locate wyrd module root from cwd")
 		}
 		dir = parent
 	}
@@ -41,12 +41,12 @@ func strContains(s, sub string) bool {
 	return false
 }
 
-// BenchmarkReader_ArchaiAll measures the end-to-end Read time for the
-// whole archai project under ./.... This is the single largest hot path
+// BenchmarkReader_WyrdAll measures the end-to-end Read time for the
+// whole wyrd project under ./.... This is the single largest hot path
 // the daemon hits on a cold load and the natural reference workload for
 // the parallel-extraction work in #58.
-func BenchmarkReader_ArchaiAll(b *testing.B) {
-	root := findArchaiRoot(b)
+func BenchmarkReader_WyrdAll(b *testing.B) {
+	root := findWyrdRoot(b)
 	prev, err := os.Getwd()
 	if err != nil {
 		b.Fatalf("getwd: %v", err)
@@ -71,10 +71,10 @@ func BenchmarkReader_ArchaiAll(b *testing.B) {
 	}
 }
 
-// BenchmarkReader_ArchaiInternal exercises a smaller scope (./internal/...)
+// BenchmarkReader_WyrdInternal exercises a smaller scope (./internal/...)
 // to get a finer-grained number that excludes cmd/ and tests/.
-func BenchmarkReader_ArchaiInternal(b *testing.B) {
-	root := findArchaiRoot(b)
+func BenchmarkReader_WyrdInternal(b *testing.B) {
+	root := findWyrdRoot(b)
 	prev, err := os.Getwd()
 	if err != nil {
 		b.Fatalf("getwd: %v", err)

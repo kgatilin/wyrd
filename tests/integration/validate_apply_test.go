@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/golang"
-	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
-	"github.com/kgatilin/archai/internal/apply"
-	"github.com/kgatilin/archai/internal/diff"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/target"
+	"github.com/kgatilin/wyrd/internal/adapter/golang"
+	yamlAdapter "github.com/kgatilin/wyrd/internal/adapter/yaml"
+	"github.com/kgatilin/wyrd/internal/apply"
+	"github.com/kgatilin/wyrd/internal/diff"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/target"
 )
 
 // TestIntegration_ValidateAndApply exercises the full M4c workflow: lock a
@@ -144,7 +144,7 @@ func mustMkdir(t *testing.T, path string) {
 
 // generateYAMLSpecs shells out to `go build` indirectly by parsing with the
 // golang reader and writing per-package YAML via the yaml writer, matching
-// what `archai diagram generate --format yaml` does.
+// what `wyrd diagram generate --format yaml` does.
 func generateYAMLSpecs(t *testing.T, ctx context.Context, projectRoot, pkgDir string) {
 	t.Helper()
 	// Ensure go modules can resolve inside the temp dir (no deps here).

@@ -5,7 +5,7 @@ import type { UIGraph } from '../types';
 // Helper to create a minimal graph
 function minimalGraph(overrides?: Partial<UIGraph>): UIGraph {
   return {
-    schema: 'archai.uigraph/v0',
+    schema: 'wyrd.uigraph/v0',
     boundedContexts: [],
     components: [],
     edges: [],

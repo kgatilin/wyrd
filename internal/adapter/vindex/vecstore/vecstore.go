@@ -1,5 +1,5 @@
 // Package vecstore provides a repo-level, content-addressed cache of node
-// embedding vectors, shared by every worktree served by one archai daemon.
+// embedding vectors, shared by every worktree served by one wyrd daemon.
 //
 // A node's vector is a pure function of (node text, embedder model,
 // embedding recipe). Nothing worktree-specific enters that key, so a fresh
@@ -30,13 +30,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kgatilin/archai/internal/retrieval"
+	"github.com/kgatilin/wyrd/internal/retrieval"
 )
 
 const (
 	// fileMagic tags a cache file so an unrelated or truncated file is
 	// recognised as junk rather than decoded into garbage vectors.
-	fileMagic = "archai-vecstore"
+	fileMagic = "wyrd-vecstore"
 
 	// fileVersion is the on-disk layout version. A mismatch makes the file
 	// unusable, which is treated as an empty cache (everything re-embeds).

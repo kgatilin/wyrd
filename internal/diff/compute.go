@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // Compute produces a structured Diff describing how the current model must

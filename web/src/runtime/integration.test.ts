@@ -8,7 +8,7 @@ import { createEffects } from '../effects';
 import type { GraphSourcePort, LayoutPort, SearchPort, ViewportPort } from '../domain/ports';
 
 const graph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [{ id: 'bc1', name: 'Core' }],
   components: [{ id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [{ id: 'a.i', kind: 'class', name: 'Ai', members: [] }], ports: [] }],
   edges: [],

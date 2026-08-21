@@ -1,4 +1,4 @@
-// Package main provides the CLI entry point for archai.
+// Package main provides the CLI entry point for wyrd.
 package main
 
 import (
@@ -16,25 +16,25 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kgatilin/archai/internal/adapter/d2"
-	"github.com/kgatilin/archai/internal/adapter/golang"
-	httpAdapter "github.com/kgatilin/archai/internal/adapter/http"
-	"github.com/kgatilin/archai/internal/adapter/mcp"
-	"github.com/kgatilin/archai/internal/adapter/mermaid"
-	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
-	"github.com/kgatilin/archai/internal/apply"
-	"github.com/kgatilin/archai/internal/buildinfo"
-	"github.com/kgatilin/archai/internal/check"
-	"github.com/kgatilin/archai/internal/diff"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
-	"github.com/kgatilin/archai/internal/plugin"
-	"github.com/kgatilin/archai/internal/sequence"
-	"github.com/kgatilin/archai/internal/serve"
-	"github.com/kgatilin/archai/internal/service"
-	"github.com/kgatilin/archai/internal/target"
-	"github.com/kgatilin/archai/internal/worktree"
-	reviewui "github.com/kgatilin/archai/web"
+	"github.com/kgatilin/wyrd/internal/adapter/d2"
+	"github.com/kgatilin/wyrd/internal/adapter/golang"
+	httpAdapter "github.com/kgatilin/wyrd/internal/adapter/http"
+	"github.com/kgatilin/wyrd/internal/adapter/mcp"
+	"github.com/kgatilin/wyrd/internal/adapter/mermaid"
+	yamlAdapter "github.com/kgatilin/wyrd/internal/adapter/yaml"
+	"github.com/kgatilin/wyrd/internal/apply"
+	"github.com/kgatilin/wyrd/internal/buildinfo"
+	"github.com/kgatilin/wyrd/internal/check"
+	"github.com/kgatilin/wyrd/internal/diff"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/sequence"
+	"github.com/kgatilin/wyrd/internal/serve"
+	"github.com/kgatilin/wyrd/internal/service"
+	"github.com/kgatilin/wyrd/internal/target"
+	"github.com/kgatilin/wyrd/internal/worktree"
+	reviewui "github.com/kgatilin/wyrd/web"
 	"github.com/spf13/cobra"
 	yamlv3 "gopkg.in/yaml.v3"
 )
@@ -44,9 +44,9 @@ const defaultServeReviewBaseRef = "main"
 func main() {
 	// Root command
 	rootCmd := &cobra.Command{
-		Use:   "archai",
+		Use:   "wyrd",
 		Short: "Architecture diagram generator for Go projects",
-		Long: `archai generates D2 architecture diagrams from Go source code.
+		Long: `wyrd generates D2 architecture diagrams from Go source code.
 
 It analyzes Go packages and creates visual representations of the code structure,
 including interfaces, structs, functions, and their relationships.`,
@@ -75,16 +75,16 @@ By default, generates both:
 
 Examples:
   # Generate diagrams for all packages in internal/
-  archai diagram generate ./internal/...
+  wyrd diagram generate ./internal/...
 
   # Generate only public API diagrams
-  archai diagram generate ./internal/... --pub
+  wyrd diagram generate ./internal/... --pub
 
   # Generate only internal diagrams
-  archai diagram generate ./internal/... --internal
+  wyrd diagram generate ./internal/... --internal
 
   # Generate combined diagram to single file
-  archai diagram generate ./internal/... -o architecture.d2`,
+  wyrd diagram generate ./internal/... -o architecture.d2`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runGenerate,
 	}
@@ -95,7 +95,7 @@ Examples:
 	generateCmd.Flags().StringP("output", "o", "", "Output to single file (combined mode)")
 	generateCmd.Flags().StringP("format", "f", "d2", "Output format: d2 or yaml")
 	generateCmd.Flags().Bool("debug", false, "Print debug information about packages and dependencies")
-	generateCmd.Flags().String("overlay", "", "Path to archai.yaml overlay (default: auto-detect in current directory)")
+	generateCmd.Flags().String("overlay", "", "Path to wyrd.yaml overlay (default: auto-detect in current directory)")
 	generateCmd.Flags().String("mode", "public", "Combined-mode overview detail: 'public' (default) or 'full'")
 
 	diagramCmd.AddCommand(generateCmd)
@@ -114,10 +114,10 @@ should look like) as opposed to pub.d2 files generated from actual code.
 
 Examples:
   # Split a combined diagram into per-package specs
-  archai diagram split docs/architecture.d2
+  wyrd diagram split docs/architecture.d2
 
   # Preview what would be created without writing files
-  archai diagram split docs/architecture.d2 --dry-run`,
+  wyrd diagram split docs/architecture.d2 --dry-run`,
 		Args: cobra.ExactArgs(1),
 		RunE: runSplit,
 	}
@@ -136,10 +136,10 @@ Use --spec to compose from pub-spec.d2 files (target specifications).
 
 Examples:
   # Compose from code-generated diagrams (default)
-  archai diagram compose ./internal/... --output=docs/current-architecture.d2
+  wyrd diagram compose ./internal/... --output=docs/current-architecture.d2
 
   # Compose from saved specs (target state)
-  archai diagram compose ./internal/... --spec --output=docs/target-architecture.d2`,
+  wyrd diagram compose ./internal/... --spec --output=docs/target-architecture.d2`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runCompose,
 	}
@@ -155,7 +155,7 @@ Examples:
 		Long: `Lock, list, inspect, select and delete frozen target snapshots.
 
 A "target" is a frozen copy of the project's per-package .arch/*.yaml
-specifications plus the overlay (archai.yaml) at a point in time. Targets
+specifications plus the overlay (wyrd.yaml) at a point in time. Targets
 live under .arch/targets/<id>/ and the active target is tracked in
 .arch/targets/CURRENT.`,
 	}
@@ -165,8 +165,8 @@ live under .arch/targets/<id>/ and the active target is tracked in
 	targetLockCmd := &cobra.Command{
 		Use:   "lock <id>",
 		Short: "Freeze the current architecture as target <id>",
-		Long: `Regenerate per-package YAML specs (archai diagram generate --format yaml)
-and freeze them — along with archai.yaml — into .arch/targets/<id>/.`,
+		Long: `Regenerate per-package YAML specs (wyrd diagram generate --format yaml)
+and freeze them — along with wyrd.yaml — into .arch/targets/<id>/.`,
 		Args: cobra.ExactArgs(1),
 		RunE: runTargetLock,
 	}
@@ -268,9 +268,9 @@ the CURRENT target.`,
 	// Overlay command group (M3c)
 	overlayCmd := &cobra.Command{
 		Use:   "overlay",
-		Short: "Commands for working with archai.yaml overlays",
+		Short: "Commands for working with wyrd.yaml overlays",
 		Long: `Commands for validating and inspecting the composed overlay:
-root archai.yaml plus package-local .arch/overlay.yaml fragments.`,
+root wyrd.yaml plus package-local .arch/overlay.yaml fragments.`,
 	}
 	rootCmd.AddCommand(overlayCmd)
 
@@ -278,7 +278,7 @@ root archai.yaml plus package-local .arch/overlay.yaml fragments.`,
 	overlayCheckCmd := &cobra.Command{
 		Use:   "check",
 		Short: "Validate overlay and report layer-rule violations",
-		Long: `Load the composed overlay (archai.yaml plus package-local
+		Long: `Load the composed overlay (wyrd.yaml plus package-local
 .arch/overlay.yaml fragments), validate it against go.mod, extract the current
 Go model, and report any layer-rule violations.
 
@@ -286,15 +286,15 @@ Exits 0 when the overlay is valid and there are no violations; exits 1
 when the overlay fails validation or when any violations are reported.
 
 Examples:
-  # Check the overlay at ./archai.yaml (default)
-  archai overlay check
+  # Check the overlay at ./wyrd.yaml (default)
+  wyrd overlay check
 
   # Check a specific overlay file
-  archai overlay check --overlay path/to/archai.yaml`,
+  wyrd overlay check --overlay path/to/wyrd.yaml`,
 		Args: cobra.NoArgs,
 		RunE: runOverlayCheck,
 	}
-	overlayCheckCmd.Flags().String("overlay", "", "Path to archai.yaml overlay (default: ./archai.yaml)")
+	overlayCheckCmd.Flags().String("overlay", "", "Path to wyrd.yaml overlay (default: ./wyrd.yaml)")
 	overlayCmd.AddCommand(overlayCheckCmd)
 
 	// Serve command — long-running daemon holding an in-memory model
@@ -302,10 +302,10 @@ Examples:
 	// browser UI; MCP stdio (--mcp-stdio) is still a stub until M5b.
 	serveCmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Run archai as a long-running daemon with an in-memory model",
-		Long: `Run archai as a long-running daemon.
+		Short: "Run wyrd as a long-running daemon with an in-memory model",
+		Long: `Run wyrd as a long-running daemon.
 
-Loads the Go model, the archai.yaml overlay (if present), and the active
+Loads the Go model, the wyrd.yaml overlay (if present), and the active
 target id into memory, then watches the project root with fsnotify and
 incrementally refreshes the model on change.
 
@@ -330,7 +330,7 @@ and as a base for future features.`,
 	// without an explicit opt-in. Users who want LAN access can pass
 	// --http 0.0.0.0:PORT (or any specific interface). The bound
 	// address is recorded in .arch/.worktree/<name>/serve.json for
-	// `archai where` / `archai daemon list` to discover.
+	// `wyrd where` / `wyrd daemon list` to discover.
 	serveCmd.Flags().String("http", "127.0.0.1:0", "HTTP transport address (\"\" disables HTTP; default 127.0.0.1:0 binds loopback on a free port, pass 0.0.0.0:PORT for LAN access)")
 	// M10: --multi discovers every git worktree of the project and
 	// exposes each under /w/{name}/ so a single daemon can drive them
@@ -343,7 +343,7 @@ and as a base for future features.`,
 	// process (no fsnotify).
 	serveCmd.Flags().Bool("no-daemon", false, "With --mcp-stdio: skip auto-start and run one-shot in-process (no HTTP daemon, no watcher)")
 	// --shared switches --mcp-stdio to attach to the repo-root
-	// multi-worktree daemon (archai serve --multi) instead of a local
+	// multi-worktree daemon (wyrd serve --multi) instead of a local
 	// per-worktree daemon. The worktree name is derived from cwd and
 	// every tool call is scoped to that daemon's /w/{name}/ routes, so a
 	// single warm daemon serves every worktree's MCP without re-parsing.
@@ -351,7 +351,7 @@ and as a base for future features.`,
 	// M11 idle-timeout: when non-zero, the HTTP daemon exits after
 	// this duration without any requests. Auto-started daemons pass
 	// 15m to keep untracked idle daemons from outliving their MCP
-	// clients. User-started `archai serve` defaults to 0 (disabled).
+	// clients. User-started `wyrd serve` defaults to 0 (disabled).
 	serveCmd.Flags().Duration("idle-timeout", 0, "Exit the daemon after this duration with no HTTP requests (0 disables; auto-started MCP daemons use 15m)")
 	rootCmd.AddCommand(serveCmd)
 
@@ -371,7 +371,7 @@ daemon is running.`,
 	// (list/stop/restart) over the global registry.
 	rootCmd.AddCommand(newDaemonCmd())
 
-	// Graph tool proxy: `archai graph <tool>` calls the daemon's MCP tools
+	// Graph tool proxy: `wyrd graph <tool>` calls the daemon's MCP tools
 	// (search, analysis lenses, node/package inspection) from the CLI.
 	rootCmd.AddCommand(newGraphCmd())
 
@@ -394,10 +394,10 @@ The current model is loaded from per-package .arch/*.yaml files when
 present; otherwise the Go reader parses ./... directly.
 
 Examples:
-  archai sequence internal/service.Service.Generate
-  archai sequence internal/service.Service.Generate --depth 3
-  archai sequence internal/service.Service.Generate --format d2 -o gen.d2
-  archai sequence internal/service.Service.Generate --format svg -o gen.svg`,
+  wyrd sequence internal/service.Service.Generate
+  wyrd sequence internal/service.Service.Generate --depth 3
+  wyrd sequence internal/service.Service.Generate --format d2 -o gen.d2
+  wyrd sequence internal/service.Service.Generate --format svg -o gen.svg`,
 		Args: cobra.ExactArgs(1),
 		RunE: runSequence,
 	}
@@ -415,9 +415,9 @@ By default root-only entries are skipped, so the output contains actual
 call sequences rather than isolated boxes.
 
 Examples:
-  archai sequence package internal/plugin --output-dir .arch/sequences
-  archai sequence package internal/plugin --entry NewReader --format svg -o new-reader.svg
-  archai sequence package internal/plugin --mode full --format d2 --output-dir /tmp/seq`,
+  wyrd sequence package internal/plugin --output-dir .arch/sequences
+  wyrd sequence package internal/plugin --entry NewReader --format svg -o new-reader.svg
+  wyrd sequence package internal/plugin --mode full --format d2 --output-dir /tmp/seq`,
 		Args: cobra.ExactArgs(1),
 		RunE: runSequencePackage,
 	}
@@ -430,7 +430,7 @@ Examples:
 	sequenceCmd.AddCommand(sequencePackageCmd)
 	rootCmd.AddCommand(sequenceCmd)
 
-	// version — prints `archai <Version>`.
+	// version — prints `wyrd <Version>`.
 	rootCmd.AddCommand(newVersionCmd())
 
 	// extract — dumps per-package YAML/JSON (mirror of the MCP extract tool).
@@ -453,7 +453,7 @@ Examples:
 	}
 }
 
-// runServe handles `archai serve`. It wires SIGINT/SIGTERM into a
+// runServe handles `wyrd serve`. It wires SIGINT/SIGTERM into a
 // cancellable context and dispatches between three operational modes:
 //
 //  1. Default: long-running HTTP daemon (no --mcp-stdio).
@@ -491,7 +491,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// modes: the thin/shared client gets its address from serve.json (or
 	// the shared daemon) and one-shot mode binds no HTTP at all, so
 	// parsing the worktree overlay here only adds a failure mode (e.g. a
-	// worktree whose archai.yaml uses a newer schema than this binary).
+	// worktree whose wyrd.yaml uses a newer schema than this binary).
 	if !httpAddrFromFlag && !mcpStdio {
 		overlayAddr, err := overlay.ServeHTTPAddr(root)
 		if err != nil {
@@ -647,7 +647,7 @@ func resolveReviewUIFS() (fs.FS, error) {
 
 func resolveReviewUIDistDir() (string, error) {
 	candidates := []string{}
-	if env := strings.TrimSpace(os.Getenv("ARCHAI_REVIEW_UI_DIR")); env != "" {
+	if env := strings.TrimSpace(os.Getenv("WYRD_REVIEW_UI_DIR")); env != "" {
 		candidates = append(candidates, env)
 	}
 	for _, dir := range candidates {
@@ -660,7 +660,7 @@ func resolveReviewUIDistDir() (string, error) {
 		}
 	}
 	if len(candidates) > 0 {
-		return "", fmt.Errorf("review UI dist not found; run `npm run build` in web/ or set ARCHAI_REVIEW_UI_DIR")
+		return "", fmt.Errorf("review UI dist not found; run `npm run build` in web/ or set WYRD_REVIEW_UI_DIR")
 	}
 	return "", nil
 }
@@ -722,7 +722,7 @@ func warmWorktree(addr, wtName string) {
 	}()
 }
 
-// runMCPThinClient implements the `archai serve --mcp-stdio` thin
+// runMCPThinClient implements the `wyrd serve --mcp-stdio` thin
 // client. It discovers the repo's running multi-worktree daemon
 // (auto-starting one if necessary) and runs the MCP stdio transport
 // in client mode. Requests are routed via /w/<worktree-name>/ so each
@@ -801,7 +801,7 @@ func runMCPThinClient(ctx context.Context, root string) error {
 	})
 }
 
-// runMCPSharedClient implements `archai serve --mcp-stdio --shared`. It
+// runMCPSharedClient implements `wyrd serve --mcp-stdio --shared`. It
 // resolves the repo root for the (possibly linked) worktree at root,
 // attaches to the repo-root multi-worktree daemon, and runs the MCP stdio
 // transport scoped to this worktree's /w/{name}/ routes.
@@ -881,7 +881,7 @@ func runMCPSharedClient(ctx context.Context, root string) error {
 	})
 }
 
-// runSequence handles `archai sequence <target>`. It parses the target,
+// runSequence handles `wyrd sequence <target>`. It parses the target,
 // loads the current model (YAML specs preferred, Go reader fallback),
 // builds the call-sequence tree and emits it in the requested format.
 func runSequence(cmd *cobra.Command, args []string) error {
@@ -944,7 +944,7 @@ func runSequence(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runSequencePackage handles `archai sequence package <package>`.
+// runSequencePackage handles `wyrd sequence package <package>`.
 func runSequencePackage(cmd *cobra.Command, args []string) error {
 	pkgPath := args[0]
 	depth, _ := cmd.Flags().GetInt("depth")
@@ -1102,15 +1102,15 @@ func safeSequenceFilename(label string) string {
 	return out
 }
 
-// newChecker returns the CI-gate runner used by `archai overlay check`,
-// `archai policy check` and `archai validate`. The same package backs the
-// slim cmd/archai-check binary, so the local gate and the CI gate are the
+// newChecker returns the CI-gate runner used by `wyrd overlay check`,
+// `wyrd policy check` and `wyrd validate`. The same package backs the
+// slim cmd/wyrd-check binary, so the local gate and the CI gate are the
 // same code and the same report wording.
 func newChecker() *check.Checker {
 	return check.New(golang.NewReader(), yamlAdapter.NewReader())
 }
 
-// runOverlayCheck executes `archai overlay check`: it loads the overlay,
+// runOverlayCheck executes `wyrd overlay check`: it loads the overlay,
 // validates it against the adjacent go.mod, extracts the current Go model
 // and reports every import that breaks a layer rule. Returns a non-nil
 // error (which Cobra turns into a non-zero exit code) when validation
@@ -1120,7 +1120,7 @@ func runOverlayCheck(cmd *cobra.Command, args []string) error {
 
 	overlayPath, goModPath := check.ResolveOverlay(overlayFlag)
 	if overlayPath == "" {
-		return fmt.Errorf("no overlay found: pass --overlay or create archai.yaml in the current directory")
+		return fmt.Errorf("no overlay found: pass --overlay or create wyrd.yaml in the current directory")
 	}
 
 	return newChecker().RunOverlay(cmd.Context(), check.OverlayOptions{
@@ -1189,7 +1189,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	modeFlag, _ := cmd.Flags().GetString("mode")
 
 	// Resolve overlay path: explicit flag wins; otherwise auto-detect
-	// archai.yaml in the current working directory.
+	// wyrd.yaml in the current working directory.
 	overlayPath, goModPath := check.ResolveOverlay(overlayFlag)
 	d2Style, err := loadD2StyleConfig(overlayPath)
 	if err != nil {
@@ -1462,9 +1462,9 @@ func runCompose(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runTargetLock handles `archai target lock <id>`. It (optionally)
+// runTargetLock handles `wyrd target lock <id>`. It (optionally)
 // regenerates per-package YAML specs and then freezes them plus
-// archai.yaml into .arch/targets/<id>/.
+// wyrd.yaml into .arch/targets/<id>/.
 func runTargetLock(cmd *cobra.Command, args []string) error {
 	id := args[0]
 	description, _ := cmd.Flags().GetString("description")
@@ -1513,7 +1513,7 @@ func runTargetLock(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runTargetList handles `archai target list`.
+// runTargetList handles `wyrd target list`.
 func runTargetList(cmd *cobra.Command, args []string) error {
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -1538,7 +1538,7 @@ func runTargetList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runTargetShow handles `archai target show <id>`.
+// runTargetShow handles `wyrd target show <id>`.
 func runTargetShow(cmd *cobra.Command, args []string) error {
 	id := args[0]
 	projectRoot, err := os.Getwd()
@@ -1562,7 +1562,7 @@ func runTargetShow(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runTargetUse handles `archai target use <id>`.
+// runTargetUse handles `wyrd target use <id>`.
 func runTargetUse(cmd *cobra.Command, args []string) error {
 	id := args[0]
 	projectRoot, err := os.Getwd()
@@ -1576,7 +1576,7 @@ func runTargetUse(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runTargetDelete handles `archai target delete <id>`.
+// runTargetDelete handles `wyrd target delete <id>`.
 func runTargetDelete(cmd *cobra.Command, args []string) error {
 	id := args[0]
 	force, _ := cmd.Flags().GetBool("force")
@@ -1591,7 +1591,7 @@ func runTargetDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runDiff handles `archai diff`. It loads the current model from the
+// runDiff handles `wyrd diff`. It loads the current model from the
 // project's per-package .arch/*.yaml files (falling back to parsing Go
 // sources if no specs are present) and the target model from
 // .arch/targets/<id>/model/, computes a structured diff and prints it in
@@ -1612,7 +1612,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("reading CURRENT: %w", err)
 		}
 		if cur == "" {
-			return errors.New("no target specified and no CURRENT target set; use --target <id> or `archai target use <id>`")
+			return errors.New("no target specified and no CURRENT target set; use --target <id> or `wyrd target use <id>`")
 		}
 		targetID = cur
 	}
@@ -1656,7 +1656,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runDiffApply handles `archai diff apply <patch.yaml>`. It loads the patch,
+// runDiffApply handles `wyrd diff apply <patch.yaml>`. It loads the patch,
 // resolves the active target, rebuilds the current + target models, invokes
 // apply.Apply, and overwrites the target snapshot's model/ tree with the
 // result.
@@ -1687,7 +1687,7 @@ func runDiffApply(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("reading CURRENT: %w", err)
 		}
 		if cur == "" {
-			return errors.New("no target specified and no CURRENT target set; use --target <id> or `archai target use <id>`")
+			return errors.New("no target specified and no CURRENT target set; use --target <id> or `wyrd target use <id>`")
 		}
 		targetID = cur
 	}
@@ -1719,7 +1719,7 @@ func runDiffApply(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runValidate handles `archai validate`. It exits 0 when the current
+// runValidate handles `wyrd validate`. It exits 0 when the current
 // model matches the target, non-zero otherwise. Output format is
 // controlled by --format.
 func runValidate(cmd *cobra.Command, args []string) error {
@@ -1764,7 +1764,7 @@ func validatePatch(d *diff.Diff) error {
 	return nil
 }
 
-// runWhere handles `archai where`. It prints the URL of the daemon
+// runWhere handles `wyrd where`. It prints the URL of the daemon
 // currently serving this worktree (if any) and exits non-zero when no
 // daemon is recorded or the record is stale.
 func runWhere(cmd *cobra.Command, args []string) error {
@@ -1778,7 +1778,7 @@ func runWhere(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("reading serve.json: %w", err)
 	}
 	if rec == nil {
-		return fmt.Errorf("no daemon running in worktree %q (run `archai serve`)", name)
+		return fmt.Errorf("no daemon running in worktree %q (run `wyrd serve`)", name)
 	}
 	if !worktree.PIDAlive(rec.PID) {
 		return fmt.Errorf("stale serve.json for worktree %q (pid %d not alive)", name, rec.PID)
@@ -1787,7 +1787,7 @@ func runWhere(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runListDaemons handles `archai daemon list`. It prints a table of
+// runListDaemons handles `wyrd daemon list`. It prints a table of
 // live daemons from the global registry (works from any directory).
 // Also includes legacy per-worktree daemons for the current project.
 func runListDaemons(cmd *cobra.Command, args []string) error {

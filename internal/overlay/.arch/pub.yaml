@@ -1,4 +1,4 @@
-schema: archai/v1
+schema: wyrd/v1
 package: internal/overlay
 name: overlay
 layer: model_ops
@@ -16,7 +16,7 @@ structs:
       doc: |
         Aggregate describes a domain aggregate by its root type.
         Root is a fully-qualified type name, e.g.
-        "github.com/kgatilin/archai/internal/domain.PackageModel".
+        "github.com/kgatilin/wyrd/internal/domain.PackageModel".
       stereotype: value
     - name: Config
       fields:
@@ -67,10 +67,10 @@ structs:
       exported: true
       source_file: config.go
       doc: |
-        Config is the top-level archai.yaml document.
+        Config is the top-level wyrd.yaml document.
 
         Field semantics:
-          - Module: the Go module path (e.g. "github.com/kgatilin/archai").
+          - Module: the Go module path (e.g. "github.com/kgatilin/wyrd").
             Must match the module directive in go.mod.
           - Layers: named architectural layers, each mapped to one or more
             package globs (e.g. "internal/domain/...").
@@ -118,7 +118,7 @@ functions:
       exported: true
       source_file: load.go
       doc: |
-        Load reads the archai.yaml file at path, parses it into a Config,
+        Load reads the wyrd.yaml file at path, parses it into a Config,
         and returns it. Errors are wrapped with the source path so callers
         can report them clearly.
 
@@ -137,7 +137,7 @@ functions:
       exported: true
       source_file: load.go
       doc: |
-        LoadComposed reads the root archai.yaml at path and composes it with
+        LoadComposed reads the root wyrd.yaml at path and composes it with
         package-local overlay fragments named .arch/overlay.yaml below the
         same project root. The root file remains the place for module-wide
         settings such as layers and layer rules, while package fragments can

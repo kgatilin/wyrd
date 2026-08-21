@@ -15,19 +15,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kgatilin/archai/internal/serve"
-	"github.com/kgatilin/archai/internal/worktree"
+	"github.com/kgatilin/wyrd/internal/serve"
+	"github.com/kgatilin/wyrd/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
-// newDaemonCmd builds the `archai daemon` command group for managing serve
+// newDaemonCmd builds the `wyrd daemon` command group for managing serve
 // daemons via the global registry (~/.arch/daemons): the repo-level daemons
 // that MCP and UI clients auto-start.
 func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "daemon",
-		Short: "Manage archai serve daemons",
-		Long: `Inspect and control archai serve daemons recorded in the global
+		Short: "Manage wyrd serve daemons",
+		Long: `Inspect and control wyrd serve daemons recorded in the global
 registry (~/.arch/daemons) — the repo-level daemons that MCP and UI clients
 auto-start. Subcommands: list, stop, restart.`,
 	}
@@ -158,7 +158,7 @@ func prettyJSON(s string) string {
 // warms at startup), falling back to the first worktree the daemon knows.
 //
 // The primary-worktree preference matters when targeting a daemon by name
-// from outside its repo (e.g. `--daemon archai` from $HOME): cwd matches no
+// from outside its repo (e.g. `--daemon wyrd` from $HOME): cwd matches no
 // served worktree, and routing to an arbitrary sibling worktree would hit a
 // cold/parsing state instead of the warm primary one.
 func daemonWorktreeName(rec *serve.DaemonRecord) string {
@@ -218,7 +218,7 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 
 // reviewURL is the page to open for a worktree — the whole address, not
 // just the origin, so it can be pasted or bookmarked as printed. Pin the
-// port with serve.http_addr in archai.yaml and it stays valid across
+// port with serve.http_addr in wyrd.yaml and it stays valid across
 // restarts.
 func reviewURL(addr, worktree string) string {
 	origin := daemonOrigin(addr)
@@ -260,7 +260,7 @@ func newDaemonStopCmd() *cobra.Command {
 
 The target is the daemon serving the current repository by default, or the one
 named by [name|pid]: a numeric argument matches by PID, anything else matches a
-repo-root basename (e.g. "archai") as shown by ` + "`archai daemon list`" + `.`,
+repo-root basename (e.g. "wyrd") as shown by ` + "`wyrd daemon list`" + `.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: runDaemonStop,
 	}
@@ -275,8 +275,8 @@ func newDaemonRestartCmd() *cobra.Command {
 		Short: "Restart a daemon, picking up the current binary (default: current repo's)",
 		Long: `Stop the target daemon and start a fresh repo-level daemon in its place.
 
-Use this after installing a new archai binary so the running daemon picks up
-the new code (the replacement is launched from the archai binary now on PATH).
+Use this after installing a new wyrd binary so the running daemon picks up
+the new code (the replacement is launched from the wyrd binary now on PATH).
 The target defaults to the current repo's daemon; pass [name|pid] to target
 another, where a numeric argument is a PID and anything else is a repo-root
 basename.`,
@@ -321,7 +321,7 @@ func resolveDaemonTarget(arg string) (*serve.DaemonRecord, error) {
 				Worktrees: []string{name},
 			}, nil
 		}
-		return nil, fmt.Errorf("no daemon running for repo %s (start one with `archai daemon start`)", repoRoot)
+		return nil, fmt.Errorf("no daemon running for repo %s (start one with `wyrd daemon start`)", repoRoot)
 	}
 
 	daemons, err := serve.ListGlobalDaemons()
@@ -336,7 +336,7 @@ func resolveDaemonTarget(arg string) (*serve.DaemonRecord, error) {
 				return &rec, nil
 			}
 		}
-		return nil, fmt.Errorf("no daemon with pid %d (see `archai daemon list`)", pid)
+		return nil, fmt.Errorf("no daemon with pid %d (see `wyrd daemon list`)", pid)
 	}
 
 	var matches []serve.DaemonRecord
@@ -347,7 +347,7 @@ func resolveDaemonTarget(arg string) (*serve.DaemonRecord, error) {
 	}
 	switch len(matches) {
 	case 0:
-		return nil, fmt.Errorf("no daemon for repo named %q (see `archai daemon list`)", arg)
+		return nil, fmt.Errorf("no daemon for repo named %q (see `wyrd daemon list`)", arg)
 	case 1:
 		rec := matches[0]
 		return &rec, nil

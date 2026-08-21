@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/plugin"
 )
 
 // TestSetPluginTools_AppendsToToolDefinitions verifies the prefixed

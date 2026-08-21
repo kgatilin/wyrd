@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 func TestVectorCacheNamespaceCarriesEmbedderAndRecipe(t *testing.T) {

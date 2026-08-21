@@ -142,7 +142,7 @@ archai export ui [paths...] [--target <id>] [-o out.json] [--overlay archai.yaml
   and synthesize the `pr` block (git branch/commit via existing helpers; stats from
   the diff). Otherwise emit a no-diff graph.
 - Project → marshal → write to `-o` (default stdout).
-- Wiring lives in `cmd/archai/`, consistent with `newExtractCmd()`.
+- Wiring lives in `cmd/wyrd/`, consistent with `newExtractCmd()`.
 
 No other archai code changes. (Stretch, not in POC: a `/api/ui-graph` serve handler
 reusing `uigraph.Project`.)

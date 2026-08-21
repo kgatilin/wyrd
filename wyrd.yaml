@@ -1,6 +1,6 @@
-# Self-hosted archai overlay.
+# Self-hosted wyrd overlay.
 #
-# This file is intentionally a real project config for archai itself. The
+# This file is intentionally a real project config for wyrd itself. The
 # generated per-package `.arch/` files in this repository are produced from
 # this overlay, so the project demonstrates the tool on its own codebase.
 #
@@ -16,7 +16,7 @@
 #   - Layer rules still describe permitted package-level dependencies
 #     between the four coarse architecture layers.
 
-module: github.com/kgatilin/archai
+module: github.com/kgatilin/wyrd
 
 layers:
   domain:
@@ -52,9 +52,9 @@ layer_rules:
 
 aggregates:
   domain:
-    root: "github.com/kgatilin/archai/internal/domain.PackageModel"
+    root: "github.com/kgatilin/wyrd/internal/domain.PackageModel"
   model_ops:
-    root: "github.com/kgatilin/archai/internal/overlay.Config"
+    root: "github.com/kgatilin/wyrd/internal/overlay.Config"
 
 bounded_contexts:
   model:
@@ -80,7 +80,7 @@ adapters:
   yaml_overlay:
     name: "YAML Overlay"
     direction: inbound
-    description: "Loads archai.yaml and per-package overlay fragments."
+    description: "Loads wyrd.yaml and per-package overlay fragments."
     packages:
       - internal/adapter/yaml/...
   d2_emitter:
@@ -136,7 +136,7 @@ ports:
 
 # Dependency policy (see docs/features/dependency-policy/design.md).
 #
-# This dogfoods the policy engine on archai itself. It encodes archai's own
+# This dogfoods the policy engine on wyrd itself. It encodes wyrd's own
 # hexagonal invariants from CLAUDE.md:
 #   - rule 4: "Domain models are data containers — no behavior, no external
 #     dependencies", so the domain must not depend on any other layer.

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 func TestModelEvents_StreamPackageReload(t *testing.T) {

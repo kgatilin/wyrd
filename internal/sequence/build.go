@@ -3,7 +3,7 @@ package sequence
 import (
 	"strings"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // Build walks the static call graph rooted at start and returns a Node tree
@@ -117,7 +117,7 @@ func copyVisited(src map[string]bool) map[string]bool {
 //
 //	internal/service.Service.Generate    (method)
 //	internal/service.NewService          (function)
-//	cmd/archai.main                      (function)
+//	cmd/wyrd.main                      (function)
 //
 // into a SymbolRef. Heuristic: the last dot separates Symbol from
 // Package ONLY if the token before it starts lower-case (function) OR

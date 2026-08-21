@@ -14,7 +14,7 @@ US-1 (split mode) is fully implemented:
 - `--output` flag exists but returns an error (stubbed for US-2)
 
 Key components:
-- `cmd/archai/main.go:100-104` - Currently rejects `--output` flag
+- `cmd/wyrd/main.go:100-104` - Currently rejects `--output` flag
 - `internal/service/generate.go` - Iterates packages, writes each independently
 - `internal/adapter/d2/writer.go` - Writes single package to single file
 - `internal/adapter/d2/builder.go` - Builds D2 content for single package
@@ -278,7 +278,7 @@ func (w *Writer) WriteCombined(ctx context.Context, models []domain.PackageModel
 
 ### Task 5: Update CLI Command
 
-**File:** `cmd/archai/main.go`
+**File:** `cmd/wyrd/main.go`
 
 CLI decides which service method to call based on `--output` flag:
 
@@ -424,7 +424,7 @@ func (b *combinedBuilder) collectCrossPackageDeps(packages []domain.PackageModel
 
 ### E2E Tests
 
-**`cmd/archai/e2e_test.go`:**
+**`cmd/wyrd/e2e_test.go`:**
 - `TestE2E_CLI_GenerateCombined`: Basic `--output` flag
 - `TestE2E_CLI_GenerateCombined_MultiplePackages`: Multiple packages in one file
 - `TestE2E_CLI_GenerateCombined_CrossPackageDeps`: Verify cross-package arrows in output
@@ -446,10 +446,10 @@ func (b *combinedBuilder) collectCrossPackageDeps(packages []domain.PackageModel
 | `internal/service/generate_combined.go` | **New** | `GenerateCombined`, options, result types |
 | `internal/adapter/d2/combined_builder.go` | **New** | Multi-package D2 builder |
 | `internal/adapter/d2/writer.go` | Modify | Add `WriteCombined` method |
-| `cmd/archai/main.go` | Modify | Remove stub, branch to `GenerateCombined` |
+| `cmd/wyrd/main.go` | Modify | Remove stub, branch to `GenerateCombined` |
 | `internal/service/generate_combined_test.go` | **New** | Unit tests |
 | `internal/adapter/d2/combined_builder_test.go` | **New** | Unit tests |
-| `cmd/archai/e2e_test.go` | Modify | Add E2E tests |
+| `cmd/wyrd/e2e_test.go` | Modify | Add E2E tests |
 
 ## Implementation Order
 

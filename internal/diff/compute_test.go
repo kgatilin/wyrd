@@ -3,7 +3,7 @@ package diff
 import (
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 func pkg(path, name string) domain.PackageModel {

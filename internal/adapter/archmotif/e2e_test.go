@@ -6,14 +6,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/archmotif"
-	"github.com/kgatilin/archai/internal/adapter/golang"
+	"github.com/kgatilin/wyrd/internal/adapter/archmotif"
+	"github.com/kgatilin/wyrd/internal/adapter/golang"
 )
 
 // TestE2E_GoReaderToArchmotifGraph exercises the full pipeline:
 //
 //  1. Write a tiny two-package Go module to a temp dir.
-//  2. Read it through archai's Go reader to produce
+//  2. Read it through wyrd's Go reader to produce
 //     []domain.PackageModel.
 //  3. Convert to an archmotif typed graph via ToArchmotifGraph.
 //  4. Run a basic in-process metric — depth-2 cycle detection — on
@@ -73,7 +73,7 @@ func Fetch() *a.Entity { return a.Action() }
 		t.Fatalf("b.go: %v", err)
 	}
 
-	// Read with archai's Go reader. packages.Load needs the working
+	// Read with wyrd's Go reader. packages.Load needs the working
 	// dir to be inside the module so paths like "./..." resolve.
 	prevWD, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(prevWD) })

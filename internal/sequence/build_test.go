@@ -3,7 +3,7 @@ package sequence
 import (
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // fixture builds a set of PackageModels covering:

@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/kgatilin/archai/internal/buildinfo"
+	"github.com/kgatilin/wyrd/internal/buildinfo"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +15,7 @@ import (
 //
 // New build scripts should target buildinfo.Version directly:
 //
-//	go build -ldflags "-X github.com/kgatilin/archai/internal/buildinfo.Version=v0.1.0" ./cmd/archai
+//	go build -ldflags "-X github.com/kgatilin/wyrd/internal/buildinfo.Version=v0.1.0" ./cmd/wyrd
 var Version = "dev"
 
 func init() {
@@ -25,7 +25,7 @@ func init() {
 }
 
 // resolveVersion returns the effective version string used by
-// `archai version`. It delegates to buildinfo.Resolve() so the CLI
+// `wyrd version`. It delegates to buildinfo.Resolve() so the CLI
 // and HTTP surfaces never disagree.
 //
 // Forwarding rules:
@@ -43,15 +43,15 @@ func resolveVersion() string {
 	return buildinfo.Resolve().Version
 }
 
-// newVersionCmd returns the `archai version` command. Output is a
-// single line: `archai <version>`.
+// newVersionCmd returns the `wyrd version` command. Output is a
+// single line: `wyrd <version>`.
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print archai version",
+		Short: "Print wyrd version",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
-			fmt.Fprintf(cmd.OutOrStdout(), "archai %s\n", resolveVersion())
+			fmt.Fprintf(cmd.OutOrStdout(), "wyrd %s\n", resolveVersion())
 		},
 	}
 }

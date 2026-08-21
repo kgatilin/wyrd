@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // OverviewMode controls how much detail an overview diagram includes.

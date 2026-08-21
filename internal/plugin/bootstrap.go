@@ -9,7 +9,7 @@ import (
 )
 
 // BootstrapResult collects every capability spec gathered while
-// initializing the registered plugins. The caller (cmd/archai) wires
+// initializing the registered plugins. The caller (cmd/wyrd) wires
 // these into the appropriate transports:
 //   - CLI commands are added to the cobra root;
 //   - MCPTools and HTTPHandlers are forwarded to their respective
@@ -111,8 +111,8 @@ func Bootstrap(ctx context.Context, host Host, configPath ConfigPathFunc) (Boots
 }
 
 // AddCLICommandsToRoot adds every plugin-contributed cobra command to
-// rootCmd. Used by tests; production code (cmd/archai) groups plugin
-// commands under `archai plugin <name> ...` via BuildPluginCommand.
+// rootCmd. Used by tests; production code (cmd/wyrd) groups plugin
+// commands under `wyrd plugin <name> ...` via BuildPluginCommand.
 func AddCLICommandsToRoot(rootCmd *cobra.Command, cmds []NamedCLICommand) {
 	for _, c := range cmds {
 		if c.Command.Cmd == nil {
@@ -210,24 +210,24 @@ func PrefixedMCPName(pluginName, toolName string) string {
 	return "plugin." + pluginName + "." + toolName
 }
 
-// BuildPluginCommand returns the `archai plugin ...` cobra subcommand
+// BuildPluginCommand returns the `wyrd plugin ...` cobra subcommand
 // tree: a parent "plugin" command with one child per registered plugin
-// (`archai plugin <name> ...`) plus a built-in `archai plugin list`
+// (`wyrd plugin <name> ...`) plus a built-in `wyrd plugin list`
 // subcommand. The list subcommand prints, for each plugin, its
 // manifest line and the names of the capabilities it contributes.
 func BuildPluginCommand(res BootstrapResult) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "plugin",
-		Short: "Inspect and run archai plugins",
-		Long: `Group of commands for archai plugins.
+		Short: "Inspect and run wyrd plugins",
+		Long: `Group of commands for wyrd plugins.
 
 Each registered plugin appears as a subcommand: any CLI command that
-plugin contributes is mounted under "archai plugin <name> ...". The
+plugin contributes is mounted under "wyrd plugin <name> ...". The
 "plugin list" command prints every loaded plugin and the capabilities
 (CLI / MCP / HTTP / UI) it exposes.`,
 	}
 
-	// Group every plugin's CLI commands under "archai plugin <name>".
+	// Group every plugin's CLI commands under "wyrd plugin <name>".
 	groups := make(map[string]*cobra.Command)
 	for _, c := range res.CLICommands {
 		if c.Command.Cmd == nil {
@@ -314,7 +314,7 @@ func capabilitiesFor(res BootstrapResult, name string) []string {
 		if c.Plugin != name || c.Command.Cmd == nil {
 			continue
 		}
-		lines = append(lines, "CLI : archai plugin "+name+" "+c.Command.Cmd.Use)
+		lines = append(lines, "CLI : wyrd plugin "+name+" "+c.Command.Cmd.Use)
 	}
 	for _, t := range res.MCPTools {
 		if t.Plugin != name {
@@ -364,7 +364,7 @@ func sortStrings(s []string) {
 }
 
 // joinErrors returns errors.Join-style aggregation without depending
-// on stdlib errors.Join (available since Go 1.20; archai already
+// on stdlib errors.Join (available since Go 1.20; wyrd already
 // requires newer Go but keeping this local makes the package
 // self-contained and the behavior obvious).
 func joinErrors(errs []error) error {

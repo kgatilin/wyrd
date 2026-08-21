@@ -3,7 +3,7 @@ import type { UIGraph } from '../types';
 import { loadGraph } from './load';
 
 const graph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [],
   components: [],
   edges: [],

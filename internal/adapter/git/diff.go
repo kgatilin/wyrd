@@ -1,7 +1,7 @@
 // Package git reads the working state of a git repository.
 //
 // It is an inbound adapter: it shells out to the git CLI and turns its
-// output into plain data. Nothing here knows about the archai model —
+// output into plain data. Nothing here knows about the wyrd model —
 // the review UI's file-level diff is text, not architecture.
 //
 // The diff produced by Diff answers "what did this branch change",

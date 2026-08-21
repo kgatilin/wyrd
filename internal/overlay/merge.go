@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // Violation describes a forbidden cross-layer import discovered during

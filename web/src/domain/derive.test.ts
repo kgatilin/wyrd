@@ -5,7 +5,7 @@ import type { AskProjection } from './ask';
 
 function graph(overrides?: Partial<UIGraph>): UIGraph {
   return {
-    schema: 'archai.uigraph/v0',
+    schema: 'wyrd.uigraph/v0',
     boundedContexts: [{ id: 'bc1', name: 'Core' }],
     components: [
       { id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [{ id: 'a.i', kind: 'class', name: 'Ai', members: [] }], ports: [] },
@@ -434,7 +434,7 @@ describe('selectReviewGraph', () => {
 
   it('can filter visible package details down to changed public API symbols and ports', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 3, removed: 0, changed: 1, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 3, removed: 0, changed: 1, comments: 0 } },
       components: [
         {
           id: 'api',
@@ -521,7 +521,7 @@ describe('selectReviewGraph', () => {
 
   it('keeps dependency-only packages visible without dumping unchanged symbols in changed-details mode', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       components: [
         {
           id: 'api',
@@ -561,7 +561,7 @@ describe('selectReviewGraph', () => {
 
   it('keeps changed containers visible without dumping unchanged members in changed-details mode', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 0, removed: 0, changed: 1, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 0, removed: 0, changed: 1, comments: 0 } },
       components: [
         {
           id: 'api',
@@ -602,7 +602,7 @@ describe('selectReviewGraph', () => {
 
   it('filters context edges to changed dependency edges in changed-details mode', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       components: [
         { id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', diff: 'changed', internals: [], ports: [] },
         { id: 'b', name: 'B', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
@@ -625,7 +625,7 @@ describe('selectReviewGraph', () => {
 
   it('in diff mode keeps only changed components by default', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       components: [
         { id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
         { id: 'b', name: 'B', tech: '', desc: '', bc: 'bc1', internals: [{ id: 'b.Public', kind: 'class', name: 'Public', exported: true, diff: 'added', members: [] }], ports: [] },
@@ -646,7 +646,7 @@ describe('selectReviewGraph', () => {
 
   it('does not promote unchanged dependency endpoints to changed packages when content changed', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 0, removed: 0, changed: 1, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 0, removed: 0, changed: 1, comments: 0 } },
       components: [
         { id: 'api', name: 'api', tech: '', desc: '', bc: 'bc1', diff: 'changed', internals: [], ports: [] },
         { id: 'event', name: 'event', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
@@ -667,7 +667,7 @@ describe('selectReviewGraph', () => {
 
   it('keeps dependency-only diffs visible when there are no content changes', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       components: [
         { id: 'api', name: 'api', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
         { id: 'event', name: 'event', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
@@ -688,7 +688,7 @@ describe('selectReviewGraph', () => {
 
   it('can hide unchanged neighbors while keeping the selected impact mode', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       components: [
         { id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
         { id: 'b', name: 'B', tech: '', desc: '', bc: 'bc1', diff: 'added', internals: [], ports: [] },
@@ -713,7 +713,7 @@ describe('selectReviewGraph', () => {
 
   it('can expand diff mode to containing groups', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       reviewGroupings: [
         {
           id: 'directory',
@@ -740,7 +740,7 @@ describe('selectReviewGraph', () => {
 
   it('filters diff mode by change kind', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 1, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 1, changed: 0, comments: 0 } },
       components: [
         { id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', diff: 'added', internals: [], ports: [] },
         { id: 'b', name: 'B', tech: '', desc: '', bc: 'bc1', diff: 'removed', internals: [], ports: [] },
@@ -759,7 +759,7 @@ describe('selectReviewGraph', () => {
 
   it('can explicitly expand from the selected review view to the whole repository', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       reviewViews: [
         { id: 'api', title: 'API', defaultScope: 'everything', componentIds: ['a', 'b'], componentCount: 2 },
       ],
@@ -785,7 +785,7 @@ describe('selectReviewGraph', () => {
 
   it('filters dependency changes from edge diff flags', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 0, removed: 0, changed: 1, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 0, removed: 0, changed: 1, comments: 0 } },
       components: [
         { id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
         { id: 'b', name: 'B', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
@@ -809,7 +809,7 @@ describe('selectReviewGraph', () => {
 
   it('filters policy violations from server-resolved violation pairs', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 0, removed: 0, changed: 1, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 0, removed: 0, changed: 1, comments: 0 } },
       components: [
         { id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', diff: 'changed', internals: [], ports: [] },
         { id: 'b', name: 'B', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
@@ -848,7 +848,7 @@ describe('selectReviewGraph', () => {
 
   it('keeps pre-existing policy violations out of the changed set', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       components: [
         { id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', diff: 'added', internals: [], ports: [] },
         { id: 'b', name: 'B', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
@@ -968,7 +968,7 @@ describe('selectReviewGraph', () => {
 
   it('keeps only changed-source symbol relations in changed-details mode', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       components: [
         {
           id: 'api',
@@ -1042,7 +1042,7 @@ describe('selectReviewGraph', () => {
 
   it('keeps visible same-package symbol relations in changed-details mode', () => {
     const g = graph({
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       components: [
         {
           id: 'event',

@@ -1,13 +1,13 @@
 // Package buildinfo exposes the version, VCS commit and Go toolchain
-// versions of the running archai binary in a single, JSON-friendly
-// shape. The CLI's `archai version` command and the HTTP /api/version
+// versions of the running wyrd binary in a single, JSON-friendly
+// shape. The CLI's `wyrd version` command and the HTTP /api/version
 // endpoint both render the same Info struct so users never see
 // different values for the same build.
 //
 // Resolution precedence:
 //
 //  1. Linker-injected Version (set via `-X
-//     github.com/kgatilin/archai/internal/buildinfo.Version=v0.1.0`).
+//     github.com/kgatilin/wyrd/internal/buildinfo.Version=v0.1.0`).
 //  2. debug.ReadBuildInfo().Main.Version when (1) is still "dev" and
 //     module info is available (e.g. `go install`).
 //  3. The literal string "dev".
@@ -21,7 +21,7 @@ import "runtime/debug"
 
 // Version is overridden at build time via:
 //
-//	go build -ldflags "-X github.com/kgatilin/archai/internal/buildinfo.Version=v0.1.0" ./cmd/archai
+//	go build -ldflags "-X github.com/kgatilin/wyrd/internal/buildinfo.Version=v0.1.0" ./cmd/wyrd
 //
 // It defaults to "dev" so unversioned builds remain identifiable.
 var Version = "dev"

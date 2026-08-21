@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const sampleArchaiYAML = `module: github.com/example/app
+const sampleWyrdYAML = `module: github.com/example/app
 
 layers:
   domain:
@@ -38,7 +38,7 @@ func writeTempFile(t *testing.T, name, content string) string {
 }
 
 func TestLoad_ValidYAML(t *testing.T) {
-	path := writeTempFile(t, "archai.yaml", sampleArchaiYAML)
+	path := writeTempFile(t, "wyrd.yaml", sampleWyrdYAML)
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -104,8 +104,8 @@ func TestLoad_InvalidYAML(t *testing.T) {
 
 func TestLoad_UnknownField(t *testing.T) {
 	// KnownFields(true) should reject unknown top-level keys so typos
-	// in archai.yaml fail loudly instead of silently being ignored.
-	path := writeTempFile(t, "archai.yaml",
+	// in wyrd.yaml fail loudly instead of silently being ignored.
+	path := writeTempFile(t, "wyrd.yaml",
 		"module: github.com/example/app\nlayer:\n  domain: [internal/domain/...]\n")
 
 	_, err := Load(path)
@@ -130,7 +130,7 @@ configs: []
 serve:
   http_addr: "0.0.0.0:47823"
 `
-	path := writeTempFile(t, "archai.yaml", yaml)
+	path := writeTempFile(t, "wyrd.yaml", yaml)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load returned unexpected error: %v", err)
@@ -144,7 +144,7 @@ func TestLoad_ServeHTTPAddr_Absent(t *testing.T) {
 	// When the serve block is omitted entirely, the zero-value
 	// ServeConfig{} should be returned so callers can fall through
 	// to flag defaults without ambiguity.
-	path := writeTempFile(t, "archai.yaml", sampleArchaiYAML)
+	path := writeTempFile(t, "wyrd.yaml", sampleWyrdYAML)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load returned unexpected error: %v", err)
@@ -214,7 +214,7 @@ package_owners:
       include:
         - "internal/runtime/..."
 `
-	path := writeTempFile(t, "archai.yaml", yaml)
+	path := writeTempFile(t, "wyrd.yaml", yaml)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load returned unexpected error: %v", err)
@@ -286,7 +286,7 @@ review_groups:
       include:
         - "internal plugins/..."
 `
-	path := writeTempFile(t, "archai.yaml", yaml)
+	path := writeTempFile(t, "wyrd.yaml", yaml)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load returned unexpected error: %v", err)
@@ -316,7 +316,7 @@ review_views:
   framework_api:
     default_scope: publicish
 `
-	path := writeTempFile(t, "archai.yaml", yaml)
+	path := writeTempFile(t, "wyrd.yaml", yaml)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load returned unexpected error: %v", err)
@@ -346,7 +346,7 @@ review_views:
   framework_api:
     default_expansion: sideways
 `
-	path := writeTempFile(t, "archai.yaml", yaml)
+	path := writeTempFile(t, "wyrd.yaml", yaml)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load returned unexpected error: %v", err)
@@ -378,7 +378,7 @@ package_owners:
       include:
         - "internal bad/..."
 `
-	path := writeTempFile(t, "archai.yaml", yaml)
+	path := writeTempFile(t, "wyrd.yaml", yaml)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load returned unexpected error: %v", err)
@@ -415,7 +415,7 @@ diagrams:
         fill: "#ffffff"
         stroke: "#d1d5db"
 `
-	path := writeTempFile(t, "archai.yaml", yaml)
+	path := writeTempFile(t, "wyrd.yaml", yaml)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load returned unexpected error: %v", err)
@@ -466,7 +466,7 @@ adapters:
   http_server:
     direction: bidirectional
 `
-	path := writeTempFile(t, "archai.yaml", yaml)
+	path := writeTempFile(t, "wyrd.yaml", yaml)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load returned unexpected error: %v", err)
@@ -506,7 +506,7 @@ adapters:
   example:
     direction: ` + dir + `
 `
-			path := writeTempFile(t, "archai.yaml", yaml)
+			path := writeTempFile(t, "wyrd.yaml", yaml)
 			cfg, err := Load(path)
 			if err != nil {
 				t.Fatalf("Load returned unexpected error: %v", err)
@@ -542,7 +542,7 @@ adapters:
   bogus:
     direction: sideways
 `
-	path := writeTempFile(t, "archai.yaml", yaml)
+	path := writeTempFile(t, "wyrd.yaml", yaml)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load returned unexpected error: %v", err)
@@ -556,7 +556,7 @@ adapters:
 
 func TestLoadComposed_PackageFragments(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "archai.yaml"), `module: github.com/example/app
+	writeFile(t, filepath.Join(root, "wyrd.yaml"), `module: github.com/example/app
 
 layers:
   service:
@@ -578,7 +578,7 @@ configs:
   - github.com/other/mod/pkg.ExternalOptions
 `)
 
-	cfg, err := LoadComposed(filepath.Join(root, "archai.yaml"))
+	cfg, err := LoadComposed(filepath.Join(root, "wyrd.yaml"))
 	if err != nil {
 		t.Fatalf("LoadComposed: %v", err)
 	}
@@ -608,7 +608,7 @@ configs:
 
 func TestLoadComposed_SkipsTargetOverlayCopies(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "archai.yaml"), `module: github.com/example/app
+	writeFile(t, filepath.Join(root, "wyrd.yaml"), `module: github.com/example/app
 
 layers:
   domain:
@@ -621,7 +621,7 @@ layer_rules:
   - ShouldNotAppear
 `)
 
-	cfg, err := LoadComposed(filepath.Join(root, "archai.yaml"))
+	cfg, err := LoadComposed(filepath.Join(root, "wyrd.yaml"))
 	if err != nil {
 		t.Fatalf("LoadComposed: %v", err)
 	}

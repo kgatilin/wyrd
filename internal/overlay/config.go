@@ -1,4 +1,4 @@
-// Package overlay provides the schema and loader for archai.yaml,
+// Package overlay provides the schema and loader for wyrd.yaml,
 // the user-authored overlay file that describes the target architecture
 // (layers, layer rules, aggregates, and configs) for a Go module.
 //
@@ -9,10 +9,10 @@
 // schema, loads it from disk, and validates it in isolation.
 package overlay
 
-// Config is the top-level archai.yaml document.
+// Config is the top-level wyrd.yaml document.
 //
 // Field semantics:
-//   - Module: the Go module path (e.g. "github.com/kgatilin/archai").
+//   - Module: the Go module path (e.g. "github.com/kgatilin/wyrd").
 //     Must match the module directive in go.mod.
 //   - Layers: named architectural layers, each mapped to one or more
 //     package globs (e.g. "internal/domain/...").
@@ -43,7 +43,7 @@ type Config struct {
 
 // PolicyConfig declares the dependency policy: which package-to-package
 // edges are permitted, forbidden, or constrained by graph reachability.
-// Rules are written in the archai policy DSL (see internal/policy). This
+// Rules are written in the wyrd policy DSL (see internal/policy). This
 // struct only carries the raw rule strings; internal/policy parses and
 // evaluates them, so overlay stays a pure schema package with no
 // dependency on the evaluator.
@@ -119,7 +119,7 @@ type D2LegendStyle struct {
 	Stroke string `yaml:"stroke,omitempty"`
 }
 
-// ServeConfig captures persistent settings for `archai serve`. Each
+// ServeConfig captures persistent settings for `wyrd serve`. Each
 // field has a CLI flag counterpart that takes precedence when set;
 // values here act as the project-level default so a workstation does
 // not have to repeat them on every invocation.
@@ -160,7 +160,7 @@ type ReviewGroup struct {
 	PerDirectory string          `yaml:"per_directory,omitempty"`
 }
 
-// PackageSelector includes and excludes package paths using archai review
+// PackageSelector includes and excludes package paths using wyrd review
 // selector syntax:
 //   - "*" matches one package segment.
 //   - "pkg/*" matches direct children of pkg.
@@ -203,7 +203,7 @@ var ReviewExpansions = []string{
 
 // Aggregate describes a domain aggregate by its root type.
 // Root is a fully-qualified type name, e.g.
-// "github.com/kgatilin/archai/internal/domain.PackageModel".
+// "github.com/kgatilin/wyrd/internal/domain.PackageModel".
 type Aggregate struct {
 	Root string `yaml:"root"`
 }

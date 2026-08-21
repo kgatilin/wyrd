@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/kgatilin/archai/internal/policy"
+	"github.com/kgatilin/wyrd/internal/policy"
 )
 
 // AllOptions configures a combined run of the overlay and dependency-policy
 // gates.
 type AllOptions struct {
-	// OverlayPath is the archai.yaml to load. Required.
+	// OverlayPath is the wyrd.yaml to load. Required.
 	OverlayPath string
 	// GoModPath is the go.mod validated against the overlay. May be empty.
 	GoModPath string

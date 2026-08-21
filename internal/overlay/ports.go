@@ -7,7 +7,7 @@ import (
 
 // Ports declares the exported symbols that are reached from outside the
 // dependency graph — plugin hooks, reflection and registration targets,
-// generated code. Nothing in the code reaches them by an edge archai can see,
+// generated code. Nothing in the code reaches them by an edge wyrd can see,
 // so without the declaration an unused-export check would report them as dead.
 //
 // The section is a statement of intent, not a heuristic: whatever is listed

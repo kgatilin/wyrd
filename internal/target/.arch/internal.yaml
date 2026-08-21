@@ -1,4 +1,4 @@
-schema: archai/v1
+schema: wyrd/v1
 package: internal/target
 name: target
 layer: storage
@@ -151,16 +151,16 @@ functions:
       source_file: storage.go
       doc: |
         Lock freezes the current per-package .arch/*.yaml snapshots and the
-        project's archai.yaml into .arch/targets/<id>/.
+        project's wyrd.yaml into .arch/targets/<id>/.
 
-        It does NOT run `archai diagram generate` — callers must ensure the
+        It does NOT run `wyrd diagram generate` — callers must ensure the
         per-package .arch/*.yaml files are up to date (the CLI runs generate
         before invoking Lock; tests populate .arch/ directly).
 
         The project layout after Lock looks like:
 
         	.arch/targets/<id>/meta.yaml
-        	.arch/targets/<id>/overlay.yaml              (copy of archai.yaml, optional)
+        	.arch/targets/<id>/overlay.yaml              (copy of wyrd.yaml, optional)
         	.arch/targets/<id>/overlays/<pkg>/overlay.yaml (copy of package-local overlay fragments, optional)
         	.arch/targets/<id>/model/<pkg>/pub.yaml
         	.arch/targets/<id>/model/<pkg>/internal.yaml
@@ -399,7 +399,7 @@ constants:
     - name: overlaySource
       type:
         name: untyped string
-      value: '"archai.yaml"'
+      value: '"wyrd.yaml"'
       exported: false
       source_file: storage.go
       doc: |

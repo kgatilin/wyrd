@@ -8,7 +8,7 @@ import {
 
 function graph(overrides?: Partial<UIGraph>): UIGraph {
   return {
-    schema: 'archai.uigraph/v0',
+    schema: 'wyrd.uigraph/v0',
     repo: { root: '/repo', activeWorktree: 'feature' },
     reviewScopes: [
       { id: 'top_level_public_api', title: 'Top-level Public API' },

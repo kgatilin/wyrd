@@ -1,6 +1,6 @@
 // Package target provides storage and management of "target" snapshots:
 // frozen copies of a project's per-package architecture specs (.arch/*.yaml)
-// plus the overlay (archai.yaml) at a specific point in time.
+// plus the overlay (wyrd.yaml) at a specific point in time.
 //
 // A target is identified by a human-readable id and lives under
 // .arch/targets/<id>/. A single active target is tracked via

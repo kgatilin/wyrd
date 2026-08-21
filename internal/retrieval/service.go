@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // Service orchestrates the vector and lexical indexes for code search.
@@ -175,6 +175,8 @@ func WithVectorCache(c VectorCache) Option {
 // NewService creates a new retrieval service with the given dependencies.
 // Pass nil for vindex or lindex to disable that search mode.
 func NewService(root string, emb Embedder, vidx vectorIndexWithHash, lidx lexicalIndexWithPersist, opts ...Option) *Service {
+	// .archai is the historical cache dir name, kept so existing
+	// gitignores and warm caches survive the archai→wyrd rename.
 	cacheDir := filepath.Join(root, ".archai", "cache")
 	s := &Service{
 		root:           root,

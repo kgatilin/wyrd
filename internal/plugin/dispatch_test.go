@@ -99,7 +99,7 @@ func TestMountPluginAssetHandlers_ServesEmbeddedFS(t *testing.T) {
 	miss.Body.Close()
 }
 
-// TestBuildPluginCommand_ListPrintsCapabilities runs `archai plugin
+// TestBuildPluginCommand_ListPrintsCapabilities runs `wyrd plugin
 // list` and asserts that every capability kind shows up under the
 // plugin row.
 func TestBuildPluginCommand_ListPrintsCapabilities(t *testing.T) {
@@ -142,7 +142,7 @@ func TestBuildPluginCommand_ListPrintsCapabilities(t *testing.T) {
 	out := buf.String()
 	wants := []string{
 		"complexity",
-		"CLI : archai plugin complexity report",
+		"CLI : wyrd plugin complexity report",
 		"MCP : plugin.complexity.scores",
 		"HTTP: GET /api/plugins/complexity/scores",
 		"UI  : <plugin-complexity-heatmap> on dashboard/main",
@@ -155,7 +155,7 @@ func TestBuildPluginCommand_ListPrintsCapabilities(t *testing.T) {
 }
 
 // TestBuildPluginCommand_GroupsByPlugin verifies CLI commands are
-// grouped under `archai plugin <name>`.
+// grouped under `wyrd plugin <name>`.
 func TestBuildPluginCommand_GroupsByPlugin(t *testing.T) {
 	res := BootstrapResult{
 		CLICommands: []NamedCLICommand{

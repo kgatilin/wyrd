@@ -63,7 +63,7 @@ Service:
 ```
 
 - Ядро (service) зависит только от портов и `internal/domain`. Адаптеры зависят
-  от домена, не наоборот. Wiring — в `cmd/archai` / `internal/serve` (DI).
+  от домена, не наоборот. Wiring — в `cmd/wyrd` / `internal/serve` (DI).
 - **Graceful degradation:** если `Embedder` недоступен (ollama не запущен) —
   dense отключается, BM25 работает, `/search` возвращает lexical-результаты с
   флагом `dense:false`. Это явный контракт, не падение.

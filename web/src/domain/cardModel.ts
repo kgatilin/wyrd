@@ -3,7 +3,7 @@ import type { Diff, Internal, InternalKind, Member } from '../types';
 /**
  * The structure rendered inside an expanded package card.
  *
- * The card mirrors what `archai diagram generate` emits as D2: a package is a
+ * The card mirrors what `wyrd diagram generate` emits as D2: a package is a
  * set of source-file containers, each holding class shapes, each class shape a
  * header plus a two-column body. Grouping by file is what makes a package
  * readable — it is the unit the code is actually written and reviewed in —

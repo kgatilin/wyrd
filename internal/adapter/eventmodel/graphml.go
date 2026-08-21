@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/eventmodel"
+	"github.com/kgatilin/wyrd/internal/eventmodel"
 	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
 )
 

@@ -228,7 +228,7 @@ The `Module` provides context for relative paths:
 ```go
 // module.go
 type Module struct {
-    Path     string          // From go.mod: "github.com/kgatilin/archai"
+    Path     string          // From go.mod: "github.com/kgatilin/wyrd"
     Packages []PackageModel
 }
 ```
@@ -585,7 +585,7 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) ([]Generat
 ```
 ┌──────────────┐
 │     CLI      │
-│  (cmd/archai)│
+│  (cmd/wyrd)│
 └──────┬───────┘
        │ creates via factory
        ▼
@@ -1076,7 +1076,7 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) ([]Generat
 ### Iteration 5: CLI
 
 #### Task 5.1: Set Up Cobra CLI
-- Create `cmd/archai/main.go`
+- Create `cmd/wyrd/main.go`
 - Set up root command
 - Configure `diagram` subcommand group
 
@@ -1087,7 +1087,7 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) ([]Generat
 - Create service via factory and call Generate()
 
 ```go
-// cmd/archai/main.go
+// cmd/wyrd/main.go
 func main() {
     rootCmd := &cobra.Command{Use: "archai"}
 
@@ -1339,5 +1339,5 @@ require (
 - [ ] `options.go` - Shared interfaces, options, result types
 - [ ] `generate.go` - Generate() operation
 
-**CLI (`cmd/archai/`):**
+**CLI (`cmd/wyrd/`):**
 - [ ] `main.go` - CLI entry point with Cobra

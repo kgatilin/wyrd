@@ -6,7 +6,7 @@ export interface ReviewDefaults {
   groupingByView?: Record<string, string>;
 }
 
-const STORAGE_PREFIX = 'archai:review-defaults:v1';
+const STORAGE_PREFIX = 'wyrd:review-defaults:v1';
 
 export function buildReviewDefaultsKey(graph: UIGraph): string {
   return [

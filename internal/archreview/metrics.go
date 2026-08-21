@@ -4,7 +4,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/kgatilin/archai/internal/policy"
+	"github.com/kgatilin/wyrd/internal/policy"
 )
 
 // policyViolations tags package edges with the dependency policy's verdict,
@@ -13,7 +13,7 @@ import (
 // would name the wrong culprit.
 //
 // The policy is not re-derived here — internal/policy parses and evaluates it,
-// the same evaluator archai's CI gate runs.
+// the same evaluator wyrd's CI gate runs.
 func policyViolations(s *side) map[Edge]string {
 	out := map[Edge]string{}
 	if s.overlay == nil || !s.overlay.Policy.Defined() {

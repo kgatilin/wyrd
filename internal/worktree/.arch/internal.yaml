@@ -1,4 +1,4 @@
-schema: archai/v1
+schema: wyrd/v1
 package: internal/worktree
 name: worktree
 layer: storage
@@ -81,7 +81,7 @@ structs:
       source_file: worktree.go
       doc: |
         ServeRecord is the JSON payload written to serve.json by a running
-        daemon so peer tools (`archai where`, `archai list-daemons`) can
+        daemon so peer tools (`wyrd where`, `wyrd list-daemons`) can
         discover live daemons without probing ports.
       stereotype: value
 functions:

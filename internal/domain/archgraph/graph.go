@@ -3,7 +3,7 @@ package archgraph
 import (
 	"sort"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // NodeKind classifies a Node in the architecture graph.

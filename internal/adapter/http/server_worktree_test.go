@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kgatilin/archai/internal/serve"
-	"github.com/kgatilin/archai/internal/worktree"
+	"github.com/kgatilin/wyrd/internal/serve"
+	"github.com/kgatilin/wyrd/internal/worktree"
 )
 
 // TestServe_Lifecycle_WithServeJSON drives the full daemon lifecycle:

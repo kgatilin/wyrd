@@ -11,10 +11,10 @@ import (
 // TestE2E_CLI_Generate tests the CLI end-to-end with real package generation.
 func TestE2E_CLI_Generate(t *testing.T) {
 	// Build the CLI binary first
-	tmpBin := filepath.Join(t.TempDir(), "archai")
+	tmpBin := filepath.Join(t.TempDir(), "wyrd")
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to build archai binary: %v", err)
+		t.Fatalf("Failed to build wyrd binary: %v", err)
 	}
 
 	// Create a test package
@@ -56,7 +56,7 @@ func NewService(cfg Config) Service {
 		t.Fatalf("Failed to create service.go: %v", err)
 	}
 
-	// Run: archai diagram generate .
+	// Run: wyrd diagram generate .
 	cmd = exec.Command(tmpBin, "diagram", "generate", ".")
 	cmd.Dir = testDir
 	output, err := cmd.CombinedOutput()
@@ -115,10 +115,10 @@ func NewService(cfg Config) Service {
 
 // TestE2E_CLI_Generate_PublicOnly tests --pub flag.
 func TestE2E_CLI_Generate_PublicOnly(t *testing.T) {
-	tmpBin := filepath.Join(t.TempDir(), "archai")
+	tmpBin := filepath.Join(t.TempDir(), "wyrd")
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to build archai binary: %v", err)
+		t.Fatalf("Failed to build wyrd binary: %v", err)
 	}
 
 	testDir := t.TempDir()
@@ -168,10 +168,10 @@ type Service interface {
 
 // TestE2E_CLI_Generate_InternalOnly tests --internal flag.
 func TestE2E_CLI_Generate_InternalOnly(t *testing.T) {
-	tmpBin := filepath.Join(t.TempDir(), "archai")
+	tmpBin := filepath.Join(t.TempDir(), "wyrd")
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to build archai binary: %v", err)
+		t.Fatalf("Failed to build wyrd binary: %v", err)
 	}
 
 	testDir := t.TempDir()
@@ -221,10 +221,10 @@ type Service interface {
 
 // TestE2E_CLI_Generate_MultiplePackages tests generating diagrams for multiple packages.
 func TestE2E_CLI_Generate_MultiplePackages(t *testing.T) {
-	tmpBin := filepath.Join(t.TempDir(), "archai")
+	tmpBin := filepath.Join(t.TempDir(), "wyrd")
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to build archai binary: %v", err)
+		t.Fatalf("Failed to build wyrd binary: %v", err)
 	}
 
 	testDir := t.TempDir()
@@ -276,7 +276,7 @@ type Service2 interface {
 		t.Fatalf("Failed to create pkg2/service.go: %v", err)
 	}
 
-	// Run: archai diagram generate ./pkg1 ./pkg2
+	// Run: wyrd diagram generate ./pkg1 ./pkg2
 	cmd = exec.Command(tmpBin, "diagram", "generate", "./pkg1", "./pkg2")
 	cmd.Dir = testDir
 	output, err := cmd.CombinedOutput()
@@ -318,10 +318,10 @@ type Service2 interface {
 
 // TestE2E_CLI_Generate_InvalidPackage tests error handling for invalid packages.
 func TestE2E_CLI_Generate_InvalidPackage(t *testing.T) {
-	tmpBin := filepath.Join(t.TempDir(), "archai")
+	tmpBin := filepath.Join(t.TempDir(), "wyrd")
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to build archai binary: %v", err)
+		t.Fatalf("Failed to build wyrd binary: %v", err)
 	}
 
 	// Run with nonexistent package
@@ -341,10 +341,10 @@ func TestE2E_CLI_Generate_InvalidPackage(t *testing.T) {
 
 // TestE2E_CLI_DiagramContentAccuracy tests that generated diagrams contain expected symbols.
 func TestE2E_CLI_DiagramContentAccuracy(t *testing.T) {
-	tmpBin := filepath.Join(t.TempDir(), "archai")
+	tmpBin := filepath.Join(t.TempDir(), "wyrd")
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to build archai binary: %v", err)
+		t.Fatalf("Failed to build wyrd binary: %v", err)
 	}
 
 	testDir := t.TempDir()
@@ -494,10 +494,10 @@ func validateEmail(email string) bool {
 
 // TestE2E_CLI_GenerateCombined tests the combined mode with --output flag.
 func TestE2E_CLI_GenerateCombined(t *testing.T) {
-	tmpBin := filepath.Join(t.TempDir(), "archai")
+	tmpBin := filepath.Join(t.TempDir(), "wyrd")
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to build archai binary: %v", err)
+		t.Fatalf("Failed to build wyrd binary: %v", err)
 	}
 
 	testDir := t.TempDir()
@@ -533,7 +533,7 @@ func NewService(cfg Config) Service {
 		t.Fatalf("Failed to create service.go: %v", err)
 	}
 
-	// Run: archai diagram generate . -o combined.d2
+	// Run: wyrd diagram generate . -o combined.d2
 	outputFile := filepath.Join(testDir, "combined.d2")
 	cmd = exec.Command(tmpBin, "diagram", "generate", ".", "-o", outputFile)
 	cmd.Dir = testDir
@@ -585,10 +585,10 @@ func NewService(cfg Config) Service {
 
 // TestE2E_CLI_GenerateCombined_MultiplePackages tests combined mode with multiple packages.
 func TestE2E_CLI_GenerateCombined_MultiplePackages(t *testing.T) {
-	tmpBin := filepath.Join(t.TempDir(), "archai")
+	tmpBin := filepath.Join(t.TempDir(), "wyrd")
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to build archai binary: %v", err)
+		t.Fatalf("Failed to build wyrd binary: %v", err)
 	}
 
 	testDir := t.TempDir()
@@ -640,7 +640,7 @@ type Service2 interface {
 		t.Fatalf("Failed to create pkg2/service.go: %v", err)
 	}
 
-	// Run: archai diagram generate ./pkg1 ./pkg2 -o all.d2
+	// Run: wyrd diagram generate ./pkg1 ./pkg2 -o all.d2
 	outputFile := filepath.Join(testDir, "all.d2")
 	cmd = exec.Command(tmpBin, "diagram", "generate", "./pkg1", "./pkg2", "-o", outputFile)
 	cmd.Dir = testDir
@@ -680,10 +680,10 @@ type Service2 interface {
 
 // TestE2E_CLI_GenerateCombined_PublicOnly tests that combined mode is always public-only.
 func TestE2E_CLI_GenerateCombined_PublicOnly(t *testing.T) {
-	tmpBin := filepath.Join(t.TempDir(), "archai")
+	tmpBin := filepath.Join(t.TempDir(), "wyrd")
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to build archai binary: %v", err)
+		t.Fatalf("Failed to build wyrd binary: %v", err)
 	}
 
 	testDir := t.TempDir()
@@ -751,10 +751,10 @@ type private struct {
 
 // TestE2E_CLI_GenerateCombined_IgnoresPubInternalFlags tests that --pub and --internal flags show warning.
 func TestE2E_CLI_GenerateCombined_IgnoresPubInternalFlags(t *testing.T) {
-	tmpBin := filepath.Join(t.TempDir(), "archai")
+	tmpBin := filepath.Join(t.TempDir(), "wyrd")
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to build archai binary: %v", err)
+		t.Fatalf("Failed to build wyrd binary: %v", err)
 	}
 
 	testDir := t.TempDir()
@@ -801,10 +801,10 @@ type Service interface {
 
 // TestE2E_CLI_GenerateCombined_CreatesDirIfNeeded tests that parent directories are created.
 func TestE2E_CLI_GenerateCombined_CreatesDirIfNeeded(t *testing.T) {
-	tmpBin := filepath.Join(t.TempDir(), "archai")
+	tmpBin := filepath.Join(t.TempDir(), "wyrd")
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to build archai binary: %v", err)
+		t.Fatalf("Failed to build wyrd binary: %v", err)
 	}
 
 	testDir := t.TempDir()
@@ -846,10 +846,10 @@ type Service interface {
 
 // TestE2E_CLI_GenerateCombined_NoExportedSymbols tests empty package handling.
 func TestE2E_CLI_GenerateCombined_NoExportedSymbols(t *testing.T) {
-	tmpBin := filepath.Join(t.TempDir(), "archai")
+	tmpBin := filepath.Join(t.TempDir(), "wyrd")
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to build archai binary: %v", err)
+		t.Fatalf("Failed to build wyrd binary: %v", err)
 	}
 
 	testDir := t.TempDir()

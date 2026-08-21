@@ -5,7 +5,7 @@ import (
 	nethttp "net/http"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/clustering"
+	"github.com/kgatilin/wyrd/internal/clustering"
 )
 
 func TestArchMotifDomainsAPIRejectsNonGET(t *testing.T) {

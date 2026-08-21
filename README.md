@@ -1,8 +1,8 @@
-# archai
+# wyrd
 
 **Review a branch as architecture. The lines stay one click away.**
 
-archai parses a Go repository into a typed code graph — packages, files, types,
+wyrd parses a Go repository into a typed code graph — packages, files, types,
 functions, and the `calls` / `implements` / `usesType` / `returns` edges between
 them — keeps that graph live in a local daemon, and serves it to three audiences
 from one process:
@@ -11,7 +11,7 @@ from one process:
 |---|---|---|
 | **People** | Browser review UI | The branch drawn as packages and symbols, with the patch one click away. |
 | **Agents** | 26 MCP tools | The same graph, queried before the agent greps. Search, callers, implementers, analysis lenses. |
-| **CI** | `archai-check` | 8.9 MB, no Node, exit 1 on a layer violation or a forbidden dependency. |
+| **CI** | `wyrd-check` | 8.9 MB, no Node, exit 1 on a layer violation or a forbidden dependency. |
 
 ![The review canvas: a branch as packages and symbols](docs/img/overview.png)
 
@@ -23,7 +23,7 @@ Two days of agent commits on this repository: 19 commits, **89 files, +8,212
 −756**. The tests pass — the agent ran them. You are not going to read that
 diff. Nobody is.
 
-Here is the same branch as archai sees it:
+Here is the same branch as wyrd sees it:
 
 - **6 packages touched**, of 39
 - **1 new package** — `internal/adapter/git`
@@ -38,7 +38,7 @@ its patch opens on it.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kgatilin/archai/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/kgatilin/wyrd/main/install.sh | sh
 ```
 
 Grabs the latest release build for your platform, checks its sha256 against the
@@ -46,34 +46,34 @@ release's `checksums.txt`, and drops the binary in `~/.local/bin`. Linux and
 darwin, amd64 and arm64; WSL counts as linux.
 
 ```bash
-… | sh -s -- --all                    # archai and archai-check
-… | sh -s -- --dir /usr/local/bin     # somewhere else        [ARCHAI_INSTALL_DIR]
-… | sh -s -- --version v2.23.0        # pin a release         [ARCHAI_VERSION]
+… | sh -s -- --all                    # wyrd and wyrd-check
+… | sh -s -- --dir /usr/local/bin     # somewhere else        [WYRD_INSTALL_DIR]
+… | sh -s -- --version v2.23.0        # pin a release         [WYRD_VERSION]
 ```
 
 Or take the tarball yourself from
-[Releases](https://github.com/kgatilin/archai/releases).
+[Releases](https://github.com/kgatilin/wyrd/releases).
 
 **Building from source** needs Go 1.25+ and npm — the review UI is compiled
 into the binary from `web/dist`:
 
 ```bash
-git clone https://github.com/kgatilin/archai.git
-cd archai
-make build      # npm build, then go build → bin/archai
+git clone https://github.com/kgatilin/wyrd.git
+cd wyrd
+make build      # npm build, then go build → bin/wyrd
 ```
 
 > **`go install` is not a supported route, and `@latest` is actively wrong.**
 > `web/dist` is a build artifact and not in the module zip, so the `//go:embed`
-> of the review UI fails and the full `archai` cannot build that way at all.
+> of the review UI fails and the full `wyrd` cannot build that way at all.
 > On top of that the module path has no `/v2` suffix while the tags are `v2.x`,
 > so the Go proxy ignores every one of them and `@latest` resolves to
-> **v1.9.0** — old enough to predate `archai daemon`. Use the installer.
+> **v1.9.0** — old enough to predate `wyrd daemon`. Use the installer.
 
 ### Embeddings need Ollama
 
 Semantic search, `Ask`, `semantic_cluster` and `latent_domains` run on vector
-embeddings, and archai builds those locally against [Ollama](https://ollama.com).
+embeddings, and wyrd builds those locally against [Ollama](https://ollama.com).
 It is the one external dependency, and it is optional:
 
 ```bash
@@ -82,22 +82,22 @@ ollama pull qwen3-embedding:0.6b         # the default model
 ```
 
 That is all the setup there is — a daemon on `localhost:11434` with the model
-pulled, and archai indexes the repo on its own. Nothing leaves the machine.
+pulled, and wyrd indexes the repo on its own. Nothing leaves the machine.
 
-Without it archai still parses the graph, draws the review, answers the
+Without it wyrd still parses the graph, draws the review, answers the
 structural lenses and runs the CI gates; search degrades to lexical BM25 and the
-two embedding-backed lenses decline to run rather than guess. `archai graph
+two embedding-backed lenses decline to run rather than guess. `wyrd graph
 status` says which state you are in (`dense_available`).
 
 Point it elsewhere with environment variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `ARCHAI_EMBED_PROVIDER` | `ollama` | `ollama`, `openai`, or `noop` |
-| `ARCHAI_EMBED_ENDPOINT` | `http://localhost:11434` | Server to embed against |
-| `ARCHAI_EMBED_MODEL` | `qwen3-embedding:0.6b` | Embedding model |
-| `ARCHAI_EMBED_API_KEY` | — | Required by the `openai` provider; read from env only |
-| `ARCHAI_EMBED_DISABLE` | — | `1` turns embedding off entirely |
+| `WYRD_EMBED_PROVIDER` | `ollama` | `ollama`, `openai`, or `noop` |
+| `WYRD_EMBED_ENDPOINT` | `http://localhost:11434` | Server to embed against |
+| `WYRD_EMBED_MODEL` | `qwen3-embedding:0.6b` | Embedding model |
+| `WYRD_EMBED_API_KEY` | — | Required by the `openai` provider; read from env only |
+| `WYRD_EMBED_DISABLE` | — | `1` turns embedding off entirely |
 
 `openai` targets any OpenAI-compatible `/v1/embeddings` endpoint. Selecting it
 without an API key falls back to no embeddings and says so, rather than crashing
@@ -107,20 +107,20 @@ the daemon.
 
 ```bash
 cd your-go-repo
-archai daemon start     # parses the repo, prints the review URL
+wyrd daemon start     # parses the repo, prints the review URL
 ```
 
 Open the printed URL. That is your current worktree, diffed against `main`,
-drawn as architecture. Nothing to configure, no `archai.yaml` required.
+drawn as architecture. Nothing to configure, no `wyrd.yaml` required.
 
-Pin the port in `archai.yaml` so the URL survives a restart:
+Pin the port in `wyrd.yaml` so the URL survives a restart:
 
 ```yaml
 serve:
   http_addr: "127.0.0.1:47823"
 ```
 
-Manage the daemon with `archai daemon status | list | restart | stop`.
+Manage the daemon with `wyrd daemon status | list | restart | stop`.
 
 ---
 
@@ -186,18 +186,18 @@ fan-in/fan-out and instability per package, and flags god-packages.
 The graph has two front doors onto the same daemon, and an agent can use either.
 
 ```bash
-archai serve --mcp-stdio      # MCP over stdio, for an MCP-capable client
-archai graph <tool> [flags]   # the same tools/call, from any shell
+wyrd serve --mcp-stdio      # MCP over stdio, for an MCP-capable client
+wyrd graph <tool> [flags]   # the same tools/call, from any shell
 ```
 
 Neither computes anything locally: both proxy a `tools/call` to the repo-level
-daemon, so they see one parsed model and return the same payload. `archai graph
+daemon, so they see one parsed model and return the same payload. `wyrd graph
 status` prints byte-for-byte what the MCP `status` tool returns.
 
-| | MCP | `archai graph` |
+| | MCP | `wyrd graph` |
 |---|---|---|
 | Wiring | `.mcp.json` | the binary on `PATH` |
-| Call | tool call | `archai graph <tool> --flag …` |
+| Call | tool call | `wyrd graph <tool> --flag …` |
 | Arguments | JSON matching the tool's input schema | typed flags mirroring that same schema |
 | Result | ToolResult text | the same text, verbatim |
 | Coverage | 26 tools | 23 of them |
@@ -211,8 +211,8 @@ agent, or you at a prompt. Neither is a degraded mode of the other.
 ```json
 {
   "mcpServers": {
-    "archai": {
-      "command": "archai",
+    "wyrd": {
+      "command": "wyrd",
       "args": ["serve", "--mcp-stdio", "--root", "."]
     }
   }
@@ -226,16 +226,16 @@ MCP client.
 ### Wiring the CLI
 
 ```bash
-archai daemon start                       # once per repo
-archai graph status                       # readiness, before anything else
+wyrd daemon start                       # once per repo
+wyrd graph status                       # readiness, before anything else
 
-archai graph search --query "working-tree diff" --k 5
-archai graph get_node --id internal/adapter/git.Diff
-archai graph expand --node internal/adapter/git.Diff --edge calls --hops 1
-archai graph trophic_layers --package internal/adapter
-archai graph latent_domains --package internal/adapter/mcp
+wyrd graph search --query "working-tree diff" --k 5
+wyrd graph get_node --id internal/adapter/git.Diff
+wyrd graph expand --node internal/adapter/git.Diff --edge calls --hops 1
+wyrd graph trophic_layers --package internal/adapter
+wyrd graph latent_domains --package internal/adapter/mcp
 
-archai graph search --daemon myrepo --query "retry policy"   # another repo's daemon
+wyrd graph search --daemon myrepo --query "retry policy"   # another repo's daemon
 ```
 
 Every subcommand carries typed flags built from its tool's input schema, and
@@ -305,12 +305,12 @@ away. Poll `status` and retry.
 
 ---
 
-## For CI: `archai-check`
+## For CI: `wyrd-check`
 
 ```bash
-archai-check all       # layer rules + dependency policy
-archai-check overlay   # layer rules only
-archai-check policy    # dependency policy only
+wyrd-check all       # layer rules + dependency policy
+wyrd-check overlay   # layer rules only
+wyrd-check policy    # dependency policy only
 ```
 
 Each command exits non-zero when its gate fails and prints the offending edges,
@@ -318,25 +318,25 @@ one per line.
 
 ```yaml
 - run: |
-    curl -fsSL https://raw.githubusercontent.com/kgatilin/archai/main/install.sh \
+    curl -fsSL https://raw.githubusercontent.com/kgatilin/wyrd/main/install.sh \
       | sh -s -- --check
-    "$HOME/.local/bin/archai-check" all
+    "$HOME/.local/bin/wyrd-check" all
 ```
 
 The gate step needs neither Go nor Node on the runner — it downloads one
 static binary and runs it.
 
-The gates live in `internal/check` and are shared with `archai overlay check`
-and `archai policy check`, so the binary you run locally and the binary CI runs
+The gates live in `internal/check` and are shared with `wyrd overlay check`
+and `wyrd policy check`, so the binary you run locally and the binary CI runs
 cannot disagree about what passes. This repository gates itself the same way —
-see `.github/workflows/ci.yml` and `make archai-check`.
+see `.github/workflows/ci.yml` and `make wyrd-check`.
 
 ### Declaring the rules
 
-Layers and their permitted dependencies go in `archai.yaml`:
+Layers and their permitted dependencies go in `wyrd.yaml`:
 
 ```yaml
-module: github.com/kgatilin/archai
+module: github.com/kgatilin/wyrd
 
 layers:
   domain:         [internal/domain/...]
@@ -367,32 +367,32 @@ policy:
 
 | Binary | Contents | Size |
 |---|---|---|
-| `archai` | Code graph, MCP server, review UI, diagram generation and rendering | ~49 MB (~36 MB stripped) |
-| `archai-check` | The architecture gates only | ~8.9 MB (~6 MB stripped) |
+| `wyrd` | Code graph, MCP server, review UI, diagram generation and rendering | ~49 MB (~36 MB stripped) |
+| `wyrd-check` | The architecture gates only | ~8.9 MB (~6 MB stripped) |
 
 One dependency explains the split: `oss.terrastruct.com/d2`'s SVG renderer
 alone — a JavaScript interpreter for the dagre layout, embedded fonts, chroma —
-measures ~30 MB. `archai-check` links neither it nor the embedded review UI,
+measures ~30 MB. `wyrd-check` links neither it nor the embedded review UI,
 which is also why it builds on a machine with no Node.js installed.
 
 ---
 
 ## D2 diagrams
 
-archai still does what it originally did: turn Go packages into D2 class
+wyrd still does what it originally did: turn Go packages into D2 class
 diagrams.
 
 ```bash
-archai diagram generate ./internal/...              # pub.d2 + internal.d2 per package
-archai diagram generate ./internal/... --pub        # exported symbols only
-archai diagram generate ./... -o architecture.d2    # one combined diagram
-archai diagram split docs/architecture.d2           # combined → per-package specs
-archai diagram compose ./internal/... --spec --output docs/spec.d2
+wyrd diagram generate ./internal/...              # pub.d2 + internal.d2 per package
+wyrd diagram generate ./internal/... --pub        # exported symbols only
+wyrd diagram generate ./... -o architecture.d2    # one combined diagram
+wyrd diagram split docs/architecture.d2           # combined → per-package specs
+wyrd diagram compose ./internal/... --spec --output docs/spec.d2
 ```
 
 Output lands in each package's `.arch/` directory. Symbols carry stereotypes —
 `<<interface>>`, `<<struct>>`, `<<factory>>` (a `New*` function), `<<function>>`,
-`<<enum>>` — and their colours are overridable in `archai.yaml`:
+`<<enum>>` — and their colours are overridable in `wyrd.yaml`:
 
 ```yaml
 diagrams:
@@ -413,7 +413,7 @@ Render with the [D2 CLI](https://d2lang.com/): `d2 --watch architecture.d2`.
 ```
                                 ┌─▶ review UI       people
 Go source ──▶ typed code graph ─┼─▶ 26 MCP tools    agents
-  go/packages · re-parsed       └─▶ archai-check    CI
+  go/packages · re-parsed       └─▶ wyrd-check    CI
 ```
 
 ```
@@ -428,7 +428,7 @@ string is the key in the retrieval index, the id of the row on the review
 canvas, and the argument to `get_node` / `expand`, so a search hit is a card
 lookup and nothing in the stack has to translate between the two.
 
-Internally archai is hexagonal: domain models with no dependencies at the
+Internally wyrd is hexagonal: domain models with no dependencies at the
 centre, a service layer over ports, adapters for each format (Go reader, D2
 writer, git, HTTP, MCP, YAML overlay), and the CLI doing the wiring. It gates
 itself on those rules in CI.
@@ -463,14 +463,22 @@ to the right of it.
 ## Development
 
 ```bash
-make build          # full archai (runs the web build first)
-make build-check    # archai-check only — no npm needed
+make build          # full wyrd (runs the web build first)
+make build-check    # wyrd-check only — no npm needed
 make test           # go test ./...
-make archai-check   # the gate CI runs, run locally
+make wyrd-check   # the gate CI runs, run locally
 ```
 
-`archai` embeds `web/dist`, which is not committed, so `make build` runs the npm
-build first. `archai-check` does not embed it, which is why it needs no Node.
+`wyrd` embeds `web/dist`, which is not committed, so `make build` runs the npm
+build first. `wyrd-check` does not embed it, which is why it needs no Node.
+
+## The name
+
+Wyrd is the Old English and Norse word for fate — pictured as a woven web in
+which everything is connected to everything, and the Norns trace the threads
+to see how things stand. That web is a dependency graph, and tracing it is
+what this tool does. The project was previously called archai; the old
+`archai.yaml`, `.arch/` and `ARCHAI_HOME` names still work.
 
 ## License
 

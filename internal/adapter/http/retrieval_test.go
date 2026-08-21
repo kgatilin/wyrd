@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/embed/noop"
-	"github.com/kgatilin/archai/internal/adapter/lindex/bm25"
-	"github.com/kgatilin/archai/internal/adapter/vindex/brute"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/retrieval"
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/adapter/embed/noop"
+	"github.com/kgatilin/wyrd/internal/adapter/lindex/bm25"
+	"github.com/kgatilin/wyrd/internal/adapter/vindex/brute"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/retrieval"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 // setupRetrievalTestServer creates a Server with a mock retrieval service for testing.

@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kgatilin/archai/internal/worktree"
+	"github.com/kgatilin/wyrd/internal/worktree"
 )
 
-// registryDirName is the subdirectory under archaiHome for daemon records.
+// registryDirName is the subdirectory under wyrdHome for daemon records.
 const registryDirName = "daemons"
 
 // DaemonRecord is a global daemon record written to ~/.arch/daemons/<key>.
@@ -44,9 +44,12 @@ func (r *DaemonRecord) HasCap(cap string) bool {
 	return false
 }
 
-// archaiHome returns the base directory for archai global state.
-// Uses ARCHAI_HOME env var if set, otherwise ~/.arch.
-func archaiHome() (string, error) {
+// wyrdHome returns the base directory for wyrd global state.
+// Uses WYRD_HOME if set, then the legacy ARCHAI_HOME, otherwise ~/.arch.
+func wyrdHome() (string, error) {
+	if env := os.Getenv("WYRD_HOME"); env != "" {
+		return env, nil
+	}
 	if env := os.Getenv("ARCHAI_HOME"); env != "" {
 		return env, nil
 	}
@@ -59,7 +62,7 @@ func archaiHome() (string, error) {
 
 // registryDir returns the path to the daemon registry directory.
 func registryDir() (string, error) {
-	base, err := archaiHome()
+	base, err := wyrdHome()
 	if err != nil {
 		return "", err
 	}

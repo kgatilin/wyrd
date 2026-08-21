@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // Compose combines saved .arch/ spec files into a single diagram.
@@ -85,9 +85,9 @@ func findSpecFiles(paths []string, mode ComposeMode) (files []string, skipped []
 	}
 
 	for _, pkgPath := range expandedPaths {
-		archDir := filepath.Join(pkgPath, ".arch")
+		archDir := specDir(pkgPath)
 
-		// Check if .arch directory exists
+		// Check if a spec directory (.arch or .wyrd) exists
 		info, err := os.Stat(archDir)
 		if os.IsNotExist(err) || !info.IsDir() {
 			skipped = append(skipped, pkgPath)
@@ -175,7 +175,21 @@ func hasGoFiles(dir string) bool {
 }
 
 func hasArchFolder(dir string) bool {
-	archPath := filepath.Join(dir, ".arch")
-	info, err := os.Stat(archPath)
+	info, err := os.Stat(specDir(dir))
 	return err == nil && info.IsDir()
+}
+
+// specDir returns the package's spec directory: .arch when present (the
+// default, and the name the tool itself writes), else .wyrd when present,
+// else the .arch path for callers about to create it.
+func specDir(dir string) string {
+	archPath := filepath.Join(dir, ".arch")
+	if info, err := os.Stat(archPath); err == nil && info.IsDir() {
+		return archPath
+	}
+	wyrdPath := filepath.Join(dir, ".wyrd")
+	if info, err := os.Stat(wyrdPath); err == nil && info.IsDir() {
+		return wyrdPath
+	}
+	return archPath
 }

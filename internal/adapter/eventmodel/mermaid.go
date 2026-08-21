@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/eventmodel"
+	"github.com/kgatilin/wyrd/internal/eventmodel"
 )
 
 // ToMermaid renders an event-model graph as a Mermaid flowchart diagram.

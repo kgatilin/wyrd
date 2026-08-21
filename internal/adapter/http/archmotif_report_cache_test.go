@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kgatilin/archai/internal/archreview"
+	"github.com/kgatilin/wyrd/internal/archreview"
 )
 
 // countingCache returns a cache whose build records what it was asked for and

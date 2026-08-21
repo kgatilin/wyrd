@@ -7,7 +7,7 @@ import type { UIGraph } from '../../types';
 
 /** One function whose dependencies straddle a package boundary. */
 const crossPackageGraph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [{ id: 'root', name: 'Root' }],
   components: [
     {
@@ -160,11 +160,11 @@ describe('harness smoke (jsdom) — diffGraph', () => {
 
   it('PR header stats reflect the active review projection', async () => {
     const graph: UIGraph = {
-      schema: 'archai.uigraph/v0',
+      schema: 'wyrd.uigraph/v0',
       pr: {
         title: 'Projection stats',
         branch: 'feature',
-        agent: 'archai',
+        agent: 'wyrd',
         summary: '',
         stats: { added: 99, removed: 99, changed: 99, comments: 7 },
       },
@@ -213,7 +213,7 @@ describe('harness smoke (jsdom) — diffGraph', () => {
 
   it('review tree renders package paths as an alphabetic directory tree', async () => {
     const graph: UIGraph = {
-      schema: 'archai.uigraph/v0',
+      schema: 'wyrd.uigraph/v0',
       boundedContexts: [{ id: 'root', name: 'Root' }],
       components: [
         { id: 'zeta', name: 'zeta', tech: 'Go', desc: '', bc: 'root', internals: [], ports: [] },
@@ -236,7 +236,7 @@ describe('harness smoke (jsdom) — diffGraph', () => {
 
   it('diagram cards show whether their package layer is public or internal', async () => {
     const graph: UIGraph = {
-      schema: 'archai.uigraph/v0',
+      schema: 'wyrd.uigraph/v0',
       boundedContexts: [{ id: 'root', name: 'Root' }],
       components: [
         { id: 'eventstore', name: 'PublicStore', tech: 'Go', desc: '', bc: 'root', internals: [], ports: [] },
@@ -257,7 +257,7 @@ describe('harness smoke (jsdom) — diffGraph', () => {
 
   it('clicking a package enters focused package view with public/internal symbols highlighted', async () => {
     const graph: UIGraph = {
-      schema: 'archai.uigraph/v0',
+      schema: 'wyrd.uigraph/v0',
       boundedContexts: [{ id: 'root', name: 'Root' }],
       components: [
         {
@@ -331,7 +331,7 @@ describe('harness smoke (jsdom) — diffGraph', () => {
 
   it('clicking a symbol opens its first-level wiring grouped by package', async () => {
     const graph: UIGraph = {
-      schema: 'archai.uigraph/v0',
+      schema: 'wyrd.uigraph/v0',
       boundedContexts: [{ id: 'root', name: 'Root' }],
       components: [
         {

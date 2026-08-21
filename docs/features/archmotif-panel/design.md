@@ -282,7 +282,7 @@ above; `overlay.Ports` + validation + `archai.yaml` dogfood;
 `/api/archmotif/report`; remove the metrics/embed endpoints and the external
 binary path; unit tests per section with module-relative fixtures (review and
 repo mode, the group-collapse, the three port rules, the tests-not-in-graph
-wording). `go test ./...`, `go vet`, `archai-check all` green. Commit.
+wording). `go test ./...`, `go vet`, `wyrd-check all` green. Commit.
 
 **Iteration 2 — domains canvas** (worktree `archmotif-canvas`, branch
 `archmotif-canvas`, from `main`, runs in parallel with 1 — disjoint files):

@@ -1,7 +1,7 @@
 # Event Model: Usage Guide
 
 Declarative event-driven architecture for any project. Each component declares
-its event interface as data in `.arch/events.yaml`; archai validates the
+its event interface as data in `.arch/events.yaml`; wyrd validates the
 composed set and projects it to a graph for visualization and analysis.
 
 Use this feature when your system is event-driven (pub/sub, CQRS, event
@@ -147,7 +147,7 @@ Two exemptions, both deliberate:
 
 ## File Location and Discovery
 
-Place `.arch/events.yaml` in each component's directory. archai walks the tree
+Place `.arch/events.yaml` in each component's directory. wyrd walks the tree
 from the specified root, entering `.arch/` directories and reading
 `events.yaml` when present.
 
@@ -155,7 +155,7 @@ from the specified root, entering `.arch/` directories and reading
 `.git`, `.worktrees`, `.claude`, `bin`, `vendor`, `node_modules`, `testdata`.
 
 **Explicit-root exception:** If the root path itself has a skipped name (e.g.,
-`--root /path/to/testdata`), archai honors the explicit instruction and scans
+`--root /path/to/testdata`), wyrd honors the explicit instruction and scans
 it anyway; the skip list only filters subdirectories.
 
 The component id must be unique across the entire scanned tree. Duplicate ids
@@ -239,7 +239,7 @@ rejected with a message naming what changed, because the old shape
 ## Schemas
 
 Schemas are JSON Schema written in YAML syntax. They are stored opaquely and
-used for `$ref` resolution and deprecated-field detection. archai does NOT
+used for `$ref` resolution and deprecated-field detection. wyrd does NOT
 validate payloads against schemas or check schema compatibility between
 producers and observers.
 
@@ -273,7 +273,7 @@ use `oneOf` with one branch marked deprecated to represent legacy shapes.
 ## Subject Slot Syntax
 
 Patterns are NATS-style subjects with `{slot}` tokens declaring the partition
-key. archai validates only the `{slot}` syntax and never matches a pattern
+key. wyrd validates only the `{slot}` syntax and never matches a pattern
 against a kind — they are different alphabets, and a subject that shares no
 segments with its kind's name is legal:
 
@@ -352,10 +352,10 @@ without competing for the right to handle it.
 
 ### What is NOT checked
 
-- **Schema compatibility**: archai does not verify that an output payload is
+- **Schema compatibility**: wyrd does not verify that an output payload is
   compatible with a consumer's inbound schema. Schemas are recorded but not
   compared.
-- **Runtime conformance**: archai does not observe actual event traffic.
+- **Runtime conformance**: wyrd does not observe actual event traffic.
 - **Ordering**: nothing here constrains the order in which independent
   observers of one event complete, because nothing can.
 - **Project-specific policy**: custom rules over the event graph are not yet
@@ -365,24 +365,24 @@ without competing for the right to handle it.
 
 ### CLI
 
-Commands live under `archai plugin events`.
+Commands live under `wyrd plugin events`.
 
 **validate**
 
 ```
-archai plugin events validate [--root PATH]
+wyrd plugin events validate [--root PATH]
 ```
 
 Validates all `.arch/events.yaml` declarations under root. Prints findings and
 a summary. Exits 0 if no errors (warnings permitted), 1 if errors exist.
 
 ```
-$ archai plugin events validate --root ./services
+$ wyrd plugin events validate --root ./services
 OK: 5 component(s) validated.
 ```
 
 ```
-$ archai plugin events validate --root ./broken
+$ wyrd plugin events validate --root ./broken
 ERROR [exclusive-unhandled] billing:ledger.entry.post: outputs "ledger.entry.post" declared delivery: exclusive but no component takes it as an input
 ERROR [partition-mismatch] billing:svc.*.billing.{region}.invoice.applied: subject "svc.*.billing.{region}.invoice.applied" extracts partition key [region] but the component's read-set is keyed by [account]; one component holds one state, so every partitioned subject it reads must address it identically
 WARN [orphan-event] billing:billing.invoice.issued: outputs "billing.invoice.issued" but no component takes it as an input or folds it into state
@@ -394,7 +394,7 @@ Error: validation failed
 **graph**
 
 ```
-archai plugin events graph [--root PATH] [-f FORMAT] [-o FILE]
+wyrd plugin events graph [--root PATH] [-f FORMAT] [-o FILE]
 ```
 
 Generates a graph of the event model. Supported formats:
@@ -402,7 +402,7 @@ Generates a graph of the event model. Supported formats:
 - `graphml`: GraphML XML for analysis tools
 
 ```
-$ archai plugin events graph --root ./services --format mermaid
+$ wyrd plugin events graph --root ./services --format mermaid
 flowchart LR
     subgraph ns___none__[unowned]
         gateway[gateway]
@@ -452,7 +452,7 @@ Returns validation findings as text (same format as the CLI).
 **gen**
 
 ```
-archai plugin events gen [--root PATH] [--templates DIR] [--out DIR]
+wyrd plugin events gen [--root PATH] [--templates DIR] [--out DIR]
                          [--component ID] [--dry-run] [--force] [--no-format]
 ```
 
@@ -492,20 +492,20 @@ kind with one consumer and any number of components folding it.
 
 ## Codegen
 
-archai owns the declaration format, its validation and its graph. **The project
-owns the binding.** Templates live in the project, archai never learns the
-project's types, and nothing archai produces is a runtime dependency of the
+wyrd owns the declaration format, its validation and its graph. **The project
+owns the binding.** Templates live in the project, wyrd never learns the
+project's types, and nothing wyrd produces is a runtime dependency of the
 generated code.
 
 There is deliberately **no `--lang` flag**. A language generator built into
-archai would invert that split: archai would have to know your types, and would
+wyrd would invert that split: wyrd would have to know your types, and would
 become a dependency of your build. Instead it renders your template against a
 stable data model.
 
 ### Running it
 
 ```
-archai plugin events gen [--root PATH] [--templates DIR] [--out DIR]
+wyrd plugin events gen [--root PATH] [--templates DIR] [--out DIR]
                          [--component ID] [--dry-run] [--force] [--no-format]
 ```
 
@@ -522,7 +522,7 @@ archai plugin events gen [--root PATH] [--templates DIR] [--out DIR]
   at the wrong subject from a `kind-pattern-conflict`, a state keyed on the
   wrong slot from a `partition-mismatch`. `--force` overrides.
 - Generated `.go` files are run through gofmt. This is syntactic only — it is
-  not archai learning your types — and it exists because generated files are
+  not wyrd learning your types — and it exists because generated files are
   committed: unformatted output makes every diff noisy, and a template emitting
   invalid Go fails here rather than at compile time. `--no-format` skips it;
   other extensions always pass through verbatim.
@@ -594,7 +594,7 @@ rather than silently emitting an empty string. Use `index` as the presence test:
 ### Keeping it honest
 
 Generated files are committed. Wire it up with
-`//go:generate archai plugin events gen` plus `go generate ./... && git diff
+`//go:generate wyrd plugin events gen` plus `go generate ./... && git diff
 --exit-code` in CI, and drift becomes a build failure rather than a discovery.
 
 ## Worked Example
@@ -744,7 +744,7 @@ outputs:
 **Validation output (clean)**
 
 ```
-$ archai plugin events validate --root ./example
+$ wyrd plugin events validate --root ./example
 OK: 4 component(s) validated.
 ```
 
@@ -778,7 +778,7 @@ state:
 **Validation output**
 
 ```
-$ archai plugin events validate --root ./bad
+$ wyrd plugin events validate --root ./bad
 ERROR [exclusive-unhandled] bad:bad.command.run: outputs "bad.command.run" declared delivery: exclusive but no component takes it as an input
 ERROR [partition-mismatch] bad:svc.*.bad.{region}.command.finished: subject "svc.*.bad.{region}.command.finished" extracts partition key [region] but the component's read-set is keyed by [tenant]; one component holds one state, so every partitioned subject it reads must address it identically
 WARN [underspecified-state] bad:state: state is an object with no properties and no $ref; declare the projection shape, reference a type, or drop the field
@@ -794,7 +794,7 @@ own command, and nothing complains about who is allowed to do what.
 
 1. **Start with the owner.** Pick the component that defines the most event
    schemas. Declare its `owns`, inputs, outputs and state events. Run
-   `archai plugin events validate --root ./path`. Expect warnings for starved
+   `wyrd plugin events validate --root ./path`. Expect warnings for starved
    inputs and orphan outputs; errors mean structural mistakes.
 
 2. **Add producers.** Declare components that append into the namespace. They do

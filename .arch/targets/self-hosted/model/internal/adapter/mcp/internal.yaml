@@ -1,4 +1,4 @@
-schema: archai/v1
+schema: wyrd/v1
 package: internal/adapter/mcp
 name: mcp
 layer: transport
@@ -1012,7 +1012,7 @@ functions:
         handleLockTarget freezes the current snapshot into .arch/targets/<id>/.
         The daemon's in-memory packages are first materialized as .arch/*.yaml
         under the project tree so target.Lock has something to copy — this
-        mirrors what `archai target lock` does via `archai diagram generate`
+        mirrors what `wyrd target lock` does via `wyrd diagram generate`
         but avoids re-parsing Go sources.
       calls:
         - to:
@@ -1426,7 +1426,7 @@ functions:
       doc: |
         validatePatch ensures every Change in d carries a recognized Op and
         Kind so we fail fast on malformed patches before any on-disk writes.
-        Duplicated from cmd/archai to avoid exporting validation from the CLI.
+        Duplicated from cmd/wyrd to avoid exporting validation from the CLI.
     - name: writeCurrentArchYAML
       params:
         - name: packages
@@ -1484,8 +1484,8 @@ functions:
       source_file: tools.go
       doc: |
         writeTargetModelsToDisk overwrites .arch/targets/<id>/model/ with the
-        per-package models. Mirrors cmd/archai's writeTargetModels so the
-        apply_diff tool produces the same on-disk layout as `archai diff apply`.
+        per-package models. Mirrors cmd/wyrd's writeTargetModels so the
+        apply_diff tool produces the same on-disk layout as `wyrd diff apply`.
       calls:
         - to:
             package: internal/adapter/d2

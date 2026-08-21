@@ -3,7 +3,7 @@ package plugin
 import (
 	"time"
 
-	"github.com/kgatilin/archai/internal/diff"
+	"github.com/kgatilin/wyrd/internal/diff"
 )
 
 // TargetMeta is the read-only descriptor of a locked target as seen
@@ -52,7 +52,7 @@ const (
 	// were re-extracted in response to .go file changes.
 	ModelEventKindPackageReload ModelEventKind = "package-reload"
 
-	// ModelEventKindOverlayReload fires when archai.yaml was reloaded.
+	// ModelEventKindOverlayReload fires when wyrd.yaml was reloaded.
 	ModelEventKindOverlayReload ModelEventKind = "overlay-reload"
 
 	// ModelEventKindTargetSwitch fires when the CURRENT target id
@@ -76,6 +76,6 @@ type ValidationReport struct {
 
 	// Violations is the list of structured changes between the
 	// current code model and the target. Re-uses diff.Change so the
-	// representation is identical to `archai validate --format yaml`.
+	// representation is identical to `wyrd validate --format yaml`.
 	Violations []diff.Change
 }

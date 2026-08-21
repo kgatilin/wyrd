@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // fakeReader is a minimal stub ModelReader that records what paths it

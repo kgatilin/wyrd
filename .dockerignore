@@ -1,6 +1,6 @@
-# Docker build context trimming. archai is pulled in as an "additional build
+# Docker build context trimming. wyrd is pulled in as an "additional build
 # context" by other images (e.g. the cascade hub image) that only need the Go
-# source to `go build ./cmd/archai`. The working tree carries ~2GB of JS deps,
+# source to `go build ./cmd/wyrd`. The working tree carries ~2GB of JS deps,
 # agent worktrees and build output the compile never touches — excluding it
 # turns a ~150s / 2GB context transfer into a couple of seconds.
 #
@@ -19,7 +19,7 @@ web/.vite/
 .claude/
 .tm/
 
-# archai runtime data / graph caches
+# wyrd runtime data / graph caches
 .archai/
 .arch/
 

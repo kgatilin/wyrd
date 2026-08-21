@@ -1,4 +1,4 @@
-// Package domain contains the core domain models for archai.
+// Package domain contains the core domain models for wyrd.
 // All models are concrete structs serving as data containers,
 // following DDD principles for aggregate roots and value objects.
 package domain

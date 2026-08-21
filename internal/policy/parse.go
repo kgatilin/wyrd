@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 // Parse compiles the raw overlay policy config into a validated Spec. Each

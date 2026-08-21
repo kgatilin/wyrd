@@ -34,7 +34,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      # archai embeds web/dist; archai-check does not, which is why the
+      # wyrd embeds web/dist; wyrd-check does not, which is why the
       # validation-only binary can be built without Node at all.
       - name: Build review UI
         working-directory: web
@@ -45,8 +45,8 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - name: Gate on archai's own architecture rules
-        run: go run ./cmd/archai-check all
+      - name: Gate on wyrd's own architecture rules
+        run: go run ./cmd/wyrd-check all
 
       - name: Build release binaries
         run: |
@@ -59,7 +59,7 @@ jobs:
             GOOS="${target%/*}"
             GOARCH="${target#*/}"
             export GOOS GOARCH
-            for cmd in archai archai-check; do
+            for cmd in wyrd wyrd-check; do
               stage="dist/stage/${cmd}_${VERSION}_${GOOS}_${GOARCH}"
               mkdir -p "$stage"
               go build \
@@ -86,7 +86,7 @@ jobs:
           ## Install
 
           \`\`\`
-          curl -fsSL https://raw.githubusercontent.com/kgatilin/archai/main/install.sh | sh -s -- --version $VERSION
+          curl -fsSL https://raw.githubusercontent.com/kgatilin/wyrd/main/install.sh | sh -s -- --version $VERSION
           \`\`\`
 
           Or take a tarball below. \`go install\` does not work for this project —
@@ -96,12 +96,12 @@ jobs:
 
           | Artifact | What it is |
           |---|---|
-          | \`archai_*\` | Full archai: code graph, MCP server, review UI, diagram generation. |
-          | \`archai-check_*\` | The architecture gates only — overlay layer rules and dependency policy. ~6x smaller, no UI or renderer linked in. Use it in CI. |
+          | \`wyrd_*\` | Full wyrd: code graph, MCP server, review UI, diagram generation. |
+          | \`wyrd-check_*\` | The architecture gates only — overlay layer rules and dependency policy. ~6x smaller, no UI or renderer linked in. Use it in CI. |
 
           \`\`\`
-          archai daemon start    # parse the repo, print the review URL
-          archai-check all       # layer-rule + dependency-policy gates, non-zero on violations
+          wyrd daemon start    # parse the repo, print the review URL
+          wyrd-check all       # layer-rule + dependency-policy gates, non-zero on violations
           \`\`\`
           NOTES
           )

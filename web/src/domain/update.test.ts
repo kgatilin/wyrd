@@ -5,7 +5,7 @@ import { update } from './update';
 
 function withGraph(): AppState {
   const graph: UIGraph = {
-    schema: 'archai.uigraph/v0',
+    schema: 'wyrd.uigraph/v0',
     boundedContexts: [{ id: 'bc1', name: 'Core' }],
     components: [
       { id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [{ id: 'a.i', kind: 'class', name: 'Ai', members: [] }], ports: [] },
@@ -18,7 +18,7 @@ function withGraph(): AppState {
 
 function withTwoComponentGraph(): AppState {
   const graph: UIGraph = {
-    schema: 'archai.uigraph/v0',
+    schema: 'wyrd.uigraph/v0',
     boundedContexts: [{ id: 'bc1', name: 'Core' }],
     components: [
       {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 // newTestServer spins up a Server backed by an empty serve.State

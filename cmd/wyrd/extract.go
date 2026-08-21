@@ -9,13 +9,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/adapter/golang"
-	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/adapter/golang"
+	yamlAdapter "github.com/kgatilin/wyrd/internal/adapter/yaml"
+	"github.com/kgatilin/wyrd/internal/domain"
 	"github.com/spf13/cobra"
 )
 
-// newExtractCmd returns the `archai extract <path>` command.
+// newExtractCmd returns the `wyrd extract <path>` command.
 //
 // extract mirrors the MCP `extract` tool but from the CLI: it loads the
 // Go packages rooted at <path> (default ".") via the same adapter the
@@ -38,13 +38,13 @@ Default: one YAML document per package streamed to stdout, separated by
 
 Examples:
   # Stream YAML to stdout for the current project
-  archai extract .
+  wyrd extract .
 
   # Dump JSON to stdout
-  archai extract . --format json
+  wyrd extract . --format json
 
   # Write per-package files under .arch/packages/
-  archai extract . --out .arch/packages`,
+  wyrd extract . --out .arch/packages`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: runExtract,
 	}
@@ -53,7 +53,7 @@ Examples:
 	return cmd
 }
 
-// runExtract implements `archai extract`. It reuses the same golang
+// runExtract implements `wyrd extract`. It reuses the same golang
 // reader wired into `serve` and the MCP `extract` tool.
 func runExtract(cmd *cobra.Command, args []string) error {
 	path := "."

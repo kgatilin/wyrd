@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   arch-gate:
-    # archai checking archai. Uses archai-check, which links neither the
+    # wyrd checking wyrd. Uses wyrd-check, which links neither the
     # review UI nor the diagram renderer, so this job needs no Node and
     # finishes long before the build job does.
     name: Architecture gate
@@ -27,7 +27,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Overlay layer rules + dependency policy
-        run: go run ./cmd/archai-check all
+        run: go run ./cmd/wyrd-check all
 
   go:
     name: Go build & test
@@ -43,7 +43,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      # The archai binary embeds web/dist. That directory is not committed,
+      # The wyrd binary embeds web/dist. That directory is not committed,
       # so without this build the //go:embed pattern matches nothing and
       # every package that reaches web/ fails to compile.
       - name: Build review UI

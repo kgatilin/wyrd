@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // GenerateCombinedOptions configures combined diagram generation.

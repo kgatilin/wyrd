@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/uigraph"
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/adapter/uigraph"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 func TestUIGraphAPI_SingleModeReturnsLiveGraph(t *testing.T) {
@@ -57,7 +57,7 @@ func TestUIGraphAPI_MultiModeDiffsAgainstMergeBase(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
-	t.Setenv("ARCHAI_HOME", t.TempDir()) // materialized base trees stay in the sandbox
+	t.Setenv("WYRD_HOME", t.TempDir()) // materialized base trees stay in the sandbox
 
 	parent := t.TempDir()
 	mainWT := filepath.Join(parent, "alpha")

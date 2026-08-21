@@ -85,7 +85,7 @@ function graphOf(
   relations: SymbolRelation[] = []
 ): UIGraph {
   return {
-    schema: 'archai.uigraph/v0',
+    schema: 'wyrd.uigraph/v0',
     boundedContexts: [{ id: 'root', name: 'Root' }],
     components: Object.entries(packages).map(([id, internals]) => ({
       id,

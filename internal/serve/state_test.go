@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 func TestMain(m *testing.M) {
 	// Disable retrieval in tests to avoid background goroutines
 	// that interfere with temp directory cleanup.
-	os.Setenv("ARCHAI_RETRIEVAL_DISABLE", "1")
+	os.Setenv("WYRD_RETRIEVAL_DISABLE", "1")
 	os.Exit(m.Run())
 }
 
@@ -31,7 +31,7 @@ func writeFile(t *testing.T, path, content string) {
 }
 
 // newFixture creates a minimal Go module under t.TempDir() containing
-// two packages (internal/foo, internal/bar) plus an archai.yaml. The
+// two packages (internal/foo, internal/bar) plus an wyrd.yaml. The
 // returned path is the module root.
 func newFixture(t *testing.T) string {
 	t.Helper()
@@ -56,7 +56,7 @@ func New() *Thing { return &Thing{} }
 type Bar struct{}
 `)
 
-	writeFile(t, filepath.Join(root, "archai.yaml"), `module: example.com/fixture
+	writeFile(t, filepath.Join(root, "wyrd.yaml"), `module: example.com/fixture
 layers:
   domain:
     - "internal/foo/..."
@@ -267,7 +267,7 @@ func TestStateReviewConfigFollowsPrimaryWorktree(t *testing.T) {
 	branch := t.TempDir()
 	primary := t.TempDir()
 
-	writeFile(t, filepath.Join(branch, "archai.yaml"), `module: example.com/fixture
+	writeFile(t, filepath.Join(branch, "wyrd.yaml"), `module: example.com/fixture
 layers:
   domain:
     - "internal/foo/..."
@@ -276,7 +276,7 @@ review_views:
     title: Stale
     default_expansion: changed
 `)
-	writeFile(t, filepath.Join(primary, "archai.yaml"), `module: example.com/fixture
+	writeFile(t, filepath.Join(primary, "wyrd.yaml"), `module: example.com/fixture
 review_views:
   fresh:
     title: Fresh
@@ -431,13 +431,13 @@ func touchFile(t *testing.T, path string) {
 
 func TestBuildEmbedder_ProviderSelection(t *testing.T) {
 	// Save and restore environment
-	origProvider := os.Getenv("ARCHAI_EMBED_PROVIDER")
-	origDisable := os.Getenv("ARCHAI_EMBED_DISABLE")
-	origAPIKey := os.Getenv("ARCHAI_EMBED_API_KEY")
+	origProvider := os.Getenv("WYRD_EMBED_PROVIDER")
+	origDisable := os.Getenv("WYRD_EMBED_DISABLE")
+	origAPIKey := os.Getenv("WYRD_EMBED_API_KEY")
 	defer func() {
-		os.Setenv("ARCHAI_EMBED_PROVIDER", origProvider)
-		os.Setenv("ARCHAI_EMBED_DISABLE", origDisable)
-		os.Setenv("ARCHAI_EMBED_API_KEY", origAPIKey)
+		os.Setenv("WYRD_EMBED_PROVIDER", origProvider)
+		os.Setenv("WYRD_EMBED_DISABLE", origDisable)
+		os.Setenv("WYRD_EMBED_API_KEY", origAPIKey)
 	}()
 
 	tests := []struct {
@@ -487,9 +487,9 @@ func TestBuildEmbedder_ProviderSelection(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			os.Setenv("ARCHAI_EMBED_PROVIDER", tc.provider)
-			os.Setenv("ARCHAI_EMBED_DISABLE", tc.disable)
-			os.Setenv("ARCHAI_EMBED_API_KEY", tc.apiKey)
+			os.Setenv("WYRD_EMBED_PROVIDER", tc.provider)
+			os.Setenv("WYRD_EMBED_DISABLE", tc.disable)
+			os.Setenv("WYRD_EMBED_API_KEY", tc.apiKey)
 
 			emb := buildEmbedder()
 			if emb.ID() != tc.wantID {

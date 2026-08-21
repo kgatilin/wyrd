@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
 )
 
@@ -270,7 +270,7 @@ func TestToArchmotifGraph_ExternalDependenciesSkipped(t *testing.T) {
 	}
 }
 
-// TestToArchmotifGraph_StereotypeRoles verifies every archai
+// TestToArchmotifGraph_StereotypeRoles verifies every wyrd
 // stereotype is mapped to the documented role string.
 func TestToArchmotifGraph_StereotypeRoles(t *testing.T) {
 	cases := []struct {

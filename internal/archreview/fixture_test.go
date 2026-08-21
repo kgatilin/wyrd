@@ -3,7 +3,7 @@ package archreview
 import (
 	"unicode"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // Fixtures record dependency and call targets with **module-relative**

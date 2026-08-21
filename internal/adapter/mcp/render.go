@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/clustering"
+	"github.com/kgatilin/wyrd/internal/clustering"
 )
 
 // Compact text rendering for the LLM-facing tool results.

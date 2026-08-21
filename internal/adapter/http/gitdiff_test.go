@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 func TestGitDiffJSON_ReturnsChangedFiles(t *testing.T) {

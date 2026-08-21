@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/diff"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
-	"github.com/kgatilin/archai/internal/publicapi"
+	"github.com/kgatilin/wyrd/internal/diff"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/publicapi"
 )
 
 func TestParseChangePath(t *testing.T) {

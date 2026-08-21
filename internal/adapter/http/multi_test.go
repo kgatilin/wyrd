@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kgatilin/archai/internal/adapter/mcp"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/serve"
-	"github.com/kgatilin/archai/internal/worktree"
+	"github.com/kgatilin/wyrd/internal/adapter/mcp"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/serve"
+	"github.com/kgatilin/wyrd/internal/worktree"
 )
 
 func TestStripWorktreePrefix(t *testing.T) {
@@ -321,7 +321,7 @@ func (r taggedReader) Read(ctx context.Context, paths []string) ([]domain.Packag
 // with a reader that tags its package by worktree name, so a tool call
 // to /w/{name}/api/mcp/tools/call must return that worktree's tag.
 func TestMultiServer_MCPToolsCall_UsesWorktreeState(t *testing.T) {
-	t.Setenv("ARCHAI_RETRIEVAL_DISABLE", "1")
+	t.Setenv("WYRD_RETRIEVAL_DISABLE", "1")
 	primary := buildTwoWorktreeRepo(t)
 
 	loader := func(ctx context.Context, name, path string) (*serve.State, error) {
@@ -386,7 +386,7 @@ func TestMultiServer_MCPToolsCall_UsesWorktreeState(t *testing.T) {
 // terminal "failed" payload carrying the loader error, and /api/warm must
 // surface the same failure at attach time.
 func TestMultiServer_FailedWorktreeLoad_ReportsFailure(t *testing.T) {
-	t.Setenv("ARCHAI_RETRIEVAL_DISABLE", "1")
+	t.Setenv("WYRD_RETRIEVAL_DISABLE", "1")
 	primary := buildTwoWorktreeRepo(t)
 
 	loadErr := errors.New("package errors: pattern dist/archgraph.sample.json: no matching files found")
@@ -614,7 +614,7 @@ func TestDiscover_RealRepo(t *testing.T) {
 // (202) rather than waiting for the cold go/packages parse, and must leave the
 // worktree's model loading so a later tool call finds it warm.
 func TestMultiServer_Warm_KicksOffLoadWithoutBlocking(t *testing.T) {
-	t.Setenv("ARCHAI_RETRIEVAL_DISABLE", "1")
+	t.Setenv("WYRD_RETRIEVAL_DISABLE", "1")
 	primary := buildTwoWorktreeRepo(t)
 
 	release := make(chan struct{})

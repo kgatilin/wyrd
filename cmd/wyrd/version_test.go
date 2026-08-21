@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/buildinfo"
+	"github.com/kgatilin/wyrd/internal/buildinfo"
 )
 
-// TestVersionCommand verifies `archai version` prints `archai <Version>`.
+// TestVersionCommand verifies `wyrd version` prints `wyrd <Version>`.
 func TestVersionCommand(t *testing.T) {
 	orig := Version
 	origBI := buildinfo.Version
@@ -26,7 +26,7 @@ func TestVersionCommand(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	got := buf.String()
-	want := "archai v1.2.3-test\n"
+	want := "wyrd v1.2.3-test\n"
 	if got != want {
 		t.Fatalf("version output mismatch\n got: %q\nwant: %q", got, want)
 	}
@@ -35,7 +35,7 @@ func TestVersionCommand(t *testing.T) {
 // TestVersionCommand_DevFallback checks that when Version is "dev"
 // resolveVersion either returns a module-info version (inside `go test`
 // with module info available) or falls back to "dev". The command must
-// always start with "archai " and end with a newline.
+// always start with "wyrd " and end with a newline.
 func TestVersionCommand_DevFallback(t *testing.T) {
 	orig := Version
 	origBI := buildinfo.Version
@@ -53,11 +53,11 @@ func TestVersionCommand_DevFallback(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	got := buf.String()
-	if !strings.HasPrefix(got, "archai ") || !strings.HasSuffix(got, "\n") {
+	if !strings.HasPrefix(got, "wyrd ") || !strings.HasSuffix(got, "\n") {
 		t.Fatalf("unexpected dev output: %q", got)
 	}
 	// Must not be empty after the space.
-	trimmed := strings.TrimSpace(strings.TrimPrefix(got, "archai "))
+	trimmed := strings.TrimSpace(strings.TrimPrefix(got, "wyrd "))
 	if trimmed == "" {
 		t.Fatalf("version value is empty in %q", got)
 	}

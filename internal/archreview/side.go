@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	archmotifadapter "github.com/kgatilin/archai/internal/adapter/archmotif"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
+	archmotifadapter "github.com/kgatilin/wyrd/internal/adapter/archmotif"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
 	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
 	"github.com/kgatilin/archmotif/pkg/components"
 	"github.com/kgatilin/archmotif/pkg/filestats"

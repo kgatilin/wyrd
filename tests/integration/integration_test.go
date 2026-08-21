@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/d2"
-	"github.com/kgatilin/archai/internal/adapter/golang"
-	"github.com/kgatilin/archai/internal/service"
+	"github.com/kgatilin/wyrd/internal/adapter/d2"
+	"github.com/kgatilin/wyrd/internal/adapter/golang"
+	"github.com/kgatilin/wyrd/internal/service"
 )
 
 func newTestService() *service.Service {
@@ -218,7 +218,7 @@ func (s *userServiceImpl) validateUser(user User) error {
 	}
 }
 
-// TestIntegration_RealProject tests generating diagrams for the actual archai project.
+// TestIntegration_RealProject tests generating diagrams for the actual wyrd project.
 func TestIntegration_RealProject(t *testing.T) {
 	// This test generates diagrams for the actual project
 	// Skip if running in CI or if user doesn't want to modify project
@@ -230,7 +230,7 @@ func TestIntegration_RealProject(t *testing.T) {
 
 	// Generate diagrams for domain package
 	opts := service.GenerateOptions{
-		Paths: []string{"github.com/kgatilin/archai/internal/domain"},
+		Paths: []string{"github.com/kgatilin/wyrd/internal/domain"},
 	}
 
 	results, err := svc.Generate(context.Background(), opts)

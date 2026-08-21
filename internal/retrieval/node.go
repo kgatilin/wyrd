@@ -1,7 +1,7 @@
 package retrieval
 
 import (
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // Node represents a retrieval unit — a code symbol that can be searched

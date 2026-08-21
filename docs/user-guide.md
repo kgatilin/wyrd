@@ -1,11 +1,11 @@
-# Archai User Guide
+# Wyrd User Guide
 
-Archai is an architecture tool for Go projects. It extracts a structured
+Wyrd is an architecture tool for Go projects. It extracts a structured
 model of your packages (interfaces, structs, functions, methods,
 dependencies, calls) and lets you:
 
 - generate D2 diagrams of the current code,
-- declare architectural layers and rules in `archai.yaml` and enforce
+- declare architectural layers and rules in `wyrd.yaml` and enforce
   them,
 - freeze the current architecture as a named **target**, diff the live
   code against it, and validate in CI,
@@ -23,26 +23,26 @@ work see [`docs/roadmap.md`](roadmap.md).
 ### From source (go install)
 
 ```bash
-go install github.com/kgatilin/archai/cmd/archai@latest
+go install github.com/kgatilin/wyrd/cmd/wyrd@latest
 ```
 
-This installs the `archai` binary into `$(go env GOBIN)` (or
+This installs the `wyrd` binary into `$(go env GOBIN)` (or
 `$(go env GOPATH)/bin`). Make sure that directory is on your `PATH`.
 
 ### From a local clone
 
 ```bash
-git clone https://github.com/kgatilin/archai.git
-cd archai
-go build -o archai ./cmd/archai
-./archai --help
+git clone https://github.com/kgatilin/wyrd.git
+cd wyrd
+go build -o wyrd ./cmd/wyrd
+./wyrd --help
 ```
 
 ### Prebuilt binaries
 
 Prebuilt binaries are not published yet. Once they are attached to a
 GitHub release, download the archive for your OS from
-<https://github.com/kgatilin/archai/releases>, extract `archai`, and put
+<https://github.com/kgatilin/wyrd/releases>, extract `wyrd`, and put
 it on your `PATH`.
 
 ### Verifying the install
@@ -50,11 +50,11 @@ it on your `PATH`.
 Verify the install by running:
 
 ```bash
-archai version
-archai --help
+wyrd version
+wyrd --help
 ```
 
-`archai version` prints the stamped build version. The top-level help
+`wyrd version` prints the stamped build version. The top-level help
 should show the `diagram`, `target`, `diff`, `validate`, `overlay`,
 `serve`, `extract`, `where`, `list-daemons`, and `sequence` command
 groups.
@@ -71,10 +71,10 @@ Run these from the root of your Go module.
 
 ```bash
 # Generate pub.d2 + internal.d2 under each package's .arch/ directory.
-archai diagram generate ./...
+wyrd diagram generate ./...
 
 # Or restrict to a sub-tree.
-archai diagram generate ./internal/...
+wyrd diagram generate ./internal/...
 ```
 
 Each package gets a `.arch/` folder with:
@@ -88,11 +88,11 @@ structured YAML model used by targets instead of D2.
 
 ### 2.2 Check overlay (layer rules)
 
-Declare layers and allowed cross-layer imports in `archai.yaml` (see
+Declare layers and allowed cross-layer imports in `wyrd.yaml` (see
 [§3](#3-project-setup)), then:
 
 ```bash
-archai overlay check
+wyrd overlay check
 ```
 
 Exits `0` when the overlay is valid and no layer-rule violations exist.
@@ -103,20 +103,20 @@ architecture enforcement.
 
 ```bash
 # Freeze the current architecture as target v1.
-archai target lock v1 --description "baseline at 2026-04"
+wyrd target lock v1 --description "baseline at 2026-04"
 
 # Make v1 the active target (written to .arch/targets/CURRENT).
-archai target use v1
+wyrd target use v1
 
 # See drift as code evolves.
-archai diff
+wyrd diff
 
 # CI-friendly exit code.
-archai validate
+wyrd validate
 ```
 
-`archai target lock` regenerates the per-package YAML specs under
-`.arch/` (equivalent to `archai diagram generate --format yaml`) and
+`wyrd target lock` regenerates the per-package YAML specs under
+`.arch/` (equivalent to `wyrd diagram generate --format yaml`) and
 copies them into `.arch/targets/<id>/model/`. Pass `--skip-generate` to
 reuse existing specs, or `-p ./internal/...` to limit which packages are
 refreshed.
@@ -124,7 +124,7 @@ refreshed.
 ### 2.4 Browse the model
 
 ```bash
-archai serve --http :8080
+wyrd serve --http :8080
 ```
 
 Open <http://localhost:8080>. See [§4](#4-architecture-browser).
@@ -132,9 +132,9 @@ Open <http://localhost:8080>. See [§4](#4-architecture-browser).
 ### 2.5 Inspect a call sequence
 
 ```bash
-archai sequence internal/service.Service.Generate
-archai sequence internal/service.Service.Generate --depth 3
-archai sequence internal/service.Service.Generate --format d2 -o gen.d2
+wyrd sequence internal/service.Service.Generate
+wyrd sequence internal/service.Service.Generate --depth 3
+wyrd sequence internal/service.Service.Generate --format d2 -o gen.d2
 ```
 
 Target format is `<pkg/path>.<FuncName>` or
@@ -146,7 +146,7 @@ parses `./...` directly.
 
 ## 3. Project setup
 
-### 3.1 Minimal `archai.yaml`
+### 3.1 Minimal `wyrd.yaml`
 
 Put this next to `go.mod`. It declares module-wide layers and the
 allowed dependencies between them. Aggregates and configs can live here,
@@ -154,7 +154,7 @@ but for larger projects prefer package-local fragments so each package
 owns its own architecture metadata.
 
 ```yaml
-# archai.yaml
+# wyrd.yaml
 
 module: github.com/example/app
 
@@ -185,7 +185,7 @@ violation.
 
 Any package can add architecture metadata in `.arch/overlay.yaml` next
 to its generated model files. These fragments are composed with the
-root `archai.yaml` by `diagram generate`, `overlay check`, `serve`, and
+root `wyrd.yaml` by `diagram generate`, `overlay check`, `serve`, and
 `target lock`.
 
 Example:
@@ -212,28 +212,28 @@ configs:
 ```
 
 Fragments may also add `layers` or `layer_rules`, but the recommended
-shape is to keep global dependency policy in root `archai.yaml` and put
+shape is to keep global dependency policy in root `wyrd.yaml` and put
 package-owned domain/config metadata in package fragments. `aggregates`
 attach a domain root to a package for browser grouping. `configs`
 declare configuration bundles surfaced in the browser's *Configs* view.
 
-For a real example, see [`archai.yaml`](../archai.yaml) at the root of
-this repo. Archai is self-hosted: this repository keeps generated
+For a real example, see [`wyrd.yaml`](../wyrd.yaml) at the root of
+this repo. Wyrd is self-hosted: this repository keeps generated
 per-package `.arch/` files and a locked `self-hosted` target produced by
 the local binary.
 
 Useful maintenance commands for this repository:
 
 ```bash
-make archai-generate   # refresh per-package D2/YAML and combined docs
-make archai-baseline   # refresh artifacts and lock target self-hosted
-make archai-check      # overlay check + diff + validate
-make archai-smoke      # CLI smoke on the archai repo itself
+make wyrd-generate   # refresh per-package D2/YAML and combined docs
+make wyrd-baseline   # refresh artifacts and lock target self-hosted
+make wyrd-check      # overlay check + diff + validate
+make wyrd-smoke      # CLI smoke on the wyrd repo itself
 ```
 
 ### 3.3 `.arch/` and targets on disk
 
-Archai writes all generated artifacts under per-package `.arch/`
+Wyrd writes all generated artifacts under per-package `.arch/`
 directories and under `.arch/targets/` at the project root:
 
 ```
@@ -241,7 +241,7 @@ directories and under `.arch/targets/` at the project root:
 ├── CURRENT                      # plain text file containing the active target id
 ├── v1/
 │   ├── meta.yaml                # id, description, created_at, ...
-│   ├── overlay.yaml             # copy of archai.yaml at lock time
+│   ├── overlay.yaml             # copy of wyrd.yaml at lock time
 │   ├── overlays/                # package-local overlay fragments
 │   │   └── internal/service/overlay.yaml
 │   └── model/
@@ -263,7 +263,7 @@ Decide per repo whether the current-model D2 files are artifacts or
 source of truth. A typical pattern:
 
 ```gitignore
-# Regenerated on every `archai diagram generate` — ignore.
+# Regenerated on every `wyrd diagram generate` — ignore.
 **/.arch/pub.d2
 **/.arch/internal.d2
 **/.arch/pub.yaml
@@ -271,8 +271,8 @@ source of truth. A typical pattern:
 ```
 
 Keep `.arch/targets/` **checked in** — that is your locked
-architectural baseline and what `archai diff` / `archai validate`
-compare against. Keep `archai.yaml` checked in. If you use
+architectural baseline and what `wyrd diff` / `wyrd validate`
+compare against. Keep `wyrd.yaml` checked in. If you use
 package-local overlays, keep `**/.arch/overlay.yaml` checked in too.
 
 ### 3.5 Bounded contexts
@@ -281,10 +281,10 @@ Bounded contexts are an optional DDD-style overlay on top of layers and
 aggregates. They let you group aggregates into named domain areas and
 declare context-map relationships between them.
 
-Add a `bounded_contexts:` block to `archai.yaml`:
+Add a `bounded_contexts:` block to `wyrd.yaml`:
 
 ```yaml
-# archai.yaml
+# wyrd.yaml
 
 bounded_contexts:
   model:
@@ -325,7 +325,7 @@ adapters:
 | `description`  | string           | no       | Human-readable purpose of the context. |
 | `aggregates`   | list of strings  | no       | Aggregate names (declared in `aggregates:`) that belong to this context. Each aggregate may belong to at most one bounded context. |
 | `upstream`     | list of strings  | no       | Contexts this context depends on (consumes). |
-| `downstream`   | list of strings  | no       | Contexts that depend on this one (consumers). You may declare the relationship from either side — archai reads both. |
+| `downstream`   | list of strings  | no       | Contexts that depend on this one (consumers). You may declare the relationship from either side — wyrd reads both. |
 | `relationship` | string           | no       | Optional context-map pattern label. Common values: `shared-kernel`, `customer-supplier`, `conformist`, `acl`, `open-host`. |
 
 **Adapter schema reference**
@@ -348,35 +348,35 @@ hexagonal model.
 
 ### 3.6 CI integration
 
-The minimum useful gate is `archai overlay check` (layer rules) and
-`archai validate` (drift from the active target). Example GitHub
+The minimum useful gate is `wyrd overlay check` (layer rules) and
+`wyrd validate` (drift from the active target). Example GitHub
 Actions step:
 
 ```yaml
-- name: Install archai
-  run: go install github.com/kgatilin/archai/cmd/archai@latest
+- name: Install wyrd
+  run: go install github.com/kgatilin/wyrd/cmd/wyrd@latest
 
 - name: Layer rules
-  run: archai overlay check
+  run: wyrd overlay check
 
 - name: Architecture drift
-  run: archai validate
+  run: wyrd validate
 ```
 
 Both commands exit non-zero on failure, so CI will fail the job. Use
-`archai validate --format json` when you want structured output for
+`wyrd validate --format json` when you want structured output for
 downstream tools.
 
 ---
 
 ## 4. Architecture browser
 
-`archai serve --http :PORT` runs a long-running daemon that keeps an
+`wyrd serve --http :PORT` runs a long-running daemon that keeps an
 in-memory model of the project, watches the filesystem with fsnotify,
 and serves the architecture review UI on the given address.
 
 ```bash
-archai serve --http :8080
+wyrd serve --http :8080
 # open http://localhost:8080
 ```
 
@@ -402,7 +402,7 @@ bar at the top:
 | Details    | Whether a card lists only its changed symbols or the full package. |
 
 Click a card to expand it. An expanded card is the same picture
-`archai diagram generate` emits as D2: a container per source file, a
+`wyrd diagram generate` emits as D2: a container per source file, a
 class shape per symbol with its stereotype, and a two-column body of
 fields, parameters and returns. Arrows inside and between cards are the
 structural relations (`uses`, `returns`, `implements`); click a symbol to
@@ -412,8 +412,8 @@ The daemon serves the canvas at `/` (single worktree) or
 `/w/{worktree}/` when it was started with `--repo` / `--multi`, plus the
 JSON APIs behind it (`/api/uigraph`, `/api/source`, `/api/sequence`,
 `/api/events`). The other lenses — layers, search, bounded contexts,
-targets, diff — are CLI and MCP surfaces: `archai target list/use`,
-`archai diff`, and the MCP tools (`search`, `expand`, `trophic_layers`,
+targets, diff — are CLI and MCP surfaces: `wyrd target list/use`,
+`wyrd diff`, and the MCP tools (`search`, `expand`, `trophic_layers`,
 `spectral_cluster`, `latent_domains`, `get_bounded_context`).
 
 ### 4.2 Reading the diff colors
@@ -426,7 +426,7 @@ The diff view groups changes by kind and operation:
   code.
 - **Modified** (amber) — signature, fields, or methods changed.
 
-The same structure is returned by `archai diff --format yaml|json` and
+The same structure is returned by `wyrd diff --format yaml|json` and
 by the MCP `diff` tool, so UI, CLI, and agents all see the same
 changes.
 
@@ -443,28 +443,28 @@ Add to `.vscode/tasks.json`:
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "archai: generate diagrams",
+      "label": "wyrd: generate diagrams",
       "type": "shell",
-      "command": "archai diagram generate ./...",
+      "command": "wyrd diagram generate ./...",
       "problemMatcher": []
     },
     {
-      "label": "archai: overlay check",
+      "label": "wyrd: overlay check",
       "type": "shell",
-      "command": "archai overlay check",
+      "command": "wyrd overlay check",
       "problemMatcher": []
     },
     {
-      "label": "archai: validate",
+      "label": "wyrd: validate",
       "type": "shell",
-      "command": "archai validate",
+      "command": "wyrd validate",
       "problemMatcher": []
     }
   ]
 }
 ```
 
-Bind `archai: validate` to a keystroke via
+Bind `wyrd: validate` to a keystroke via
 **File → Preferences → Keyboard Shortcuts** (`workbench.action.tasks.runTask`)
 and run it before you commit. The D2 preview is best handled by the
 official D2 VS Code extension.
@@ -475,8 +475,8 @@ official D2 VS Code extension.
 
 | Field              | Value                                               |
 |--------------------|-----------------------------------------------------|
-| Name               | `archai generate`                                   |
-| Program            | `archai`                                            |
+| Name               | `wyrd generate`                                   |
+| Program            | `wyrd`                                            |
 | Arguments          | `diagram generate ./...`                            |
 | Working directory  | `$ProjectFileDir$`                                  |
 
@@ -487,17 +487,17 @@ keymaps under **Settings → Keymap → External Tools**.
 
 ## 6. Agent integration (MCP)
 
-Archai exposes its model to MCP clients via `archai serve --mcp-stdio`.
+Wyrd exposes its model to MCP clients via `wyrd serve --mcp-stdio`.
 The same daemon serves the browser UI, so you can run both together:
 
 ```bash
 # Long-running HTTP daemon (UI + /api/mcp/* JSON API).
-archai serve --http :8080
+wyrd serve --http :8080
 
 # In another terminal — or as the MCP client's command — run the
 # stdio thin client. It will discover or auto-start the HTTP daemon
 # above and proxy every tools/call to it.
-archai serve --mcp-stdio
+wyrd serve --mcp-stdio
 ```
 
 For the full MCP / server reference (operational modes, HTTP API,
@@ -511,8 +511,8 @@ Place at the repo root:
 ```json
 {
   "mcpServers": {
-    "archai": {
-      "command": "archai",
+    "wyrd": {
+      "command": "wyrd",
       "args": ["serve", "--mcp-stdio", "--root", "."]
     }
   }
@@ -522,8 +522,8 @@ Place at the repo root:
 ### 6.2 Codex CLI — `config.toml`
 
 ```toml
-[mcp_servers.archai]
-command = "archai"
+[mcp_servers.wyrd]
+command = "wyrd"
 args    = ["serve", "--mcp-stdio", "--root", "."]
 ```
 
@@ -542,17 +542,17 @@ The daemon advertises eleven tools (defined in
 | `set_current_target`      | Write `.arch/targets/CURRENT`.                                          |
 | `diff`                    | Structured diff of current model vs a target (`target` defaults to CURRENT). |
 | `apply_diff`              | Apply a YAML patch onto a target snapshot (`patch_yaml` required).      |
-| `validate`                | `{ok, violations: [...]}` — same drift as `archai validate`.            |
-| `list_bounded_contexts`   | List all bounded contexts from `archai.yaml` with aggregates and relationships. |
+| `validate`                | `{ok, violations: [...]}` — same drift as `wyrd validate`.            |
+| `list_bounded_contexts`   | List all bounded contexts from `wyrd.yaml` with aggregates and relationships. |
 | `get_bounded_context`     | Full detail for one BC by `name`: aggregates, upstream/downstream peers, member packages. |
 
 ### 6.4 Example agent prompts
 
-- *"Use archai `list_packages` to find every package in the `adapter`
+- *"Use wyrd `list_packages` to find every package in the `adapter`
   layer, then `get_package` on each to summarise its responsibilities."*
-- *"Call archai `diff` and explain the drift in plain English, grouped
+- *"Call wyrd `diff` and explain the drift in plain English, grouped
   by package."*
-- *"Run archai `validate` before I push — if `ok: false`, paste the
+- *"Run wyrd `validate` before I push — if `ok: false`, paste the
   violations and suggest the smallest fix."*
 - *"Propose a refactor of `internal/service`: call `get_package`, draft
   the new shape, then call `lock_target` with id `refactor-service` so
@@ -564,34 +564,34 @@ The daemon advertises eleven tools (defined in
 
 ### 7.1 Onboarding to an unfamiliar codebase
 
-1. `archai diagram generate ./...` — emit per-package D2.
-2. `archai serve --http :8080` — open the review canvas, skim the
+1. `wyrd diagram generate ./...` — emit per-package D2.
+2. `wyrd serve --http :8080` — open the review canvas, skim the
    grouped cards for the overall shape, expand the ones that look like
    entry points.
-3. `archai sequence <pkg>.<Type>.<Method>` on the main request entry
+3. `wyrd sequence <pkg>.<Type>.<Method>` on the main request entry
    point to understand the call flow.
 
 ### 7.2 Refactor against a locked target
 
-1. Decide the target shape and write it into `archai.yaml` / the
+1. Decide the target shape and write it into `wyrd.yaml` / the
    existing model.
-2. `archai target lock v-next --description "post-refactor shape"`.
-3. `archai target use v-next`.
-4. Keep editing. Run `archai diff` to see what is still missing or
+2. `wyrd target lock v-next --description "post-refactor shape"`.
+3. `wyrd target use v-next`.
+4. Keep editing. Run `wyrd diff` to see what is still missing or
    wrong.
-5. When `archai validate` exits `0`, you are done.
+5. When `wyrd validate` exits `0`, you are done.
 
 ### 7.3 Enforcing architecture in CI
 
-1. Commit `archai.yaml` with `layers` and `layer_rules`.
+1. Commit `wyrd.yaml` with `layers` and `layer_rules`.
 2. Commit `.arch/targets/<id>/` for your baseline and an
    `.arch/targets/CURRENT` pointer.
-3. Add `archai overlay check` and `archai validate` to the pipeline
+3. Add `wyrd overlay check` and `wyrd validate` to the pipeline
    (see [§3.5](#35-ci-integration)).
 
 ### 7.4 Exploring code with an agent
 
-1. Run `archai serve --mcp-stdio` (add `--http :8080` if you also want
+1. Run `wyrd serve --mcp-stdio` (add `--http :8080` if you also want
    the UI).
 2. Register it in `.mcp.json` / `config.toml` (see [§6](#6-agent-integration-mcp)).
 3. Ask the agent questions grounded in the real model —
@@ -605,16 +605,16 @@ The browser views listed in [§4.1](#41-views) are all wired to the
 server. Future milestones will polish the UI and add richer interaction
 — see the tracking issues in
 [`docs/roadmap.md`](roadmap.md) and the open
-[milestone issues](https://github.com/kgatilin/archai/issues).
+[milestone issues](https://github.com/kgatilin/wyrd/issues).
 
 ---
 
 ## References
 
-- [`archai.yaml`](../archai.yaml) — real overlay used by archai itself.
+- [`wyrd.yaml`](../wyrd.yaml) — real overlay used by wyrd itself.
 - [`docs/roadmap.md`](roadmap.md) — milestone plan.
 - [`docs/mcp-server-guide.md`](mcp-server-guide.md) — full MCP and
-  `archai serve` reference for agents.
+  `wyrd serve` reference for agents.
 - [`docs/d2guide.md`](d2guide.md) — D2 diagram notation reference.
 - [`docs/architecture.d2`](architecture.d2) / [`docs/arch-composed.d2`](arch-composed.d2)
-  — generated diagrams of archai itself.
+  — generated diagrams of wyrd itself.

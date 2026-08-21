@@ -1,11 +1,11 @@
-// Package archmotif adapts archai's design-time domain model
-// (a slice of domain.PackageModel built from archai.yaml plus
+// Package archmotif adapts wyrd's design-time domain model
+// (a slice of domain.PackageModel built from wyrd.yaml plus
 // per-package .arch/*.yaml specs) into an archmotif typed graph
 // constructed through the public pkg/archmotifimport shim.
 //
-// archai depends on archmotif; archmotif never depends on archai
+// wyrd depends on archmotif; archmotif never depends on wyrd
 // (see kgatilin/archmotif#53 — the import shim is intentionally
-// archai-unaware). With this adapter, archai's target architecture
+// wyrd-unaware). With this adapter, wyrd's target architecture
 // becomes a first-class analyzable artifact for any downstream
 // archmotif analysis (motifs, anomalies, patterns, modularity).
 //
@@ -61,13 +61,13 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
 	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
 )
 
-// ToArchmotifGraph turns archai's design-time package models into an
-// archmotif typed graph. The overlay (loaded from archai.yaml) is
+// ToArchmotifGraph turns wyrd's design-time package models into an
+// archmotif typed graph. The overlay (loaded from wyrd.yaml) is
 // optional; when non-nil the package-level layer/aggregate metadata
 // it carries supplements per-package fields on the input models.
 //
@@ -81,7 +81,7 @@ func ToArchmotifGraph(models []domain.PackageModel, _ *overlay.Config) (*archmot
 	// references to package nodes when emitting coarse depends-on
 	// edges. We do not consult the overlay for layer/aggregate today
 	// because PackageModel already carries those fields populated by
-	// archai's reader pipeline; the overlay parameter is kept for
+	// wyrd's reader pipeline; the overlay parameter is kept for
 	// forward-compatibility with derived metadata not yet on
 	// PackageModel.
 	pkgByPath := make(map[string]*domain.PackageModel, len(models))
@@ -142,7 +142,7 @@ func ToArchmotifGraph(models []domain.PackageModel, _ *overlay.Config) (*archmot
 	// Pass 4: dependency edges between symbols (uses, returns,
 	// extends, nested-in). Implements dependencies are handled in
 	// Pass 3 via the structural Implementations list, which is
-	// archai's canonical source — emitting both would double-count.
+	// wyrd's canonical source — emitting both would double-count.
 	// External / unloaded targets are skipped.
 	if err := addSymbolDependencies(b, models, pkgByPath); err != nil {
 		return nil, err
@@ -573,7 +573,7 @@ func indexDot(s string) int {
 // distinct from any real DependencyKind value.
 const nestedInSentinel archmotifimport.DependencyKind = "__nested_in__"
 
-// mapDependencyKind translates an archai dependency kind to an
+// mapDependencyKind translates an wyrd dependency kind to an
 // archmotifimport DependencyKind. Returns (_, false) for kinds that
 // are intentionally not emitted as typed dependency edges (currently
 // only DependencyImplements, which is handled structurally).
@@ -593,9 +593,9 @@ func mapDependencyKind(k domain.DependencyKind) (archmotifimport.DependencyKind,
 	return "", false
 }
 
-// stereotypeRole maps an archai stereotype to the role attribute
+// stereotypeRole maps an wyrd stereotype to the role attribute
 // archmotif expects on a type node. Empty for StereotypeNone or
-// stereotypes archai does not surface in archmotif's vocabulary.
+// stereotypes wyrd does not surface in archmotif's vocabulary.
 func stereotypeRole(s domain.Stereotype) string {
 	switch s {
 	case domain.StereotypeService:
@@ -620,7 +620,7 @@ func stereotypeRole(s domain.Stereotype) string {
 	return ""
 }
 
-// resolveSymbolID maps an archai SymbolRef to the archmotif graph id
+// resolveSymbolID maps an wyrd SymbolRef to the archmotif graph id
 // for that symbol, returning false when the symbol is external or
 // not present in the loaded package set.
 func resolveSymbolID(ref domain.SymbolRef, pkgByPath map[string]*domain.PackageModel) (string, bool) {
@@ -648,7 +648,7 @@ func resolveSymbolID(ref domain.SymbolRef, pkgByPath map[string]*domain.PackageM
 
 	// Resolve in symbol-priority order: interface, struct, typedef,
 	// function. Methods/fields are not first-class targets of
-	// dependency edges in archai today.
+	// dependency edges in wyrd today.
 	if packageHasInterface(p, ref.Symbol) {
 		return typeID(ref.Package, ref.Symbol), true
 	}

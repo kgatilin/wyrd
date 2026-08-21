@@ -13,7 +13,7 @@ internal/adapter/d2                        90.4%
 internal/adapter/golang                    85.8%
 internal/service                           80.6%
 internal/domain                            34.9% (helper methods only)
-cmd/archai                                 0.0% (e2e tests only)
+cmd/wyrd                                 0.0% (e2e tests only)
 ```
 
 ## Test Categories Implemented
@@ -118,7 +118,7 @@ cmd/archai                                 0.0% (e2e tests only)
   - Nested packages: `internal/adapter/golang/.arch`
   - Root package (empty string): `.arch`
   - Root package (dot): `.arch`
-  - Cmd packages: `cmd/archai/.arch`
+  - Cmd packages: `cmd/wyrd/.arch`
 
 **Key Assertions:**
 - Correct number of results returned
@@ -160,7 +160,7 @@ cmd/archai                                 0.0% (e2e tests only)
 - Stereotypes are present in output
 - File structure is correct (.arch directories created)
 
-### 6. End-to-End Tests (`cmd/archai/e2e_test.go`)
+### 6. End-to-End Tests (`cmd/wyrd/e2e_test.go`)
 
 **Tests:** 6 test functions
 **Focus:** CLI behavior and user-facing functionality
@@ -215,7 +215,7 @@ cmd/archai                                 0.0% (e2e tests only)
 All tests pass successfully:
 
 ```
-PASS: cmd/archai (6 tests, 1.7s)
+PASS: cmd/wyrd (6 tests, 1.7s)
 PASS: internal (3 tests, 0.2s)
 PASS: internal/adapter/d2 (9 tests, 0.005s)
 PASS: internal/adapter/golang (5 tests, 0.2s)
@@ -339,7 +339,7 @@ internal/adapter/golang/reader_test.go - Go adapter tests
 internal/adapter/d2/[multiple]_test.go - D2 adapter tests
 internal/service/generate_test.go    - Service layer tests
 internal/integration_test.go         - Integration tests
-cmd/archai/e2e_test.go              - End-to-end CLI tests
+cmd/wyrd/e2e_test.go              - End-to-end CLI tests
 ```
 
 ### Running Tests

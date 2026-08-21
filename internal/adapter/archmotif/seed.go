@@ -3,8 +3,8 @@ package archmotif
 import (
 	"sort"
 
-	"github.com/kgatilin/archai/internal/diff"
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/diff"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // SeedIDsFromDiff computes the structural diff between a base and a worktree

@@ -7,7 +7,7 @@ import type { UIGraph } from '../types';
  * Geometry is pre-set (layout should preserve it).
  */
 export const fixture: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   pr: {
     title: 'Add OrderEvents stream + harden Payment retries',
     branch: 'agent/order-events-2026-04-30',

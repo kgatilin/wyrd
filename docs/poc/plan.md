@@ -21,9 +21,9 @@
 - `internal/adapter/uigraph/uigraph.go` — `UIGraph` types (JSON tags) + `Project(...)`.
 - `internal/adapter/uigraph/resolve.go` — diff-path resolver (`diff.Change.Path` → node id + level).
 - `internal/adapter/uigraph/uigraph_test.go` — projection + resolver unit tests.
-- `cmd/archai/export.go` — `archai export ui` command wiring.
-- `cmd/archai/export_test.go` — wire-level test.
-- `cmd/archai/main.go` — MODIFY: register `newExportCmd()` (one line, like `newExtractCmd()`).
+- `cmd/wyrd/export.go` — `archai export ui` command wiring.
+- `cmd/wyrd/export_test.go` — wire-level test.
+- `cmd/wyrd/main.go` — MODIFY: register `newExportCmd()` (one line, like `newExtractCmd()`).
 
 **web/ (new standalone app):**
 - `web/index.html`, `web/package.json`, `web/vite.config.ts`, `web/tsconfig.json`
@@ -318,23 +318,23 @@ func TestProjectMarksAddedMember(t *testing.T) {
 
 ### Task A4: `archai export ui` CLI
 
-**Files:** Create `cmd/archai/export.go`, `cmd/archai/export_test.go`; Modify `cmd/archai/main.go` (register `newExportCmd()`).
+**Files:** Create `cmd/wyrd/export.go`, `cmd/wyrd/export_test.go`; Modify `cmd/wyrd/main.go` (register `newExportCmd()`).
 
-> Implementer: reuse existing helpers in `cmd/archai/` — `loadCurrentModel`,
+> Implementer: reuse existing helpers in `cmd/wyrd/` — `loadCurrentModel`,
 > overlay resolution (`resolveOverlay`/`loadD2StyleConfig` pattern), and the target/
-> diff plumbing used by `runDiff` (read `cmd/archai/main.go` around `runDiff`,
+> diff plumbing used by `runDiff` (read `cmd/wyrd/main.go` around `runDiff`,
 > `runValidate`, and `internal/target`, `internal/diff`). Synthesize `PR` from the git
 > branch (best-effort; `""` if unavailable) + diff stats.
 
 - [ ] **Step 1: Write a wire-level test** in `export_test.go`: run `export ui` over a tiny temp Go module (or `./internal/...`) with `-o tmpfile`, assert the file is valid JSON, `schema == "archai.uigraph/v0"`, and `len(components) > 0`.
 
-- [ ] **Step 2: Run, verify it fails** — `go test ./cmd/archai/ -run TestExportUI -v` → FAIL.
+- [ ] **Step 2: Run, verify it fails** — `go test ./cmd/wyrd/ -run TestExportUI -v` → FAIL.
 
 - [ ] **Step 3: Implement `newExportCmd()`** — `archai export ui [paths...]` with flags `--target <id>` (default CURRENT if present), `-o/--output` (default stdout), `--overlay`. Load current model, optionally compute diff vs target, `uigraph.Project(...)`, `json.MarshalIndent`, write. Register in `main.go` next to `newExtractCmd()`.
 
-- [ ] **Step 4: Run, verify pass** — `go test ./cmd/archai/ -run TestExportUI -v` → PASS; then `go build ./... && go test ./...` → all green.
+- [ ] **Step 4: Run, verify pass** — `go test ./cmd/wyrd/ -run TestExportUI -v` → PASS; then `go build ./... && go test ./...` → all green.
 
-- [ ] **Step 5: Generate the committed sample** — `go run ./cmd/archai export ui ./internal/... -o web/public/archgraph.sample.json` and inspect it has bounded contexts + components. Commit code + sample: `git add -A && git commit -m "feat(poc): archai export ui command + sample UIGraph"`
+- [ ] **Step 5: Generate the committed sample** — `go run ./cmd/wyrd export ui ./internal/... -o web/public/archgraph.sample.json` and inspect it has bounded contexts + components. Commit code + sample: `git add -A && git commit -m "feat(poc): archai export ui command + sample UIGraph"`
 
 ---
 
@@ -421,7 +421,7 @@ func TestProjectMarksAddedMember(t *testing.T) {
 
 **Files:** Create `web/README.md`, `scripts/poc-demo.sh` (or document inline in README).
 
-- [ ] **Step 1:** Build archai: `go build -o ./bin/archai ./cmd/archai`.
+- [ ] **Step 1:** Build archai: `go build -o ./bin/archai ./cmd/wyrd`.
 - [ ] **Step 2:** Demo data with a real diff:
 ```bash
 ./bin/archai diagram generate ./internal/... --format yaml      # current specs

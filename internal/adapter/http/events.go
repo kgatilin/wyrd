@@ -5,7 +5,7 @@ import (
 	"fmt"
 	nethttp "net/http"
 
-	"github.com/kgatilin/archai/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/plugin"
 )
 
 type modelEventJSON struct {

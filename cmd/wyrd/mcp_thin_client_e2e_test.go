@@ -14,10 +14,10 @@ import (
 )
 
 // TestE2E_MCPStdio_ThinClient exercises the M11 thin-client path end
-// to end: `archai serve --mcp-stdio` without --no-daemon auto-starts
+// to end: `wyrd serve --mcp-stdio` without --no-daemon auto-starts
 // an HTTP daemon, the wrapper proxies tools/call over HTTP, and the
 // responses match the one-shot mode for the same Go module. Uses a
-// single rebuilt archai binary (~3s) that's shared across the two
+// single rebuilt wyrd binary (~3s) that's shared across the two
 // subprocess lifecycles.
 func TestE2E_MCPStdio_ThinClient(t *testing.T) {
 	if testing.Short() {
@@ -25,12 +25,12 @@ func TestE2E_MCPStdio_ThinClient(t *testing.T) {
 	}
 
 	binDir := t.TempDir()
-	binPath := filepath.Join(binDir, "archai")
+	binPath := filepath.Join(binDir, "wyrd")
 	build := exec.Command("go", "build", "-o", binPath, ".")
 	build.Stdout = os.Stdout
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
-		t.Fatalf("build archai: %v", err)
+		t.Fatalf("build wyrd: %v", err)
 	}
 
 	projectDir := t.TempDir()

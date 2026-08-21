@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 func TestD2TextBuilder_Build(t *testing.T) {

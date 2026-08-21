@@ -11,9 +11,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/diff"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/target"
+	"github.com/kgatilin/wyrd/internal/diff"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/target"
 )
 
 // DriftOptions configures the target-drift check.
@@ -43,7 +43,7 @@ func (c *Checker) Drift(ctx context.Context, opts DriftOptions) (DriftResult, er
 			return DriftResult{}, fmt.Errorf("reading CURRENT: %w", err)
 		}
 		if cur == "" {
-			return DriftResult{}, errors.New("no target specified and no CURRENT target set; use --target <id> or `archai target use <id>`")
+			return DriftResult{}, errors.New("no target specified and no CURRENT target set; use --target <id> or `wyrd target use <id>`")
 		}
 		targetID = cur
 	}

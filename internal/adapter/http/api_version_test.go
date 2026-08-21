@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/buildinfo"
+	"github.com/kgatilin/wyrd/internal/buildinfo"
 )
 
 // TestAPIVersion_GET checks the JSON shape and content of /api/version.

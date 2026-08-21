@@ -1,13 +1,13 @@
-# archai retrieval service
+# wyrd retrieval service
 
-archai is a **stateful retrieval service over a Go codebase**. Every symbol in
+wyrd is a **stateful retrieval service over a Go codebase**. Every symbol in
 the AST graph (func / method / struct / interface / type / const / var / error)
 becomes a *node*; nodes get a dense embedding + a BM25 lexical index. Search is
 hybrid (dense cosine + BM25, fused into a calibrated relevance mass) and can
 expand along graph edges.
-The index lives in `.archai/cache/` and refreshes incrementally by content hash.
+The index lives in `.wyrd/cache/` and refreshes incrementally by content hash.
 
-Boundary: archai answers **"what in the code is relevant"** (knowledge). It does
+Boundary: wyrd answers **"what in the code is relevant"** (knowledge). It does
 *not* orchestrate — deciding *when* to search, with *what* query, and *what to do
 next* belongs to the caller (an agent/orchestrator, IDE, or MCP client).
 
@@ -86,7 +86,7 @@ adapter applies them by model family:
 | `nomic-embed*` | `search_document: <d>` | `search_query: <q>` |
 | other | raw | raw |
 
-The Qwen3 task string is configurable (`ARCHAI_EMBED_QUERY_INSTRUCTION`).
+The Qwen3 task string is configurable (`WYRD_EMBED_QUERY_INSTRUCTION`).
 
 ### Search is one operation
 
@@ -145,14 +145,14 @@ serving never fail because of a missing embedder.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ARCHAI_EMBED_PROVIDER` | `ollama` | `ollama` / `openai` / `noop` |
-| `ARCHAI_EMBED_MODEL` | `qwen3-embedding:0.6b` | embedding model |
-| `ARCHAI_EMBED_ENDPOINT` | `http://localhost:11434` | Ollama endpoint |
-| `ARCHAI_EMBED_QUERY_INSTRUCTION` | code-search default | query task instruction (Qwen3) |
-| `ARCHAI_EMBED_BATCH` | `64` | inputs per `/api/embed` request |
-| `ARCHAI_EMBED_CONCURRENCY` | `4` | concurrent batch requests (helps remote; no-op for local embedding models — see Performance) |
-| `ARCHAI_EMBED_API_KEY` | — | API key for `openai` provider (env only, never on disk) |
-| `ARCHAI_RETRIEVAL_DISABLE` | — | `1` disables retrieval entirely |
+| `WYRD_EMBED_PROVIDER` | `ollama` | `ollama` / `openai` / `noop` |
+| `WYRD_EMBED_MODEL` | `qwen3-embedding:0.6b` | embedding model |
+| `WYRD_EMBED_ENDPOINT` | `http://localhost:11434` | Ollama endpoint |
+| `WYRD_EMBED_QUERY_INSTRUCTION` | code-search default | query task instruction (Qwen3) |
+| `WYRD_EMBED_BATCH` | `64` | inputs per `/api/embed` request |
+| `WYRD_EMBED_CONCURRENCY` | `4` | concurrent batch requests (helps remote; no-op for local embedding models — see Performance) |
+| `WYRD_EMBED_API_KEY` | — | API key for `openai` provider (env only, never on disk) |
+| `WYRD_RETRIEVAL_DISABLE` | — | `1` disables retrieval entirely |
 
 ---
 
@@ -162,8 +162,8 @@ serving never fail because of a missing embedder.
 # Ollama running with the embedding model pulled:
 ollama pull qwen3-embedding:0.6b
 
-# Serve archai (retrieval is wired into the existing server):
-archai serve --root . --http 127.0.0.1:8800
+# Serve wyrd (retrieval is wired into the existing server):
+wyrd serve --root . --http 127.0.0.1:8800
 ```
 
 Initial indexing runs in the background on load. To force/await a reconcile,
@@ -248,18 +248,18 @@ curl -XPOST :8800/api/mcp/tools/call \
 
 ## Using from Claude Code (MCP)
 
-This repo ships a project-scoped `.mcp.json` that registers archai as an MCP
+This repo ships a project-scoped `.mcp.json` that registers wyrd as an MCP
 server for Claude Code:
 
 ```json
 {
   "mcpServers": {
-    "archai": { "command": "archai", "args": ["serve", "--mcp-stdio", "--root", "."] }
+    "wyrd": { "command": "wyrd", "args": ["serve", "--mcp-stdio", "--root", "."] }
   }
 }
 ```
 
-`archai serve --mcp-stdio` is a **thin client**: it speaks MCP over stdio but
+`wyrd serve --mcp-stdio` is a **thin client**: it speaks MCP over stdio but
 forwards `tools/call` to a background HTTP daemon, auto-starting one if none is
 running. Discovery and auto-start are keyed per git worktree (via
 `.arch/.worktree/<name>/serve.json`) and serialized by a lock file, so:
@@ -269,12 +269,12 @@ running. Discovery and auto-start are keyed per git worktree (via
   AST/HTTP server and the same warm dense/BM25 indexes. Indexing is paid once.
 - The auto-started daemon self-terminates after 15 min idle (then the next call
   re-starts and re-indexes it). To keep it permanently warm, run a manual daemon
-  that never times out: `archai serve --root . --http 127.0.0.1:0` — the thin
+  that never times out: `wyrd serve --root . --http 127.0.0.1:0` — the thin
   clients will discover and reuse it.
 
 Setup notes:
-- `archai` must be on `PATH`. Reinstall after code changes so the daemon runs the
-  current build: `go install ./cmd/archai` (or `make install`).
+- `wyrd` must be on `PATH`. Reinstall after code changes so the daemon runs the
+  current build: `go install ./cmd/wyrd` (or `make install`).
 - Project-scoped MCP servers require approval on first use; restart/reapprove
   Claude Code after adding `.mcp.json`.
 - `--multi` is **not** compatible with `--mcp-stdio`; MCP targets the single
@@ -282,7 +282,7 @@ Setup notes:
 
 ## Freshness
 
-`.archai/cache/` holds:
+`.wyrd/cache/` holds:
 - `go-model.json` — parsed AST model, per-file mtime/size stamps (incremental re-parse)
 - `vectors.json` — dense vectors keyed by `node_id` + content hash + embedder ID
 - `bm25.json` — lexical index
@@ -302,7 +302,7 @@ Changing the embedder model (its `ID()`) invalidates all persisted vectors.
   models a single decode slot (`-np 1`) regardless of the variable, so neither
   it nor client-side concurrency parallelizes local embedding. The only
   Ollama-side win is batching (one larger request packs more per forward pass),
-  which is already in place. `ARCHAI_EMBED_CONCURRENCY` still helps the **remote**
+  which is already in place. `WYRD_EMBED_CONCURRENCY` still helps the **remote**
   (OpenAI) embedder, where requests are network-bound and parallelizable.
 - Levers if indexing time matters: a smaller/faster model
-  (`ARCHAI_EMBED_MODEL=embeddinggemma:300m`), or embedding less text per node.
+  (`WYRD_EMBED_MODEL=embeddinggemma:300m`), or embedding less text per node.

@@ -4,7 +4,7 @@ import { createElkLayout } from './elkLayout';
 import { createHttpGraphSource } from './httpGraphSource';
 
 const graph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [{ id: 'bc1', name: 'Core' }],
   components: [{ id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] }],
   edges: [],
@@ -30,7 +30,7 @@ describe('createHttpGraphSource', () => {
   it('loads a UIGraph (falls back to the built-in fixture when no network)', async () => {
     const port = createHttpGraphSource();
     const result = await port.load();
-    expect(result.schema.startsWith('archai.uigraph/')).toBe(true);
+    expect(result.schema.startsWith('wyrd.uigraph/')).toBe(true);
     expect(Array.isArray(result.components)).toBe(true);
   });
 });

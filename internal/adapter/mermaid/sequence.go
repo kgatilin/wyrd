@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/sequence"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/sequence"
 )
 
 // BuildSequenceSource renders a call tree as a Mermaid sequenceDiagram.

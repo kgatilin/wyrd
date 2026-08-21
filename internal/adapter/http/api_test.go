@@ -12,14 +12,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/mcp"
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/adapter/mcp"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 func TestMain(m *testing.M) {
 	// Disable retrieval in tests to avoid background goroutines
 	// that interfere with temp directory cleanup.
-	os.Setenv("ARCHAI_RETRIEVAL_DISABLE", "1")
+	os.Setenv("WYRD_RETRIEVAL_DISABLE", "1")
 	os.Exit(m.Run())
 }
 

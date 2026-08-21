@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/kgatilin/archai/internal/clustering"
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/clustering"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 // The latent_domains tool. The analysis lives in internal/clustering, which the

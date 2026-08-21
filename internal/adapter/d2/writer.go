@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/service"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/service"
 )
 
 // writer writes domain.PackageModel structures as D2 diagram files.

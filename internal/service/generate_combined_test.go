@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 func TestService_GenerateCombined(t *testing.T) {

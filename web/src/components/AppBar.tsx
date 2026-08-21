@@ -38,7 +38,7 @@ export function AppBar({
   pr,
 }: AppBarProps) {
   const branch = pr?.branch ?? 'main';
-  const repoName = 'archai'; // fallback
+  const repoName = 'wyrd'; // fallback
 
   return (
     <div className="hf-appbar">
@@ -94,7 +94,7 @@ export function AppBar({
         className="hf-btn"
         onClick={onRefresh}
         disabled={refreshing}
-        title="Reload graph from live archai serve data"
+        title="Reload graph from live wyrd serve data"
       >
         {refreshing ? 'Refreshing...' : 'Refresh'}
       </button>

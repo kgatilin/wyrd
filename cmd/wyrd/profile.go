@@ -10,17 +10,17 @@ import (
 	"sort"
 	"time"
 
-	"github.com/kgatilin/archai/internal/adapter/uigraph"
-	"github.com/kgatilin/archai/internal/serve"
-	"github.com/kgatilin/archai/internal/service"
+	"github.com/kgatilin/wyrd/internal/adapter/uigraph"
+	"github.com/kgatilin/wyrd/internal/serve"
+	"github.com/kgatilin/wyrd/internal/service"
 	"github.com/spf13/cobra"
 )
 
 func newProfileCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "profile",
-		Short: "Profile archai project loading",
-		Long:  "Profile archai project loading and review UI graph projection stages.",
+		Short: "Profile wyrd project loading",
+		Long:  "Profile wyrd project loading and review UI graph projection stages.",
 	}
 	cmd.AddCommand(newProfileLoadCmd())
 	return cmd
@@ -30,16 +30,16 @@ func newProfileLoadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "load [root]",
 		Short: "Profile project model load and UIGraph projection",
-		Long: `Profile the same expensive stages used by archai serve and the
+		Long: `Profile the same expensive stages used by wyrd serve and the
 review UI's /api/uigraph endpoint: serve state load (including model cache,
-archai.yaml overlay, and active target), UIGraph projection, and JSON
+wyrd.yaml overlay, and active target), UIGraph projection, and JSON
 serialization.
 
 Examples:
-  archai profile load
-  archai profile load /path/to/project --repeat 3
-  archai profile load /path/to/project --json
-  archai profile load /path/to/project --cpuprofile /tmp/archai-load.pprof`,
+  wyrd profile load
+  wyrd profile load /path/to/project --repeat 3
+  wyrd profile load /path/to/project --json
+  wyrd profile load /path/to/project --cpuprofile /tmp/wyrd-load.pprof`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: runProfileLoad,
 	}
@@ -236,7 +236,7 @@ func summarizeProfileRuns(runs []profileLoadRun) profileSummary {
 }
 
 func printProfileLoadReport(w interface{ Write([]byte) (int, error) }, report profileLoadReport, cpuProfile string) {
-	fmt.Fprintf(w, "archai profile load: %s\n", report.Root)
+	fmt.Fprintf(w, "wyrd profile load: %s\n", report.Root)
 	for _, run := range report.Runs {
 		fmt.Fprintf(w, "\nrun %d: %.3fs, %d package(s), %d relation(s), %.2f MiB JSON\n",
 			run.Index,

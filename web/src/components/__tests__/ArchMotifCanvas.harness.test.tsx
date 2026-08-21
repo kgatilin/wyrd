@@ -11,7 +11,7 @@ import type { Diff, UIGraph } from '../../types';
 function graphOf(options: { pr?: boolean; diffs?: Record<string, Diff> } = {}): UIGraph {
   const diff = (id: string) => options.diffs?.[id];
   return {
-    schema: 'archai.uigraph/v0',
+    schema: 'wyrd.uigraph/v0',
     ...(options.pr
       ? {
           pr: {

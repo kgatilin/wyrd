@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/service"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/service"
 	yamlv3 "gopkg.in/yaml.v3"
 )
 
@@ -84,7 +84,7 @@ func (w *writer) WriteCombined(ctx context.Context, models []domain.PackageModel
 		Schema   string        `yaml:"schema"`
 		Packages []PackageSpec `yaml:"packages"`
 	}{
-		Schema:   "archai/v1",
+		Schema:   "wyrd/v1",
 		Packages: specs,
 	}
 

@@ -1,4 +1,4 @@
-module github.com/kgatilin/archai
+module github.com/kgatilin/wyrd
 
 go 1.25.1
 

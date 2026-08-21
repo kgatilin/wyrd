@@ -11,7 +11,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/kgatilin/archai/internal/retrieval/types"
+	"github.com/kgatilin/wyrd/internal/retrieval/types"
 )
 
 // Index implements retrieval.VectorIndex with brute-force cosine search.

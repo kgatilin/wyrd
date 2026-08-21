@@ -7,7 +7,7 @@ import type { UIGraph } from '../../types';
 
 /** One package under review: one file the branch changed, one it did not. */
 const graph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   pr: {
     title: 'Wire the llm controller',
     branch: 'feature',
@@ -59,7 +59,7 @@ const graph: UIGraph = {
 };
 
 const diff: GitDiff = {
-  schema: 'archai.gitdiff/1',
+  schema: 'wyrd.gitdiff/1',
   branch: 'feature',
   baseRef: 'main',
   baseRev: 'abc1234',

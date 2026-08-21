@@ -13,8 +13,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/diff"
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/diff"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // Apply replays diff d against targetModels, using currentModels as the

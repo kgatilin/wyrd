@@ -10,18 +10,18 @@ import (
 	"text/template"
 	"unicode"
 
-	"github.com/kgatilin/archai/internal/eventmodel"
+	"github.com/kgatilin/wyrd/internal/eventmodel"
 )
 
-// TemplateData is the data model archai exposes to a project's codegen
+// TemplateData is the data model wyrd exposes to a project's codegen
 // templates. It is a stable contract, versioned alongside the declaration
 // format: templates live in projects, so changing a field name here breaks
 // every project that reads it.
 //
-// It is deliberately language-neutral. archai renders a project-supplied
+// It is deliberately language-neutral. wyrd renders a project-supplied
 // template and never learns the project's types — the whole point of the
-// design is that archai is not a dependency of a production binary, in any
-// language. A Go generator built into archai would invert that.
+// design is that wyrd is not a dependency of a production binary, in any
+// language. A Go generator built into wyrd would invert that.
 //
 // Ordering is deterministic everywhere: maps are flattened into sorted slices
 // so a template's output does not churn between runs.

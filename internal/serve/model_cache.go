@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kgatilin/archai/internal/buildinfo"
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/buildinfo"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 const (
@@ -343,6 +343,8 @@ func writeModelCache(root string, cache modelCacheFile) error {
 	return os.Rename(tmpName, path)
 }
 
+// modelCachePath keeps the historical .archai cache dir name so existing
+// gitignores and warm caches survive the archai→wyrd rename.
 func modelCachePath(root string) string {
 	return filepath.Join(root, ".archai", "cache", "go-model.json")
 }

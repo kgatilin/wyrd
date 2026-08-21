@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 // baseModels and headModels share a shape: the branch adds a package, an

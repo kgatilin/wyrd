@@ -1,4 +1,4 @@
-// Package uigraph projects archai's domain model + overlay + diff into the
+// Package uigraph projects wyrd's domain model + overlay + diff into the
 // UIGraph JSON shape consumed by the POC review UI. Pure data + a pure
 // projection function; no I/O, no behavior on the types.
 package uigraph
@@ -9,13 +9,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/diff"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
-	"github.com/kgatilin/archai/internal/publicapi"
+	"github.com/kgatilin/wyrd/internal/diff"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/publicapi"
 )
 
-const Schema = "archai.uigraph/v0"
+const Schema = "wyrd.uigraph/v0"
 
 type UIGraph struct {
 	Schema             string            `json:"schema"`
@@ -214,7 +214,7 @@ type CommentTarget struct {
 	ID   string `json:"id"`
 }
 
-// Project transforms archai's domain model + overlay + diff into a UIGraph.
+// Project transforms wyrd's domain model + overlay + diff into a UIGraph.
 // This is a pure function: no I/O, no globals.
 //
 // Mapping rules:

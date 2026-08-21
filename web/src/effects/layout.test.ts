@@ -6,7 +6,7 @@ import type { LayoutPort } from '../domain/ports';
 import { createLayoutEffect } from './layout';
 
 const graph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [],
   components: [{ id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] }],
   edges: [],
@@ -98,7 +98,7 @@ describe('createLayoutEffect', () => {
   it('re-lays out using the hide-unchanged-neighbors projection', async () => {
     const reviewGraph: UIGraph = {
       ...graph,
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       components: [
         { id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
         { id: 'b', name: 'B', tech: '', desc: '', bc: 'bc1', diff: 'added', internals: [], ports: [] },
@@ -123,7 +123,7 @@ describe('createLayoutEffect', () => {
   it('re-lays out using the changed-details-only projection', async () => {
     const reviewGraph: UIGraph = {
       ...graph,
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       components: [
         {
           id: 'a',
@@ -158,7 +158,7 @@ describe('createLayoutEffect', () => {
   it('re-lays out focused package view with full package details and incident connections', async () => {
     const reviewGraph: UIGraph = {
       ...graph,
-      pr: { title: 'Review', branch: 'feature', agent: 'archai', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
       components: [
         {
           id: 'a',

@@ -216,7 +216,7 @@ func (w *Watcher) shouldIgnore(path string) bool {
 // important: each directory adds an inotify (or equivalent) watch.
 func defaultSkipDir(name string) bool {
 	if strings.HasPrefix(name, ".") {
-		return name != ".arch"
+		return name != ".arch" && name != ".wyrd"
 	}
 	if strings.HasPrefix(name, "_") {
 		return true

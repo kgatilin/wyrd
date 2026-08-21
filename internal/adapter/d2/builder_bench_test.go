@@ -6,16 +6,16 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/golang"
+	"github.com/kgatilin/wyrd/internal/adapter/golang"
 )
 
-func findArchaiRootD2(tb testing.TB) string {
+func findWyrdRootD2(tb testing.TB) string {
 	tb.Helper()
 	dir, err := os.Getwd()
 	if err != nil {
 		tb.Fatalf("getwd: %v", err)
 	}
-	const want = "module github.com/kgatilin/archai"
+	const want = "module github.com/kgatilin/wyrd"
 	for {
 		gomod := filepath.Join(dir, "go.mod")
 		if data, err := os.ReadFile(gomod); err == nil {
@@ -28,18 +28,18 @@ func findArchaiRootD2(tb testing.TB) string {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			tb.Fatal("could not locate archai module root")
+			tb.Fatal("could not locate wyrd module root")
 		}
 		dir = parent
 	}
 }
 
 // BenchmarkD2Build_AllPackages measures the cost of rendering D2 text
-// for every package in the archai project (both pub and internal views),
+// for every package in the wyrd project (both pub and internal views),
 // which mirrors what the daemon does after a full reload before writers
 // hit the filesystem.
 func BenchmarkD2Build_AllPackages(b *testing.B) {
-	root := findArchaiRootD2(b)
+	root := findWyrdRootD2(b)
 	prev, _ := os.Getwd()
 	if err := os.Chdir(root); err != nil {
 		b.Fatalf("chdir: %v", err)
@@ -69,7 +69,7 @@ func BenchmarkD2Build_AllPackages(b *testing.B) {
 
 // BenchmarkD2Build_Combined measures rendering of the combined diagram.
 func BenchmarkD2Build_Combined(b *testing.B) {
-	root := findArchaiRootD2(b)
+	root := findWyrdRootD2(b)
 	prev, _ := os.Getwd()
 	if err := os.Chdir(root); err != nil {
 		b.Fatalf("chdir: %v", err)

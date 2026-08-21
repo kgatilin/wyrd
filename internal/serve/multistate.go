@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kgatilin/archai/internal/adapter/git"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/worktree"
+	"github.com/kgatilin/wyrd/internal/adapter/git"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/worktree"
 )
 
 // StateLoader builds a fresh State for a newly-discovered worktree.
@@ -70,7 +70,7 @@ type MultiState struct {
 	order []string
 
 	// defaultName is the worktree matching root. It is preferred over
-	// first-alphabetical so `archai serve --repo .` opens the worktree
+	// first-alphabetical so `wyrd serve --repo .` opens the worktree
 	// the user actually started from.
 	defaultName string
 
@@ -674,7 +674,7 @@ func (m *MultiState) runLoad(name string, entry worktree.Entry, load *stateLoad)
 	m.wireBaseResolver(name, loaded)
 
 	// Review UI config (review_views / review_groups) follows the primary
-	// checkout, not the branch's possibly-stale archai.yaml copy.
+	// checkout, not the branch's possibly-stale wyrd.yaml copy.
 	loaded.SetReviewConfigRoot(m.root)
 
 	// The State is committed and fully wired, so anything keyed off "this

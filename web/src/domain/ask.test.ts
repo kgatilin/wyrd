@@ -3,7 +3,7 @@ import { buildAskProjection, groupAskHits, resolveAskHits, reresolveAskHits, typ
 import type { UIGraph } from '../types';
 
 const graph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [{ id: 'root', name: 'Root' }],
   components: [
     {

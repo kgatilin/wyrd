@@ -11,7 +11,7 @@ import type { UIGraph } from '../../types';
  * off — plus the symbol an inversion row points at.
  */
 const graph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [{ id: 'root', name: 'Root' }],
   components: [
     {
@@ -89,7 +89,7 @@ const cycleEdges = [
 
 /** A repo-mode report: a cycle, a god file, a god package, and two clean sections. */
 const repoReport: ArchReport = {
-  schema: 'archai.archreview/v1',
+  schema: 'wyrd.archreview/v1',
   mode: 'repo',
   sections: [
     {
@@ -173,7 +173,7 @@ const repoReport: ArchReport = {
 
 /** A review-mode report that also has something to say about its own limits. */
 const reviewReport: ArchReport = {
-  schema: 'archai.archreview/v1',
+  schema: 'wyrd.archreview/v1',
   mode: 'review',
   base: { ref: 'main', rev: 'cc451e9d0f' },
   sections: [
@@ -224,7 +224,7 @@ const reviewReport: ArchReport = {
 };
 
 const gitDiff: GitDiff = {
-  schema: 'archai.gitdiff/1',
+  schema: 'wyrd.gitdiff/1',
   branch: 'feature',
   baseRef: 'main',
   baseRev: 'abc1234',

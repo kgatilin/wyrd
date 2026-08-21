@@ -39,12 +39,12 @@ type PackageModel struct {
 	Dependencies []Dependency
 
 	// Layer is the architectural layer this package belongs to,
-	// as assigned by the overlay (archai.yaml). Empty when no overlay
+	// as assigned by the overlay (wyrd.yaml). Empty when no overlay
 	// has been applied or the package does not match any layer.
 	Layer string
 
 	// Aggregate is the domain aggregate this package belongs to,
-	// as assigned by the overlay (archai.yaml) when the package
+	// as assigned by the overlay (wyrd.yaml) when the package
 	// contains the aggregate root type. Empty otherwise.
 	Aggregate string
 

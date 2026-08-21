@@ -11,7 +11,7 @@ import (
 
 	nethttp "net/http"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 type sourceFileJSON struct {

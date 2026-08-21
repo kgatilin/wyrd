@@ -6,7 +6,7 @@ package yaml
 
 // PackageSpec is the top-level YAML document for a single package.
 type PackageSpec struct {
-	Schema       string           `yaml:"schema"`                  // "archai/v1"
+	Schema       string           `yaml:"schema"`                  // "wyrd/v1"
 	Package      string           `yaml:"package"`                 // package path
 	Name         string           `yaml:"name"`                    // package name
 	Layer        string           `yaml:"layer,omitempty"`         // overlay-assigned layer

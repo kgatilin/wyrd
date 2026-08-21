@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/d2"
-	"github.com/kgatilin/archai/internal/adapter/golang"
-	"github.com/kgatilin/archai/internal/service"
+	"github.com/kgatilin/wyrd/internal/adapter/d2"
+	"github.com/kgatilin/wyrd/internal/adapter/golang"
+	"github.com/kgatilin/wyrd/internal/service"
 )
 
 func TestComposeIntegration(t *testing.T) {

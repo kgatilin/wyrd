@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const DiffSchema = "archai.public-surface-diff/v0"
+const DiffSchema = "wyrd.public-surface-diff/v0"
 
 type Diff struct {
 	Schema  string       `json:"schema"`

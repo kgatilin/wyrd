@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 // Check evaluates spec against the package dependency graph in models and

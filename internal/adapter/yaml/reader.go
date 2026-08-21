@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/service"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/service"
 	yamlv3 "gopkg.in/yaml.v3"
 )
 
@@ -68,9 +68,11 @@ func (r *reader) readDirectory(root string) ([]domain.PackageModel, error) {
 		if !strings.HasSuffix(path, ".yaml") && !strings.HasSuffix(path, ".yml") {
 			return nil
 		}
-		// Only read files inside .arch directories.
+		// Only read files inside .arch (or .wyrd) directories.
 		if !strings.Contains(path, ".arch"+string(filepath.Separator)) &&
-			!strings.Contains(path, ".arch/") {
+			!strings.Contains(path, ".arch/") &&
+			!strings.Contains(path, ".wyrd"+string(filepath.Separator)) &&
+			!strings.Contains(path, ".wyrd/") {
 			return nil
 		}
 

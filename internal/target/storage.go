@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kgatilin/archai/internal/worktree"
+	"github.com/kgatilin/wyrd/internal/worktree"
 	yamlv3 "gopkg.in/yaml.v3"
 )
 
@@ -24,7 +24,6 @@ const (
 	currentFileName = "CURRENT"
 	metaFileName    = "meta.yaml"
 	overlayFileName = "overlay.yaml"
-	overlaySource   = "archai.yaml"
 	modelDirName    = "model"
 	pubYAMLFileName = "pub.yaml"
 	intYAMLFileName = "internal.yaml"
@@ -101,14 +100,17 @@ func Lock(projectRoot, id string, opts LockOptions) error {
 		}
 	}
 
-	// Freeze overlay (archai.yaml) if present.
-	overlaySrc := filepath.Join(projectRoot, overlaySource)
-	if _, err := os.Stat(overlaySrc); err == nil {
-		if err := copyFile(overlaySrc, filepath.Join(targetDir, overlayFileName)); err != nil {
-			return err
+	// Freeze the root overlay (wyrd.yaml, or legacy archai.yaml) if present.
+	for _, name := range []string{"wyrd.yaml", "archai.yaml"} {
+		overlaySrc := filepath.Join(projectRoot, name)
+		if _, err := os.Stat(overlaySrc); err == nil {
+			if err := copyFile(overlaySrc, filepath.Join(targetDir, overlayFileName)); err != nil {
+				return err
+			}
+			break
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("target: stat %s: %w", overlaySrc, err)
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("target: stat %s: %w", overlaySrc, err)
 	}
 
 	// Freeze package-local overlay fragments. These are declarative

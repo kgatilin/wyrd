@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 // portRules decides whether an exported symbol is reached from outside the
@@ -14,7 +14,7 @@ import (
 //     checked at all; anything else is importable by the world and is a port
 //     by Go's own rule. Go's other entry points — package main's main, and
 //     every init — are ports for the same reason: the runtime calls them.
-//  2. Overlay declaration. archai.yaml's ports.external names the symbols
+//  2. Overlay declaration. wyrd.yaml's ports.external names the symbols
 //     reached by plugin hooks, reflection, registration or generated code.
 //  3. Graph evidence. A method of a type that implements an interface
 //     declaring that method is used through the interface, and the implements

@@ -1,11 +1,11 @@
 // Package archgraph defines a graph-shaped read model of an
-// archai-analyzed codebase. It is the internal counterpart to the
+// wyrd-analyzed codebase. It is the internal counterpart to the
 // existing package-centric domain.PackageModel: every node and edge
 // is a first-class data point with a stable, human-readable id, so
 // downstream surfaces (browser, diagrams, MCP) can consume the
 // architecture as a graph instead of as a denormalized aggregate.
 //
-// Issue: kgatilin/archai#97. This package is additive and is not
+// Issue: kgatilin/wyrd#97. This package is additive and is not
 // wired into any reader, writer, or service path in this change;
 // follow-ups #98 and #99 will migrate callers onto graph projections.
 //

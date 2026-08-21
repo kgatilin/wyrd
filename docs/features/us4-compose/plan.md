@@ -190,7 +190,7 @@ func (s *Service) Compose(ctx context.Context, opts ComposeOptions) (*ComposeRes
 
 ### Task 4: Add CLI Compose Command
 
-**File:** `cmd/archai/main.go`
+**File:** `cmd/wyrd/main.go`
 
 Add the `compose` subcommand to the CLI:
 

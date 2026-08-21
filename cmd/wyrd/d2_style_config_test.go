@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/d2"
+	"github.com/kgatilin/wyrd/internal/adapter/d2"
 )
 
 func TestLoadD2StyleConfig(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "archai.yaml")
+	path := filepath.Join(dir, "wyrd.yaml")
 	content := `module: github.com/example/app
 
 layers:
@@ -36,7 +36,7 @@ diagrams:
         stroke: "#d1d5db"
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write archai.yaml: %v", err)
+		t.Fatalf("write wyrd.yaml: %v", err)
 	}
 
 	got, err := loadD2StyleConfig(path)

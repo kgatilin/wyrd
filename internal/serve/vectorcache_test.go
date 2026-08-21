@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/vindex/vecstore"
-	"github.com/kgatilin/archai/internal/retrieval"
+	"github.com/kgatilin/wyrd/internal/adapter/vindex/vecstore"
+	"github.com/kgatilin/wyrd/internal/retrieval"
 )
 
 // TestStateVectorCacheWarmsSiblingWorktree walks the whole point of the
@@ -23,8 +23,8 @@ func TestStateVectorCacheWarmsSiblingWorktree(t *testing.T) {
 	// retrieval wiring, so turn it back on with a deterministic embedder.
 	// loadAndIndex waits for the indexing goroutine, so no background work
 	// outlives the test.
-	t.Setenv("ARCHAI_RETRIEVAL_DISABLE", "0")
-	t.Setenv("ARCHAI_EMBED_PROVIDER", "noop")
+	t.Setenv("WYRD_RETRIEVAL_DISABLE", "0")
+	t.Setenv("WYRD_EMBED_PROVIDER", "noop")
 	ctx := context.Background()
 
 	// A worktree indexed with no shared cache at all: this is what every
@@ -73,8 +73,8 @@ func TestStateWithoutVectorCacheIndexes(t *testing.T) {
 	// retrieval wiring, so turn it back on with a deterministic embedder.
 	// loadAndIndex waits for the indexing goroutine, so no background work
 	// outlives the test.
-	t.Setenv("ARCHAI_RETRIEVAL_DISABLE", "0")
-	t.Setenv("ARCHAI_EMBED_PROVIDER", "noop")
+	t.Setenv("WYRD_RETRIEVAL_DISABLE", "0")
+	t.Setenv("WYRD_EMBED_PROVIDER", "noop")
 
 	st := loadAndIndex(t, context.Background(), newFixture(t), nil)
 	if status := st.Retrieval().IndexStatus(); status.Embedded == 0 {

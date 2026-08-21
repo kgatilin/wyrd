@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/serve"
 	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
 	"github.com/kgatilin/archmotif/pkg/spectralcluster"
 )
@@ -17,7 +17,7 @@ import (
 func TestMain(m *testing.M) {
 	// Disable retrieval in tests to avoid background goroutines
 	// that interfere with temp directory cleanup.
-	os.Setenv("ARCHAI_RETRIEVAL_DISABLE", "1")
+	os.Setenv("WYRD_RETRIEVAL_DISABLE", "1")
 	os.Exit(m.Run())
 }
 
@@ -292,7 +292,7 @@ func TestGetPackage_MissingPath(t *testing.T) {
 	}
 }
 
-// loadFakeStateWithOverlay extends loadFakeState with a minimal archai.yaml
+// loadFakeStateWithOverlay extends loadFakeState with a minimal wyrd.yaml
 // so bounded-context tools have something to query.
 func loadFakeStateWithOverlay(t *testing.T) *serve.State {
 	t.Helper()
@@ -323,7 +323,7 @@ bounded_contexts:
     upstream:
       - main
 `
-	mustWrite(t, filepath.Join(dir, "archai.yaml"), overlayYAML)
+	mustWrite(t, filepath.Join(dir, "wyrd.yaml"), overlayYAML)
 	state := serve.NewState(dir)
 	if err := state.Load(context.Background()); err != nil {
 		t.Fatalf("load state: %v", err)
@@ -429,7 +429,7 @@ func TestSemanticCluster_NoState(t *testing.T) {
 
 // TestSemanticCluster_NoRetrieval verifies error handling when retrieval is not initialized.
 func TestSemanticCluster_NoRetrieval(t *testing.T) {
-	// loadFakeState disables retrieval via ARCHAI_RETRIEVAL_DISABLE env var
+	// loadFakeState disables retrieval via WYRD_RETRIEVAL_DISABLE env var
 	state := loadFakeState(t)
 
 	res, rpcErr := Dispatch(state, "semantic_cluster", json.RawMessage(`{"selector":{"package":"alpha"}}`))

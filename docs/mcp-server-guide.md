@@ -1,6 +1,6 @@
-# Archai MCP / Server Guide
+# Wyrd MCP / Server Guide
 
-Reference for running `archai serve`, the HTTP daemon, and the MCP
+Reference for running `wyrd serve`, the HTTP daemon, and the MCP
 transport. Aimed at agents (Claude Code, Codex CLI, custom MCP clients)
 and at humans wiring those agents up.
 
@@ -25,7 +25,7 @@ document zooms in on §4 (server) and §6 (MCP) of that guide.
              │ stdio (JSON-RPC 2.0)
              ▼
 ┌──────────────────────────┐    HTTP    ┌───────────────────────────┐
-│ archai serve --mcp-stdio │ ─────────▶ │ archai serve --http       │
+│ wyrd serve --mcp-stdio │ ─────────▶ │ wyrd serve --http       │
 │ (thin client; auto-spawn │            │ (long-running daemon;     │
 │  the HTTP daemon if      │            │  in-memory model + watcher)│
 │  none is running)        │            │                           │
@@ -36,10 +36,10 @@ document zooms in on §4 (server) and §6 (MCP) of that guide.
 
 Two transports, one model:
 
-- **HTTP daemon** (`archai serve --http`) holds the parsed Go model,
+- **HTTP daemon** (`wyrd serve --http`) holds the parsed Go model,
   watches the project root with `fsnotify`, serves the browser UI, and
   exposes every MCP tool over a JSON HTTP API under `/api/mcp/`.
-- **MCP stdio thin client** (`archai serve --mcp-stdio`) is the binary
+- **MCP stdio thin client** (`wyrd serve --mcp-stdio`) is the binary
   an MCP client launches. It speaks JSON-RPC on stdio, answers
   `initialize` / `tools/list` locally, and forwards every `tools/call`
   to the worktree's HTTP daemon. If no daemon is running, it
@@ -51,10 +51,10 @@ short-lived agents that only call a few tools.
 
 ---
 
-## 2. `archai serve`
+## 2. `wyrd serve`
 
 ```text
-archai serve [flags]
+wyrd serve [flags]
 
 Flags:
       --debug                   Verbose per-event logging
@@ -79,15 +79,15 @@ Flags:
 
 | Mode | Invocation | What runs |
 |------|------------|-----------|
-| Long-running HTTP daemon | `archai serve --http :8080` | Loads model, watches FS, serves browser UI + `/api/mcp/*`. |
-| Headless model-keeper | `archai serve --http ""` | Loads model, watches FS, no transport. Useful as a base for future features. |
-| MCP thin client (default) | `archai serve --mcp-stdio` | Discovers/auto-starts an HTTP daemon, proxies stdio → HTTP. |
-| MCP one-shot | `archai serve --mcp-stdio --no-daemon` | Loads model in-process, answers MCP stdio directly. No watcher. |
-| Multi-worktree | `archai serve --http :8080 --multi` | One daemon serves every git worktree under `/w/{name}/*`. |
+| Long-running HTTP daemon | `wyrd serve --http :8080` | Loads model, watches FS, serves browser UI + `/api/mcp/*`. |
+| Headless model-keeper | `wyrd serve --http ""` | Loads model, watches FS, no transport. Useful as a base for future features. |
+| MCP thin client (default) | `wyrd serve --mcp-stdio` | Discovers/auto-starts an HTTP daemon, proxies stdio → HTTP. |
+| MCP one-shot | `wyrd serve --mcp-stdio --no-daemon` | Loads model in-process, answers MCP stdio directly. No watcher. |
+| Multi-worktree | `wyrd serve --http :8080 --multi` | One daemon serves every git worktree under `/w/{name}/*`. |
 
 ### 2.2 Worktree-scoped daemons
 
-`archai serve` is worktree-aware. On startup it writes a registration
+`wyrd serve` is worktree-aware. On startup it writes a registration
 record to `.arch/.worktree/<name>/serve.json`:
 
 ```json
@@ -100,16 +100,16 @@ record to `.arch/.worktree/<name>/serve.json`:
 
 Two helper commands inspect those records:
 
-- `archai where` — print the URL of the daemon currently serving the
+- `wyrd where` — print the URL of the daemon currently serving the
   current worktree (exits non-zero when no daemon is running).
-- `archai list-daemons` — table of every live daemon under the current
+- `wyrd list-daemons` — table of every live daemon under the current
   project root (worktree, PID, URL, uptime). Stale records (process no
   longer alive) are skipped automatically.
 
 ```text
-$ archai list-daemons
+$ wyrd list-daemons
 WORKTREE              PID      URL                     UPTIME
-demo-archai           3682664  http://127.0.0.1:35729  4s
+demo-wyrd           3682664  http://127.0.0.1:35729  4s
 ```
 
 ### 2.3 Idle timeout and auto-start
@@ -117,7 +117,7 @@ demo-archai           3682664  http://127.0.0.1:35729  4s
 The MCP thin client auto-starts a detached HTTP daemon when no live
 record exists for the current worktree. The auto-started daemon is
 launched with `--idle-timeout 15m` so an orphaned MCP client does not
-leave a daemon running indefinitely. User-started `archai serve`
+leave a daemon running indefinitely. User-started `wyrd serve`
 defaults to `--idle-timeout 0` (no timeout).
 
 Auto-started daemons bind `127.0.0.1:0` by default — a kernel-assigned
@@ -127,12 +127,12 @@ A project can pin the address instead, so the review URL survives a
 restart and can be bookmarked:
 
 ```yaml
-# archai.yaml
+# wyrd.yaml
 serve:
   http_addr: "127.0.0.1:47823"
 ```
 
-Every way of starting a repo daemon reads it — `archai serve`, `archai
+Every way of starting a repo daemon reads it — `wyrd serve`, `wyrd
 daemon start/restart`, and the auto-start the MCP client performs — so
 `http://127.0.0.1:47823/w/<worktree>/review/` stays the address for the
 life of the project. An explicit `--http` still wins over the file.
@@ -162,7 +162,7 @@ Stdio JSON-RPC 2.0 (one message per line). Supported methods:
 | `tools/call` | Forwarded to the HTTP daemon (thin-client mode) or dispatched locally (`--no-daemon`). |
 | `ping` | Returns `{}`. |
 
-The `serverInfo` block reports `{"name": "archai", "version": "0.1.0"}`
+The `serverInfo` block reports `{"name": "wyrd", "version": "0.1.0"}`
 and `protocolVersion` is `2024-11-05`.
 
 ### 3.2 Client configuration
@@ -172,8 +172,8 @@ and `protocolVersion` is `2024-11-05`.
 ```json
 {
   "mcpServers": {
-    "archai": {
-      "command": "archai",
+    "wyrd": {
+      "command": "wyrd",
       "args": ["serve", "--mcp-stdio", "--root", "."]
     }
   }
@@ -183,8 +183,8 @@ and `protocolVersion` is `2024-11-05`.
 #### Codex CLI (`config.toml`)
 
 ```toml
-[mcp_servers.archai]
-command = "archai"
+[mcp_servers.wyrd]
+command = "wyrd"
 args    = ["serve", "--mcp-stdio", "--root", "."]
 ```
 
@@ -338,7 +338,7 @@ The result body has shape:
 
 ### `apply_diff`
 
-Apply a YAML patch (same shape as `archai diff --format yaml`) onto the
+Apply a YAML patch (same shape as `wyrd diff --format yaml`) onto the
 target snapshot on disk. The agent typically generates the patch by
 calling `diff`, editing the change list, and feeding it back here.
 
@@ -366,7 +366,7 @@ as the `diff` tool, packaged for CI-style checks.
 Goal: answer "what does this codebase do, and where do I start?" purely
 through MCP tools.
 
-1. **Boot.** The MCP client launches `archai serve --mcp-stdio`. The
+1. **Boot.** The MCP client launches `wyrd serve --mcp-stdio`. The
    thin client auto-spawns the HTTP daemon on first call.
 2. `tools/call list_packages` → skim the layer tags and counts. Layer
    distribution is the fastest signal of how the project is split.
@@ -381,7 +381,7 @@ through MCP tools.
    without `grep`.
 
 When the question is about call flow rather than topology, fall back
-to the CLI: `archai sequence <pkg>.<Type>.<Method> --depth 3` prints
+to the CLI: `wyrd sequence <pkg>.<Type>.<Method> --depth 3` prints
 the static call tree rooted at that symbol. The MCP surface does not
 expose `sequence` today.
 
@@ -415,7 +415,7 @@ agent → "Drift in internal/service: NewClient added but not in target.
          Either remove the constructor or update target v1."
 ```
 
-The same call shape powers the CLI gate (`archai validate`) and the
+The same call shape powers the CLI gate (`wyrd validate`) and the
 GitHub Actions example in [`user-guide.md` §3.5](user-guide.md#35-ci-integration).
 
 ---
@@ -424,9 +424,9 @@ GitHub Actions example in [`user-guide.md` §3.5](user-guide.md#35-ci-integratio
 
 | Surface | Best for | Avoid for |
 |---------|----------|-----------|
-| Browser UI (`archai serve --http`) | Human exploration: layer maps, package detail, diff colour-coding, search. | Scripting, CI, agents — UI returns HTML, not structured data. |
-| CLI (`archai diagram`, `archai diff`, `archai validate`, `archai sequence`, `archai overlay check`) | One-shot scripting, CI gates, generating D2 outputs, call-sequence trees. | Long agent sessions where the same model is queried many times — every CLI invocation re-parses sources. |
-| MCP tools (over `archai serve --mcp-stdio`) | Agents and other programmatic clients that want structured JSON, repeated queries against a hot in-memory model, and write operations (`lock_target`, `apply_diff`). | Rendering D2 diagrams (use the CLI) and visual exploration (use the UI). |
+| Browser UI (`wyrd serve --http`) | Human exploration: layer maps, package detail, diff colour-coding, search. | Scripting, CI, agents — UI returns HTML, not structured data. |
+| CLI (`wyrd diagram`, `wyrd diff`, `wyrd validate`, `wyrd sequence`, `wyrd overlay check`) | One-shot scripting, CI gates, generating D2 outputs, call-sequence trees. | Long agent sessions where the same model is queried many times — every CLI invocation re-parses sources. |
+| MCP tools (over `wyrd serve --mcp-stdio`) | Agents and other programmatic clients that want structured JSON, repeated queries against a hot in-memory model, and write operations (`lock_target`, `apply_diff`). | Rendering D2 diagrams (use the CLI) and visual exploration (use the UI). |
 
 Practical rule: humans → UI, scripts → CLI, agents → MCP. The three
 surfaces share the same model and the same diff format, so anything an
@@ -437,19 +437,19 @@ browser or by CI on the CLI.
 
 ## 7. Verifying against the binary
 
-Every command in this guide was checked against `archai` built from
+Every command in this guide was checked against `wyrd` built from
 this repository.
 
 ```bash
 # Build
-go build -o archai ./cmd/archai
+go build -o wyrd ./cmd/wyrd
 
 # Help
-archai --help
-archai serve --help
-archai where --help
-archai list-daemons --help
-archai extract --help
+wyrd --help
+wyrd serve --help
+wyrd where --help
+wyrd list-daemons --help
+wyrd extract --help
 
 # Smoke a daemon
 mkdir demo && cd demo && go mod init example.com/demo
@@ -460,8 +460,8 @@ func New() *Service { return &Service{} }
 func (s *Service) Greet(name string) string { return "hello " + name }
 EOF
 
-archai serve --http 127.0.0.1:0 --idle-timeout 60s &
-URL=$(archai where)
+wyrd serve --http 127.0.0.1:0 --idle-timeout 60s &
+URL=$(wyrd where)
 curl -s "$URL/api/mcp/packages"
 curl -s -X POST "$URL/api/mcp/tools/call" \
      -H 'Content-Type: application/json' \
@@ -471,23 +471,23 @@ curl -s -X POST "$URL/api/mcp/tools/call" \
 ( printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
   printf '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n'
   printf '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_packages","arguments":{}}}\n'
-) | archai serve --mcp-stdio --no-daemon
+) | wyrd serve --mcp-stdio --no-daemon
 ```
 
-If a command in this guide does not match your binary, your `archai`
+If a command in this guide does not match your binary, your `wyrd`
 is older than the docs — rebuild from `main`.
 
 ---
 
 ## 8. Forward pointers
 
-- `archai sequence <symbol>` is CLI-only today. Tracking issue: see
+- `wyrd sequence <symbol>` is CLI-only today. Tracking issue: see
   [`docs/roadmap.md`](roadmap.md) for the milestone plan.
 - The plugin contract (M12 / M13) will let third-party plugins register
   their own MCP tools through the same `/api/mcp/tools/call`
   dispatcher. Until that lands, the tool list is fixed at the nine
   built-ins above.
-- Multi-worktree mode (`archai serve --multi`) wires `/w/{name}/api/mcp/*`
+- Multi-worktree mode (`wyrd serve --multi`) wires `/w/{name}/api/mcp/*`
   per worktree but the current MCP client always talks to a single
   worktree's daemon.
 

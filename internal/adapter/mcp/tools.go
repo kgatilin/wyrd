@@ -14,16 +14,16 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	archmotifAdapter "github.com/kgatilin/archai/internal/adapter/archmotif"
-	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
-	"github.com/kgatilin/archai/internal/apply"
-	"github.com/kgatilin/archai/internal/clustering"
-	"github.com/kgatilin/archai/internal/diff"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/plugin"
-	"github.com/kgatilin/archai/internal/retrieval"
-	"github.com/kgatilin/archai/internal/serve"
-	"github.com/kgatilin/archai/internal/target"
+	archmotifAdapter "github.com/kgatilin/wyrd/internal/adapter/archmotif"
+	yamlAdapter "github.com/kgatilin/wyrd/internal/adapter/yaml"
+	"github.com/kgatilin/wyrd/internal/apply"
+	"github.com/kgatilin/wyrd/internal/clustering"
+	"github.com/kgatilin/wyrd/internal/diff"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/retrieval"
+	"github.com/kgatilin/wyrd/internal/serve"
+	"github.com/kgatilin/wyrd/internal/target"
 	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
 	archmotifComponents "github.com/kgatilin/archmotif/pkg/components"
 	archmotifFilestats "github.com/kgatilin/archmotif/pkg/filestats"
@@ -140,7 +140,7 @@ func ToolDefinitions() []ToolDefinition {
 	return defs
 }
 
-// builtinToolDefinitions returns the nine archai-core tools. Kept as a
+// builtinToolDefinitions returns the nine wyrd-core tools. Kept as a
 // function rather than a var so the JSON-Schema maps don't become
 // mutable package state.
 func builtinToolDefinitions() []ToolDefinition {
@@ -268,7 +268,7 @@ func builtinToolDefinitions() []ToolDefinition {
 				"properties": map[string]any{
 					"patch_yaml": map[string]any{
 						"type":        "string",
-						"description": "YAML-encoded diff.Diff patch (same shape as `archai diff --format yaml`).",
+						"description": "YAML-encoded diff.Diff patch (same shape as `wyrd diff --format yaml`).",
 					},
 					"target": map[string]any{
 						"type":        "string",
@@ -293,7 +293,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "list_bounded_contexts",
-			Description: "List all bounded contexts declared in the archai.yaml overlay with their aggregates and context-map relationships.",
+			Description: "List all bounded contexts declared in the wyrd.yaml overlay with their aggregates and context-map relationships.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -307,7 +307,7 @@ func builtinToolDefinitions() []ToolDefinition {
 				"properties": map[string]any{
 					"name": map[string]any{
 						"type":        "string",
-						"description": "Bounded context name as declared in archai.yaml.",
+						"description": "Bounded context name as declared in wyrd.yaml.",
 					},
 				},
 				"required": []string{"name"},
@@ -878,7 +878,7 @@ type lockTargetArgs struct {
 // handleLockTarget freezes the current snapshot into .arch/targets/<id>/.
 // The daemon's in-memory packages are first materialized as .arch/*.yaml
 // under the project tree so target.Lock has something to copy — this
-// mirrors what `archai target lock` does via `archai diagram generate`
+// mirrors what `wyrd target lock` does via `wyrd diagram generate`
 // but avoids re-parsing Go sources.
 func handleLockTarget(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPCError) {
 	var args lockTargetArgs
@@ -1221,7 +1221,7 @@ func requireRoot(state *serve.State) (string, bool) {
 // searchFilesSkipDirs are directory names search_files never descends into.
 // Other dotdirs are skipped generically in the walk.
 var searchFilesSkipDirs = map[string]bool{
-	".git": true, "node_modules": true, "vendor": true, ".arch": true,
+	".git": true, "node_modules": true, "vendor": true, ".arch": true, ".wyrd": true,
 }
 
 // resolveWithinRoot interprets path relative to root (absolute paths kept as
@@ -1465,8 +1465,8 @@ func loadTargetModelsFromDisk(ctx context.Context, root, id string) ([]domain.Pa
 }
 
 // writeTargetModelsToDisk overwrites .arch/targets/<id>/model/ with the
-// per-package models. Mirrors cmd/archai's writeTargetModels so the
-// apply_diff tool produces the same on-disk layout as `archai diff apply`.
+// per-package models. Mirrors cmd/wyrd's writeTargetModels so the
+// apply_diff tool produces the same on-disk layout as `wyrd diff apply`.
 func writeTargetModelsToDisk(ctx context.Context, root, id string, models []domain.PackageModel) error {
 	targetDir := filepath.Join(root, ".arch", "targets", id)
 	modelDir := filepath.Join(targetDir, "model")
@@ -1520,7 +1520,7 @@ func collectYAMLFiles(root string) ([]string, error) {
 
 // validatePatch ensures every Change in d carries a recognized Op and
 // Kind so we fail fast on malformed patches before any on-disk writes.
-// Duplicated from cmd/archai to avoid exporting validation from the CLI.
+// Duplicated from cmd/wyrd to avoid exporting validation from the CLI.
 func validatePatch(d *diff.Diff) error {
 	if d == nil {
 		return nil
@@ -2392,7 +2392,7 @@ func handleSpectralCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 		return errorResult(fmt.Sprintf("spectral clustering failed: %v", err)), nil
 	}
 
-	// Map archmotif node IDs back to archai symbol IDs (members capped, boundary capped).
+	// Map archmotif node IDs back to wyrd symbol IDs (members capped, boundary capped).
 	clusters := buildClusterInfos(result.Clusters)
 	boundarySymbols, boundaryTotal := capBoundary(result.BoundarySymbols)
 
@@ -2793,7 +2793,7 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 	return text(renderSemanticCluster(resp))
 }
 
-// mapNodeIDsToSymbols converts archmotif node IDs to archai symbol IDs.
+// mapNodeIDsToSymbols converts archmotif node IDs to wyrd symbol IDs.
 // For now, we just return the archmotif IDs as-is since they are human-readable.
 func mapNodeIDsToSymbols(nodeIDs []string) []string {
 	// The archmotif IDs are already descriptive:

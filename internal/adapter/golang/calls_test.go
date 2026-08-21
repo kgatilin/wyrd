@@ -6,7 +6,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // findFuncCalls returns the Calls slice for a package-level function by name.

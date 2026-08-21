@@ -3,8 +3,8 @@ package apply
 import (
 	"testing"
 
-	"github.com/kgatilin/archai/internal/diff"
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/diff"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 func TestApply_NilDiff_ReturnsClone(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kgatilin/archai/internal/worktree"
+	"github.com/kgatilin/wyrd/internal/worktree"
 )
 
 func TestDiscoverDaemon_NoRecord(t *testing.T) {
@@ -86,16 +86,16 @@ func TestDiscoverDaemon_StaleRecord(t *testing.T) {
 func TestAutoStartDaemon_LockSerializesCallers(t *testing.T) {
 	// Use an OS-level temp dir (not t.TempDir()) so we escape the
 	// surrounding git repo — otherwise worktree.Name() returns the
-	// archai repo name while the fake daemon derives it from
+	// wyrd repo name while the fake daemon derives it from
 	// filepath.Base(root), and they disagree on serve.json's path.
-	root, err := os.MkdirTemp("", "archai-autostart-lock-*")
+	root, err := os.MkdirTemp("", "wyrd-autostart-lock-*")
 	if err != nil {
 		t.Fatalf("mkdirtemp: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 
 	// Build a tiny helper binary that writes serve.json and exits.
-	// We can't rely on a real `archai serve` here — the test is about
+	// We can't rely on a real `wyrd serve` here — the test is about
 	// the lock, not the daemon startup.
 	fakeExe := buildFakeDaemon(t, root)
 	// Pass this test binary's PID through to fake daemon so the
@@ -162,7 +162,7 @@ func TestAutoStartDaemon_LockSerializesCallers(t *testing.T) {
 
 // buildFakeDaemon compiles a tiny Go program that (a) bumps a counter
 // file under root and (b) writes a serve.json claiming its own PID at
-// a loopback address, then exits. Used to stand in for real `archai
+// a loopback address, then exits. Used to stand in for real `wyrd
 // serve` in the lock race test.
 func buildFakeDaemon(t *testing.T, root string) string {
 	t.Helper()
@@ -268,7 +268,7 @@ func goBuild(t *testing.T, srcDir, out string) error {
 // TestAutoStartRepoDaemon_PinsAddrFromOverlay proves the setting a
 // project writes down actually reaches the daemon it starts. Auto-start
 // passes --http explicitly, so the spawned process never reads
-// archai.yaml itself — if the resolution here regressed, every project
+// wyrd.yaml itself — if the resolution here regressed, every project
 // would silently be back on a kernel-assigned port and every bookmarked
 // review URL would break after a restart.
 func TestAutoStartRepoDaemon_PinsAddrFromOverlay(t *testing.T) {
@@ -326,12 +326,12 @@ func autoStartTempRepo(t *testing.T) string {
 	t.Helper()
 	// Not t.TempDir(): that lives under the surrounding git repo on some
 	// hosts, and RepoRoot would then resolve somewhere unexpected.
-	repo, err := os.MkdirTemp("", "archai-autostart-pin-*")
+	repo, err := os.MkdirTemp("", "wyrd-autostart-pin-*")
 	if err != nil {
 		t.Fatalf("mkdirtemp: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(repo) })
-	t.Setenv("ARCHAI_HOME", filepath.Join(repo, "home"))
+	t.Setenv("WYRD_HOME", filepath.Join(repo, "home"))
 	t.Setenv("FAKE_DAEMON_PID", strconv.Itoa(os.Getpid()))
 	return repo
 }
@@ -339,8 +339,8 @@ func autoStartTempRepo(t *testing.T) string {
 func writeServeOverlay(t *testing.T, repo, addr string) {
 	t.Helper()
 	doc := "module: github.com/example/app\n\nlayers:\n  domain:\n    - internal/domain/...\n\nlayer_rules:\n  domain: []\n\nserve:\n  http_addr: \"" + addr + "\"\n"
-	if err := os.WriteFile(filepath.Join(repo, "archai.yaml"), []byte(doc), 0o644); err != nil {
-		t.Fatalf("write archai.yaml: %v", err)
+	if err := os.WriteFile(filepath.Join(repo, "wyrd.yaml"), []byte(doc), 0o644); err != nil {
+		t.Fatalf("write wyrd.yaml: %v", err)
 	}
 }
 
@@ -379,7 +379,7 @@ func spawnArg(t *testing.T, repo, flag string) string {
 	return ""
 }
 
-// buildFakeRepoDaemon compiles a stand-in for `archai serve --multi`: it
+// buildFakeRepoDaemon compiles a stand-in for `wyrd serve --multi`: it
 // records the argv it was given and registers itself in the global
 // registry the way a real daemon does, then exits.
 func buildFakeRepoDaemon(t *testing.T, repo string) string {
@@ -422,7 +422,7 @@ func main() {
 	}
 	abs, _ := filepath.Abs(repo)
 	sum := sha256.Sum256([]byte(filepath.Clean(abs)))
-	dir := filepath.Join(os.Getenv("ARCHAI_HOME"), "daemons")
+	dir := filepath.Join(os.Getenv("WYRD_HOME"), "daemons")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		os.Exit(1)
 	}

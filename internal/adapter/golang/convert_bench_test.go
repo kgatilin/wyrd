@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // convertSerial mirrors the historical (pre-parallel) loop so the bench
@@ -31,7 +31,7 @@ func (r *reader) convertSerial(pkgs []*packages.Package) ([]domain.PackageModel,
 // parallel fan-out actually optimises. The loader cost is paid once
 // during setup so it does not dominate the timer.
 func BenchmarkConvertPackagesParallel(b *testing.B) {
-	root := findArchaiRoot(b)
+	root := findWyrdRoot(b)
 	prev, _ := os.Getwd()
 	if err := os.Chdir(root); err != nil {
 		b.Fatalf("chdir: %v", err)
@@ -68,7 +68,7 @@ func BenchmarkConvertPackagesParallel(b *testing.B) {
 // goroutines. The delta against BenchmarkConvertPackagesParallel is the
 // real measure of the parallel fan-out on this machine.
 func BenchmarkConvertSerial(b *testing.B) {
-	root := findArchaiRoot(b)
+	root := findWyrdRoot(b)
 	prev, _ := os.Getwd()
 	if err := os.Chdir(root); err != nil {
 		b.Fatalf("chdir: %v", err)

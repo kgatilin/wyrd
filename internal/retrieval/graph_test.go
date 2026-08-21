@@ -3,7 +3,7 @@ package retrieval
 import (
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // methodModel is the shape the Go reader produces for one struct with one

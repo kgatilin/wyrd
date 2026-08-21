@@ -3,7 +3,7 @@ package archmotif
 import (
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // baseModels / worktreeModels share a domain package (Order) and differ in

@@ -5,7 +5,7 @@ import type { Event } from '../domain/events';
 import type { GraphSourcePort, NavigationPort } from '../domain/ports';
 import { createLoadEffect } from './load';
 
-const graph: UIGraph = { schema: 'archai.uigraph/v0', boundedContexts: [], components: [], edges: [], comments: [] };
+const graph: UIGraph = { schema: 'wyrd.uigraph/v0', boundedContexts: [], components: [], edges: [], comments: [] };
 const flush = () => new Promise((r) => setTimeout(r));
 
 describe('createLoadEffect', () => {

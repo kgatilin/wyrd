@@ -3,7 +3,7 @@ package archgraph
 import (
 	"sort"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // BuildGraph constructs an architecture graph from a slice of

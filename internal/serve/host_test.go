@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kgatilin/archai/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/plugin"
 )
 
 // TestHost_CurrentModelExposesPackages confirms the serve-backed Host

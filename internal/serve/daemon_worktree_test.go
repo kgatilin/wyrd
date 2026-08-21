@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kgatilin/archai/internal/worktree"
+	"github.com/kgatilin/wyrd/internal/worktree"
 )
 
 // fakeHTTPTransport is a minimal HTTPTransport used to exercise the

@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/overlay"
 	archmotifimport "github.com/kgatilin/archmotif/pkg/archmotifimport"
 	"github.com/kgatilin/archmotif/pkg/trophic"
 )
@@ -41,7 +41,7 @@ func (g *grouping) of(pkg string) string {
 }
 
 // directoryGroup is the depth-2 directory prefix: "internal/adapter" for
-// internal/adapter/http, "cmd" for cmd/archai. Everything under
+// internal/adapter/http, "cmd" for cmd/wyrd. Everything under
 // internal/plugins collapses to one group, because a plugin tree is one
 // architectural unit however many packages it is spread over.
 func directoryGroup(path string) string {

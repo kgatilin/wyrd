@@ -8,12 +8,12 @@ import (
 
 // registry is the package-level plugin registry. Plugins call
 // RegisterPlugin from init() (or a constructor invoked from main) and
-// archai's bootstrap iterates Registered() to wire them up.
+// wyrd's bootstrap iterates Registered() to wire them up.
 //
 // Design: a process-global registry mirrors how net/http handlers,
 // database/sql drivers and image format decoders work in the standard
 // library. It keeps plugin source files self-contained — they need
-// nothing more than `import _ "archai/internal/plugins/foo"` to wire
+// nothing more than `import _ "wyrd/internal/plugins/foo"` to wire
 // themselves up. The trade-off (test isolation) is handled by
 // Reset() which is package-private and only used by tests in this
 // same package.

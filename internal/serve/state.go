@@ -1,4 +1,4 @@
-// Package serve implements the long-running `archai serve` daemon: an
+// Package serve implements the long-running `wyrd serve` daemon: an
 // in-memory model of the project (extracted Go packages + overlay config +
 // active target id) kept current via an fsnotify watcher.
 //
@@ -18,18 +18,18 @@ import (
 
 	"time"
 
-	"github.com/kgatilin/archai/internal/adapter/embed/noop"
-	"github.com/kgatilin/archai/internal/adapter/embed/ollama"
-	"github.com/kgatilin/archai/internal/adapter/embed/openai"
-	"github.com/kgatilin/archai/internal/adapter/golang"
-	"github.com/kgatilin/archai/internal/adapter/lindex/bm25"
-	"github.com/kgatilin/archai/internal/adapter/vindex/brute"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
-	"github.com/kgatilin/archai/internal/plugin"
-	"github.com/kgatilin/archai/internal/retrieval"
-	"github.com/kgatilin/archai/internal/service"
-	"github.com/kgatilin/archai/internal/target"
+	"github.com/kgatilin/wyrd/internal/adapter/embed/noop"
+	"github.com/kgatilin/wyrd/internal/adapter/embed/ollama"
+	"github.com/kgatilin/wyrd/internal/adapter/embed/openai"
+	"github.com/kgatilin/wyrd/internal/adapter/golang"
+	"github.com/kgatilin/wyrd/internal/adapter/lindex/bm25"
+	"github.com/kgatilin/wyrd/internal/adapter/vindex/brute"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/retrieval"
+	"github.com/kgatilin/wyrd/internal/service"
+	"github.com/kgatilin/wyrd/internal/target"
 )
 
 // State holds the in-memory model consumed by the daemon's transports.
@@ -48,10 +48,10 @@ type State struct {
 	// packages is the current extracted model, keyed by PackageModel.Path.
 	packages map[string]domain.PackageModel
 
-	// overlayCfg is the parsed archai.yaml (may be nil if absent).
+	// overlayCfg is the parsed wyrd.yaml (may be nil if absent).
 	overlayCfg *overlay.Config
 
-	// overlayPath is the on-disk archai.yaml location used for reloads.
+	// overlayPath is the on-disk wyrd.yaml location used for reloads.
 	// Empty when no overlay was found on Load.
 	overlayPath string
 
@@ -59,7 +59,7 @@ type State struct {
 	goModPath string
 
 	// reviewConfigRoot, when non-empty and different from root, points at the
-	// primary worktree checkout whose archai.yaml supplies the review UI
+	// primary worktree checkout whose wyrd.yaml supplies the review UI
 	// config (review_views + review_groups) for this State. Architecture
 	// semantics (layers, policy, contexts, …) stay per-worktree; presentation
 	// config follows the primary checkout so stale branches don't pin an old
@@ -275,7 +275,7 @@ func (s *State) Root() string {
 }
 
 // Load performs the initial full extraction: Go packages under ./...,
-// archai.yaml overlay (if present), and the active target id
+// wyrd.yaml overlay (if present), and the active target id
 // (.arch/targets/CURRENT). Errors extracting packages are returned; a
 // missing overlay or CURRENT file is not an error.
 //
@@ -318,7 +318,7 @@ func (s *State) Load(ctx context.Context) error {
 // Must be called with mu held.
 func (s *State) initRetrievalLocked(ctx context.Context, models []domain.PackageModel) {
 	// Skip retrieval initialization if disabled
-	if os.Getenv("ARCHAI_RETRIEVAL_DISABLE") == "1" {
+	if os.Getenv("WYRD_RETRIEVAL_DISABLE") == "1" {
 		return
 	}
 
@@ -373,25 +373,25 @@ func (s *State) initRetrievalLocked(ctx context.Context, models []domain.Package
 	}()
 }
 
-// buildEmbedder creates an embedder based on ARCHAI_EMBED_PROVIDER:
+// buildEmbedder creates an embedder based on WYRD_EMBED_PROVIDER:
 //   - "ollama" (default): local Ollama server
-//   - "openai": OpenAI-compatible API (requires ARCHAI_EMBED_API_KEY)
+//   - "openai": OpenAI-compatible API (requires WYRD_EMBED_API_KEY)
 //   - "noop": deterministic pseudo-embeddings for testing
 //
 // Falls back to noop if embedding is disabled or if openai is selected
 // without an API key (logged, not crashed).
 func buildEmbedder() retrieval.Embedder {
 	// Check if embedding should be disabled entirely
-	if os.Getenv("ARCHAI_EMBED_DISABLE") == "1" {
+	if os.Getenv("WYRD_EMBED_DISABLE") == "1" {
 		return noop.New()
 	}
 
-	provider := os.Getenv("ARCHAI_EMBED_PROVIDER")
+	provider := os.Getenv("WYRD_EMBED_PROVIDER")
 	switch provider {
 	case "openai":
 		emb := openai.New()
 		if !emb.HasAPIKey() {
-			fmt.Fprintf(os.Stderr, "serve: openai embedder selected but ARCHAI_EMBED_API_KEY not set, falling back to noop\n")
+			fmt.Fprintf(os.Stderr, "serve: openai embedder selected but WYRD_EMBED_API_KEY not set, falling back to noop\n")
 			return noop.New()
 		}
 		return emb
@@ -404,7 +404,7 @@ func buildEmbedder() retrieval.Embedder {
 		return ollama.New()
 
 	default:
-		fmt.Fprintf(os.Stderr, "serve: unknown ARCHAI_EMBED_PROVIDER %q, falling back to ollama\n", provider)
+		fmt.Fprintf(os.Stderr, "serve: unknown WYRD_EMBED_PROVIDER %q, falling back to ollama\n", provider)
 		return ollama.New()
 	}
 }
@@ -532,7 +532,7 @@ func (s *State) refreshRetrievalLocked(ctx context.Context, changedNodes []retri
 	s.retrieval.SetGraph(graph)
 }
 
-// ReloadOverlay re-reads archai.yaml from disk and updates the cached
+// ReloadOverlay re-reads wyrd.yaml from disk and updates the cached
 // config. Missing files clear the cached config without returning an
 // error (the daemon can run without an overlay).
 func (s *State) ReloadOverlay(ctx context.Context) error {
@@ -551,11 +551,11 @@ func (s *State) SwitchTarget(id string) error {
 }
 
 // reloadOverlayLocked reloads the overlay assuming the caller holds the
-// write lock. Missing archai.yaml clears the cached config.
+// write lock. A missing overlay document clears the cached config.
 func (s *State) reloadOverlayLocked() error {
-	overlayPath := filepath.Join(s.root, "archai.yaml")
+	overlayPath := overlay.DiscoverPath(s.root)
 	goModPath := filepath.Join(s.root, "go.mod")
-	if _, err := os.Stat(overlayPath); err != nil {
+	if overlayPath == "" {
 		// No overlay on disk: clear cache, not an error. Review UI config can
 		// still come from the primary checkout.
 		s.overlayCfg = s.withPrimaryReviewConfig(nil)
@@ -578,7 +578,7 @@ func (s *State) reloadOverlayLocked() error {
 }
 
 // SetReviewConfigRoot points this State at the primary worktree whose
-// archai.yaml owns the review UI config, then re-applies the overlay so the
+// wyrd.yaml owns the review UI config, then re-applies the overlay so the
 // override takes effect immediately. A root equal to this State's own root
 // (or empty) is a no-op.
 func (s *State) SetReviewConfigRoot(root string) {
@@ -593,15 +593,15 @@ func (s *State) SetReviewConfigRoot(root string) {
 }
 
 // withPrimaryReviewConfig overlays the review UI fields (review_views,
-// review_groups) from the primary checkout's archai.yaml onto cfg. When the
+// review_groups) from the primary checkout's wyrd.yaml onto cfg. When the
 // primary overlay is missing or unreadable, cfg is returned unchanged — a
 // stale-but-working branch config beats none.
 func (s *State) withPrimaryReviewConfig(cfg *overlay.Config) *overlay.Config {
 	if s.reviewConfigRoot == "" {
 		return cfg
 	}
-	primaryPath := filepath.Join(s.reviewConfigRoot, "archai.yaml")
-	if _, err := os.Stat(primaryPath); err != nil {
+	primaryPath := overlay.DiscoverPath(s.reviewConfigRoot)
+	if primaryPath == "" {
 		return cfg
 	}
 	primary, err := overlay.LoadComposed(primaryPath)

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 func TestBuildChunks_NormalNode(t *testing.T) {

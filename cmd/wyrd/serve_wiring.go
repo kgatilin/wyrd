@@ -6,15 +6,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kgatilin/archai/internal/adapter/golang"
-	"github.com/kgatilin/archai/internal/adapter/vindex/vecstore"
-	"github.com/kgatilin/archai/internal/serve"
-	"github.com/kgatilin/archai/internal/service"
-	"github.com/kgatilin/archai/internal/worktree"
+	"github.com/kgatilin/wyrd/internal/adapter/golang"
+	"github.com/kgatilin/wyrd/internal/adapter/vindex/vecstore"
+	"github.com/kgatilin/wyrd/internal/serve"
+	"github.com/kgatilin/wyrd/internal/service"
+	"github.com/kgatilin/wyrd/internal/worktree"
 )
 
-// assembleServeReader builds the model reader for `archai serve` using
-// the same wiring as `archai diagram generate`.
+// assembleServeReader builds the model reader for `wyrd serve` using
+// the same wiring as `wyrd diagram generate`.
 func assembleServeReader() service.ModelReader {
 	return golang.NewReader()
 }
@@ -30,7 +30,7 @@ func assembleServeReader() service.ModelReader {
 func assembleVectorCache(root string) serve.VectorCacheProvider {
 	abs, err := filepath.Abs(root)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "archai: shared vector cache disabled: resolving %q: %v\n", root, err)
+		fmt.Fprintf(os.Stderr, "wyrd: shared vector cache disabled: resolving %q: %v\n", root, err)
 		return nil
 	}
 	repoRoot := abs
@@ -39,7 +39,7 @@ func assembleVectorCache(root string) serve.VectorCacheProvider {
 	}
 	dir, err := serve.VectorCacheDir(repoRoot)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "archai: shared vector cache disabled: %v\n", err)
+		fmt.Fprintf(os.Stderr, "wyrd: shared vector cache disabled: %v\n", err)
 		return nil
 	}
 	return vecstore.New(dir)

@@ -10,7 +10,7 @@ import type { UIGraph } from '../../types';
  * own and one (the method) it does not.
  */
 const graph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [{ id: 'root', name: 'Root' }],
   components: [
     {

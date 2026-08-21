@@ -87,9 +87,9 @@ func WithHTTPClient(client *http.Client) Option {
 // New creates a new OpenAI-compatible embedder. Configuration is read from:
 // 1. Explicit options (highest priority)
 // 2. Environment variables:
-//   - ARCHAI_EMBED_ENDPOINT (default: https://api.openai.com)
-//   - ARCHAI_EMBED_MODEL (default: text-embedding-3-small)
-//   - ARCHAI_EMBED_API_KEY (required for OpenAI, read from env only)
+//   - WYRD_EMBED_ENDPOINT (default: https://api.openai.com)
+//   - WYRD_EMBED_MODEL (default: text-embedding-3-small)
+//   - WYRD_EMBED_API_KEY (required for OpenAI, read from env only)
 //
 // 3. Defaults
 func New(opts ...Option) *Embedder {
@@ -101,14 +101,14 @@ func New(opts ...Option) *Embedder {
 	}
 
 	// Read from environment
-	if env := os.Getenv("ARCHAI_EMBED_ENDPOINT"); env != "" {
+	if env := os.Getenv("WYRD_EMBED_ENDPOINT"); env != "" {
 		e.endpoint = env
 	}
-	if env := os.Getenv("ARCHAI_EMBED_MODEL"); env != "" {
+	if env := os.Getenv("WYRD_EMBED_MODEL"); env != "" {
 		e.model = env
 	}
 	// API key ONLY from environment (never stored on disk)
-	e.apiKey = os.Getenv("ARCHAI_EMBED_API_KEY")
+	e.apiKey = os.Getenv("WYRD_EMBED_API_KEY")
 
 	// Apply explicit options
 	for _, opt := range opts {

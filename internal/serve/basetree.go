@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/kgatilin/archai/internal/adapter/git"
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/adapter/git"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
-// baseTreeDirName is the archai-home subdirectory holding materialized base
+// baseTreeDirName is the wyrd-home subdirectory holding materialized base
 // commits, alongside the daemon registry and the vector caches.
 const baseTreeDirName = "basetrees"
 
@@ -51,7 +51,7 @@ func newBaseTrees(cacheDir string, limit int) *baseTrees {
 }
 
 // BaseTreeDir returns the directory holding this repository's materialized
-// base commits: <archai home>/basetrees/<repo key>.
+// base commits: <wyrd home>/basetrees/<repo key>.
 //
 // It lives outside the repository on purpose. A checkout inside the repo
 // would either show up in `git status` or, as a linked worktree, in
@@ -59,7 +59,7 @@ func newBaseTrees(cacheDir string, limit int) *baseTrees {
 // every other tool pointed at the repo. It would also hand the model watcher
 // a few thousand file-creation events.
 func BaseTreeDir(repoRoot string) (string, error) {
-	base, err := archaiHome()
+	base, err := wyrdHome()
 	if err != nil {
 		return "", err
 	}
@@ -119,7 +119,7 @@ func waitBaseTree(ctx context.Context, load *baseTreeLoad) ([]domain.PackageMode
 }
 
 // read materializes rev if needed and parses it. The extracted tree keeps
-// its own .archai/cache/go-model.json, so a daemon restart re-parses only
+// its own .wyrd/cache/go-model.json, so a daemon restart re-parses only
 // what it no longer has on disk.
 func (b *baseTrees) read(ctx context.Context, sourcePath, rev string) ([]domain.PackageModel, error) {
 	dir, err := b.materialize(sourcePath, rev)

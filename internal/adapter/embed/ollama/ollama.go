@@ -32,7 +32,7 @@ const DefaultConcurrency = 4
 
 // defaultQueryInstruction is the task description fed to instruction-style
 // retrieval models (Qwen3-Embedding) when embedding a search query. It can be
-// overridden via the ARCHAI_EMBED_QUERY_INSTRUCTION environment variable.
+// overridden via the WYRD_EMBED_QUERY_INSTRUCTION environment variable.
 const defaultQueryInstruction = "Given a code search query, retrieve relevant Go code symbols (functions, methods, types, interfaces) that satisfy it."
 
 // promptStyle selects the model-specific document/query prompt templates.
@@ -152,7 +152,7 @@ func WithConcurrency(n int) Option {
 
 // New creates a new Ollama embedder. Configuration is read from:
 // 1. Explicit options (highest priority)
-// 2. Environment variables: ARCHAI_EMBED_ENDPOINT, ARCHAI_EMBED_MODEL
+// 2. Environment variables: WYRD_EMBED_ENDPOINT, WYRD_EMBED_MODEL
 // 3. Defaults: localhost:11434, qwen3-embedding:0.6b
 func New(opts ...Option) *Embedder {
 	e := &Embedder{
@@ -165,21 +165,21 @@ func New(opts ...Option) *Embedder {
 	}
 
 	// Read from environment
-	if env := os.Getenv("ARCHAI_EMBED_ENDPOINT"); env != "" {
+	if env := os.Getenv("WYRD_EMBED_ENDPOINT"); env != "" {
 		e.endpoint = env
 	}
-	if env := os.Getenv("ARCHAI_EMBED_MODEL"); env != "" {
+	if env := os.Getenv("WYRD_EMBED_MODEL"); env != "" {
 		e.model = env
 	}
-	if env := os.Getenv("ARCHAI_EMBED_QUERY_INSTRUCTION"); env != "" {
+	if env := os.Getenv("WYRD_EMBED_QUERY_INSTRUCTION"); env != "" {
 		e.queryInstr = env
 	}
-	if env := os.Getenv("ARCHAI_EMBED_BATCH"); env != "" {
+	if env := os.Getenv("WYRD_EMBED_BATCH"); env != "" {
 		if n, err := strconv.Atoi(env); err == nil && n > 0 {
 			e.batchSize = n
 		}
 	}
-	if env := os.Getenv("ARCHAI_EMBED_CONCURRENCY"); env != "" {
+	if env := os.Getenv("WYRD_EMBED_CONCURRENCY"); env != "" {
 		if n, err := strconv.Atoi(env); err == nil && n > 0 {
 			e.concurrency = n
 		}

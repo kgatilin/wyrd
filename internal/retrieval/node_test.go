@@ -3,7 +3,7 @@ package retrieval
 import (
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 func TestBuildNodes_CountsAndKinds(t *testing.T) {

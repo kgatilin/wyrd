@@ -11,7 +11,7 @@ import (
 
 // setupProject creates a temporary project directory with a handful of
 // packages that each already contain a .arch/ folder with pub.yaml and
-// internal.yaml files. It mirrors what `archai diagram generate --format
+// internal.yaml files. It mirrors what `wyrd diagram generate --format
 // yaml` would produce — Lock then just has to freeze these files.
 func setupProject(t *testing.T, withOverlay bool) string {
 	t.Helper()
@@ -20,7 +20,7 @@ func setupProject(t *testing.T, withOverlay bool) string {
 	pkgs := []string{
 		"internal/domain",
 		"internal/service",
-		"cmd/archai",
+		"cmd/wyrd",
 	}
 	for _, p := range pkgs {
 		archDir := filepath.Join(root, p, ".arch")
@@ -35,7 +35,7 @@ func setupProject(t *testing.T, withOverlay bool) string {
 		}
 	}
 	if withOverlay {
-		if err := os.WriteFile(filepath.Join(root, "archai.yaml"), []byte("module: example.com/foo\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(root, "wyrd.yaml"), []byte("module: example.com/foo\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		fragmentPath := filepath.Join(root, "internal/service", ".arch", "overlay.yaml")
@@ -92,7 +92,7 @@ func TestLock_CreatesLayout(t *testing.T) {
 	}
 
 	// Per-package model files should be copied.
-	for _, pkg := range []string{"internal/domain", "internal/service", "cmd/archai"} {
+	for _, pkg := range []string{"internal/domain", "internal/service", "cmd/wyrd"} {
 		for _, fn := range []string{"pub.yaml", "internal.yaml"} {
 			p := filepath.Join(targetDir, "model", pkg, fn)
 			if _, err := os.Stat(p); err != nil {
@@ -109,7 +109,7 @@ func TestLock_NoOverlay(t *testing.T) {
 	}
 	overlayPath := filepath.Join(root, ".arch", "targets", "v1", "overlay.yaml")
 	if _, err := os.Stat(overlayPath); !os.IsNotExist(err) {
-		t.Errorf("expected overlay.yaml absent when archai.yaml missing, got err=%v", err)
+		t.Errorf("expected overlay.yaml absent when wyrd.yaml missing, got err=%v", err)
 	}
 }
 
@@ -191,7 +191,7 @@ func TestShow_ReadsMetaAndPackages(t *testing.T) {
 	wantPkgs := map[string]bool{
 		"internal/domain":  false,
 		"internal/service": false,
-		"cmd/archai":       false,
+		"cmd/wyrd":       false,
 	}
 	for _, p := range pkgs {
 		// Normalize to forward slashes for cross-platform comparison.

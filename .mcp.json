@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "archai": {
-      "command": "archai",
+    "wyrd": {
+      "command": "wyrd",
       "args": ["serve", "--mcp-stdio", "--root", "."]
     }
   }

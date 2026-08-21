@@ -165,7 +165,7 @@ describe('indexNote', () => {
 
 describe('report header', () => {
   const report = (mode: 'review' | 'repo', base?: { ref: string; rev: string }): ArchReport => ({
-    schema: 'archai.archreview/v1',
+    schema: 'wyrd.archreview/v1',
     mode,
     base,
     sections: [],

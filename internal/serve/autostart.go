@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/kgatilin/archai/internal/overlay"
-	"github.com/kgatilin/archai/internal/worktree"
+	"github.com/kgatilin/wyrd/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/worktree"
 )
 
 // DiscoverDaemon looks up the running daemon record for the worktree
@@ -44,7 +44,7 @@ func DiscoverDaemon(projectRoot string) (*worktree.ServeRecord, string, error) {
 // Discovery is deliberately global-registry-only. The legacy per-worktree
 // serve.json lives inside the repo tree, so when the repo is bind-mounted
 // into a container at an identical path (as a containerized dev setup that
-// mounts the repo does), the container's own archai overwrites it with a PID
+// mounts the repo does), the container's own wyrd overwrites it with a PID
 // and address
 // that are only valid inside the container's namespace — poisoning host
 // discovery. The global registry lives under $HOME, which differs between
@@ -73,15 +73,15 @@ func DiscoverRepoDaemon(cwd string) (*DaemonRecord, string, string, error) {
 // AutoStartOptions configures how a background daemon is launched by
 // AutoStartDaemon.
 type AutoStartOptions struct {
-	// ExePath is the path to the archai binary. Defaults to os.Args[0]
+	// ExePath is the path to the wyrd binary. Defaults to os.Args[0]
 	// (callers can override for tests).
 	ExePath string
 
 	// Root is the project root the daemon should serve. Required.
 	Root string
 
-	// HTTPAddr is the listen address passed to `archai serve --http`.
-	// Empty means "ask the repo": the project's archai.yaml
+	// HTTPAddr is the listen address passed to `wyrd serve --http`.
+	// Empty means "ask the repo": the project's wyrd.yaml
 	// serve.http_addr if it pins one, else "127.0.0.1:0" so the kernel
 	// picks a free port and the daemon stays on the loopback interface.
 	HTTPAddr string
@@ -109,7 +109,7 @@ type AutoStartOptions struct {
 	Multi bool
 }
 
-// AutoStartDaemon spawns `archai serve --http <addr>` as a detached
+// AutoStartDaemon spawns `wyrd serve --http <addr>` as a detached
 // child process and waits until its serve.json record appears on disk
 // and the PID is alive. Returns the discovered record on success. The
 // child is intentionally NOT attached to the parent's process group so
@@ -322,7 +322,7 @@ func AutoStartRepoDaemon(opts AutoStartOptions) (*DaemonRecord, string, error) {
 		// the configured port, so the daemon died on bind instead of
 		// registering. Say so — the fallback is silence.
 		return nil, "", fmt.Errorf(
-			"autostart: daemon (pid %d) did not register within %s; it was pinned to %s by serve.http_addr in %s/archai.yaml — is that address already in use?",
+			"autostart: daemon (pid %d) did not register within %s; it was pinned to %s by serve.http_addr in %s/wyrd.yaml — is that address already in use?",
 			childPID, waitTimeout, httpAddr, repoRoot)
 	}
 	return nil, "", fmt.Errorf("autostart: daemon (pid %d) did not register within %s", childPID, waitTimeout)
@@ -334,7 +334,7 @@ func AutoStartRepoDaemon(opts AutoStartOptions) (*DaemonRecord, string, error) {
 // This distinction is the whole function. io.Discard is not an *os.File,
 // so os/exec hands the child a pipe and copies it in the parent; when the
 // parent exits — which is the entire point of a detached daemon, and what
-// `archai daemon start` does immediately — the read end closes and the
+// `wyrd daemon start` does immediately — the read end closes and the
 // daemon's next log line raises SIGPIPE on fd 2, which the Go runtime
 // turns into process death. The daemon would come up, register, answer
 // nothing, and leave a stale record behind.

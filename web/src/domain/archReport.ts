@@ -1,5 +1,5 @@
 /**
- * The architecture review report (`archai.archreview/v1`) and the one mapping
+ * The architecture review report (`wyrd.archreview/v1`) and the one mapping
  * the panel needs: report row → canvas action.
  *
  * The server already speaks uigraph's id conventions — a component id is a

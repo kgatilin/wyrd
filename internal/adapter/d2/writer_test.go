@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/d2"
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/adapter/d2"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 func TestWriter_Write(t *testing.T) {

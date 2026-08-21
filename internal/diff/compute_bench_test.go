@@ -6,17 +6,17 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/golang"
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/adapter/golang"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
-func findArchaiRootDiff(tb testing.TB) string {
+func findWyrdRootDiff(tb testing.TB) string {
 	tb.Helper()
 	dir, err := os.Getwd()
 	if err != nil {
 		tb.Fatalf("getwd: %v", err)
 	}
-	const want = "module github.com/kgatilin/archai"
+	const want = "module github.com/kgatilin/wyrd"
 	for {
 		gomod := filepath.Join(dir, "go.mod")
 		if data, err := os.ReadFile(gomod); err == nil {
@@ -29,17 +29,17 @@ func findArchaiRootDiff(tb testing.TB) string {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			tb.Fatal("could not locate archai module root")
+			tb.Fatal("could not locate wyrd module root")
 		}
 		dir = parent
 	}
 }
 
-// BenchmarkCompute_NoChange compares the archai model against itself —
+// BenchmarkCompute_NoChange compares the wyrd model against itself —
 // the worst case for the diff path because every package, symbol, and
 // dependency is visited (no early-out) but no Changes are emitted.
 func BenchmarkCompute_NoChange(b *testing.B) {
-	root := findArchaiRootDiff(b)
+	root := findWyrdRootDiff(b)
 	prev, _ := os.Getwd()
 	if err := os.Chdir(root); err != nil {
 		b.Fatalf("chdir: %v", err)
@@ -63,7 +63,7 @@ func BenchmarkCompute_NoChange(b *testing.B) {
 // hits the "remove whole package" code path while keeping every other
 // package on both sides for the full structural comparison.
 func BenchmarkCompute_PackageRemoved(b *testing.B) {
-	root := findArchaiRootDiff(b)
+	root := findWyrdRootDiff(b)
 	prev, _ := os.Getwd()
 	if err := os.Chdir(root); err != nil {
 		b.Fatalf("chdir: %v", err)

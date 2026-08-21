@@ -1,5 +1,5 @@
 // Package retrieval provides code search and retrieval capabilities for
-// archai's domain model. It projects PackageModel into embeddable Node
+// wyrd's domain model. It projects PackageModel into embeddable Node
 // chunks and supports hybrid search (dense + BM25) with graph-based expansion.
 package retrieval
 

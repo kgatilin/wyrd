@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/kgatilin/archai/internal/policy"
+	"github.com/kgatilin/wyrd/internal/policy"
 )
 
 // PolicyOptions configures the dependency-policy check.
 type PolicyOptions struct {
-	// OverlayPath is the archai.yaml carrying the `policy:` block. Required.
+	// OverlayPath is the wyrd.yaml carrying the `policy:` block. Required.
 	OverlayPath string
 	// GoModPath is the go.mod validated against the overlay. May be empty.
 	GoModPath string

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // graph is the package-level dependency graph the policy evaluates over. All

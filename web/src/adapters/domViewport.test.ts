@@ -4,7 +4,7 @@ import { createDomViewport, type ViewportHandle } from './domViewport';
 import { PAN_MARGIN } from '../view/viewportConstants';
 
 const laid: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [],
   components: [{ id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [], ports: [], x: 100, y: 200, w: 220, h: 86 }],
   edges: [],

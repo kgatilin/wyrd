@@ -4,7 +4,7 @@ package service
 import (
 	"context"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // ModelReader reads package models from a source (code or diagrams).

@@ -1,19 +1,19 @@
 #!/bin/sh
 #
-# archai installer.
+# wyrd installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/kgatilin/archai/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/kgatilin/wyrd/main/install.sh | sh
 #
 # Downloads a prebuilt binary from a GitHub release, verifies its sha256
 # against the release's checksums.txt, and installs it. This is the supported
-# way in: `go install` cannot build the full archai, because the review UI is
+# way in: `go install` cannot build the full wyrd, because the review UI is
 # embedded from web/dist, which is a build artifact and not in the module zip.
 #
 # Options, with the equivalent environment variable in brackets:
 #
-#   --version <tag>   install a specific release instead of the latest  [ARCHAI_VERSION]
-#   --dir <path>      install into this directory                       [ARCHAI_INSTALL_DIR]
-#   --check           install archai-check instead of archai
+#   --version <tag>   install a specific release instead of the latest  [WYRD_VERSION]
+#   --dir <path>      install into this directory                       [WYRD_INSTALL_DIR]
+#   --check           install wyrd-check instead of wyrd
 #   --all             install both binaries
 #   --help            print this and exit
 #
@@ -23,10 +23,10 @@
 
 set -eu
 
-REPO=kgatilin/archai
-VERSION="${ARCHAI_VERSION:-}"
-DIR="${ARCHAI_INSTALL_DIR:-$HOME/.local/bin}"
-BINARIES=archai
+REPO=kgatilin/wyrd
+VERSION="${WYRD_VERSION:-}"
+DIR="${WYRD_INSTALL_DIR:-$HOME/.local/bin}"
+BINARIES=wyrd
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
@@ -35,18 +35,18 @@ die() { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
 # piped into sh, $0 is not a readable file.
 usage() {
 	cat <<'USAGE'
-archai installer.
+wyrd installer.
 
-  curl -fsSL https://raw.githubusercontent.com/kgatilin/archai/main/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/kgatilin/wyrd/main/install.sh | sh
 
 Downloads a prebuilt binary from a GitHub release, verifies its sha256 against
 the release's checksums.txt, and installs it.
 
 Options, with the equivalent environment variable in brackets:
 
-  --version <tag>   install a specific release instead of the latest  [ARCHAI_VERSION]
-  --dir <path>      install into this directory                       [ARCHAI_INSTALL_DIR]
-  --check           install archai-check instead of archai
+  --version <tag>   install a specific release instead of the latest  [WYRD_VERSION]
+  --dir <path>      install into this directory                       [WYRD_INSTALL_DIR]
+  --check           install wyrd-check instead of wyrd
   --all             install both binaries
   --help            print this and exit
 
@@ -62,8 +62,8 @@ while [ $# -gt 0 ]; do
 	--version=*) VERSION="${1#--version=}"; shift ;;
 	--dir) [ $# -ge 2 ] || die "--dir needs a path"; DIR="$2"; shift 2 ;;
 	--dir=*) DIR="${1#--dir=}"; shift ;;
-	--check) BINARIES=archai-check; shift ;;
-	--all) BINARIES="archai archai-check"; shift ;;
+	--check) BINARIES=wyrd-check; shift ;;
+	--all) BINARIES="wyrd wyrd-check"; shift ;;
 	--help | -h) usage; exit 0 ;;
 	*) die "unknown option: $1 (try --help)" ;;
 	esac
@@ -105,7 +105,7 @@ fi
 
 base="https://github.com/$REPO/releases/download/$VERSION"
 
-tmp=$(mktemp -d 2>/dev/null || mktemp -d -t archai)
+tmp=$(mktemp -d 2>/dev/null || mktemp -d -t wyrd)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
 # --- checksums ------------------------------------------------------------
@@ -163,4 +163,4 @@ case ":${PATH}:" in
 esac
 
 say ""
-say "Next: cd into a Go repo and run 'archai daemon start'."
+say "Next: cd into a Go repo and run 'wyrd daemon start'."

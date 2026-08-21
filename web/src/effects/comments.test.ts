@@ -5,7 +5,7 @@ import type { Event } from '../domain/events';
 import { createCommentsSeedEffect } from './comments';
 
 const graph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [],
   components: [{ id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [], ports: [], x: 10, y: 20, w: 100 }],
   edges: [],

@@ -1,5 +1,5 @@
 // Package mcp implements a minimal Model Context Protocol (MCP) stdio
-// transport for the archai daemon. The transport speaks line-based
+// transport for the wyrd daemon. The transport speaks line-based
 // JSON-RPC 2.0 over stdin/stdout and exposes three read-only tools
 // (extract, list_packages, get_package) backed by the in-memory
 // serve.State model.
@@ -85,7 +85,7 @@ func newInitializeResult() initializeResult {
 			"tools": map[string]any{},
 		},
 		ServerInfo: serverInfo{
-			Name:    "archai",
+			Name:    "wyrd",
 			Version: "0.1.0",
 		},
 	}

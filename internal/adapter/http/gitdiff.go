@@ -3,11 +3,11 @@ package http
 import (
 	nethttp "net/http"
 
-	"github.com/kgatilin/archai/internal/adapter/git"
+	"github.com/kgatilin/wyrd/internal/adapter/git"
 )
 
 // gitDiffSchema versions the payload consumed by the review UI's file diff.
-const gitDiffSchema = "archai.gitdiff/1"
+const gitDiffSchema = "wyrd.gitdiff/1"
 
 type gitDiffFileJSON struct {
 	Path       string `json:"path"`

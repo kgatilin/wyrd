@@ -1,13 +1,13 @@
-// Package main provides archai-check: the validation-only archai CLI.
+// Package main provides wyrd-check: the validation-only wyrd CLI.
 //
 // It runs exactly the architecture gates — overlay layer rules, the
 // dependency policy, and drift against a locked target — and nothing else.
 // No diagram rendering, no HTTP server, no MCP surface, no embedded review
 // UI, which is why it links to a fraction of the full binary's size and
-// builds without Node.js. Use it in CI; use `archai` on a workstation.
+// builds without Node.js. Use it in CI; use `wyrd` on a workstation.
 //
 // The gates themselves live in internal/check and are shared with
-// `archai overlay check` / `archai policy check` / `archai validate`, so
+// `wyrd overlay check` / `wyrd policy check` / `wyrd validate`, so
 // the two binaries can never disagree about what passes.
 package main
 
@@ -15,15 +15,15 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kgatilin/archai/internal/adapter/golang"
-	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
-	"github.com/kgatilin/archai/internal/buildinfo"
-	"github.com/kgatilin/archai/internal/check"
+	"github.com/kgatilin/wyrd/internal/adapter/golang"
+	yamlAdapter "github.com/kgatilin/wyrd/internal/adapter/yaml"
+	"github.com/kgatilin/wyrd/internal/buildinfo"
+	"github.com/kgatilin/wyrd/internal/check"
 	"github.com/spf13/cobra"
 )
 
 // Version is overridden at build time via
-// `-ldflags "-X main.Version=v1.2.3"`, matching the archai binary.
+// `-ldflags "-X main.Version=v1.2.3"`, matching the wyrd binary.
 var Version = "dev"
 
 func init() {
@@ -38,18 +38,18 @@ func newChecker() *check.Checker {
 
 func main() {
 	root := &cobra.Command{
-		Use:   "archai-check",
-		Short: "Validation-only archai: architecture gates for CI",
-		Long: `Run archai's architecture gates and nothing else.
+		Use:   "wyrd-check",
+		Short: "Validation-only wyrd: architecture gates for CI",
+		Long: `Run wyrd's architecture gates and nothing else.
 
-archai-check is the CI build of archai: same overlay, same rules, same
-report wording as ` + "`archai overlay check`" + `, ` + "`archai policy check`" + ` and
-` + "`archai validate`" + `, without the diagram renderer, HTTP server, MCP
+wyrd-check is the CI build of wyrd: same overlay, same rules, same
+report wording as ` + "`wyrd overlay check`" + `, ` + "`wyrd policy check`" + ` and
+` + "`wyrd validate`" + `, without the diagram renderer, HTTP server, MCP
 server or review UI. Every command exits non-zero when its gate fails.`,
 		SilenceUsage: true,
 	}
 	root.PersistentFlags().StringP("chdir", "C", "", "Change to this directory before checking (like 'go -C')")
-	root.PersistentFlags().String("overlay", "", "Path to archai.yaml overlay (default: auto-detect archai.yaml)")
+	root.PersistentFlags().String("overlay", "", "Path to wyrd.yaml overlay (default: auto-detect wyrd.yaml)")
 
 	root.AddCommand(newOverlayCmd(), newPolicyCmd(), newTargetCmd(), newAllCmd(), newVersionCmd())
 
@@ -79,7 +79,7 @@ func resolveOverlay(cmd *cobra.Command) (overlayPath, goModPath string, err erro
 	flag, _ := cmd.Flags().GetString("overlay")
 	overlayPath, goModPath = check.ResolveOverlay(flag)
 	if overlayPath == "" {
-		return "", "", fmt.Errorf("no overlay found: pass --overlay or create archai.yaml in the current directory")
+		return "", "", fmt.Errorf("no overlay found: pass --overlay or create wyrd.yaml in the current directory")
 	}
 	return overlayPath, goModPath, nil
 }
@@ -87,8 +87,8 @@ func resolveOverlay(cmd *cobra.Command) (overlayPath, goModPath string, err erro
 func newOverlayCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "overlay [packages...]",
-		Short: "Check layer rules declared in archai.yaml",
-		Long: `Validate the composed overlay (root archai.yaml plus package-local
+		Short: "Check layer rules declared in wyrd.yaml",
+		Long: `Validate the composed overlay (root wyrd.yaml plus package-local
 .arch/overlay.yaml fragments) and report every import that breaks a layer
 rule. Packages default to ./... .`,
 		Args:         cobra.ArbitraryArgs,
@@ -110,8 +110,8 @@ rule. Packages default to ./... .`,
 func newPolicyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "policy [packages...]",
-		Short: "Check the dependency policy declared in archai.yaml",
-		Long: `Evaluate the 'policy:' block in archai.yaml against the current Go
+		Short: "Check the dependency policy declared in wyrd.yaml",
+		Long: `Evaluate the 'policy:' block in wyrd.yaml against the current Go
 source and report every edge it forbids. Packages default to ./... .`,
 		Args:         cobra.ArbitraryArgs,
 		SilenceUsage: true,
@@ -195,10 +195,10 @@ the exit code is non-zero when either failed.`,
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print archai-check version",
+		Short: "Print wyrd-check version",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
-			fmt.Fprintf(cmd.OutOrStdout(), "archai-check %s\n", buildinfo.Resolve().Version)
+			fmt.Fprintf(cmd.OutOrStdout(), "wyrd-check %s\n", buildinfo.Resolve().Version)
 		},
 	}
 }

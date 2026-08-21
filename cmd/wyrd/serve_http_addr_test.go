@@ -48,7 +48,7 @@ func TestReviewUIDistExists(t *testing.T) {
 }
 
 func TestResolveReviewUIFS_EmbeddedDefault(t *testing.T) {
-	t.Setenv("ARCHAI_REVIEW_UI_DIR", "")
+	t.Setenv("WYRD_REVIEW_UI_DIR", "")
 
 	files, err := resolveReviewUIFS()
 	if err != nil {

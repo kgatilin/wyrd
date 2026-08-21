@@ -1,4 +1,4 @@
-schema: archai/v1
+schema: wyrd/v1
 package: internal/adapter/mcp
 name: mcp
 layer: transport

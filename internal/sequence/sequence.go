@@ -4,7 +4,7 @@
 // text outline (via this package) or D2/SVG diagrams (via the D2 adapter).
 package sequence
 
-import "github.com/kgatilin/archai/internal/domain"
+import "github.com/kgatilin/wyrd/internal/domain"
 
 // Node is a single step in a rendered call chain. Root nodes represent the
 // starting symbol; Children are the callees resolved from Symbol's Calls.

@@ -1,4 +1,4 @@
-// Package worktree provides per-worktree state management for the archai
+// Package worktree provides per-worktree state management for the wyrd
 // daemon. Multiple git worktrees of the same project share the committed
 // .arch/targets/ tree but maintain independent runtime state (active
 // target pointer, running-daemon record) under .arch/.worktree/<name>/.
@@ -6,7 +6,7 @@
 // Layout:
 //
 //	.arch/targets/<id>/                 (shared, committed)
-//	.arch/archai.yaml                   (shared, committed — if present)
+//	.arch/wyrd.yaml                   (shared, committed — if present)
 //	.arch/.worktree/<name>/CURRENT      (per-worktree, gitignored)
 //	.arch/.worktree/<name>/serve.json   (per-worktree, gitignored)
 //
@@ -153,7 +153,7 @@ func RemoveCurrent(projectRoot, name string) error {
 }
 
 // ServeRecord is the JSON payload written to serve.json by a running
-// daemon so peer tools (`archai where`, `archai daemon list`) can
+// daemon so peer tools (`wyrd where`, `wyrd daemon list`) can
 // discover live daemons without probing ports.
 type ServeRecord struct {
 	PID       int    `json:"pid"`

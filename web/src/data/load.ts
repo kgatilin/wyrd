@@ -1,11 +1,11 @@
 import type { UIGraph } from '../types';
 import { fixture } from './fixture';
 
-const SCHEMA_PREFIX = 'archai.uigraph/';
+const SCHEMA_PREFIX = 'wyrd.uigraph/';
 
 /**
  * Load the UIGraph data with a fallback chain:
- * 1. /api/uigraph (live archai serve daemon)
+ * 1. /api/uigraph (live wyrd serve daemon)
  * 2. /archgraph.sample.json (committed sample, for standalone `vite dev`)
  * 3. fixture (hardcoded rich sample)
  */

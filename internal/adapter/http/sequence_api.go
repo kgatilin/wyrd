@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	d2adapter "github.com/kgatilin/archai/internal/adapter/d2"
-	"github.com/kgatilin/archai/internal/adapter/mermaid"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
+	d2adapter "github.com/kgatilin/wyrd/internal/adapter/d2"
+	"github.com/kgatilin/wyrd/internal/adapter/mermaid"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 // applyOverlay merges the overlay config into a fresh copy of the

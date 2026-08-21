@@ -1,6 +1,6 @@
 package mcp
 
-import "github.com/kgatilin/archai/internal/domain"
+import "github.com/kgatilin/wyrd/internal/domain"
 
 // Package-digest sizing. A full domain.PackageModel dump embeds every
 // symbol's call edges, the package-level dependency list, and source spans —

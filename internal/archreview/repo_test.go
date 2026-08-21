@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 func TestBuildWithoutBaseIsRepoMode(t *testing.T) {
@@ -152,7 +152,7 @@ func TestDirectoryGroupingIsDepthTwo(t *testing.T) {
 	cases := map[string]string{
 		"internal/adapter/http": "internal/adapter",
 		"internal/serve":        "internal/serve",
-		"cmd/archai":            "cmd",
+		"cmd/wyrd":            "cmd",
 		"internal/plugins/x/y":  "plugins",
 		".":                     "(root)",
 	}

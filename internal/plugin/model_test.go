@@ -3,8 +3,8 @@ package plugin
 import (
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 func TestBuildModel_PassesThroughPackages(t *testing.T) {

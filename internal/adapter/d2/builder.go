@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // d2TextBuilder builds D2 diagram text content from domain models.

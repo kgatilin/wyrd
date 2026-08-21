@@ -6,7 +6,7 @@ import type { GitDiff } from '../../domain/gitDiff';
 import type { UIGraph } from '../../types';
 
 const diff: GitDiff = {
-  schema: 'archai.gitdiff/1',
+  schema: 'wyrd.gitdiff/1',
   worktree: 'feature',
   branch: 'feature',
   baseRef: 'main',
@@ -33,7 +33,7 @@ const diff: GitDiff = {
 
 /** Two packages, one calling the other, declared in the diffed files. */
 const graph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [],
   comments: [],
   edges: [],
@@ -140,7 +140,7 @@ describe('DiffOverlay', () => {
 
   it('names the working tree when the branch under review is the base itself', async () => {
     stubFetch({ ...diff, branch: 'main' });
-    const { container } = render(<Harness worktree="archai" baseRef="main" onClose={() => {}} />);
+    const { container } = render(<Harness worktree="wyrd" baseRef="main" onClose={() => {}} />);
     await waitFor(() =>
       expect(container.querySelector('.hf-diff-compare .branch')?.textContent).toBe('working tree')
     );

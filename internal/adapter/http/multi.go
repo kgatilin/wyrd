@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kgatilin/archai/internal/adapter/mcp"
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/adapter/mcp"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 // registerMultiRoutes installs the multi-worktree routing shell on
@@ -241,7 +241,7 @@ func (s *Server) rewriteWorktreeRequest(r *nethttp.Request, name, rest string, s
 }
 
 // handleWorktreeSelect accepts POST /worktree/select with a `name`
-// field and sets the archai_worktree cookie. The response redirects
+// field and sets the wyrd_worktree cookie. The response redirects
 // (303) to /w/{name}/<path> when the `redirect` field is a valid
 // legacy-style path; otherwise it redirects to /w/{name}/.
 //

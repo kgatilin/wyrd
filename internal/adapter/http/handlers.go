@@ -3,7 +3,7 @@ package http
 import (
 	nethttp "net/http"
 
-	"github.com/kgatilin/archai/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/plugin"
 )
 
 // routes registers every handler on mux. In single-worktree mode it

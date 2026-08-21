@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // ReadModels is the exported counterpart of readPackages. CLI callsites
 // that want to bypass the full Generate pipeline (e.g. combined-full
-// mode in cmd/archai) use it to read the model through the same entry
+// mode in cmd/wyrd) use it to read the model through the same entry
 // point the pipeline uses.
 func (s *Service) ReadModels(ctx context.Context, paths []string) ([]domain.PackageModel, error) {
 	return s.readPackages(ctx, paths)

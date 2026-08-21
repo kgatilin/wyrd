@@ -1,10 +1,10 @@
-// Package plugin defines archai's in-process plugin contract: the
+// Package plugin defines wyrd's in-process plugin contract: the
 // Plugin interface that capability providers implement, the Host
-// interface that exposes archai's read-only model + utilities, and the
+// interface that exposes wyrd's read-only model + utilities, and the
 // supporting capability descriptors (CLI / MCP / HTTP / UI).
 //
 // v1 scope (M12, issue #65):
-//   - In-process Go plugins only. Plugins compile into the archai
+//   - In-process Go plugins only. Plugins compile into the wyrd
 //     binary and register themselves from init() via RegisterPlugin.
 //   - Plugins are read-only consumers of the Model. They cannot mutate
 //     it; mutation stays inside the daemon.
@@ -31,7 +31,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Plugin is the contract every archai plugin implements.
+// Plugin is the contract every wyrd plugin implements.
 //
 // The Host pulls capability slices from a plugin and decides where to
 // mount them; the plugin never calls back into the Host to register
@@ -42,10 +42,10 @@ type Plugin interface {
 	// HTTP routes, and UI mount points (M13).
 	Manifest() Manifest
 
-	// Init runs once during archai bootstrap, before any capability
+	// Init runs once during wyrd bootstrap, before any capability
 	// accessors are queried. The plugin receives the Host (read-only
 	// view of the model + utilities) and a path to its config file
-	// resolved by archai. configPath may be empty when no config is
+	// resolved by wyrd. configPath may be empty when no config is
 	// present; plugins that need configuration must fail here.
 	Init(ctx context.Context, host Host, configPath string) error
 
@@ -74,7 +74,7 @@ type Manifest struct {
 	// makes sense (semver, build tag, "0.1-dev").
 	Version string
 
-	// Description is a short human-readable summary shown in `archai
+	// Description is a short human-readable summary shown in `wyrd
 	// plugins list` (M13) and in plugin discovery responses.
 	Description string
 }
@@ -113,7 +113,7 @@ type Host interface {
 	// "v1") returns "current vs target v1").
 	Diff(fromID, toID string) (*Diff, error)
 
-	// Validate runs the same checks `archai validate` performs against
+	// Validate runs the same checks `wyrd validate` performs against
 	// the named target (or CURRENT when modelID == "") and returns the
 	// resulting report.
 	Validate(modelID string) (*ValidationReport, error)
@@ -135,17 +135,17 @@ type Unsubscribe func()
 
 // CLICommand wraps a cobra.Command produced by a plugin. Wrapping (vs.
 // returning *cobra.Command directly) leaves room to add metadata
-// later (e.g. minimum archai version) without breaking the contract.
+// later (e.g. minimum wyrd version) without breaking the contract.
 type CLICommand struct {
-	// Cmd is the cobra command this plugin contributes. archai mounts
+	// Cmd is the cobra command this plugin contributes. wyrd mounts
 	// it under a plugin-namespaced parent in M13; for M12 it can be
 	// added to the root command as-is.
 	Cmd *cobra.Command
 }
 
-// MCPTool is the descriptor archai uses to register a tool with the
+// MCPTool is the descriptor wyrd uses to register a tool with the
 // MCP transport. The Handler is called with the raw JSON arguments
-// passed by the client; archai owns serialization to/from the wire.
+// passed by the client; wyrd owns serialization to/from the wire.
 type MCPTool struct {
 	// Name is the tool name as exposed to MCP clients. M13 will
 	// prefix it with the plugin manifest name.
@@ -165,7 +165,7 @@ type MCPTool struct {
 	Handler func(ctx context.Context, args map[string]any) (any, error)
 }
 
-// HTTPHandler is the descriptor archai uses to mount a plugin route
+// HTTPHandler is the descriptor wyrd uses to mount a plugin route
 // onto its HTTP transport.
 type HTTPHandler struct {
 	// Path is the URL path. M13 mounts these under
@@ -190,7 +190,7 @@ type HTTPHandler struct {
 type UIComponent struct {
 	// Element is the custom-element tag name the plugin registers in
 	// its entry script (e.g. "plugin-complexity-heatmap"). Hyphenation
-	// is required by the Custom Elements spec; archai also uses it as
+	// is required by the Custom Elements spec; wyrd also uses it as
 	// an HTML-safe id, so it must not contain whitespace or quotes.
 	Element string
 

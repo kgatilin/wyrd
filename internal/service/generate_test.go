@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // mockReader implements ModelReader for testing.
@@ -370,8 +370,8 @@ func TestService_resolveArchDir(t *testing.T) {
 		},
 		{
 			name:    "cmd package",
-			pkgPath: "cmd/archai",
-			want:    "cmd/archai/.arch",
+			pkgPath: "cmd/wyrd",
+			want:    "cmd/wyrd/.arch",
 		},
 	}
 

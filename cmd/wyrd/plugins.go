@@ -4,31 +4,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/kgatilin/archai/internal/check"
+	"github.com/kgatilin/wyrd/internal/check"
 	"log/slog"
 	"os"
 	"sync"
 
 	"github.com/spf13/cobra"
 
-	"github.com/kgatilin/archai/internal/overlay"
-	"github.com/kgatilin/archai/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/plugin"
 
 	// Built-in plugins. Importing them for side effects registers
 	// each one with the plugin package's global registry. Adding a
 	// new built-in plugin is a one-line change here.
-	_ "github.com/kgatilin/archai/internal/plugins/events"
+	_ "github.com/kgatilin/wyrd/internal/plugins/events"
 )
 
 // cliHost is a Host implementation used outside the long-running
-// daemon — i.e. for plugin CLI commands invoked from `archai
+// daemon — i.e. for plugin CLI commands invoked from `wyrd
 // <plugin-cmd>`. It loads the project model lazily on first access
 // (so plugin commands that don't touch the model stay fast) and
-// re-uses cmd/archai's existing model loaders (loadCurrentModel,
+// re-uses cmd/wyrd's existing model loaders (loadCurrentModel,
 // resolveOverlay) so behavior matches the rest of the CLI.
 //
 // Subscribe is a no-op: the CLI is short-lived; plugins that need
-// real-time updates run inside `archai serve`, where serve.Host
+// real-time updates run inside `wyrd serve`, where serve.Host
 // provides the live event bus.
 type cliHost struct {
 	logger *slog.Logger
@@ -110,7 +110,7 @@ func (h *cliHost) Targets() []plugin.TargetMeta { return nil }
 
 // Target implements plugin.Host.
 func (h *cliHost) Target(string) (*plugin.TargetSnapshot, error) {
-	return nil, errors.New("plugin: target loading is only available inside `archai serve`")
+	return nil, errors.New("plugin: target loading is only available inside `wyrd serve`")
 }
 
 // ActiveTarget implements plugin.Host.
@@ -118,12 +118,12 @@ func (h *cliHost) ActiveTarget() *plugin.TargetSnapshot { return nil }
 
 // Diff implements plugin.Host.
 func (h *cliHost) Diff(string, string) (*plugin.Diff, error) {
-	return nil, errors.New("plugin: Host.Diff is only available inside `archai serve`")
+	return nil, errors.New("plugin: Host.Diff is only available inside `wyrd serve`")
 }
 
 // Validate implements plugin.Host.
 func (h *cliHost) Validate(string) (*plugin.ValidationReport, error) {
-	return nil, errors.New("plugin: Host.Validate is only available inside `archai serve`")
+	return nil, errors.New("plugin: Host.Validate is only available inside `wyrd serve`")
 }
 
 // Subscribe implements plugin.Host. Returns the no-op bus's
@@ -142,12 +142,12 @@ func (h *cliHost) RepoRoot() string {
 }
 
 // wirePlugins runs the in-process plugin bootstrap and mounts every
-// plugin-contributed CLI command under `archai plugin <name> ...`.
+// plugin-contributed CLI command under `wyrd plugin <name> ...`.
 // Errors from individual plugin Inits are reported to stderr but do
 // not abort startup — other commands should still work.
 //
-// M13 (#66): plugin CLI commands live under the `archai plugin`
-// subgroup; `archai plugin list` enumerates loaded plugins and their
+// M13 (#66): plugin CLI commands live under the `wyrd plugin`
+// subgroup; `wyrd plugin list` enumerates loaded plugins and their
 // CLI / MCP / HTTP / UI capabilities. The MCP / HTTP / UI capabilities
 // are mounted by the serve daemon (see internal/adapter/http and
 // internal/adapter/mcp) rather than by this CLI-side wiring.
@@ -155,7 +155,7 @@ func wirePlugins(rootCmd *cobra.Command) plugin.BootstrapResult {
 	host := newCLIHost()
 	res, err := plugin.Bootstrap(context.Background(), host, nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "archai: plugin bootstrap: %v\n", err)
+		fmt.Fprintf(os.Stderr, "wyrd: plugin bootstrap: %v\n", err)
 	}
 	rootCmd.AddCommand(plugin.BuildPluginCommand(res))
 	return res

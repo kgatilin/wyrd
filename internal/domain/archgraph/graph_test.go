@@ -7,9 +7,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/golang"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/domain/archgraph"
+	"github.com/kgatilin/wyrd/internal/adapter/golang"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain/archgraph"
 )
 
 // synthModule returns a small handwritten []domain.PackageModel that
@@ -153,13 +153,13 @@ func synthModule() []domain.PackageModel {
 	return []domain.PackageModel{pkgAModel, pkgBModel}
 }
 
-// TestBuildGraph_FromFixture builds a graph from the live archai
+// TestBuildGraph_FromFixture builds a graph from the live wyrd
 // codebase via the Go reader and asserts non-zero counts for every
 // major node kind. This is the closest thing to a "from a small Go
 // module" fixture without inventing a new testdata tree.
 func TestBuildGraph_FromFixture(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integration-style read of archai sources skipped in -short")
+		t.Skip("integration-style read of wyrd sources skipped in -short")
 	}
 	repoRoot := repoRootFromTest(t)
 	reader := golang.NewReader()
@@ -171,7 +171,7 @@ func TestBuildGraph_FromFixture(t *testing.T) {
 		t.Fatalf("reader returned no packages")
 	}
 
-	g, err := archgraph.BuildGraph(models, &domain.Module{Path: "github.com/kgatilin/archai"})
+	g, err := archgraph.BuildGraph(models, &domain.Module{Path: "github.com/kgatilin/wyrd"})
 	if err != nil {
 		t.Fatalf("BuildGraph: %v", err)
 	}
@@ -327,7 +327,7 @@ func hasEdge(g *archgraph.Graph, from, to string, kind archgraph.EdgeKind) bool 
 }
 
 // repoRootFromTest walks up from the test file location to find the
-// archai repo root (containing go.mod). Returns the absolute path.
+// wyrd repo root (containing go.mod). Returns the absolute path.
 func repoRootFromTest(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)

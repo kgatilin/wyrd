@@ -60,7 +60,7 @@ func TestStdio_Initialize(t *testing.T) {
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
 		t.Fatalf("unmarshal result: %v", err)
 	}
-	if result.ServerInfo.Name != "archai" {
+	if result.ServerInfo.Name != "wyrd" {
 		t.Errorf("wrong server name: %q", result.ServerInfo.Name)
 	}
 	if _, ok := result.Capabilities["tools"]; !ok {

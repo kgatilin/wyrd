@@ -17,8 +17,8 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/service"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/service"
 )
 
 // reader reads Go source code and converts it to domain.PackageModel structures.
@@ -126,7 +126,7 @@ var loadWarnOut io.Writer = os.Stderr
 // the rest are collapsed into a single count.
 const maxLoadWarnings = 10
 
-// partitionLoadable splits the loaded roots into the packages archai can
+// partitionLoadable splits the loaded roots into the packages wyrd can
 // convert (parsed syntax plus type information) and the warnings describing
 // every package that carried loader errors or produced nothing usable.
 func partitionLoadable(pkgs []*packages.Package) ([]*packages.Package, []loadWarning) {
@@ -192,10 +192,10 @@ func emitLoadWarnings(warnings []loadWarning) {
 		if w.skipped {
 			suffix += " [package skipped: nothing to model]"
 		}
-		fmt.Fprintf(loadWarnOut, "archai: reader: warning: %s: %s%s\n", w.pkgPath, w.first, suffix)
+		fmt.Fprintf(loadWarnOut, "wyrd: reader: warning: %s: %s%s\n", w.pkgPath, w.first, suffix)
 	}
 	if rest := len(warnings) - len(shown); rest > 0 {
-		fmt.Fprintf(loadWarnOut, "archai: reader: warning: and %d more package(s) with load errors\n", rest)
+		fmt.Fprintf(loadWarnOut, "wyrd: reader: warning: and %d more package(s) with load errors\n", rest)
 	}
 }
 
@@ -215,7 +215,7 @@ func packageLabel(pkg *packages.Package) string {
 // be present before convertPackagesParallel spawns a worker pool. Below
 // this, the per-goroutine overhead and the runtime/sync costs more than
 // erase the conversion-side speedup measured during #58 profiling
-// (archai's own per-package conversion is small relative to the work
+// (wyrd's own per-package conversion is small relative to the work
 // already parallelised inside golang.org/x/tools/go/packages.Load).
 //
 // The threshold is also gated on runtime.GOMAXPROCS > 1: on a single-CPU

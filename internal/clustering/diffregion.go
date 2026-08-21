@@ -3,8 +3,8 @@ package clustering
 import (
 	"fmt"
 
-	archmotifAdapter "github.com/kgatilin/archai/internal/adapter/archmotif"
-	"github.com/kgatilin/archai/internal/domain"
+	archmotifAdapter "github.com/kgatilin/wyrd/internal/adapter/archmotif"
+	"github.com/kgatilin/wyrd/internal/domain"
 	"github.com/kgatilin/archmotif/pkg/localpartition"
 	"github.com/kgatilin/archmotif/pkg/spectralcluster"
 )

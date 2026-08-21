@@ -13,7 +13,7 @@ export const diffGraph: UIGraph = fixture;
  * legend, no diff classes), 1 bounded context, 2 plain components.
  */
 export const nonDiffGraph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [{ id: 'core', name: 'Core', x: 40, y: 40, w: 520, h: 240 }],
   components: [
     {
@@ -84,7 +84,7 @@ const LONG_MEMBER_NAME =
   'reconcileOutstandingSettlementsWithLedgerSnapshot(window)'; // 56 chars
 
 export const longMemberGraph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [{ id: 'ledger', name: 'Ledger', x: 40, y: 40, w: 600, h: 320 }],
   components: [
     {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 func TestReader_Read(t *testing.T) {
@@ -322,8 +322,8 @@ func NewServer() *Server {
 	}
 
 	got := warnings.String()
-	if !strings.Contains(got, "archai: reader: warning:") {
-		t.Errorf("warnings = %q, want an archai reader warning line", got)
+	if !strings.Contains(got, "wyrd: reader: warning:") {
+		t.Errorf("warnings = %q, want an wyrd reader warning line", got)
 	}
 	if !strings.Contains(got, "broken") || !strings.Contains(got, "no matching files") {
 		t.Errorf("warnings = %q, want it to name the broken package and its embed error", got)

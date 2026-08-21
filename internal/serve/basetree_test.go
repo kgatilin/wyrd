@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/adapter/git"
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/adapter/git"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // TestReviewBase_UsesMergeBaseNotBaseTip is the invariant the whole
@@ -15,7 +15,7 @@ import (
 // commit it forked from. When the base worktree has moved on, its parsed
 // model is not that commit and must not be substituted for it.
 func TestReviewBase_UsesMergeBaseNotBaseTip(t *testing.T) {
-	t.Setenv("ARCHAI_HOME", t.TempDir())
+	t.Setenv("WYRD_HOME", t.TempDir())
 
 	root := newGitRepo(t)
 	writeGo(t, root, "api/api.go", "package api\n\ntype Existing struct{}\n")
@@ -70,7 +70,7 @@ func TestReviewBase_UsesMergeBaseNotBaseTip(t *testing.T) {
 // model, and nothing needs materializing.
 func TestReviewBase_ReusesBaseWorktreeWhenItIsTheMergeBase(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("ARCHAI_HOME", home)
+	t.Setenv("WYRD_HOME", home)
 
 	root := newGitRepo(t)
 	writeGo(t, root, "api/api.go", "package api\n\ntype Existing struct{}\n")
@@ -102,7 +102,7 @@ func TestReviewBase_ReusesBaseWorktreeWhenItIsTheMergeBase(t *testing.T) {
 // A worktree with no configured base ref, or one whose base ref does not
 // exist, reports no models rather than falling back to some other commit.
 func TestReviewBase_UnresolvableRefYieldsNoModels(t *testing.T) {
-	t.Setenv("ARCHAI_HOME", t.TempDir())
+	t.Setenv("WYRD_HOME", t.TempDir())
 
 	root := newGitRepo(t)
 	multi := NewMultiState(root, DefaultStateLoader)

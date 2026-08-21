@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"sort"
 
-	yamlAdapter "github.com/kgatilin/archai/internal/adapter/yaml"
-	"github.com/kgatilin/archai/internal/diff"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
-	"github.com/kgatilin/archai/internal/plugin"
-	"github.com/kgatilin/archai/internal/target"
+	yamlAdapter "github.com/kgatilin/wyrd/internal/adapter/yaml"
+	"github.com/kgatilin/wyrd/internal/diff"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/target"
 )
 
 // Host adapts a *State (plus a logger) into the plugin.Host
@@ -140,7 +140,7 @@ func (h *Host) ActiveTarget() *plugin.TargetSnapshot {
 }
 
 // Diff implements plugin.Host. fromID/toID may be "" to mean "current
-// code model". The implementation matches `archai diff` semantics:
+// code model". The implementation matches `wyrd diff` semantics:
 // fromID is the "from" side (defaults to current code), toID is the
 // "to" side (defaults to CURRENT target).
 func (h *Host) Diff(fromID, toID string) (*plugin.Diff, error) {
@@ -237,7 +237,7 @@ func (h *Host) modelByID(ctx context.Context, root, id string) ([]domain.Package
 	return loadTargetSnapshotModel(ctx, root, id)
 }
 
-// loadTargetSnapshotModel mirrors cmd/archai's loadTargetModel: it
+// loadTargetSnapshotModel mirrors cmd/wyrd's loadTargetModel: it
 // reads .arch/targets/<id>/model/**/*.yaml via the YAML adapter.
 // Lives in serve so plugins don't have to reimplement target loading.
 func loadTargetSnapshotModel(ctx context.Context, root, id string) ([]domain.PackageModel, error) {

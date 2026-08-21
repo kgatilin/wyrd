@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 // OverlayOptions configures the overlay layer-rule check.
@@ -187,8 +187,9 @@ func TrimModulePrefix(module, pkgPath string) string {
 
 // ResolveOverlay determines the overlay path and accompanying go.mod path.
 // When explicitPath is non-empty it is used verbatim (and the adjacent
-// go.mod is looked up); when empty we auto-detect ./archai.yaml in the
-// working directory. Returns empty strings when no overlay is found.
+// go.mod is looked up); when empty we auto-detect ./wyrd.yaml (or the
+// legacy ./archai.yaml) in the working directory. Returns empty strings
+// when no overlay is found.
 func ResolveOverlay(explicitPath string) (overlayPath, goModPath string) {
 	if explicitPath != "" {
 		dir := filepath.Dir(explicitPath)
@@ -198,8 +199,8 @@ func ResolveOverlay(explicitPath string) (overlayPath, goModPath string) {
 		}
 		return explicitPath, gm
 	}
-	candidate := "archai.yaml"
-	if _, err := os.Stat(candidate); err != nil {
+	candidate := overlay.DiscoverPath(".")
+	if candidate == "" {
 		return "", ""
 	}
 	gm := "go.mod"

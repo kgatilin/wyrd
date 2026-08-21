@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/eventmodel"
-	"github.com/kgatilin/archai/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/eventmodel"
+	"github.com/kgatilin/wyrd/internal/plugin"
 )
 
 // testdataRoot returns the absolute path to the testdata directory.

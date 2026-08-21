@@ -5,7 +5,7 @@
 .worktrees/
 
 # Binary
-/archai
+/wyrd
 /bin/
 
 # Per-worktree runtime state (M9): CURRENT pointer + serve.json record
@@ -18,7 +18,7 @@
 # Agent worktree checkouts created under .claude/ (embedded git repos).
 .claude/worktrees/
 
-# Local model cache used by archai serve.
+# Local model cache used by wyrd serve.
 .archai/
 
 # Local go.work overrides (dev-only; not part of the PR contract)
@@ -27,3 +27,7 @@ go.work.sum
 
 # Playwright CLI scratch output (local debugging only)
 .playwright-cli/
+
+# The .wyrd spec dir name is also accepted by readers; runtime junk there is ignored like .arch
+.wyrd/.worktree/
+.wyrd/*.lock

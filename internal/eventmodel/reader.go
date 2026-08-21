@@ -61,7 +61,7 @@ func findEventsFiles(root string) ([]string, error) {
 				return filepath.SkipDir
 			}
 		}
-		if name == ".arch" {
+		if name == ".arch" || name == ".wyrd" {
 			// Check for events.yaml in this .arch directory.
 			eventsPath := filepath.Join(path, eventsFileName)
 			if _, statErr := os.Stat(eventsPath); statErr == nil {

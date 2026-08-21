@@ -47,7 +47,7 @@ func Validate(cfg *Config, goModPath string) error {
 			errs = append(errs, err)
 		} else if declared != cfg.Module {
 			errs = append(errs, fmt.Errorf(
-				"overlay: module mismatch: archai.yaml declares %q but %s declares %q",
+				"overlay: module mismatch: wyrd.yaml declares %q but %s declares %q",
 				cfg.Module, goModPath, declared))
 		}
 	}

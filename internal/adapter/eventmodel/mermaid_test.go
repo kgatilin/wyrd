@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/eventmodel"
+	"github.com/kgatilin/wyrd/internal/eventmodel"
 )
 
 func TestToMermaid(t *testing.T) {

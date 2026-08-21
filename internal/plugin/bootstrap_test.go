@@ -130,7 +130,7 @@ func TestBootstrap_ConfigPathFunc(t *testing.T) {
 	p := &fakePlugin{name: "needs-config"}
 	RegisterPlugin(p)
 
-	wantPath := "/etc/archai/needs-config.yaml"
+	wantPath := "/etc/wyrd/needs-config.yaml"
 	gotName := ""
 	gotPath := ""
 
@@ -156,7 +156,7 @@ func TestBootstrap_ConfigPathFunc(t *testing.T) {
 }
 
 func TestAddCLICommandsToRoot_AttachesEveryCommand(t *testing.T) {
-	root := &cobra.Command{Use: "archai"}
+	root := &cobra.Command{Use: "wyrd"}
 	cmds := []NamedCLICommand{
 		{Plugin: "a", Command: CLICommand{Cmd: &cobra.Command{Use: "alpha"}}},
 		{Plugin: "b", Command: CLICommand{Cmd: &cobra.Command{Use: "beta"}}},

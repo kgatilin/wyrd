@@ -1,4 +1,4 @@
-// Package http implements the HTTP transport for the archai serve
+// Package http implements the HTTP transport for the wyrd serve
 // daemon. It serves the React review UI as the browser surface and the
 // JSON APIs behind it — the graph projection the UI renders, source
 // read/write, model events, archmotif metrics — alongside the machine
@@ -27,9 +27,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kgatilin/archai/internal/buildinfo"
-	"github.com/kgatilin/archai/internal/plugin"
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/buildinfo"
+	"github.com/kgatilin/wyrd/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 // Server is the HTTP transport. It wraps a net/http.Server and holds
@@ -207,7 +207,7 @@ func (s *Server) multiMode() bool { return s.multi != nil }
 
 // cookieName is the HTTP cookie storing the selected worktree in
 // multi mode. Cleared on an invalid value.
-const cookieName = "archai_worktree"
+const cookieName = "wyrd_worktree"
 
 // ctxKey is the unexported type for request-context keys so other
 // packages can't collide with ours.

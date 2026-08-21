@@ -7,7 +7,7 @@ export interface LayoutPin {
 
 export type LayoutPins = Record<string, LayoutPin>;
 
-const STORAGE_PREFIX = 'archai:review-layout:v1';
+const STORAGE_PREFIX = 'wyrd:review-layout:v1';
 const GROUP_PADDING = 30;
 const PIN_COLLISION_PADDING = 24;
 

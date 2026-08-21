@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 // GenerateOptions configures the generate operation (split mode).
@@ -33,7 +33,7 @@ type GenerateOptions struct {
 	// DebugPrintf is the function to use for debug output. If nil, fmt.Printf is used.
 	DebugPrintf func(format string, args ...any)
 
-	// OverlayPath is the optional path to an archai.yaml overlay file.
+	// OverlayPath is the optional path to an wyrd.yaml overlay file.
 	// When set, Generate loads and applies it to every package after
 	// reading from Go source and before writing output, so serialized
 	// models (e.g. YAML) carry Layer/Aggregate fields. Violations are

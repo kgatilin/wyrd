@@ -99,7 +99,7 @@ type Component struct {
 	// state schemas via $ref.
 	Types map[string]SchemaNode
 
-	// Extra is opaque passthrough data for templates; archai never
+	// Extra is opaque passthrough data for templates; wyrd never
 	// interprets it.
 	Extra map[string]any
 
@@ -157,7 +157,7 @@ type Slot struct {
 	// Pattern is the subject the kind travels on: a NATS-style pattern with
 	// {slot} tokens naming the partition key ("one state per X"). It is the
 	// wire address of the kind, not its name, and the two are separate
-	// because the same kind is addressed per-partition. archai parses it only
+	// because the same kind is addressed per-partition. wyrd parses it only
 	// far enough to extract {slot} tokens; it never matches it against kinds.
 	// Optional: a kind declared with no pattern contributes nothing to the
 	// read-set's subjects and nothing to the partition key.

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/kgatilin/archai/internal/retrieval/types"
+	"github.com/kgatilin/wyrd/internal/retrieval/types"
 )
 
 // Default BM25 parameters

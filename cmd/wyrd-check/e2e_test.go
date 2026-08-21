@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-// buildCheckBinary compiles archai-check once per test run.
+// buildCheckBinary compiles wyrd-check once per test run.
 func buildCheckBinary(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "archai-check")
+	bin := filepath.Join(t.TempDir(), "wyrd-check")
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
-		t.Fatalf("building archai-check: %v\n%s", err, out)
+		t.Fatalf("building wyrd-check: %v\n%s", err, out)
 	}
 	return bin
 }
@@ -36,7 +36,7 @@ func writeLayeredModule(t *testing.T, invert bool) string {
 	}
 
 	write("go.mod", "module test.example/layered\n\ngo 1.21\n")
-	write("archai.yaml", `module: test.example/layered
+	write("wyrd.yaml", `module: test.example/layered
 layers:
   domain:
     - internal/domain/...
@@ -95,7 +95,7 @@ func TestE2E_Overlay_CleanModulePasses(t *testing.T) {
 	cmd := exec.Command(bin, "-C", dir, "overlay")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("archai-check overlay failed on a clean module: %v\n%s", err, out)
+		t.Fatalf("wyrd-check overlay failed on a clean module: %v\n%s", err, out)
 	}
 	if !strings.Contains(string(out), "no layer-rule violations found") {
 		t.Errorf("unexpected output:\n%s", out)
@@ -109,7 +109,7 @@ func TestE2E_Overlay_InversionFailsWithNonZeroExit(t *testing.T) {
 	cmd := exec.Command(bin, "-C", dir, "overlay")
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		t.Fatalf("archai-check overlay exited 0 on a layering inversion:\n%s", out)
+		t.Fatalf("wyrd-check overlay exited 0 on a layering inversion:\n%s", out)
 	}
 	want := "VIOLATION: package internal/domain (layer domain) imports package internal/adapter (layer adapter)"
 	if !strings.Contains(string(out), want) {
@@ -124,7 +124,7 @@ func TestE2E_All_RunsBothGates(t *testing.T) {
 	cmd := exec.Command(bin, "-C", dir, "all")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("archai-check all failed on a clean module: %v\n%s", err, out)
+		t.Fatalf("wyrd-check all failed on a clean module: %v\n%s", err, out)
 	}
 	for _, want := range []string{"no layer-rule violations found", "no dependency-policy violations"} {
 		if !strings.Contains(string(out), want) {
@@ -139,7 +139,7 @@ func TestE2E_NoOverlayIsAClearError(t *testing.T) {
 	cmd := exec.Command(bin, "-C", t.TempDir(), "overlay")
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		t.Fatalf("archai-check overlay exited 0 without an overlay:\n%s", out)
+		t.Fatalf("wyrd-check overlay exited 0 without an overlay:\n%s", out)
 	}
 	if !strings.Contains(string(out), "no overlay found") {
 		t.Errorf("output missing the 'no overlay found' hint:\n%s", out)

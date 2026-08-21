@@ -1,9 +1,9 @@
 // Package retrieval provides code search and retrieval capabilities for
-// archai's domain model. This file defines the port interfaces for vector
+// wyrd's domain model. This file defines the port interfaces for vector
 // and lexical indexes.
 package retrieval
 
-import "github.com/kgatilin/archai/internal/retrieval/types"
+import "github.com/kgatilin/wyrd/internal/retrieval/types"
 
 // Scored is an alias for types.Scored for convenience.
 type Scored = types.Scored

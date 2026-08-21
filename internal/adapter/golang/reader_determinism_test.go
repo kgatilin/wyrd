@@ -8,12 +8,12 @@ import (
 )
 
 // TestReader_ParallelExtractionIsDeterministic asserts that repeated full
-// extractions over the archai project yield byte-identical PackageModel
+// extractions over the wyrd project yield byte-identical PackageModel
 // slices. This is the regression guard for the parallel convertPackage
 // fan-out: any non-determinism in worker scheduling, map iteration, or
 // shared state should surface here as a DeepEqual mismatch.
 func TestReader_ParallelExtractionIsDeterministic(t *testing.T) {
-	root := findArchaiRoot(t)
+	root := findWyrdRoot(t)
 	prev, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)

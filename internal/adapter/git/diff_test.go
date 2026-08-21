@@ -173,7 +173,7 @@ func TestDiff(t *testing.T) {
 // A file whose *content* mentions a binary-diff marker must still be
 // treated as text: the marker only counts when git emits it unprefixed,
 // since real content lines in a patch carry a "+" prefix. This bit the
-// review UI the first time it was pointed at archai's own worktree.
+// review UI the first time it was pointed at wyrd's own worktree.
 func TestSummarizePatchIgnoresMarkerInContent(t *testing.T) {
 	patch := strings.Join([]string{
 		"diff --git a/x_test.go b/x_test.go",

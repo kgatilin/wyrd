@@ -3,7 +3,7 @@ package domain
 // Module represents the root context for a Go module.
 // It provides the module path from go.mod and contains all parsed packages.
 type Module struct {
-	// Path is the module path from go.mod, e.g., "github.com/kgatilin/archai".
+	// Path is the module path from go.mod, e.g., "github.com/kgatilin/wyrd".
 	Path string
 
 	// Packages is the list of packages parsed from this module.

@@ -1,4 +1,4 @@
-// Package web exposes the built review UI assets for the archai CLI.
+// Package web exposes the built review UI assets for the wyrd CLI.
 package web
 
 import (

@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/kgatilin/archai/internal/plugin"
-	"github.com/kgatilin/archai/internal/service"
-	"github.com/kgatilin/archai/internal/worktree"
+	"github.com/kgatilin/wyrd/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/service"
+	"github.com/kgatilin/wyrd/internal/worktree"
 )
 
 // Options configures the Serve entry point.
@@ -28,7 +28,7 @@ type Options struct {
 
 	// MCPServe is the MCP stdio entry point. Left as a callback so the
 	// serve package avoids importing the mcp adapter (which depends on
-	// serve). cmd/archai wires this to mcp.Serve.
+	// serve). cmd/wyrd wires this to mcp.Serve.
 	MCPServe func(ctx context.Context, state *State) error
 
 	// HTTPAddr enables the HTTP transport on the given address
@@ -213,7 +213,7 @@ func Serve(ctx context.Context, opts Options) error {
 
 	// Plugin bootstrap. Run before the HTTP transport so plugin routes
 	// can be mounted at construction time. The CLI bootstrap (run in
-	// cmd/archai for `archai plugin ...` commands) never sees the live
+	// cmd/wyrd for `archai plugin ...` commands) never sees the live
 	// daemon Host; it gets a different cliHost. Daemon-side plugin Init
 	// therefore runs again here against the serve.Host so plugins
 	// observing model events see the live event bus.
@@ -577,7 +577,7 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 			rel = filepath.ToSlash(rel)
 
 			switch {
-			case rel == "archai.yaml":
+			case rel == "wyrd.yaml", rel == "archai.yaml":
 				overlayDirty = true
 			case rel == ".arch/targets/CURRENT":
 				// Legacy pre-M9 location. Retained for compatibility

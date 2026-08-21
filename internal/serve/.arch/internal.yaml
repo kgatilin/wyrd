@@ -1,4 +1,4 @@
-schema: archai/v1
+schema: wyrd/v1
 package: internal/serve
 name: serve
 layer: runtime
@@ -603,7 +603,7 @@ functions:
       exported: true
       source_file: autostart.go
       doc: |
-        AutoStartDaemon spawns `archai serve --http <addr>` as a detached
+        AutoStartDaemon spawns `wyrd serve --http <addr>` as a detached
         child process and waits until its serve.json record appears on disk
         and the PID is alive. Returns the discovered record on success. The
         child is intentionally NOT attached to the parent's process group so

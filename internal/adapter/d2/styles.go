@@ -1,7 +1,7 @@
 // Package d2 provides adapters for reading and writing D2 diagram files.
 package d2
 
-import "github.com/kgatilin/archai/internal/domain"
+import "github.com/kgatilin/wyrd/internal/domain"
 
 // D2 color constants for different stereotypes.
 // Container colors stay intentionally pale; D2 class shapes reuse

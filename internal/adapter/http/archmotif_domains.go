@@ -4,11 +4,11 @@ import (
 	nethttp "net/http"
 	"strconv"
 
-	"github.com/kgatilin/archai/internal/clustering"
+	"github.com/kgatilin/wyrd/internal/clustering"
 )
 
 // domainsSchema versions the payload the review UI's domains canvas consumes.
-const domainsSchema = "archai.domains/1"
+const domainsSchema = "wyrd.domains/1"
 
 // domainsJSON is the analysis plus the scope it was run at. The partition
 // itself is clustering.Result, embedded verbatim: the browser draws the two

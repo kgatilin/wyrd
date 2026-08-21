@@ -10,7 +10,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 // Serve runs the MCP stdio transport: it reads line-delimited JSON-RPC

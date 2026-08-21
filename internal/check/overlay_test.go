@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 func TestPrintOverlayViolations_FormatsHumanReadableLines(t *testing.T) {
@@ -82,10 +82,10 @@ func TestTrimModulePrefix(t *testing.T) {
 	cases := []struct {
 		module, pkg, want string
 	}{
-		{"github.com/kgatilin/archai", "github.com/kgatilin/archai/internal/service", "internal/service"},
-		{"github.com/kgatilin/archai", "github.com/kgatilin/archai", ""},
-		{"github.com/kgatilin/archai", "github.com/other/mod/foo", "github.com/other/mod/foo"},
-		{"github.com/kgatilin/archai", "internal/service", "internal/service"},
+		{"github.com/kgatilin/wyrd", "github.com/kgatilin/wyrd/internal/service", "internal/service"},
+		{"github.com/kgatilin/wyrd", "github.com/kgatilin/wyrd", ""},
+		{"github.com/kgatilin/wyrd", "github.com/other/mod/foo", "github.com/other/mod/foo"},
+		{"github.com/kgatilin/wyrd", "internal/service", "internal/service"},
 	}
 	for _, c := range cases {
 		if got := TrimModulePrefix(c.module, c.pkg); got != c.want {

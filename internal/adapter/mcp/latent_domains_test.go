@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/clustering"
+	"github.com/kgatilin/wyrd/internal/clustering"
 )
 
 func TestParseClusterK(t *testing.T) {

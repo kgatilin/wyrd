@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kgatilin/archai/internal/adapter/git"
-	"github.com/kgatilin/archai/internal/archreview"
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/adapter/git"
+	"github.com/kgatilin/wyrd/internal/archreview"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 func TestArchMotifReportAPIServesTheReport(t *testing.T) {

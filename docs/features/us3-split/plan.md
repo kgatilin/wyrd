@@ -206,7 +206,7 @@ func NewService(goReader, d2Reader ModelReader, d2Writer ModelWriter) *Service
 - `internal/service/service.go`
 - `internal/service/factory.go`
 
-### Task 4: CLI Split Command (`cmd/archai/main.go`)
+### Task 4: CLI Split Command (`cmd/wyrd/main.go`)
 
 Add `split` subcommand under `diagram`:
 
@@ -237,7 +237,7 @@ func runSplit(cmd *cobra.Command, args []string) error {
 ```
 
 **Files:**
-- `cmd/archai/main.go`
+- `cmd/wyrd/main.go`
 
 ## Critical Files
 
@@ -247,7 +247,7 @@ func runSplit(cmd *cobra.Command, args []string) error {
 | `internal/service/split.go` | Create | Split operation |
 | `internal/service/service.go` | Modify | Add d2Reader field |
 | `internal/service/factory.go` | Modify | Update constructor |
-| `cmd/archai/main.go` | Modify | Add split command |
+| `cmd/wyrd/main.go` | Modify | Add split command |
 
 ## D2 Parsing Strategy
 

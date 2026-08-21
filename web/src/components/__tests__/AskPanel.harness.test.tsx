@@ -6,7 +6,7 @@ import type { UIGraph } from '../../types';
 
 /** Three packages; a question will match symbols in two of them. */
 const graph: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [{ id: 'root', name: 'Root' }],
   components: [
     {

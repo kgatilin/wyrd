@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // minMemberContrastRatio is the minimum WCAG 2.1 contrast ratio enforced for

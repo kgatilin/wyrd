@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kgatilin/archai/internal/archreview"
+	"github.com/kgatilin/wyrd/internal/archreview"
 )
 
 // maxCachedReports bounds the cache. Base refs arrive from a URL query

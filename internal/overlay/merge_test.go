@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/domain"
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // newMergeConfig returns a representative overlay Config for use by
@@ -36,7 +36,7 @@ func TestMerge_AssignsLayerToPackage(t *testing.T) {
 		{Path: "internal/domain/order"},
 		{Path: "internal/service"},
 		{Path: "internal/adapter/yaml"},
-		{Path: "cmd/archai"},
+		{Path: "cmd/wyrd"},
 		{Path: "tests/integration"}, // no layer
 	}
 
@@ -247,8 +247,8 @@ func TestMatchGlob(t *testing.T) {
 		{"internal/domain/...", "internal/service", false},
 		{"internal/domain", "internal/domain", true},
 		{"internal/domain", "internal/domain/order", false},
-		{"cmd/*", "cmd/archai", true},
-		{"cmd/*", "cmd/archai/sub", false},
+		{"cmd/*", "cmd/wyrd", true},
+		{"cmd/*", "cmd/wyrd/sub", false},
 		{"cmd/*", "cmd", false},
 	}
 	for _, c := range cases {

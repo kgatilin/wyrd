@@ -24,12 +24,12 @@
 package archreview
 
 import (
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 // Schema versions the payload the review UI consumes.
-const Schema = "archai.archreview/v1"
+const Schema = "wyrd.archreview/v1"
 
 // Report modes. Review mode answers "did this branch make it worse, where?";
 // repo mode answers "what to refactor next?".

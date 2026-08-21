@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sort"
 
-	archmotifAdapter "github.com/kgatilin/archai/internal/adapter/archmotif"
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/overlay"
+	archmotifAdapter "github.com/kgatilin/wyrd/internal/adapter/archmotif"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
 	"github.com/kgatilin/archmotif/pkg/spectralcluster"
 )
 
@@ -26,7 +26,7 @@ import (
 type Input struct {
 	// Packages is the worktree's parsed model.
 	Packages []domain.PackageModel
-	// Overlay is the project's archai.yaml, or nil.
+	// Overlay is the project's wyrd.yaml, or nil.
 	Overlay *overlay.Config
 	// Base is the review base's model, required only by a diff selector.
 	Base []domain.PackageModel

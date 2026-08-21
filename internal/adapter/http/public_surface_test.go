@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kgatilin/archai/internal/publicapi"
-	"github.com/kgatilin/archai/internal/serve"
+	"github.com/kgatilin/wyrd/internal/publicapi"
+	"github.com/kgatilin/wyrd/internal/serve"
 )
 
 func TestPublicSurfaceAPI_SingleModeReturnsLivePublicSurface(t *testing.T) {

@@ -1,6 +1,6 @@
-# Self-hosted archai overlay.
+# Self-hosted wyrd overlay.
 #
-# This file is intentionally a real project config for archai itself. The
+# This file is intentionally a real project config for wyrd itself. The
 # generated per-package `.arch/` files in this repository are produced from
 # this overlay, so the project demonstrates the tool on its own codebase.
 #
@@ -15,7 +15,7 @@
 #   - `storage` owns target/worktree filesystem state.
 #   - `cli` wires the public command surface.
 
-module: github.com/kgatilin/archai
+module: github.com/kgatilin/wyrd
 
 layers:
   cli:

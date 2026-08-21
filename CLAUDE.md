@@ -1,15 +1,19 @@
-# Archai
+# Wyrd
 
-Architecture diagram generator for Go projects. Analyzes Go source code and generates D2 diagrams showing interfaces, structs, functions, and their relationships.
+Architecture diagram generator for Go projects. (Renamed from archai; the
+name is the Norse "web of wyrd" — fate as a woven graph. Legacy names still
+work everywhere: `archai.yaml` and `ARCHAI_HOME` are read as fallbacks, and
+`.wyrd/` is accepted alongside `.arch/` in every read path, while the tool
+keeps writing to `.arch/` and keeps its cache dir named `.archai/`.) Analyzes Go source code and generates D2 diagrams showing interfaces, structs, functions, and their relationships.
 
 ## Project Structure
 
 ```
-archai/
-├── cmd/archai/           # CLI entry point (Cobra)
+wyrd/
+├── cmd/wyrd/           # CLI entry point (Cobra)
 │   └── main.go           # Wires dependencies, defines commands
 │
-├── cmd/archai-check/     # Validation-only CLI shipped to CI (see below)
+├── cmd/wyrd-check/     # Validation-only CLI shipped to CI (see below)
 │
 ├── internal/
 │   ├── domain/           # Core domain models (data containers)
@@ -77,13 +81,13 @@ type ModelWriter interface {
 
 ```bash
 # Generate diagrams for packages
-archai diagram generate ./internal/...
+wyrd diagram generate ./internal/...
 
 # Public API only
-archai diagram generate ./internal/... --pub
+wyrd diagram generate ./internal/... --pub
 
 # Internal implementation only
-archai diagram generate ./internal/... --internal
+wyrd diagram generate ./internal/... --internal
 ```
 
 Output goes to `.arch/` folder in each package:
@@ -113,7 +117,7 @@ Each function is its own class shape with parameters as fields and a `return` fi
 
 ## Architectural Analysis (MCP graph tools)
 
-Beyond diagram generation, archai runs as an MCP server (`archai serve
+Beyond diagram generation, wyrd runs as an MCP server (`wyrd serve
 --mcp-stdio`, wired in `.mcp.json`) exposing a typed **code graph** of the
 project and a set of analysis lenses over it. The graph models:
 
@@ -128,9 +132,9 @@ Node id scheme (see `internal/adapter/archmotif/exporter.go`):
 `pkg:<path>`, `file:<path>/<base>`, `type:<path>.<Name>`, `fn:<path>.<Name>`,
 `method:<path>.<Recv>.<Name>`, `field:<path>.<Struct>.<Name>`.
 
-**Dogfood the MCP tools — do NOT explore archai with raw `grep`/`Read` first.**
-archai serves a live graph of its own source. To understand where something lives
-or how it is wired, reach for the archai MCP tools *before* shell search:
+**Dogfood the MCP tools — do NOT explore wyrd with raw `grep`/`Read` first.**
+wyrd serves a live graph of its own source. To understand where something lives
+or how it is wired, reach for the wyrd MCP tools *before* shell search:
 `search` (semantic + graph search for symbols/code, in one call), `get_node` /
 `get_package` / `list_packages` (inspect a node or package surface), `expand`
 (walk neighbors / callers / callees / implementers from a seed node). Use
@@ -142,20 +146,20 @@ silently falling back to grep.
 ### Daemon lifecycle (CLI)
 
 The `.mcp.json` thin client auto-starts a repo-level daemon; manage it with the
-`archai daemon` group (target = current repo by default, or `[name|pid]` —
+`wyrd daemon` group (target = current repo by default, or `[name|pid]` —
 numeric → PID, else repo basename):
 
-- `archai daemon start` — start a repo-level (`--multi`) daemon for the repo
+- `wyrd daemon start` — start a repo-level (`--multi`) daemon for the repo
   containing cwd; idempotent. Resolves the repo root from any worktree.
-- `archai daemon status [name|pid]` — readiness + indexing progress (the `status`
+- `wyrd daemon status [name|pid]` — readiness + indexing progress (the `status`
   tool over HTTP); the right thing to poll after a restart on a big repo.
-- `archai daemon list` — live daemons (repo, worktrees, pid, url, caps, uptime).
-- `archai daemon restart [name|pid]` / `stop [name|pid]` — zombie-aware (reads
+- `wyrd daemon list` — live daemons (repo, worktrees, pid, url, caps, uptime).
+- `wyrd daemon restart [name|pid]` / `stop [name|pid]` — zombie-aware (reads
   `ps` state, not just `kill -0`); restart always relaunches. Both can target a
   legacy per-worktree `serve.json` daemon, not just the global registry.
 
 **Pin the port, or the URL is unbookmarkable.** `serve.http_addr` in
-`archai.yaml` is read by *every* start path — `archai serve`, `archai
+`wyrd.yaml` is read by *every* start path — `wyrd serve`, `wyrd
 daemon start/restart`, and the MCP client's auto-start — so
 `http://127.0.0.1:<port>/w/<worktree>/review/` survives restarts.
 Without it the kernel assigns a fresh port each time. `--http` still
@@ -181,16 +185,16 @@ selects on `httpErrCh` alongside the watcher / context wait.
 drained by the parent; a daemon outlives its parent by design, so the
 first log line after the parent exits raises SIGPIPE on fd 2 and the Go
 runtime kills it — the daemon registers, then vanishes, leaving a stale
-record and a dead URL. This is why `archai daemon start` used to appear
+record and a dead URL. This is why `wyrd daemon start` used to appear
 to do nothing. `detachStdio` (`internal/serve/autostart.go`) is the one
 place that wires it.
 
 Rebuilding the binary bumps the model-cache stamp ⇒ the next start re-parses
 every package from scratch. Embeddings survive it: `vectors.json` is keyed by
 node id + content hash, so only nodes whose text changed are re-embedded. A
-**fresh worktree** still re-parses (its `.archai/cache/` is empty) but no
+**fresh worktree** still re-parses (its `.wyrd/cache/` is empty) but no
 longer re-embeds: vectors are also cached repo-wide, content-addressed, at
-`~/.arch/embeddings/<repo-key>/<embedder>@r<N>.vec` (`ARCHAI_HOME` honoured;
+`~/.arch/embeddings/<repo-key>/<embedder>@r<N>.vec` (`WYRD_HOME` honoured;
 repo key = the daemon-registry hash of the **main** worktree root). One
 `vecstore.Store` is shared by every worktree `State` in the daemon and
 consulted *before* the embedder, so a new branch only embeds the nodes whose
@@ -200,7 +204,7 @@ text nothing has embedded yet. `Service.Load` pushes an existing
 embedder changes** (`buildHeader`, `readSpanBody`, `EmbedTextBudget`,
 `BuildChunks`, `MeanPoolVectors`, …), since the freshness hash covers the full
 node text, not the chunked/pooled text actually embedded. Watch either phase
-warm up with `archai daemon status`.
+warm up with `wyrd daemon status`.
 
 The MCP thin client pings `POST /w/<worktree>/api/warm` as soon as it attaches,
 so that cold parse starts at client startup rather than on the agent's first
@@ -257,7 +261,7 @@ All take `{package, include_subpackages}` and run on the package subgraph.
   comes back `{status:"indexing"}` or `{status:"loading"}` — it tells you whether
   to wait (dense pass still running) or that the embedder is misconfigured
   (`dense_available:false` ⇒ lexical-only, those lenses won't run). Also exposed
-  as `archai daemon status [name|pid]` over the same endpoint.
+  as `wyrd daemon status [name|pid]` over the same endpoint.
 - **`components`** — connected components over *all* edges. Finds shattered
   graphs / isolated symbols (missing edges). Singletons = something unlinked.
 - **`file_hotspots`** — top-level declarations per file; flags structural
@@ -390,7 +394,7 @@ All take `{package, include_subpackages}` and run on the package subgraph.
   `retrieval.Service.IndexStatus()` (`internal/retrieval/service.go`). The
   non-blocking parse path is `MultiState.Loaded`/`ensureLoad` (`multistate.go`)
   and the `/api/mcp/tools/call` loading short-circuit in
-  `internal/adapter/http/multi.go`. CLI: `cmd/archai/daemon.go`.
+  `internal/adapter/http/multi.go`. CLI: `cmd/wyrd/daemon.go`.
 
 ### File diff in the review UI
 
@@ -781,7 +785,7 @@ Consequences baked into the rules:
   `kind-pattern-conflict` (error), because the subscribers of one pattern will
   never see what a producer appends on the other — a broken wire, invisible at
   runtime until the event silently fails to arrive. Optional: a declaration that
-  omits it is not a second answer. archai validates `{slot}` syntax and **never
+  omits it is not a second answer. wyrd validates `{slot}` syntax and **never
   matches a pattern against a kind** — different alphabets.
 - **`role: action | fact` is gone**, with `kind-role-conflict`. Direction says
   what role said about movement; the intent-vs-outcome reading belongs in
@@ -816,8 +820,8 @@ Consequences baked into the rules:
   partition key and state shape are component attributes — a fold vertex would
   sit alone beside every component carrying exactly those three things.
 
-Codegen (`archai plugin events gen`) is **template-driven and language-neutral**:
-templates live in the project (`.arch/templates/*.tmpl`), archai renders them
+Codegen (`wyrd plugin events gen`) is **template-driven and language-neutral**:
+templates live in the project (`.arch/templates/*.tmpl`), wyrd renders them
 against a stable data model (`internal/adapter/eventmodel/gen.go`) and never
 learns the project's types. There is no `--lang` flag and adding one would
 invert the design — see design.md §4. Output names must contain `_gen.`;
@@ -829,10 +833,10 @@ generation is gated on validation; `.go` output goes through go/format
 
 The repo ships **two** binaries from the same tree:
 
-- `archai` — everything (graph, MCP, review UI, diagram rendering).
+- `wyrd` — everything (graph, MCP, review UI, diagram rendering).
   ~47 MB, and `make build` must run the web build first because
   `web/dist_embed.go` embeds `web/dist`, which is not committed.
-- `archai-check` (`cmd/archai-check`) — the architecture gates only:
+- `wyrd-check` (`cmd/wyrd-check`) — the architecture gates only:
   `overlay`, `policy`, `target`, `all`, `version`. 177 packages instead of
   433, ~8 MB (~6 MB stripped), and it builds **without npm** because the
   review UI embed is not in its dependency tree.
@@ -845,16 +849,16 @@ inherits those 30 MB, so keep it out of the check path.
 
 Both binaries call **`internal/check`**, which owns the gates *and their
 report wording* with the model readers injected (`check.New(source,
-specs)`). `archai overlay check` / `archai policy check` / `archai
+specs)`). `wyrd overlay check` / `wyrd policy check` / `wyrd
 validate` are thin wrappers over it, so the local gate and the CI gate
 cannot drift apart. Add a new gate there, not in a `cmd/`.
 
 Workflows: `.github/workflows/ci.yml` (arch-gate job runs
-`go run ./cmd/archai-check all` with no Node; separate jobs build/test Go
+`go run ./cmd/wyrd-check all` with no Node; separate jobs build/test Go
 and the review UI) and `.github/workflows/release.yml` (on `v*` tags:
 cross-compiles both binaries for linux/darwin × amd64/arm64 with
 `CGO_ENABLED=0 -trimpath -ldflags "-s -w -X main.Version=$TAG"`, tars them
-with checksums, publishes via `gh release`). `make archai-check` runs the
+with checksums, publishes via `gh release`). `make wyrd-check` runs the
 same gate locally.
 
 **Gotcha that made the gate a no-op for a long time:** the Go reader
@@ -886,6 +890,6 @@ go test ./...
 ## Building
 
 ```bash
-make build          # full archai (runs the web build first)
-make build-check    # archai-check only — no npm needed
+make build          # full wyrd (runs the web build first)
+make build-check    # wyrd-check only — no npm needed
 ```

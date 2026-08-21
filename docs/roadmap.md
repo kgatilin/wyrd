@@ -22,7 +22,7 @@ Three sources merge into a single in-memory model:
 1. **Extracted** — from Go source: interfaces, structs, functions, type defs,
    methods, fields, constants, exported vars, sentinel errors, dependencies,
    and *which struct implements which interface*.
-2. **Overlay** — from a hand-edited `archai.yaml` at the project root: layers,
+2. **Overlay** — from a hand-edited `wyrd.yaml` at the project root: layers,
    layer rules, named aggregates, and pointers to types that should be treated
    as *configs*.
 3. **Annotations** — stereotypes and tags inferred from doc comments.
@@ -31,7 +31,7 @@ Three sources merge into a single in-memory model:
 
 | Path                          | Purpose                                              | Source     |
 | ----------------------------- | ---------------------------------------------------- | ---------- |
-| `archai.yaml`                 | Root overlay: layers, rules, named aggregates, configs | Manual   |
+| `wyrd.yaml`                 | Root overlay: layers, rules, named aggregates, configs | Manual   |
 | `.arch/pub.yaml`              | Per-package public-API model                         | Generated  |
 | `.arch/internal.yaml`         | Per-package full model                               | Generated  |
 | `.arch/targets/<id>/`         | Locked target snapshot                               | Generated  |
@@ -41,20 +41,20 @@ YAML is the canonical interchange format. D2 stays as a presentation format.
 
 ### Targets and diffs
 
-- `archai target lock <id>` — snapshot the current extracted+overlay model as
+- `wyrd target lock <id>` — snapshot the current extracted+overlay model as
   target `<id>`.
-- `archai target list | show <id> | use <id> | delete <id>` — manage targets.
-- `archai diff` — structured YAML diff of current model vs active target.
-- `archai diff apply <patch.yaml>` — apply a small diff onto the active target
+- `wyrd target list | show <id> | use <id> | delete <id>` — manage targets.
+- `wyrd diff` — structured YAML diff of current model vs active target.
+- `wyrd diff apply <patch.yaml>` — apply a small diff onto the active target
   (the workflow for "we agreed to add these public methods").
-- `archai validate` — exit non-zero if current ≠ active target.
+- `wyrd validate` — exit non-zero if current ≠ active target.
 
 Multiple targets exist so that parallel branches don't conflict on a single
 shared target file.
 
 ### Server
 
-- `archai serve` — long-running daemon.
+- `wyrd serve` — long-running daemon.
 - Watches the project directory via `fsnotify`, incrementally re-parses
   changed packages.
 - Exposes:
@@ -68,13 +68,13 @@ CLI commands and MCP tools are 1:1 — same operations, two surfaces.
 
 | #   | Title                                              | Outcome                                                         | Tracking |
 | --- | -------------------------------------------------- | --------------------------------------------------------------- | -------- |
-| M1  | YAML I/O                                           | Per-package YAML adapter (read+write), roundtrip-safe           | [#1](https://github.com/kgatilin/archai/issues/1) |
-| M2  | Extended domain model                              | Constants, vars, errors, interface implementations              | [#2](https://github.com/kgatilin/archai/issues/2) |
-| M3  | Project overlay (`archai.yaml`)                    | Layers, layer rules, named aggregates, config markers           | [#3](https://github.com/kgatilin/archai/issues/3) |
-| M4  | Targets, diff, validate (CLI)                      | Lock / list / use targets, structured diffs, validation command | [#4](https://github.com/kgatilin/archai/issues/4) |
-| M5  | Server + MCP                                       | `archai serve`, fsnotify watcher, MCP tool surface              | [#5](https://github.com/kgatilin/archai/issues/5) |
-| M6  | Call graph + sequence                              | Static method-to-method extraction, per-method sequence views   | [#6](https://github.com/kgatilin/archai/issues/6) |
-| M7  | Architecture browser                               | Polished HTML site served from `archai serve`                   | [#7](https://github.com/kgatilin/archai/issues/7) |
+| M1  | YAML I/O                                           | Per-package YAML adapter (read+write), roundtrip-safe           | [#1](https://github.com/kgatilin/wyrd/issues/1) |
+| M2  | Extended domain model                              | Constants, vars, errors, interface implementations              | [#2](https://github.com/kgatilin/wyrd/issues/2) |
+| M3  | Project overlay (`wyrd.yaml`)                    | Layers, layer rules, named aggregates, config markers           | [#3](https://github.com/kgatilin/wyrd/issues/3) |
+| M4  | Targets, diff, validate (CLI)                      | Lock / list / use targets, structured diffs, validation command | [#4](https://github.com/kgatilin/wyrd/issues/4) |
+| M5  | Server + MCP                                       | `wyrd serve`, fsnotify watcher, MCP tool surface              | [#5](https://github.com/kgatilin/wyrd/issues/5) |
+| M6  | Call graph + sequence                              | Static method-to-method extraction, per-method sequence views   | [#6](https://github.com/kgatilin/wyrd/issues/6) |
+| M7  | Architecture browser                               | Polished HTML site served from `wyrd serve`                   | [#7](https://github.com/kgatilin/wyrd/issues/7) |
 
 End state: a `validate`-able architecture model + a usable web browser for it.
 
@@ -82,7 +82,7 @@ End state: a `validate`-able architecture model + a usable web browser for it.
 
 > **Superseded.** M7's html/template + HTMX site was removed once the React
 > review UI became the daemon's only browser surface. The lenses below now
-> live in the CLI (`archai target`, `archai diff`) and the MCP tools
+> live in the CLI (`wyrd target`, `wyrd diff`) and the MCP tools
 > (`search`, `expand`, `trophic_layers`, `get_bounded_context`). Kept for
 > the record.
 

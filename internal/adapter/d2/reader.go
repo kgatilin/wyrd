@@ -13,8 +13,8 @@ import (
 	"oss.terrastruct.com/d2/d2ast"
 	"oss.terrastruct.com/d2/d2parser"
 
-	"github.com/kgatilin/archai/internal/domain"
-	"github.com/kgatilin/archai/internal/service"
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/service"
 )
 
 // Error definitions for the D2 reader.
@@ -263,7 +263,7 @@ func derivePackagePath(filePath string) string {
 	dir := filepath.Dir(filePath)
 
 	// If we're in .arch, go up one level
-	if filepath.Base(dir) == ".arch" {
+	if filepath.Base(dir) == ".arch" || filepath.Base(dir) == ".wyrd" {
 		return filepath.Dir(dir)
 	}
 

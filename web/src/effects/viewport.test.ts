@@ -6,7 +6,7 @@ import type { ViewportPort } from '../domain/ports';
 import { createViewportEffect } from './viewport';
 
 const laid: UIGraph = {
-  schema: 'archai.uigraph/v0',
+  schema: 'wyrd.uigraph/v0',
   boundedContexts: [],
   components: [{ id: 'a', name: 'A', tech: '', desc: '', bc: 'bc1', internals: [], ports: [], x: 0, y: 0, w: 10, h: 10 }],
   edges: [],

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	archmotifadapter "github.com/kgatilin/archai/internal/adapter/archmotif"
-	"github.com/kgatilin/archai/internal/diff"
+	archmotifadapter "github.com/kgatilin/wyrd/internal/adapter/archmotif"
+	"github.com/kgatilin/wyrd/internal/diff"
 )
 
 // Review-mode severities. The order is the order a reviewer should read them
@@ -192,7 +192,7 @@ func reviewNewEdges(head, base *side, groups *grouping) Section {
 		switch {
 		case violations[edge] != "":
 			list = append(list, tagged{edge, TagPolicy,
-				violations[edge] + " — fix it, or allow the edge explicitly in archai.yaml"})
+				violations[edge] + " — fix it, or allow the edge explicitly in wyrd.yaml"})
 		case isBackwardEdge(groups, backward, edge):
 			list = append(list, tagged{edge, TagBackward,
 				groups.of(edge.From) + " sits below " + groups.of(edge.To) +
