@@ -122,13 +122,25 @@ func (p *Plugin) UIComponents() []plugin.UIComponent {
 	return nil
 }
 
+// hostFor returns the Host this call should answer from: the one wyrd scoped
+// to the request, or the bootstrap Host when the call carries none. A daemon
+// serving several worktrees hands out a different Host per request, and
+// answering every one of them from the bootstrap Host would show one
+// worktree's event model on every worktree's page.
+func (p *Plugin) hostFor(ctx context.Context) plugin.Host {
+	if h := plugin.HostFromContext(ctx); h != nil {
+		return h
+	}
+	return p.host
+}
+
 // loadModel reads and composes the event model from the given root,
-// falling back to the host's RepoRoot if root is empty. Where the
+// falling back to the calling Host's RepoRoot if root is empty. Where the
 // declarations live is the project's call, so the root's overlay is
 // consulted for extra locations before the scan.
-func (p *Plugin) loadModel(root string) (*eventmodel.Model, error) {
+func (p *Plugin) loadModel(ctx context.Context, root string) (*eventmodel.Model, error) {
 	if root == "" {
-		root = p.host.RepoRoot()
+		root = p.hostFor(ctx).RepoRoot()
 	}
 	if root == "" {
 		return nil, fmt.Errorf("events: repo root unavailable")
@@ -187,7 +199,7 @@ Exit codes:
 		Args:         cobra.NoArgs,
 		SilenceUsage: true, // Validation failure is not a usage error.
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			model, err := p.loadModel(root)
+			model, err := p.loadModel(cmd.Context(), root)
 			if err != nil {
 				return err
 			}
@@ -260,7 +272,7 @@ Supported formats:
 		Args:         cobra.NoArgs,
 		SilenceUsage: true, // Graph generation errors are not usage errors.
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			model, err := p.loadModel(root)
+			model, err := p.loadModel(cmd.Context(), root)
 			if err != nil {
 				return err
 			}
@@ -361,13 +373,13 @@ Template data model and helper functions: see docs/event-model.md.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			resolvedRoot := root
 			if resolvedRoot == "" {
-				resolvedRoot = p.host.RepoRoot()
+				resolvedRoot = p.hostFor(cmd.Context()).RepoRoot()
 			}
 			if resolvedRoot == "" {
 				return fmt.Errorf("events: repo root unavailable")
 			}
 
-			model, err := p.loadModel(resolvedRoot)
+			model, err := p.loadModel(cmd.Context(), resolvedRoot)
 			if err != nil {
 				return err
 			}
@@ -556,8 +568,8 @@ func generationDir(comp *eventmodel.Component, outDir string) (string, error) {
 }
 
 // handleEventModel is the MCP handler for event_model.
-func (p *Plugin) handleEventModel(_ context.Context, _ map[string]any) (any, error) {
-	model, err := p.loadModel("")
+func (p *Plugin) handleEventModel(ctx context.Context, _ map[string]any) (any, error) {
+	model, err := p.loadModel(ctx, "")
 	if err != nil {
 		return nil, err
 	}
@@ -627,13 +639,13 @@ func (p *Plugin) handleEventModel(_ context.Context, _ map[string]any) (any, err
 }
 
 // handleEventKind is the MCP handler for event_kind.
-func (p *Plugin) handleEventKind(_ context.Context, args map[string]any) (any, error) {
+func (p *Plugin) handleEventKind(ctx context.Context, args map[string]any) (any, error) {
 	kindName, _ := args["kind"].(string)
 	if kindName == "" {
 		return nil, fmt.Errorf("missing required argument: kind")
 	}
 
-	model, err := p.loadModel("")
+	model, err := p.loadModel(ctx, "")
 	if err != nil {
 		return nil, err
 	}
@@ -730,8 +742,8 @@ func (p *Plugin) handleEventKind(_ context.Context, args map[string]any) (any, e
 }
 
 // handleEventValidate is the MCP handler for event_validate.
-func (p *Plugin) handleEventValidate(_ context.Context, _ map[string]any) (any, error) {
-	model, err := p.loadModel("")
+func (p *Plugin) handleEventValidate(ctx context.Context, _ map[string]any) (any, error) {
+	model, err := p.loadModel(ctx, "")
 	if err != nil {
 		return nil, err
 	}
@@ -772,8 +784,8 @@ func (p *Plugin) handleEventValidate(_ context.Context, _ map[string]any) (any, 
 // flows carry — rather than in the bipartite graph's. Collapsing producer to
 // observer is the same work in every renderer that has ever drawn this model,
 // and doing it once on the way out keeps one answer instead of three.
-func (p *Plugin) serveModel(w http.ResponseWriter, _ *http.Request) {
-	model, err := p.loadModel("")
+func (p *Plugin) serveModel(w http.ResponseWriter, r *http.Request) {
+	model, err := p.loadModel(r.Context(), "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

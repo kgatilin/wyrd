@@ -150,15 +150,25 @@ const PluginAssetPrefix = "/plugins/"
 // /api/plugins/<plugin-name><Path> on mux. Methods are enforced; an
 // empty Path becomes the plugin's namespace root
 // (/api/plugins/<plugin-name>).
-func MountPluginAPIHandlers(mux *http.ServeMux, handlers []NamedHTTPHandler) {
+//
+// Each wrap is applied around every mounted handler, outermost first. The
+// host uses it to put the calling worktree's plugin.Host on the request
+// context, which is the only way a plugin serving a repo-level daemon can
+// tell which worktree is asking.
+func MountPluginAPIHandlers(mux *http.ServeMux, handlers []NamedHTTPHandler, wrap ...func(http.Handler) http.Handler) {
 	for _, h := range handlers {
 		if h.Handler.Handler == nil {
 			continue
 		}
 		full := PluginAPIPrefix + h.Plugin + h.Handler.Path
 		// Strip the API prefix so the plugin sees relative paths.
-		stripped := http.StripPrefix(PluginAPIPrefix+h.Plugin, methodFiltered(h.Handler))
-		mux.Handle(full, stripped)
+		var mounted http.Handler = http.StripPrefix(PluginAPIPrefix+h.Plugin, methodFiltered(h.Handler))
+		for i := len(wrap) - 1; i >= 0; i-- {
+			if wrap[i] != nil {
+				mounted = wrap[i](mounted)
+			}
+		}
+		mux.Handle(full, mounted)
 	}
 }
 

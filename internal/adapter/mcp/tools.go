@@ -652,7 +652,15 @@ func builtinToolDefinitions() []ToolDefinition {
 // tool response can exceed maxResultBytes — the transport (and any
 // downstream NATS bridge) is protected regardless of which handler ran.
 func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolResult, *RPCError) {
-	res, rpcErr := dispatch(state, name, rawArgs)
+	return DispatchContext(context.Background(), state, name, rawArgs)
+}
+
+// DispatchContext is Dispatch with a caller-supplied context. Plugin tool
+// handlers receive it, so a transport that knows which worktree is asking —
+// the repo-level daemon's HTTP surface — can put that worktree's plugin.Host
+// on it and have the plugin answer from the right tree.
+func DispatchContext(ctx context.Context, state *serve.State, name string, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+	res, rpcErr := dispatch(ctx, state, name, rawArgs)
 	if rpcErr != nil {
 		return ToolResult{}, rpcErr
 	}
@@ -660,7 +668,7 @@ func Dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 }
 
 // dispatch is the raw tool router; Dispatch wraps it with the size clamp.
-func dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+func dispatch(ctx context.Context, state *serve.State, name string, rawArgs json.RawMessage) (ToolResult, *RPCError) {
 	switch name {
 	case "extract":
 		return handleExtract(state, rawArgs)
@@ -714,7 +722,7 @@ func dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 		return handleSearchFiles(state, rawArgs)
 	}
 	if strings.HasPrefix(name, "plugin.") {
-		return dispatchPluginTool(name, rawArgs)
+		return dispatchPluginTool(ctx, name, rawArgs)
 	}
 	return ToolResult{}, &RPCError{
 		Code:    ErrMethodNotFound,
@@ -728,7 +736,7 @@ func dispatch(state *serve.State, name string, rawArgs json.RawMessage) (ToolRes
 // Tool-level errors surface as IsError ToolResults; protocol errors
 // (unknown name, malformed args) become RPCError values so the MCP
 // transport can map them to JSON-RPC error responses.
-func dispatchPluginTool(name string, rawArgs json.RawMessage) (ToolResult, *RPCError) {
+func dispatchPluginTool(ctx context.Context, name string, rawArgs json.RawMessage) (ToolResult, *RPCError) {
 	for _, t := range pluginToolsSnapshot() {
 		if plugin.PrefixedMCPName(t.Plugin, t.Tool.Name) != name {
 			continue
@@ -742,7 +750,7 @@ func dispatchPluginTool(name string, rawArgs json.RawMessage) (ToolResult, *RPCE
 				}
 			}
 		}
-		out, err := t.Tool.Handler(context.Background(), args)
+		out, err := t.Tool.Handler(ctx, args)
 		if err != nil {
 			return errorResult(err.Error()), nil
 		}

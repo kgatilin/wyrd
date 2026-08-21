@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log/slog"
 	nethttp "net/http"
 	"os"
 	"os/signal"
@@ -683,8 +682,7 @@ func reviewUIDistExists(dir string) bool {
 // Returning the BootstrapResult lets serve.Serve forward it to the
 // HTTP factory so plugin routes / assets / UI registry are mounted on
 // the same listener as the built-in routes.
-func bootstrapDaemonPlugins(state *serve.State) (plugin.BootstrapResult, error) {
-	host := serve.NewHost(state, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
+func bootstrapDaemonPlugins(host plugin.Host) (plugin.BootstrapResult, error) {
 	res, err := plugin.Bootstrap(context.Background(), host, nil)
 	mcp.SetPluginTools(res.MCPTools)
 	return res, err

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,12 +77,16 @@ type Options struct {
 	IdleTimeout time.Duration
 
 	// PluginBootstrap, when non-nil, is invoked once after the initial
-	// model load with the constructed serve.Host so plugins can be
-	// initialised against the live State. The returned BootstrapResult
-	// is forwarded to the HTTPServerFactory so plugin HTTP / asset /
-	// UI registry routes mount onto the same listener as the built-in
-	// routes (M13, #66). An error aborts the daemon.
-	PluginBootstrap func(state *State) (plugin.BootstrapResult, error)
+	// model load with the Host plugins should initialise against. The
+	// returned BootstrapResult is forwarded to the HTTPServerFactory so
+	// plugin HTTP / asset / UI registry routes mount onto the same
+	// listener as the built-in routes (M13, #66). An error aborts the
+	// daemon.
+	//
+	// In multi-worktree mode the Host knows the repository root and no
+	// State: there is no single model to bootstrap against, and each
+	// request is served from its own worktree's Host instead.
+	PluginBootstrap func(host plugin.Host) (plugin.BootstrapResult, error)
 
 	// PluginHTTPFactory, when both PluginBootstrap and this field are
 	// set, is called instead of HTTPServerFactory so the HTTP transport
@@ -217,9 +222,22 @@ func Serve(ctx context.Context, opts Options) error {
 	// daemon Host; it gets a different cliHost. Daemon-side plugin Init
 	// therefore runs again here against the serve.Host so plugins
 	// observing model events see the live event bus.
+	// Multi-worktree mode has no shared State, and gating bootstrap on one
+	// left a repo-level daemon with no plugin surfaces at all: no routes, no
+	// tools, a 404 on every plugin endpoint. Plugins bootstrap against the
+	// repository root instead, and each request supplies its worktree's Host.
 	var pluginRes plugin.BootstrapResult
-	if opts.PluginBootstrap != nil && state != nil {
-		res, err := opts.PluginBootstrap(state)
+	if opts.PluginBootstrap != nil {
+		// Plugin logs go to the daemon's own sink, which is where an
+		// operator is already looking when a plugin misbehaves.
+		pluginLog := slog.New(slog.NewTextHandler(logOut, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		var host plugin.Host
+		if state != nil {
+			host = NewHost(state, pluginLog)
+		} else {
+			host = NewRootHost(absRoot, pluginLog)
+		}
+		res, err := opts.PluginBootstrap(host)
 		if err != nil {
 			fmt.Fprintf(logOut, "serve: plugin bootstrap: %v\n", err)
 		}

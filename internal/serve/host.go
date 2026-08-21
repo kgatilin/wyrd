@@ -31,6 +31,7 @@ import (
 //     API surface (snap-based reads remain primary).
 type Host struct {
 	state  *State
+	root   string
 	logger *slog.Logger
 }
 
@@ -42,6 +43,20 @@ func NewHost(state *State, logger *slog.Logger) *Host {
 		logger = slog.Default()
 	}
 	return &Host{state: state, logger: logger}
+}
+
+// NewRootHost returns a Host that knows the repository root and nothing
+// else. A repo-level daemon has no single State to bootstrap plugins
+// against — every worktree gets its own, lazily — but Init still has to
+// receive a Host, and a plugin whose work is reading files (rather than
+// querying the code model) can already do it from the root alone. Every
+// request-scoped surface replaces this Host with the calling worktree's;
+// this one is the answer when nothing narrower is in scope.
+func NewRootHost(root string, logger *slog.Logger) *Host {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Host{root: root, logger: logger}
 }
 
 // CurrentModel implements plugin.Host.
@@ -213,8 +228,11 @@ func (h *Host) Logger() *slog.Logger {
 
 // RepoRoot implements plugin.Host.
 func (h *Host) RepoRoot() string {
-	if h == nil || h.state == nil {
+	if h == nil {
 		return ""
+	}
+	if h.state == nil {
+		return h.root
 	}
 	return h.state.Root()
 }

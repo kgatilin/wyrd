@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kgatilin/wyrd/internal/adapter/mcp"
+	"github.com/kgatilin/wyrd/internal/plugin"
 	"github.com/kgatilin/wyrd/internal/serve"
 )
 
@@ -27,9 +28,11 @@ func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
 	// single- and multi-worktree mode.
 	mux.HandleFunc("/api/version", s.handleAPIVersion)
 
-	// M13: plugin routes live at the top level (not per worktree) so a
-	// single asset bundle / API surface backs every worktree's UI.
-	s.registerPluginRoutes(mux)
+	// M13: plugin asset bundles live at the top level — the same bytes back
+	// every worktree's UI. Their API routes do not: a plugin reads its answer
+	// out of the worktree being served, so those go on the content mux below
+	// and reach a differently-scoped Host per /w/<name>.
+	s.registerPluginAssetRoutes(mux)
 
 	// All /w/... URLs are dispatched through dispatchWorktree, which
 	// strips the /w/<name> prefix, resolves the State, and hands off
@@ -60,6 +63,16 @@ func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
 	for _, p := range apiRoots {
 		path := p
 		mux.HandleFunc(path, func(w nethttp.ResponseWriter, r *nethttp.Request) {
+			s.redirectToWorktree(w, r)
+		})
+	}
+
+	// Plugin APIs are worktree-scoped, so a worktree-less plugin URL is
+	// answered the same way a worktree-less /api/uigraph is: by sending the
+	// caller to the worktree it currently has selected. Registered as a
+	// prefix because the plugin name and its own path follow.
+	if s.pluginsWired {
+		mux.HandleFunc(plugin.PluginAPIPrefix, func(w nethttp.ResponseWriter, r *nethttp.Request) {
 			s.redirectToWorktree(w, r)
 		})
 	}

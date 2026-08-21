@@ -9,6 +9,7 @@ import (
 
 	"github.com/kgatilin/wyrd/internal/adapter/mcp"
 	"github.com/kgatilin/wyrd/internal/buildinfo"
+	"github.com/kgatilin/wyrd/internal/plugin"
 )
 
 // handleAPIVersion serves GET /api/version → buildinfo.Info as JSON.
@@ -166,7 +167,10 @@ func (s *Server) handleAPIToolsCall(w nethttp.ResponseWriter, r *nethttp.Request
 		writeJSONErrorText(w, nethttp.StatusBadRequest, "missing tool name")
 		return
 	}
-	res, rpcErr := mcp.Dispatch(s.stateFor(r), req.Name, req.Arguments)
+	// A plugin tool reads out of the worktree this call names, so it gets
+	// that worktree's Host rather than the one bootstrap happened to hold.
+	ctx := plugin.ContextWithHost(r.Context(), s.pluginHost(r))
+	res, rpcErr := mcp.DispatchContext(ctx, s.stateFor(r), req.Name, req.Arguments)
 	if rpcErr != nil {
 		writeJSONError(w, rpcErr.Code, rpcErr.Message)
 		return

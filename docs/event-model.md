@@ -572,6 +572,12 @@ Renders each component's declaration through project-supplied templates. See
 `GET /api/plugins/events/model` returns the composed model in the canvas's
 units: `components`, `flows` and `kinds`.
 
+A repo-level daemon (`wyrd serve --multi`) serves one worktree per URL prefix,
+and the event model is read out of that worktree's tree like every other
+answer on the page: `GET /w/<worktree>/api/plugins/events/model`. The
+worktree-less path above still works — it redirects to whichever worktree the
+browser currently has selected.
+
 A flow is one producer-to-observer edge with the kind it carries and whether
 that kind triggers the target or is only folded by it — the bipartite graph
 collapsed onto the components, which is what a reader of an event model looks

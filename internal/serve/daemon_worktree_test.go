@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kgatilin/wyrd/internal/plugin"
 	"github.com/kgatilin/wyrd/internal/worktree"
 )
 
@@ -371,5 +372,66 @@ func TestServe_ExitsWhenTheListenerFails(t *testing.T) {
 				t.Errorf("serve.json written for a daemon that never bound: %+v", rec)
 			}
 		})
+	}
+}
+
+// TestServe_MultiModeBootstrapsPluginsAgainstTheRepoRoot is the regression
+// for a repo-level daemon coming up with no plugin surfaces at all. Bootstrap
+// used to be gated on the shared State, which multi mode deliberately does not
+// have, so every plugin route and tool silently went missing.
+func TestServe_MultiModeBootstrapsPluginsAgainstTheRepoRoot(t *testing.T) {
+	root := newGitRepo(t)
+
+	multi := NewMultiState(root, func(_ context.Context, _, path string) (*State, error) {
+		return NewState(path), nil
+	})
+	if err := multi.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	bootstrapped := make(chan string, 1)
+	fake := &fakeHTTPTransport{readyCh: make(chan string, 1)}
+	opts := Options{
+		Root:       root,
+		MultiState: multi,
+		HTTPAddr:   "127.0.0.1:0",
+		PluginBootstrap: func(host plugin.Host) (plugin.BootstrapResult, error) {
+			select {
+			case bootstrapped <- host.RepoRoot():
+			default:
+			}
+			return plugin.BootstrapResult{}, nil
+		},
+		PluginHTTPFactory: func(*State, plugin.BootstrapResult) (HTTPTransport, error) {
+			return fake, nil
+		},
+		LogOut: io.Discard,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx, opts) }()
+
+	select {
+	case got := <-bootstrapped:
+		want, err := filepath.Abs(root)
+		if err != nil {
+			t.Fatalf("abs: %v", err)
+		}
+		if got != want {
+			t.Errorf("bootstrap host root = %q, want the repository root %q", got, want)
+		}
+	case err := <-done:
+		t.Fatalf("Serve returned before plugins bootstrapped: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("plugins never bootstrapped in multi-worktree mode")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Serve did not return within 3s of cancel")
 	}
 }

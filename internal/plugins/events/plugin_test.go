@@ -879,7 +879,7 @@ func TestPlugin_ReadsDeclarationsFromWhereTheOverlaySaysTheyAre(t *testing.T) {
 	}
 
 	// No overlay: a flat directory that follows no convention is invisible.
-	model, err := p.loadModel("")
+	model, err := p.loadModel(context.Background(), "")
 	if err != nil {
 		t.Fatalf("loadModel: %v", err)
 	}
@@ -892,7 +892,7 @@ func TestPlugin_ReadsDeclarationsFromWhereTheOverlaySaysTheyAre(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	model, err = p.loadModel("")
+	model, err = p.loadModel(context.Background(), "")
 	if err != nil {
 		t.Fatalf("loadModel after declaring the source: %v", err)
 	}
