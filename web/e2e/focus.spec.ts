@@ -73,19 +73,16 @@ test('clicking the empty canvas background clears focus', async ({ page }) => {
   }
 });
 
-test('clicking a tree internal row expands + focuses the owning component on the canvas', async ({ page }) => {
+test('clicking a tree class row expands + focuses the owning package on the canvas', async ({ page }) => {
   const app = await loadDiff(page);
   const tree = app.contextTree();
 
-  await app.openContextsTab();
-
-  // Expand PaymentService so its IGateway internal row appears.
-  await tree.expand('PaymentService');
+  await app.openReviewTree();
   await app.env.waitUntil(async () => (await tree.internalRowCount()) >= 1, {
-    message: 'internal rows never appeared after expanding PaymentService',
+    message: 'the tree never rendered a class row',
   });
 
-  // Click the IGateway internal row → should expand and focus the PaymentService card.
+  // Click the IGateway class row → should expand and focus the pay card.
   await tree.clickRow('IGateway');
 
   const diagram = await app.diagram();

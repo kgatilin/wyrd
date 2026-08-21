@@ -2,9 +2,7 @@ import { ComponentHarness } from './test-element';
 import { DiagramHarness } from './diagram.harness';
 import { CanvasHarness } from './canvas.harness';
 import { LegendHarness } from './legend.harness';
-import { ChangesPanelHarness } from './changes-panel.harness';
 import { ContextTreeHarness } from './context-tree.harness';
-import { CommentPopoverHarness } from './comment-popover.harness';
 import { MarkerHarness } from './marker.harness';
 import { SymbolWiringHarness } from './symbol-wiring.harness';
 import { AskPanelHarness } from './ask-panel.harness';
@@ -100,27 +98,6 @@ export class AppHarness extends ComponentHarness {
     });
   }
 
-  // ── Legacy left panel tab helpers ──────────────────────────────────────
-  async hasChangesTab(): Promise<boolean> {
-    return (await this.env.rootLocator('.hf-tabs button').filterByText('CHANGES').count()) > 0;
-  }
-  async changesTabCount(): Promise<number> {
-    const btn = this.env.rootLocator('.hf-tabs button').filterByText('CHANGES');
-    return parseInt((await (await btn.locator('.count').first()).text()) || '0', 10);
-  }
-  async contextsTabCount(): Promise<number> {
-    const btn = this.env.rootLocator('.hf-tabs button').filterByText('CONTEXTS');
-    return parseInt((await (await btn.locator('.count').first()).text()) || '0', 10);
-  }
-  async openChangesTab(): Promise<void> {
-    await (await this.env.rootLocator('.hf-tabs button').filterByText('CHANGES').first()).click();
-    await this.env.waitUntil(async () => (await this.env.rootLocator('.hf-change-card').count()) >= 1, {
-      message: 'CHANGES list never rendered',
-    });
-  }
-  async openContextsTab(): Promise<void> {
-    await this.openReviewTree();
-  }
 
   // ── Sub-harnesses ────────────────────────────────────────────────────────
   async diagram(): Promise<DiagramHarness> {
@@ -139,14 +116,8 @@ export class AppHarness extends ComponentHarness {
   legend(): LegendHarness {
     return new LegendHarness(this.root, this.env);
   }
-  changesPanel(): ChangesPanelHarness {
-    return new ChangesPanelHarness(this.root, this.env);
-  }
   contextTree(): ContextTreeHarness {
     return new ContextTreeHarness(this.root, this.env);
-  }
-  commentPopover(): CommentPopoverHarness {
-    return new CommentPopoverHarness(this.root, this.env);
   }
 
   async markers(): Promise<MarkerHarness[]> {

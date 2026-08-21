@@ -116,16 +116,7 @@ test('class shape and row carry title tooltips', async ({ page }) => {
   await app.env.waitUntil(async () => (await pay.blockCount()) >= 1, { message: 'no class shapes' });
   const gateway = await pay.block('IGateway');
   expect(await gateway.nameTitle()).toBe('IGateway');
-  const row = await gateway.row('refund');
-  expect(await row.rowTitle()).toContain('refund');
-});
-
-test('clicking a port opens the comment popover with the right target', async ({ page }) => {
-  const app = await loadDiff(page);
-  const pay = await (await app.diagram()).component('PaymentService');
-  await pay.clickPort('authorize()');
-  const popover = app.commentPopover();
-  await app.env.waitUntil(async () => await popover.isOpen(), { message: 'popover did not open' });
-  expect(await popover.tag()).toBe('port');
-  expect(await popover.target()).toBe('pay.auth');
+  // A changed member, for the same reason the port above is a changed port.
+  const row = await gateway.row('charge');
+  expect(await row.rowTitle()).toContain('charge');
 });

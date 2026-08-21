@@ -149,6 +149,18 @@ export class PlaywrightEnvironment implements HarnessEnvironment {
 export async function routeGraph(page: Page, graph: UIGraph): Promise<void> {
   await page.route('**/api/uigraph', (route) => route.fulfill({ json: graph as unknown as object }));
   await page.route('**/archgraph.sample.json', (route) => route.abort());
+  // The app subscribes to the daemon's model-changed stream on load. Nothing is
+  // behind the dev server to answer it, and an unanswered EventSource puts a
+  // 404 in every spec's console — which a spec asserting the app rendered
+  // without console errors then reads as its own failure. Answer it with an
+  // empty stream: no model ever changes under a routed fixture.
+  await page.route('**/api/events', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
+      body: ': idle\n\n',
+    })
+  );
 }
 
 /**

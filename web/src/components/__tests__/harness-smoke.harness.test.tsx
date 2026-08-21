@@ -155,7 +155,6 @@ describe('harness smoke (jsdom) — diffGraph', () => {
     expect(await tree.componentRowCount()).toBe(5);
     expect(await tree.fileRowCount()).toBeGreaterThan(0);
     expect(await tree.memberRowCount()).toBeGreaterThan(0);
-    expect(await app.changesPanel().hasPrSummary()).toBe(false);
   });
 
   it('PR header stats reflect the active review projection', async () => {
@@ -206,7 +205,6 @@ describe('harness smoke (jsdom) — diffGraph', () => {
     await app.openReviewTree();
     const tree = app.contextTree();
     expect(await tree.isPresent()).toBe(true);
-    expect(await tree.boundedContextRowCount()).toBe(0);
     expect(await tree.componentRowCount()).toBe(5);
     expect(await tree.fileRowCount()).toBeGreaterThan(0);
   });
@@ -479,12 +477,12 @@ describe('harness smoke (jsdom) — diffGraph', () => {
 });
 
 describe('harness smoke (jsdom) — nonDiffGraph', () => {
-  it('has no PR header, no CHANGES tab, and no legend', async () => {
+  it('has no PR header, no change count, and no legend', async () => {
     const env = await mountAppDom(nonDiffGraph);
     const app = await env.load(AppHarness);
     await app.waitForLoaded();
     expect(await app.hasPrHeader()).toBe(false);
-    expect(await app.hasChangesTab()).toBe(false);
+    expect(await app.reviewTabCount()).toBe(2);
     expect(await app.legend().isPresent()).toBe(false);
     expect(await app.branchCrumb()).toBeNull();
   });

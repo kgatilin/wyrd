@@ -41,8 +41,11 @@ export class ComponentCardHarness extends ComponentHarness {
     return this.root.hasClass('dimmed');
   }
   /** Click the card to focus it (focus mode). */
+  /** Select the card. Clicks the header: focusing a package expands it, and
+   *  the centre of an expanded card is a file container that answers for
+   *  itself, so a click there never reaches the card. */
   async focus(): Promise<void> {
-    await this.root.click();
+    await (await this.root.locator('.hf-cmp-head').first()).click();
   }
   /** Expanded ⇒ the card canvas with its file containers is present. */
   async isExpanded(): Promise<boolean> {

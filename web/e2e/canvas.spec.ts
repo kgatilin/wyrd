@@ -73,7 +73,9 @@ test('zoom buttons and ctrl+wheel change the zoom label/scale', async ({ page })
 test('port labels reveal on card hover', async ({ page }) => {
   const app = await loadDiff(page);
   const pay = await (await app.diagram()).component('PaymentService');
-  const label = await pay.portLabel('refund()');
+  // A changed port: the default review projection is changed-only, so an
+  // untouched port of a changed package is not on the card to hover.
+  const label = await pay.portLabel('charge()');
   expect(await label.computedStyleProp('opacity')).toBe('0');
   await pay.hoverCard();
   await app.env.waitUntil(async () => (await label.computedStyleProp('opacity')) === '1', {

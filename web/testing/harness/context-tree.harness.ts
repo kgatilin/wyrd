@@ -5,9 +5,6 @@ export class ContextTreeHarness extends ComponentHarness {
   async isPresent(): Promise<boolean> {
     return (await this.env.rootLocator('.hf-tree').count()) > 0;
   }
-  async boundedContextRowCount(): Promise<number> {
-    return this.env.rootLocator('.hf-tree-row.bc').count();
-  }
   async componentRowCount(): Promise<number> {
     return this.env.rootLocator('.hf-tree-row.cmp').count();
   }
@@ -29,8 +26,8 @@ export class ContextTreeHarness extends ComponentHarness {
   async memberRowCount(): Promise<number> {
     return this.env.rootLocator('.hf-tree-row.member').count();
   }
-  /** Expand the row whose `.name` equals `name` (clicks its chevron). */
-  async expand(name: string): Promise<void> {
+  /** Open or close the row whose `.name` equals `name` (clicks its chevron). */
+  async toggle(name: string): Promise<void> {
     const row = await this.rowByName(name);
     await (await row.locator('.chev').first()).click();
   }

@@ -3,38 +3,41 @@ import { PlaywrightEnvironment, routeGraph } from '../testing/harness/playwright
 import { AppHarness } from '../testing/harness/app.harness';
 import { diffGraph } from '../testing/fixtures';
 
+/**
+ * The REVIEW rail's package tree.
+ *
+ * A row is a package path segment, not a display name: an id is an import path
+ * for real data, and the tree is that path split into directories. So the row
+ * for the notifier reads `notif` while its card on the canvas reads `Notifier`.
+ */
 async function loadTree(page: import('@playwright/test').Page) {
   await routeGraph(page, diffGraph);
   await page.goto('/');
   const app = await new PlaywrightEnvironment(page).load(AppHarness);
   await app.waitForLoaded();
-  await app.openContextsTab();
+  await app.openReviewTree();
   return app;
 }
 
-test('CONTEXTS tab shows bounded-context rows; drilling reveals cmp → internal → member', async ({ page }) => {
+test('the tree is one row per package, drilling into files, classes and members', async ({ page }) => {
   const app = await loadTree(page);
   const tree = app.contextTree();
-  expect(await tree.boundedContextRowCount()).toBe(3);
-  // Bounded contexts start open → components visible.
-  expect(await tree.componentRowCount()).toBeGreaterThanOrEqual(5);
 
-  // Expand a component → its internals appear.
-  await tree.expand('PaymentService');
-  await app.env.waitUntil(async () => (await tree.internalRowCount()) >= 1, {
-    message: 'internal rows never appeared',
-  });
+  expect((await tree.componentRowNames()).sort()).toEqual(['api', 'events', 'notif', 'orders', 'pay']);
+  expect(await tree.fileRowCount()).toBeGreaterThanOrEqual(1);
+  expect(await tree.internalRowCount()).toBeGreaterThanOrEqual(1);
 
-  // Expand an internal → its members appear.
-  await tree.expand('IGateway');
-  await app.env.waitUntil(async () => (await tree.memberRowCount()) >= 1, {
-    message: 'member rows never appeared',
+  // Opening a closed class row reveals its members.
+  const before = await tree.memberRowCount();
+  await tree.toggle('IEventBus');
+  await app.env.waitUntil(async () => (await tree.memberRowCount()) > before, {
+    message: 'member rows never appeared after opening a class row',
   });
 });
 
-test('clicking a component row focuses that card on the canvas', async ({ page }) => {
+test('clicking a package row focuses that card on the canvas', async ({ page }) => {
   const app = await loadTree(page);
-  await app.contextTree().clickRow('Notifier');
+  await app.contextTree().clickRow('notif');
   const notifier = await (await app.diagram()).component('Notifier');
   await app.env.waitUntil(async () => await notifier.isFocused(), {
     message: 'clicking the tree row did not focus the card',
@@ -45,6 +48,6 @@ test('clicking a component row focuses that card on the canvas', async ({ page }
 test('diff badges render on changed rows', async ({ page }) => {
   const app = await loadTree(page);
   const tree = app.contextTree();
-  expect(await tree.badge('OrderService')).toBe('~'); // changed
-  expect(await tree.badge('OrderEvents')).toBe('+'); // added
+  expect(await tree.badge('orders')).toBe('~'); // changed
+  expect(await tree.badge('events')).toBe('+'); // added
 });

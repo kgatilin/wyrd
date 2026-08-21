@@ -15,10 +15,12 @@ test.describe('diff mode (diffGraph)', () => {
     expect(await app.prTitle()).toContain('OrderEvents');
     expect(await app.branchCrumb()).toBe('agent/order-events-2026-04-30');
 
-    // Tabs
-    expect(await app.hasChangesTab()).toBe(true);
-    expect(await app.changesTabCount()).toBe(38);
-    expect(await app.contextsTabCount()).toBe(3);
+    // Tabs: one REVIEW rail, counting the changes in the projection it shows.
+    // The fixture's own change list is 38; the changed-details projection drops
+    // the one entry that is a class changed only by way of a member — the
+    // member is already an entry, and the class adds nothing to it.
+    expect(await app.hasReviewTab()).toBe(true);
+    expect(await app.reviewTabCount()).toBe(37);
 
     // Legend: 3 items, diff-only
     const legend = app.legend();
@@ -35,8 +37,10 @@ test.describe('diff mode (diffGraph)', () => {
     expect(await (await diagram.component('Notifier')).diffState()).toBe('changed');
     expect(await (await diagram.component('CheckoutAPI')).diffState()).toBe('changed'); // derived
 
-    // Edges
-    expect(await diagram.edgeCount()).toBe(6);
+    // Edges: the fixture has 6, and the changed-only projection draws the 5
+    // the PR touched — an unchanged edge between two changed packages is not
+    // part of the review.
+    expect(await diagram.edgeCount()).toBe(5);
     expect(await diagram.diffEdgeCount()).toBe(5);
 
     // No in-card NEW/MOD tags
@@ -72,27 +76,19 @@ test.describe('diff mode (diffGraph)', () => {
     expect(portDecoration).not.toContain('line-through');
   });
 
-  test('Changes panel lists entries without a duplicated PR summary', async ({ page }) => {
-    await routeGraph(page, diffGraph);
-    await page.goto('/');
-    const app = await new PlaywrightEnvironment(page).load(AppHarness);
-    await app.waitForLoaded();
-    await app.openChangesTab();
-    const changes = app.changesPanel();
-    expect(await changes.count()).toBe(38);
-    expect(await changes.hasPrSummary()).toBe(false);
-  });
 });
 
 test.describe('non-diff mode (nonDiffGraph)', () => {
-  test('no PR header, no CHANGES tab, no legend, zero diff classes', async ({ page }) => {
+  test('no PR header, no change count, no legend, zero diff classes', async ({ page }) => {
     await routeGraph(page, nonDiffGraph);
     await page.goto('/');
     const app = await new PlaywrightEnvironment(page).load(AppHarness);
     await app.waitForLoaded();
 
     expect(await app.hasPrHeader()).toBe(false);
-    expect(await app.hasChangesTab()).toBe(false);
+    // The REVIEW rail is still there; with no PR its count is the package
+    // count rather than a change count.
+    expect(await app.reviewTabCount()).toBe(2);
     expect(await app.legend().isPresent()).toBe(false);
 
     const diagram = await app.diagram();
