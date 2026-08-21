@@ -1225,8 +1225,12 @@ func buildEdges(
 		}
 	}
 
-	// Convert to slice and sort for determinism
-	var edges []Edge
+	// Convert to slice and sort for determinism. The slice is allocated rather
+	// than declared: a nil one marshals to `null`, `edges` carries no omitempty,
+	// and the browser reads it as an array — so a repo whose packages never
+	// import each other would hand the canvas a null and take the whole page
+	// down before it drew anything.
+	edges := make([]Edge, 0, len(edgeMap))
 	for _, e := range edgeMap {
 		edges = append(edges, e)
 	}

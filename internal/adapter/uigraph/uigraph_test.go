@@ -1547,3 +1547,24 @@ func TestProjectCarriesStereotypeAndLeafTypeColumns(t *testing.T) {
 		}
 	}
 }
+
+// A repo whose packages never import each other still has to answer with an
+// array. `edges` has no omitempty, the browser reads it as one, and a null
+// there took the page down before it drew anything.
+func TestBuildEdgesReturnsAnArrayWhenThereAreNone(t *testing.T) {
+	edges := buildEdges(nil, map[string]bool{}, map[string]dependencyDiff{}, publicapi.Index{})
+	if edges == nil {
+		t.Fatal("buildEdges returned nil, which marshals to null")
+	}
+	if len(edges) != 0 {
+		t.Fatalf("edges = %v, want empty", edges)
+	}
+
+	body, err := json.Marshal(UIGraph{Edges: edges})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(body), `"edges":[]`) {
+		t.Errorf("edges did not serialize as an array: %s", body)
+	}
+}
