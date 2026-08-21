@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -335,21 +337,77 @@ func TestPlugin_HTTPHandler(t *testing.T) {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
 
-	var result struct {
-		Components map[string]*eventmodel.Component `json:"components"`
-		Graph      *eventmodel.Graph                `json:"graph"`
-	}
+	var result modelView
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if result.Components == nil {
-		t.Error("components is nil")
+
+	var billing *componentView
+	for i := range result.Components {
+		if result.Components[i].ID == "billing" {
+			billing = &result.Components[i]
+		}
 	}
-	if result.Graph == nil {
-		t.Error("graph is nil")
+	if billing == nil {
+		t.Fatalf("billing component not found in %d component(s)", len(result.Components))
 	}
-	if _, ok := result.Components["billing"]; !ok {
-		t.Error("billing component not found")
+	if len(billing.Outputs) == 0 {
+		t.Error("billing declares outputs; none survived the projection")
+	}
+	if len(result.Kinds) == 0 {
+		t.Error("kinds is empty")
+	}
+
+	// The response answers in the canvas's units: an edge is one component
+	// reaching another, not a hop through a kind node. This fixture is one
+	// component folding its own output, which draws nothing — the idiom is so
+	// common that the self-loop would sit on nearly every node and say nothing.
+	if len(result.Flows) != 0 {
+		t.Errorf("flows = %+v, want none for a lone component folding its own output", result.Flows)
+	}
+
+	// The kind it appends into a namespace it does not own reaches nobody, and
+	// the projection carries that verdict rather than leaving it to be noticed.
+	var post *kindView
+	for i := range result.Kinds {
+		if result.Kinds[i].Name == "ledger.entry.post" {
+			post = &result.Kinds[i]
+		}
+	}
+	if post == nil {
+		t.Fatal("no kind view for ledger.entry.post")
+	}
+	if post.Health != string(eventmodel.HealthOrphan) {
+		t.Errorf("health = %q, want orphan", post.Health)
+	}
+	if !reflect.DeepEqual(post.Producers, []string{"billing"}) {
+		t.Errorf("producers = %v, want [billing]", post.Producers)
+	}
+}
+
+// An empty repo answers with empty lists rather than nulls, so the canvas
+// iterates the response without a guard on every field.
+func TestPlugin_HTTPHandler_EmptyRepo(t *testing.T) {
+	p := &Plugin{}
+	if err := p.Init(context.Background(), &hostStub{root: t.TempDir()}, ""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	srv := httptest.NewServer(p.HTTPHandlers()[0].Handler)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("http.Get: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got, want := strings.TrimSpace(string(body)), `{"components":[],"flows":[],"kinds":[]}`; got != want {
+		t.Errorf("body = %s, want %s", got, want)
 	}
 }
 

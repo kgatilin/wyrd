@@ -737,32 +737,22 @@ func (p *Plugin) handleEventValidate(_ context.Context, _ map[string]any) (any, 
 	return sb.String(), nil
 }
 
-// serveModel is the HTTP handler for /api/plugins/events/model.
+// serveModel is the HTTP handler for /api/plugins/events/model. It answers in
+// the canvas's units — components, the flows between them, and the kinds those
+// flows carry — rather than in the bipartite graph's. Collapsing producer to
+// observer is the same work in every renderer that has ever drawn this model,
+// and doing it once on the way out keeps one answer instead of three.
 func (p *Plugin) serveModel(w http.ResponseWriter, _ *http.Request) {
 	model, err := p.loadModel("")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if len(model.Components) == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"components":[],"graph":{"nodes":[],"edges":[]}}`))
-		return
-	}
 
-	g := eventmodel.BuildGraph(model)
-
-	// Build JSON response with both model and graph.
-	type response struct {
-		Components map[string]*eventmodel.Component `json:"components"`
-		Graph      *eventmodel.Graph                `json:"graph"`
-	}
+	view := buildModelView(model, eventmodel.BuildGraph(model))
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(response{
-		Components: model.Components,
-		Graph:      g,
-	})
+	_ = json.NewEncoder(w).Encode(view)
 }
 
 // slotLine renders one inputs/outputs/state_events entry. The subject pattern
