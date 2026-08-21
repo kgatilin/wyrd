@@ -11,36 +11,51 @@ import (
 
 const eventsFileName = "events.yaml"
 
-// Read discovers all .arch/events.yaml files under root, parses them with
-// strict decoding (unknown fields are errors), and composes them into a Model.
-// Parse errors are returned immediately; validation runs separately via
+// declarationFile is one discovered declaration and the parser that reads it.
+type declarationFile struct {
+	path  string
+	parse func(string) (*Component, error)
+}
+
+// Read discovers every event declaration under root and composes them into a
+// Model. Two formats are read from the same `.arch/` directory:
+//
+//   - `events.yaml` — the native format, parsed strictly (unknown fields are
+//     errors, because typos in a format wyrd owns are typos);
+//   - `asyncapi.yaml` — an AsyncAPI 3 document with the x-eventlog extension,
+//     parsed leniently, because it is somebody else's format and carries
+//     fields wyrd has no reason to model.
+//
+// Both project onto the same Component, so everything downstream — the graph,
+// the canvas, the MCP tools — works without knowing which one a component came
+// from. Parse errors are returned immediately; validation runs separately via
 // Validate.
 func Read(root string) (*Model, error) {
-	files, err := findEventsFiles(root)
+	files, err := findDeclarationFiles(root)
 	if err != nil {
 		return nil, err
 	}
 
 	model := &Model{Components: make(map[string]*Component)}
-	for _, path := range files {
-		comp, err := parseEventsFile(path)
+	for _, file := range files {
+		comp, err := file.parse(file.path)
 		if err != nil {
-			return nil, fmt.Errorf("eventmodel: %s: %w", path, err)
+			return nil, fmt.Errorf("eventmodel: %s: %w", file.path, err)
 		}
 		if comp == nil {
 			continue
 		}
 		if existing, ok := model.Components[comp.ID]; ok {
 			return nil, fmt.Errorf("eventmodel: duplicate component id %q: %s and %s",
-				comp.ID, existing.SourceFile, path)
+				comp.ID, existing.SourceFile, file.path)
 		}
 		model.Components[comp.ID] = comp
 	}
 	return model, nil
 }
 
-func findEventsFiles(root string) ([]string, error) {
-	var out []string
+func findDeclarationFiles(root string) ([]declarationFile, error) {
+	var out []declarationFile
 	// Clean the root path for consistent comparison.
 	cleanRoot := filepath.Clean(root)
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -62,12 +77,19 @@ func findEventsFiles(root string) ([]string, error) {
 			}
 		}
 		if name == ".arch" || name == ".wyrd" {
-			// Check for events.yaml in this .arch directory.
-			eventsPath := filepath.Join(path, eventsFileName)
-			if _, statErr := os.Stat(eventsPath); statErr == nil {
-				out = append(out, eventsPath)
-			} else if !os.IsNotExist(statErr) {
-				return fmt.Errorf("eventmodel: stat %s: %w", eventsPath, statErr)
+			// Both declaration formats live side by side in this directory. A
+			// component declaring both is not an error here — the two produce
+			// two component ids, and Read rejects them only if the ids collide.
+			candidates := []declarationFile{
+				{filepath.Join(path, eventsFileName), parseEventsFile},
+				{filepath.Join(path, asyncAPIFileName), parseAsyncAPIFile},
+			}
+			for _, candidate := range candidates {
+				if _, statErr := os.Stat(candidate.path); statErr == nil {
+					out = append(out, candidate)
+				} else if !os.IsNotExist(statErr) {
+					return fmt.Errorf("eventmodel: stat %s: %w", candidate.path, statErr)
+				}
 			}
 			// Don't recurse into .arch subdirectories (targets, worktrees, etc).
 			return filepath.SkipDir

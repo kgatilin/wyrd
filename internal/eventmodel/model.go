@@ -103,10 +103,34 @@ type Component struct {
 	// interprets it.
 	Extra map[string]any
 
-	// SourceFile is the path to the .arch/events.yaml that defined
-	// this component (for diagnostics).
+	// Source names the declaration format this component was read from.
+	// It exists because the two formats are not interchangeable inputs to
+	// every rule: an AsyncAPI document addresses in wire coordinates, states
+	// its own partition key, and legitimately puts one kind on several
+	// subjects, so the checks written against the native format's conventions
+	// must not run over it.
+	Source Source
+
+	// SourceFile is the path to the declaration file that defined this
+	// component (for diagnostics).
 	SourceFile string
 }
+
+// Source names the declaration format a component was read from.
+type Source string
+
+const (
+	// SourceEvents is a native .arch/events.yaml declaration. The empty value
+	// means this, so a Component built by hand or by an existing test reads as
+	// native without restating it.
+	SourceEvents Source = ""
+	// SourceAsyncAPI is an .arch/asyncapi.yaml document: AsyncAPI 3 plus the
+	// x-eventlog extension, projected onto the three lists.
+	SourceAsyncAPI Source = "asyncapi"
+)
+
+// IsAsyncAPI reports whether the component came from an AsyncAPI document.
+func (c *Component) IsAsyncAPI() bool { return c.Source == SourceAsyncAPI }
 
 // ReadSet returns the slots that make up the component's fold read-set:
 // its inputs followed by its state events, in declaration order. Outputs are

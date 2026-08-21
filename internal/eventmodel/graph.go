@@ -1,6 +1,9 @@
 package eventmodel
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 // Graph is a bipartite event-model graph projected from a validated Model.
 // Nodes are components, kinds, and type definitions. Edges capture the
@@ -117,10 +120,21 @@ func BuildGraph(m *Model) *Graph {
 	// (a kind-pattern-conflict error) the first in deterministic order wins and
 	// the node is flagged, so the projection exposes the conflict instead of
 	// silently picking.
+	//
+	// A kind declared by an imported AsyncAPI document is never flagged. A port
+	// puts one kind on one address per instance by construction —
+	// `tools.command.call` legitimately travels `tools.confluence.…` and
+	// `tools.jira.…` — and a caller may bind coordinates the owner left open,
+	// so disagreement between those declarations is the format working rather
+	// than a wiring bug.
+	imported := importedKinds(m)
 	patternDecls := patternDeclarations(m)
 	patternConflict := make(map[string]bool, len(patternDecls))
 	for kind, decls := range patternDecls {
 		patterns[kind] = decls[0].Pattern
+		if imported[kind] {
+			continue
+		}
 		for _, d := range decls[1:] {
 			if d.Pattern != decls[0].Pattern {
 				patternConflict[kind] = true
@@ -128,6 +142,12 @@ func BuildGraph(m *Model) *Graph {
 			}
 		}
 	}
+
+	// Partition coordinates as the declaring document stated them. An AsyncAPI
+	// address is in wire coordinates, so its {slot} tokens include a tenant and
+	// a port parameter, neither of which keys a fold; the document names the
+	// ones that do, and that answer is not recoverable from the address alone.
+	declaredPartition := declaredPartitions(m)
 
 	compIDs := sortedComponentIDs(m)
 
@@ -183,7 +203,11 @@ func BuildGraph(m *Model) *Graph {
 		}
 		if pattern := patterns[kind]; pattern != "" {
 			attrs["pattern"] = pattern
-			attrs["partition_key"] = SlotTokens(pattern)
+			if part, ok := declaredPartition[kind]; ok {
+				attrs["partition_key"] = part
+			} else {
+				attrs["partition_key"] = SlotTokens(pattern)
+			}
 		}
 		if patternConflict[kind] {
 			attrs["pattern_conflict"] = true
@@ -401,3 +425,167 @@ func parseCrossComponentRef(ref string) (compID, name string, ok bool) {
 func componentID(id string) string    { return "component:" + id }
 func kindID(name string) string       { return "kind:" + name }
 func typeID(comp, name string) string { return "type:" + comp + "." + name }
+
+// The inverses, for consumers collapsing the graph back onto bare ids.
+func trimComponentID(id string) string { return strings.TrimPrefix(id, "component:") }
+func trimKindID(id string) string      { return strings.TrimPrefix(id, "kind:") }
+
+// importedKinds names every kind declared by a component read from an AsyncAPI
+// document. It gates the rules that assume the native format's conventions.
+func importedKinds(m *Model) map[string]bool {
+	out := make(map[string]bool)
+	for _, comp := range m.Components {
+		if !comp.IsAsyncAPI() {
+			continue
+		}
+		for _, slots := range [][]Slot{comp.Inputs, comp.Outputs, comp.StateEvents} {
+			for _, slot := range slots {
+				out[slot.Kind] = true
+			}
+		}
+	}
+	return out
+}
+
+// declaredPartitions collects the partition coordinates a slot states outright,
+// keyed by kind. Only imported declarations carry them: the native format
+// derives the key from the pattern's {slot} tokens, which is the right rule for
+// a service-rooted subject and the wrong one for a wire address.
+//
+// Where two declarations of one kind disagree, the first in deterministic order
+// wins — the same rule the pattern itself follows.
+func declaredPartitions(m *Model) map[string][]string {
+	out := make(map[string][]string)
+	for _, id := range sortedComponentIDs(m) {
+		comp := m.Components[id]
+		for _, slots := range [][]Slot{comp.Inputs, comp.Outputs, comp.StateEvents} {
+			for _, slot := range slots {
+				if _, seen := out[slot.Kind]; seen {
+					continue
+				}
+				if part, ok := stringList(slot.Extra["partition"]); ok {
+					out[slot.Kind] = part
+				}
+			}
+		}
+	}
+	return out
+}
+
+// stringList reads a []string out of opaque Extra data, which arrives as
+// []string from a typed decode and as []any from a YAML one.
+func stringList(v any) ([]string, bool) {
+	switch typed := v.(type) {
+	case []string:
+		return typed, true
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			s, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, s)
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+// Flow is one producer-to-observer relation, the bipartite graph collapsed onto
+// the components. It is what a reader of an event model actually looks at: who
+// appends a kind, and who it reaches.
+type Flow struct {
+	// From is the component that appends the kind; To is the one that
+	// observes it. Both are bare component ids, not node ids.
+	From, To string
+	// Kind is the event kind travelling the edge.
+	Kind string
+	// Trigger distinguishes the two ways of observing: true when the kind is
+	// an input of the target and drives it, false when the target only folds
+	// it into state.
+	Trigger bool
+	// Health is the kind node's health, carried so a renderer can mark a
+	// starved or ambiguous edge without a second lookup.
+	Health string
+}
+
+// BuildFlows collapses a Graph onto component-to-component edges.
+//
+// A component that both takes a kind as an input and folds it appears once, as
+// the trigger: it is the stronger relation, and drawing both would put two
+// parallel edges between the same pair for one event. A component folding its
+// own output draws nothing — it is the normal idiom, so the self-loop would sit
+// on nearly every node and say nothing.
+//
+// The result is sorted by (From, To, Kind), so a renderer and a diff over one
+// see the same order every time.
+func BuildFlows(g *Graph) []Flow {
+	health := make(map[string]string)
+	for _, n := range g.Nodes {
+		if n.Kind != NodeEventKind {
+			continue
+		}
+		if h, ok := n.Attrs["health"].(string); ok {
+			health[n.ID] = h
+		}
+	}
+
+	producers := make(map[string][]string) // kind node id -> component ids
+	triggers := make(map[string][]string)
+	folders := make(map[string][]string)
+	for _, e := range g.Edges {
+		switch e.Kind {
+		case EdgeOutput:
+			producers[e.To] = append(producers[e.To], trimComponentID(e.From))
+		case EdgeInput:
+			triggers[e.From] = append(triggers[e.From], trimComponentID(e.To))
+		case EdgeStateEvent:
+			folders[e.From] = append(folders[e.From], trimComponentID(e.To))
+		}
+	}
+
+	var flows []Flow
+	for kindNode, from := range producers {
+		kind := trimKindID(kindNode)
+
+		triggered := make(map[string]bool, len(triggers[kindNode]))
+		for _, to := range triggers[kindNode] {
+			triggered[to] = true
+		}
+		observers := make(map[string]bool, len(triggered)+len(folders[kindNode]))
+		for to := range triggered {
+			observers[to] = true
+		}
+		for _, to := range folders[kindNode] {
+			observers[to] = true
+		}
+
+		for _, producer := range from {
+			for to := range observers {
+				if producer == to {
+					continue
+				}
+				flows = append(flows, Flow{
+					From:    producer,
+					To:      to,
+					Kind:    kind,
+					Trigger: triggered[to],
+					Health:  health[kindNode],
+				})
+			}
+		}
+	}
+
+	sort.Slice(flows, func(i, j int) bool {
+		if flows[i].From != flows[j].From {
+			return flows[i].From < flows[j].From
+		}
+		if flows[i].To != flows[j].To {
+			return flows[i].To < flows[j].To
+		}
+		return flows[i].Kind < flows[j].Kind
+	})
+	return flows
+}

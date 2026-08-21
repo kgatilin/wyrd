@@ -29,7 +29,16 @@ import (
 //
 // NOT implemented (see package doc):
 //   - Schema compatibility between an output payload and a consumer's schema
+//
+// Components read from an AsyncAPI document are excluded. Every rule here is
+// written against the native format's conventions, and the imported form
+// breaks three of them by construction: a port puts one kind on several
+// subjects, addresses are in wire coordinates so the {slot} tokens include a
+// tenant and a port parameter that are not partition coordinates, and a
+// document describes one application rather than a closed system, so closure
+// warnings would fire on every edge that leaves it. See ValidatableModel.
 func Validate(m *Model) []Finding {
+	m = ValidatableModel(m)
 	var findings []Finding
 
 	// Build indexes for efficient lookup.
@@ -819,4 +828,35 @@ func sortFindings(fs []Finding) {
 		}
 		return fs[i].Location < fs[j].Location
 	})
+}
+
+// ValidatableModel returns the subset of m these rules apply to: the
+// components declared in the native format. It is exported because a caller
+// reporting "OK: N component(s) validated" has to count the same set the
+// validator looked at, rather than every component in the model.
+//
+// An imported AsyncAPI document is a description of one application, published
+// by whoever runs it. wyrd reads it to draw it, not to grade it.
+func ValidatableModel(m *Model) *Model {
+	if m == nil {
+		return &Model{Components: map[string]*Component{}}
+	}
+	var skipped bool
+	for _, comp := range m.Components {
+		if comp.IsAsyncAPI() {
+			skipped = true
+			break
+		}
+	}
+	if !skipped {
+		return m
+	}
+	out := &Model{Components: make(map[string]*Component, len(m.Components))}
+	for id, comp := range m.Components {
+		if comp.IsAsyncAPI() {
+			continue
+		}
+		out.Components[id] = comp
+	}
+	return out
 }
