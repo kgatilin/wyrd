@@ -120,7 +120,7 @@ test('the canvas draws a node per component and one edge per pair', async ({ pag
   expect((await canvas.linkLabels()).sort()).toEqual(['call.completed', 'command.call']);
 });
 
-test('the header counts what was read, and says how much of it is imported', async ({ page }) => {
+test('the legend counts what was read, and says how much of it is imported', async ({ page }) => {
   const canvas = await openCanvas(page);
   await canvas.waitForDiagram();
 
@@ -196,7 +196,7 @@ test('a kind shows the payload as an object before it shows the schema', async (
   expect(JSON.parse(schema).properties.op.type).toBe('string');
 });
 
-test('the header names each unhealthy state rather than totalling them', async ({ page }) => {
+test('the legend names each unhealthy state rather than totalling them', async ({ page }) => {
   const kinds = [
     { ...eventModel.kinds[0], health: 'starved' },
     { ...eventModel.kinds[1], health: 'orphan' },
@@ -260,6 +260,73 @@ test('the diagram opens fitted to the pane, and the zoom is adjustable', async (
 
   await canvas.fit();
   expect(parseInt(await canvas.zoom(), 10)).toBe(fitted);
+});
+
+test('the flow runs downwards, and the toggle turns it left to right', async ({ page }) => {
+  const canvas = await openCanvas(page);
+  await canvas.waitForDiagram();
+
+  // Which direction reads better is a property of the model — a chain reads
+  // across, a hub reads down — so the canvas offers both rather than picking.
+  const down = await canvas.nodeBoxes();
+  expect(down.router.y).toBeLessThan(down.connectors.y);
+
+  await canvas.toggleDirection();
+  await canvas.env.waitUntil(
+    async () => {
+      const boxes = await canvas.nodeBoxes();
+      return boxes.router != null && boxes.connectors != null && boxes.router.x < boxes.connectors.x;
+    },
+    { message: 'the toggle did not re-lay the flow left to right' }
+  );
+
+  // Across, the two sit on one line rather than one above the other.
+  const across = await canvas.nodeBoxes();
+  expect(Math.abs(across.router.y - across.connectors.y)).toBeLessThan(40);
+});
+
+test('a plain wheel scrolls the pane and Cmd/Ctrl+wheel zooms it', async ({ page }) => {
+  const canvas = await openCanvas(page);
+  await canvas.waitForDiagram();
+
+  // The review canvas's division of labour: the wheel moves the diagram, the
+  // modifier is what makes it a zoom. A reader who learned one should not find
+  // the other scrolling where it zoomed.
+  const zoomBefore = await canvas.zoom();
+  const before = await canvas.scrollPosition();
+  await canvas.wheel(160);
+  await canvas.env.waitUntil(async () => (await canvas.scrollPosition()).top > before.top, {
+    message: 'a plain wheel did not scroll the pane',
+  });
+  expect(await canvas.zoom()).toBe(zoomBefore);
+
+  await canvas.ctrlWheelZoom(-120);
+  await canvas.env.waitUntil(async () => (await canvas.zoom()) !== zoomBefore, {
+    message: 'ctrl+wheel did not change the zoom',
+  });
+  // The gesture is the canvas's, not the page's.
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+test('the background pans under a drag, and the drag does not clear the selection', async ({ page }) => {
+  const canvas = await openCanvas(page);
+  await canvas.waitForDiagram();
+  expect(await canvas.cursor()).toBe('grab');
+
+  await canvas.clickNode('router');
+  expect(await canvas.isDetailOpen()).toBe(true);
+
+  const before = await canvas.scrollPosition();
+  await canvas.pan(-160, -120);
+  await canvas.env.waitUntil(
+    async () => {
+      const after = await canvas.scrollPosition();
+      return Math.abs(after.left - before.left) > 20 || Math.abs(after.top - before.top) > 20;
+    },
+    { message: 'dragging the background did not pan the diagram' }
+  );
+  // The click that ends a pan is part of the pan, not a click on the backdrop.
+  expect(await canvas.isDetailOpen()).toBe(true);
 });
 
 test('an empty model says where declarations go instead of drawing nothing', async ({ page }) => {

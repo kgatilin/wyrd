@@ -129,6 +129,13 @@ export class PlaywrightEnvironment implements HarnessEnvironment {
     await this.page.keyboard.up('Control');
   }
 
+  async wheel(target: TestElement, deltaY: number): Promise<void> {
+    const box = await target.boundingBox();
+    if (!box) throw new Error('wheel: target has no bounding box');
+    await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await this.page.mouse.wheel(0, deltaY);
+  }
+
   async load<T extends ComponentHarness>(ctor: HarnessConstructor<T>): Promise<T> {
     const root = await this.rootLocator('.hifi').first();
     return new ctor(root, this);

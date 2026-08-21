@@ -82,6 +82,8 @@ export interface HarnessEnvironment {
   panDrag(target: TestElement, dx: number, dy: number): Promise<void>;
   /** Ctrl+wheel over the center of `target` (zoom gesture). */
   ctrlWheel(target: TestElement, deltaY: number): Promise<void>;
+  /** Plain wheel over the center of `target` (scroll gesture). */
+  wheel(target: TestElement, deltaY: number): Promise<void>;
   /** Construct the top-level harness rooted at `.hifi`. */
   load<T extends ComponentHarness>(ctor: HarnessConstructor<T>): Promise<T>;
 }

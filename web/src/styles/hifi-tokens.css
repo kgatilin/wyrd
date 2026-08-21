@@ -3363,26 +3363,78 @@ body {
 /* ── Event canvas ────────────────────────────────────────────────────────────
    Covers the centre pane like the domains grid: who appends what, and who it
    reaches. Geometry comes from ELK (layout/eventLayout.ts), so the diagram is
-   one SVG with absolute coordinates rather than flowed elements. */
+   one SVG with absolute coordinates rather than flowed elements.
+
+   Laid out like the review canvas: a scroller under pinned chrome, legend
+   top-left, zoom bottom-left (the shared .hf-canvas-toolbar), close top-right. */
 .hf-events {
   position: absolute;
   inset: 0;
   z-index: 20;
   display: flex;
-  flex-direction: column;
   background: var(--bg-0);
 }
-.hf-events-head {
+/* Non-scrolling flex child; the scroller is inside it and the chrome is
+   absolute against it, so it stays put while the diagram moves. */
+.hf-events-viewport {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--line-1);
-  background: var(--bg-1);
-  flex-shrink: 0;
 }
-.hf-events-title { display: flex; align-items: center; gap: 8px; }
+.hf-events-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background-image: radial-gradient(circle, var(--line-1) 1px, transparent 1px);
+  background-size: 20px 20px;
+  background-position: 10px 10px;
+  /* Pannable: grab the empty background and drag (EventCanvas.tsx). */
+  cursor: grab;
+}
+.hf-events-wrap.panning {
+  cursor: grabbing;
+  user-select: none;
+}
+/* Reserves the scaled diagram plus the pan slack on every side, so scrollbars
+   track the zoom. */
+.hf-events-sizer { position: relative; }
+
+/* Bottom-left cluster: the shared zoom pill plus the layout control, laid out
+   in a row. The pill positions itself in the review canvas, so it is put back
+   into flow here and the cluster does the positioning for both. */
+.hf-events-tools {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.hf-events-tools .hf-canvas-toolbar {
+  position: static;
+  bottom: auto;
+  left: auto;
+}
+.hf-events-direction { font-size: 14px; }
+
+.hf-events-hud {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(56%, 540px);
+  padding: 8px 10px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+}
 .hf-events-label {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
@@ -3390,7 +3442,7 @@ body {
   letter-spacing: 0.08em;
   color: var(--fg-2);
 }
-.hf-events-stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.hf-events-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .hf-events-stat {
   font-size: 11px;
   color: var(--fg-2);
@@ -3410,7 +3462,7 @@ button.hf-events-stat {
 button.hf-events-stat:hover { background: var(--bg-hover); }
 button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; }
 
-.hf-events-legend { display: flex; gap: 12px; margin-left: auto; }
+.hf-events-legend { display: flex; flex-wrap: wrap; gap: 12px; }
 .hf-events-legend-item {
   display: inline-flex;
   align-items: center;
@@ -3422,19 +3474,24 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
 .hf-events-legend-line.fold { stroke-dasharray: 4 3; }
 
 .hf-events-close {
-  background: none;
-  border: none;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+  width: 28px;
+  height: 28px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
   color: var(--fg-3);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
-  padding: 0 2px;
+  box-shadow: var(--shadow-md);
 }
 .hf-events-close:hover { color: var(--fg-0); }
 
-.hf-events-body { display: flex; flex: 1; min-height: 0; }
-.hf-events-stage { flex: 1; overflow: auto; min-width: 0; }
-.hf-events-svg { display: block; }
+.hf-events-svg { position: absolute; display: block; }
 
 .hf-events-notice {
   padding: 24px;
@@ -3464,13 +3521,6 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
   fill: var(--fg-0);
   font-size: 13px;
   font-weight: 600;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-}
-.hf-events-node-badge {
-  fill: var(--syn-fn);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 .hf-events-node-sub { fill: var(--fg-3); font-size: 10px; }
@@ -3613,11 +3663,24 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
   padding: 1px 5px;
   border: 1px solid var(--line-2);
   color: var(--fg-3);
+  /* A wash of the tag's own colour, so it reads as a chip at a glance rather
+     than as one more grey word in a list of grey words. */
+  background: color-mix(in srgb, currentColor 14%, transparent);
 }
 .hf-events-tag.trigger { color: var(--accent); border-color: var(--accent-line); }
 .hf-events-tag.fold { color: var(--syn-fn); border-color: var(--layer-internal-line); }
 .hf-events-tag.role { color: var(--fg-2); }
 .hf-events-tag.excl { color: var(--chg-fg); border-color: var(--chg-line); }
+/* The four roles, coloured by what the message is rather than by which list it
+   sits in: an imperative somebody must act on (command in, call out) against a
+   fact that is simply true (event out, observe in). The hues are the node
+   counts' — inputs blue, outputs green, state purple — so a tag in the rail and
+   a count on the diagram say the same thing. A call is the odd one out and is
+   coloured like it: the only slot whose address belongs to somebody else. */
+.hf-events-tag.role.command { color: var(--accent); border-color: var(--accent-line); }
+.hf-events-tag.role.call { color: var(--syn-cls); border-color: color-mix(in srgb, var(--syn-cls) 42%, transparent); }
+.hf-events-tag.role.event { color: var(--add-fg); border-color: var(--add-line); }
+.hf-events-tag.role.observe { color: var(--syn-fn); border-color: var(--layer-internal-line); }
 
 .hf-events-participants { margin: 0 0 6px; font-size: 11px; color: var(--fg-2); }
 .hf-events-none { color: var(--fg-3); font-style: italic; }
@@ -3647,26 +3710,3 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
   max-height: 320px;
 }
 
-.hf-events-zoom {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.hf-events-zoom button {
-  background: none;
-  border: 1px solid var(--line-2);
-  border-radius: 3px;
-  color: var(--fg-2);
-  font-size: 11px;
-  line-height: 1;
-  padding: 3px 7px;
-  cursor: pointer;
-}
-.hf-events-zoom button:hover { color: var(--fg-0); border-color: var(--line-3); }
-.hf-events-zoom-level {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10px;
-  color: var(--fg-3);
-  min-width: 36px;
-  text-align: center;
-}

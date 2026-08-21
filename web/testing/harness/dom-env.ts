@@ -150,6 +150,11 @@ export class DomEnvironment implements HarnessEnvironment {
     fireEvent.wheel(el, { deltaY, ctrlKey: true });
   }
 
+  async wheel(target: TestElement, deltaY: number): Promise<void> {
+    const el = (target as DomElement).el;
+    fireEvent.wheel(el, { deltaY });
+  }
+
   async load<T extends ComponentHarness>(ctor: HarnessConstructor<T>): Promise<T> {
     const root = await this.rootLocator('.hifi').first();
     return new ctor(root, this);

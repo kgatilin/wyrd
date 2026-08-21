@@ -1,4 +1,4 @@
-import { ComponentHarness } from './test-element';
+import { BoundingBox, ComponentHarness, TestElement } from './test-element';
 
 /**
  * The event canvas (`.hf-events`) — who appends what, and who it reaches, in
@@ -25,6 +25,22 @@ export class EventCanvasHarness extends ComponentHarness {
     });
   }
 
+  /** Where each component node sits, keyed by name — which way the flow runs. */
+  async nodeBoxes(): Promise<Record<string, BoundingBox>> {
+    const names = await this.env.rootLocator('.hf-events-node-name').all();
+    const boxes: Record<string, BoundingBox> = {};
+    for (const name of names) {
+      const box = await name.boundingBox();
+      if (box) boxes[await name.text()] = box;
+    }
+    return boxes;
+  }
+
+  /** Flip the layout between top-to-bottom and left-to-right. */
+  async toggleDirection(): Promise<void> {
+    await (await this.env.rootLocator('.hf-events-direction').first()).click();
+  }
+
   /** Component names on the diagram, in render order. */
   async nodeNames(): Promise<string[]> {
     const names = await this.env.rootLocator('.hf-events-node-name').all();
@@ -37,13 +53,13 @@ export class EventCanvasHarness extends ComponentHarness {
     return Promise.all(labels.map((label) => label.text()));
   }
 
-  /** Header figures ("3 components", "2 kinds", "2 imported", …). */
+  /** Legend figures ("3 components", "2 kinds", "2 imported", …). */
   async stats(): Promise<string[]> {
     const chips = await this.env.rootLocator('.hf-events-stat').all();
     return Promise.all(chips.map((chip) => chip.text()));
   }
 
-  /** Click a header chip — the ones that count something open a list of it. */
+  /** Click a legend chip — the ones that count something open a list of it. */
   async clickStat(text: string): Promise<void> {
     await (await this.env.rootLocator('.hf-events-stat').filterByText(text).first()).click();
   }
@@ -67,17 +83,51 @@ export class EventCanvasHarness extends ComponentHarness {
     return this.env.rootLocator('.hf-events-node.on').count();
   }
 
-  /** The zoom readout, e.g. "82%". */
+  /** The zoom readout, e.g. "82%". Scoped past the review canvas's own copy of
+   *  the shared toolbar, which is still in the DOM under this one. */
   async zoom(): Promise<string> {
-    return (await this.env.rootLocator('.hf-events-zoom-level').first()).text();
+    return (await this.toolbar('.zoom')).text();
   }
 
   async zoomIn(): Promise<void> {
-    await (await this.env.rootLocator('.hf-events-zoom button').filterByText('+').first()).click();
+    await (await this.toolbar('button[title="Zoom in"]')).click();
   }
 
   async fit(): Promise<void> {
-    await (await this.env.rootLocator('.hf-events-zoom button').filterByText('Fit').first()).click();
+    await (await this.toolbar('button[title="Fit"]')).click();
+  }
+
+  /** Scroll offsets of the pane the diagram sits in. */
+  async scrollPosition(): Promise<{ left: number; top: number }> {
+    return (await this.wrap()).scrollPosition();
+  }
+
+  /** Computed cursor on the scroller (e2e: 'grab'). */
+  async cursor(): Promise<string> {
+    return (await this.wrap()).computedStyleProp('cursor');
+  }
+
+  /** Drag the empty background by (dx, dy). */
+  async pan(dx: number, dy: number): Promise<void> {
+    await this.env.panDrag(await this.wrap(), dx, dy);
+  }
+
+  /** Ctrl+wheel over the scroller (the zoom gesture). */
+  async ctrlWheelZoom(deltaY: number): Promise<void> {
+    await this.env.ctrlWheel(await this.wrap(), deltaY);
+  }
+
+  /** Plain wheel over the scroller — scrolls the pane, never zooms. */
+  async wheel(deltaY: number): Promise<void> {
+    await this.env.wheel(await this.wrap(), deltaY);
+  }
+
+  private wrap(): Promise<TestElement> {
+    return this.env.rootLocator('.hf-events-wrap').first();
+  }
+
+  private toolbar(selector: string): Promise<TestElement> {
+    return this.env.rootLocator(`.hf-events-viewport .hf-canvas-toolbar ${selector}`).first();
   }
 
   async isDetailOpen(): Promise<boolean> {

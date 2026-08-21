@@ -12,20 +12,22 @@ import { buildLinks, shortKind, slotCount } from '../domain/eventModel';
  * dressing components up as something they are not to get coordinates back.
  * ELK is the shared thing here, not the graph shape.
  *
- * The direction is RIGHT because an event model reads as a flow: producers on
- * the left, the components they reach on the right.
+ * Either direction is a flow — producers first, the components they reach
+ * after — and which one reads better is a property of the model, not of event
+ * models in general. A chain of six reads left to right; a hub twenty
+ * components subscribe to reads top to bottom, because sideways it is a wall.
+ * So the canvas asks, and this takes the answer.
  */
 
 const elk = new ELK();
 
+export type EventDirection = 'RIGHT' | 'DOWN';
+
 const ELK_OPTIONS: Record<string, string> = {
   'elk.algorithm': 'layered',
-  'elk.direction': 'RIGHT',
   'elk.edgeRouting': 'ORTHOGONAL',
   'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
   'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
-  'elk.spacing.nodeNode': '52',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '150',
   'elk.spacing.edgeNode': '24',
   'elk.spacing.edgeEdge': '14',
   // Edge labels are handed to ELK with their measured size, so it routes
@@ -35,6 +37,24 @@ const ELK_OPTIONS: Record<string, string> = {
   // diagram.
   'elk.spacing.edgeLabel': '6',
   'elk.layered.edgeLabels.sideSelection': 'SMART_DOWN',
+};
+
+/**
+ * Spacing is per direction because a label lies along its edge: laid out
+ * downwards it eats the gap between neighbours in a row, so that gap has to be
+ * the wider of the two.
+ */
+const DIRECTION_OPTIONS: Record<EventDirection, Record<string, string>> = {
+  RIGHT: {
+    'elk.direction': 'RIGHT',
+    'elk.spacing.nodeNode': '52',
+    'elk.layered.spacing.nodeNodeBetweenLayers': '150',
+  },
+  DOWN: {
+    'elk.direction': 'DOWN',
+    'elk.spacing.nodeNode': '96',
+    'elk.layered.spacing.nodeNodeBetweenLayers': '110',
+  },
 };
 
 /** Label geometry, shared with the renderer so ELK reserves what gets drawn. */
@@ -91,7 +111,10 @@ export function nodeHeight(component: EventComponent): number {
   return NODE_BASE_HEIGHT + rows * NODE_ROW_HEIGHT;
 }
 
-export async function layoutEventModel(model: EventModel): Promise<EventLayout> {
+export async function layoutEventModel(
+  model: EventModel,
+  direction: EventDirection = 'DOWN'
+): Promise<EventLayout> {
   const links = buildLinks(model.flows);
   const components = [...model.components].sort((a, b) => a.id.localeCompare(b.id));
 
@@ -123,7 +146,7 @@ export async function layoutEventModel(model: EventModel): Promise<EventLayout> 
 
   const laid = await elk.layout({
     id: 'root',
-    layoutOptions: ELK_OPTIONS,
+    layoutOptions: { ...ELK_OPTIONS, ...DIRECTION_OPTIONS[direction] },
     children,
     edges,
   });

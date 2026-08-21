@@ -24,16 +24,26 @@ describe('layoutEventModel', () => {
     }
   });
 
-  it('routes the flow left to right, and gives it a label point on the line', async () => {
+  it('runs the flow downwards by default, and gives it a label point on the line', async () => {
     const laid = await layoutEventModel(model);
 
     expect(laid.links).toHaveLength(1);
     const [link] = laid.links;
     expect(link.link.from).toBe('billing');
     expect(link.points.length).toBeGreaterThanOrEqual(2);
-    expect(link.points[0].x).toBeLessThan(link.points[link.points.length - 1].x);
+    expect(link.points[0].y).toBeLessThan(link.points[link.points.length - 1].y);
     expect(Number.isFinite(link.labelX)).toBe(true);
     expect(Number.isFinite(link.labelY)).toBe(true);
+  });
+
+  it('runs the flow left to right when asked for that direction', async () => {
+    const laid = await layoutEventModel(model, 'RIGHT');
+
+    const [link] = laid.links;
+    expect(link.points[0].x).toBeLessThan(link.points[link.points.length - 1].x);
+    // The producer is behind what it reaches, whichever way "behind" points.
+    const byID = new Map(laid.nodes.map((node) => [node.id, node]));
+    expect(byID.get('billing')!.x).toBeLessThan(byID.get('ledger')!.x);
   });
 
   it('drops a flow naming a component no document declares', async () => {
