@@ -171,6 +171,7 @@ test('a kind opens from a component, and names everyone it reaches', async ({ pa
   expect(await canvas.detailTitle()).toBe('connectors.command.call');
   const facts = await canvas.facts();
   expect(facts.subject).toBe('svc.connectors.{group}.{scope}.call');
+  expect(facts.subjects).toBeUndefined(); // one address, so no list
   expect(facts.class).toBe('command');
   // The coordinates the document declared, not every {slot} of the address:
   // {group} selects the port instance and keys nothing.
@@ -327,6 +328,31 @@ test('the background pans under a drag, and the drag does not clear the selectio
   );
   // The click that ends a pan is part of the pan, not a click on the backdrop.
   expect(await canvas.isDetailOpen()).toBe(true);
+});
+
+test('a kind on one address per instance lists them all', async ({ page }) => {
+  // A port family is one kind travelling one address per instance. Naming the
+  // first of them as "the" subject is how an edge into one instance reads as
+  // an edge into every sibling.
+  const kinds = [
+    {
+      ...eventModel.kinds[0],
+      subjects: [
+        'svc.connectors.alpha.{scope}.call',
+        'svc.connectors.beta.{scope}.call',
+      ],
+    },
+    eventModel.kinds[1],
+  ];
+  const canvas = await openCanvas(page, { ...eventModel, kinds });
+  await canvas.waitForDiagram();
+
+  await canvas.clickNode('connectors');
+  await canvas.clickDetailKind('connectors.command.call');
+
+  const facts = await canvas.facts();
+  expect(facts.subjects).toContain('svc.connectors.alpha.{scope}.call');
+  expect(facts.subjects).toContain('svc.connectors.beta.{scope}.call');
 });
 
 test('an empty model says where declarations go instead of drawing nothing', async ({ page }) => {

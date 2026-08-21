@@ -934,12 +934,28 @@ function KindDetail({
   const kind = kindByName(model).get(name);
   if (!kind) return <p className="hf-events-detail-empty">No kind named {name}.</p>;
 
+  const subjects = kind.subjects ?? (kind.pattern ? [kind.pattern] : []);
+
   return (
     <>
       <h2 className="hf-events-detail-title mono">{kind.name}</h2>
       {kind.description && <p className="hf-events-detail-desc">{kind.description}</p>}
       <dl className="hf-events-facts">
-        {kind.pattern && <Fact label="subject" value={kind.pattern} mono />}
+        {/* One kind can travel one address per port instance. Showing the
+            first of them as "the" subject is what makes an edge into one
+            instance read as an edge into all of them. */}
+        {subjects.length > 1 ? (
+          <>
+            <dt className="hf-events-facts-label">subjects</dt>
+            <dd className="hf-events-facts-value mono">
+              {subjects.map((subject) => (
+                <div key={subject}>{subject}</div>
+              ))}
+            </dd>
+          </>
+        ) : (
+          kind.pattern && <Fact label="subject" value={kind.pattern} mono />
+        )}
         {kind.partition_key && kind.partition_key.length > 0 && (
           <Fact label="partition" value={kind.partition_key.join(', ')} />
         )}

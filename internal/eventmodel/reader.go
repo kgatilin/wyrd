@@ -424,6 +424,44 @@ func kindHasPrefix(kind, owns string) bool {
 // order. The order is significant: it is the partition key layout, and two
 // subjects reading into the same component state must agree on it exactly.
 // It does not validate syntax; use ValidateSlotSyntax for that.
+// SubjectsMatch reports whether two declared subjects can carry the same
+// event.
+//
+// A subject is a dotted address whose segments are literals, `{slot}` tokens
+// the declaration left open, or `*`. Two subjects address the same events when
+// they have the same number of segments and every pair either agrees literally
+// or has an open segment on one side. Matching is what makes a port family
+// readable: a caller addressing `channel.{name}.…` reaches every channel
+// instance, while a caller addressing `channel.runner.…` reaches exactly one.
+//
+// A missing subject matches anything. A native declaration need not state one,
+// and dropping its flows would be a worse answer than drawing them.
+func SubjectsMatch(a, b string) bool {
+	if a == "" || b == "" {
+		return true
+	}
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	if len(as) != len(bs) {
+		return false
+	}
+	for i := range as {
+		if openSegment(as[i]) || openSegment(bs[i]) {
+			continue
+		}
+		if as[i] != bs[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// openSegment reports whether a segment stands for something rather than being
+// it: a `{slot}` the declaration left for the caller, or a `*`.
+func openSegment(segment string) bool {
+	return segment == "*" || strings.Contains(segment, "{")
+}
+
 func SlotTokens(subject string) []string {
 	var out []string
 	for i := 0; i < len(subject); {

@@ -67,8 +67,13 @@ type flowView struct {
 // kindView is one event kind, with everywhere it appears. This is what the
 // canvas shows when a reader selects an edge.
 type kindView struct {
-	Name         string   `json:"name"`
-	Pattern      string   `json:"pattern,omitempty"`
+	Name    string `json:"name"`
+	Pattern string `json:"pattern,omitempty"`
+	// Subjects is every address this kind was declared at, present only when
+	// there is more than one — a port family puts one kind on one address per
+	// instance, and showing a reader the first of them as if it were the
+	// address is how an edge that goes to one instance reads as going to all.
+	Subjects     []string `json:"subjects,omitempty"`
 	Description  string   `json:"description,omitempty"`
 	PartitionKey []string `json:"partition_key,omitempty"`
 	Delivery     string   `json:"delivery,omitempty"`
@@ -197,7 +202,12 @@ func kindViews(m *eventmodel.Model, g *eventmodel.Graph) []kindView {
 		comp := m.Components[id]
 		collect := func(slots []eventmodel.Slot, into map[string][]string) {
 			for _, slot := range slots {
-				into[slot.Kind] = append(into[slot.Kind], id)
+				// Once per component, not once per slot: a component that puts
+				// one kind on two addresses — one per port instance — declares
+				// two slots and is still one name in the list.
+				if !contains(into[slot.Kind], id) {
+					into[slot.Kind] = append(into[slot.Kind], id)
+				}
 				if descriptions[slot.Kind] == "" {
 					descriptions[slot.Kind] = slot.Description
 				}
@@ -227,6 +237,7 @@ func kindViews(m *eventmodel.Model, g *eventmodel.Graph) []kindView {
 		out = append(out, kindView{
 			Name:         name,
 			Pattern:      attrString(a, "pattern"),
+			Subjects:     attrStrings(a, "subjects"),
 			Description:  descriptions[name],
 			PartitionKey: attrStrings(a, "partition_key"),
 			Delivery:     attrString(a, "delivery"),
@@ -241,6 +252,15 @@ func kindViews(m *eventmodel.Model, g *eventmodel.Graph) []kindView {
 		})
 	}
 	return out
+}
+
+func contains(ids []string, id string) bool {
+	for _, existing := range ids {
+		if existing == id {
+			return true
+		}
+	}
+	return false
 }
 
 func trimKindNode(id string) string {

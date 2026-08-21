@@ -130,8 +130,14 @@ func BuildGraph(m *Model) *Graph {
 	imported := importedKinds(m)
 	patternDecls := patternDeclarations(m)
 	patternConflict := make(map[string]bool, len(patternDecls))
+	// Every address a kind was declared at, so a reader of one kind is not
+	// shown one address as if it were the only one. A port family is the case
+	// that makes this necessary: the kind is one vocabulary entry travelling
+	// one address per instance.
+	subjects := make(map[string][]string, len(patternDecls))
 	for kind, decls := range patternDecls {
 		patterns[kind] = decls[0].Pattern
+		subjects[kind] = distinctPatterns(decls)
 		if imported[kind] {
 			continue
 		}
@@ -203,6 +209,9 @@ func BuildGraph(m *Model) *Graph {
 		}
 		if pattern := patterns[kind]; pattern != "" {
 			attrs["pattern"] = pattern
+			if all := subjects[kind]; len(all) > 1 {
+				attrs["subjects"] = all
+			}
 			if part, ok := declaredPartition[kind]; ok {
 				attrs["partition_key"] = part
 			} else {
@@ -257,6 +266,13 @@ func BuildGraph(m *Model) *Graph {
 				attrs := map[string]any{}
 				if len(slot.Exposure) > 0 {
 					attrs["exposure"] = slot.Exposure
+				}
+				// The address this end declared. A kind node is one vertex for
+				// a kind that a port family puts on one address per instance,
+				// so the subject each end actually named is only recoverable
+				// from the edge.
+				if slot.Pattern != "" {
+					attrs["pattern"] = slot.Pattern
 				}
 				if len(attrs) == 0 {
 					attrs = nil
@@ -422,6 +438,34 @@ func parseCrossComponentRef(ref string) (compID, name string, ok bool) {
 }
 
 // ID helpers for graph nodes.
+// distinctPatterns lists the addresses a kind was declared at, once each, in
+// the order the declarations were read.
+func distinctPatterns(decls []patternDecl) []string {
+	out := make([]string, 0, len(decls))
+	seen := make(map[string]bool, len(decls))
+	for _, d := range decls {
+		if seen[d.Pattern] {
+			continue
+		}
+		seen[d.Pattern] = true
+		out = append(out, d.Pattern)
+	}
+	return out
+}
+
+// endpoint is one end of a port edge: the component that declared it and the
+// subject it declared. Two ends of the same kind are only connected when their
+// subjects match, so the subject travels with the component.
+type endpoint struct {
+	component string
+	pattern   string
+}
+
+func edgePattern(e Edge) string {
+	pattern, _ := e.Attrs["pattern"].(string)
+	return pattern
+}
+
 func componentID(id string) string    { return "component:" + id }
 func kindID(name string) string       { return "kind:" + name }
 func typeID(comp, name string) string { return "type:" + comp + "." + name }
@@ -532,49 +576,55 @@ func BuildFlows(g *Graph) []Flow {
 		}
 	}
 
-	producers := make(map[string][]string) // kind node id -> component ids
-	triggers := make(map[string][]string)
-	folders := make(map[string][]string)
+	producers := make(map[string][]endpoint) // kind node id -> declaring ends
+	triggers := make(map[string][]endpoint)
+	folders := make(map[string][]endpoint)
 	for _, e := range g.Edges {
 		switch e.Kind {
 		case EdgeOutput:
-			producers[e.To] = append(producers[e.To], trimComponentID(e.From))
+			producers[e.To] = append(producers[e.To], endpoint{trimComponentID(e.From), edgePattern(e)})
 		case EdgeInput:
-			triggers[e.From] = append(triggers[e.From], trimComponentID(e.To))
+			triggers[e.From] = append(triggers[e.From], endpoint{trimComponentID(e.To), edgePattern(e)})
 		case EdgeStateEvent:
-			folders[e.From] = append(folders[e.From], trimComponentID(e.To))
+			folders[e.From] = append(folders[e.From], endpoint{trimComponentID(e.To), edgePattern(e)})
 		}
 	}
 
 	var flows []Flow
-	for kindNode, from := range producers {
+	for kindNode, appends := range producers {
 		kind := trimKindID(kindNode)
 
-		triggered := make(map[string]bool, len(triggers[kindNode]))
-		for _, to := range triggers[kindNode] {
-			triggered[to] = true
-		}
-		observers := make(map[string]bool, len(triggered)+len(folders[kindNode]))
-		for to := range triggered {
-			observers[to] = true
-		}
-		for _, to := range folders[kindNode] {
-			observers[to] = true
-		}
-
-		for _, producer := range from {
-			for to := range observers {
-				if producer == to {
+		// An append reaches an observer when the two subjects address the same
+		// events. Sharing a kind name is not enough: a port family puts one
+		// kind on one address per instance, and a producer that named a single
+		// instance reaches that one, not every sibling that takes the kind.
+		reached := make(map[[2]string]bool)
+		for _, out := range appends {
+			for _, in := range triggers[kindNode] {
+				if in.component == out.component || !SubjectsMatch(out.pattern, in.pattern) {
 					continue
 				}
-				flows = append(flows, Flow{
-					From:    producer,
-					To:      to,
-					Kind:    kind,
-					Trigger: triggered[to],
-					Health:  health[kindNode],
-				})
+				reached[[2]string{out.component, in.component}] = true
 			}
+			for _, fold := range folders[kindNode] {
+				if fold.component == out.component || !SubjectsMatch(out.pattern, fold.pattern) {
+					continue
+				}
+				pair := [2]string{out.component, fold.component}
+				if _, seen := reached[pair]; !seen {
+					reached[pair] = false
+				}
+			}
+		}
+
+		for pair, trigger := range reached {
+			flows = append(flows, Flow{
+				From:    pair[0],
+				To:      pair[1],
+				Kind:    kind,
+				Trigger: trigger,
+				Health:  health[kindNode],
+			})
 		}
 	}
 

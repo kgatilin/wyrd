@@ -1,6 +1,7 @@
 package eventmodel
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -386,4 +387,105 @@ func TestBuildGraphNoPatternConflictFlagWhenConsistent(t *testing.T) {
 		}
 	}
 	t.Fatal("kind node not found")
+}
+
+// A port family is one kind on one address per instance. A producer that named
+// a single instance reaches that instance — not every sibling that takes the
+// same kind, which is what a kind-name-only rule draws.
+func TestBuildFlowsMatchesOnAddress(t *testing.T) {
+	const (
+		runnerSubject = "app.{tenant}.channel.runner.thread.{thread}.command.message.send"
+		slackSubject  = "app.{tenant}.channel.slack.thread.{thread}.command.message.send"
+		anyChannel    = "app.{tenant}.channel.{name}.thread.{thread}.command.message.send"
+		kind          = "channel.command.message.send"
+	)
+
+	runner := comp("channel/runner", "app.{tenant}.channel.runner")
+	runner.Inputs = []Slot{{Kind: kind, Pattern: runnerSubject}}
+	slack := comp("channel/slack", "app.{tenant}.channel.slack")
+	slack.Inputs = []Slot{{Kind: kind, Pattern: slackSubject}}
+
+	t.Run("an append to one instance reaches that instance", func(t *testing.T) {
+		egress := comp("egress/router", "app.{tenant}.egress")
+		egress.Outputs = []Slot{{Kind: kind, Pattern: runnerSubject}}
+
+		flows := BuildFlows(BuildGraph(model(runner, slack, egress)))
+
+		want := []Flow{{From: "egress/router", To: "channel/runner", Kind: kind, Trigger: true, Health: "ok"}}
+		if !reflect.DeepEqual(flows, want) {
+			t.Errorf("flows = %+v, want %+v", flows, want)
+		}
+	})
+
+	t.Run("an append to each instance reaches each once", func(t *testing.T) {
+		egress := comp("egress/router", "app.{tenant}.egress")
+		egress.Outputs = []Slot{
+			{Kind: kind, Pattern: runnerSubject},
+			{Kind: kind, Pattern: slackSubject},
+		}
+
+		flows := BuildFlows(BuildGraph(model(runner, slack, egress)))
+
+		want := []Flow{
+			{From: "egress/router", To: "channel/runner", Kind: kind, Trigger: true, Health: "ok"},
+			{From: "egress/router", To: "channel/slack", Kind: kind, Trigger: true, Health: "ok"},
+		}
+		if !reflect.DeepEqual(flows, want) {
+			t.Errorf("flows = %+v, want %+v", flows, want)
+		}
+	})
+
+	t.Run("an append with the instance left open reaches the family", func(t *testing.T) {
+		egress := comp("egress/router", "app.{tenant}.egress")
+		egress.Outputs = []Slot{{Kind: kind, Pattern: anyChannel}}
+
+		flows := BuildFlows(BuildGraph(model(runner, slack, egress)))
+
+		want := []Flow{
+			{From: "egress/router", To: "channel/runner", Kind: kind, Trigger: true, Health: "ok"},
+			{From: "egress/router", To: "channel/slack", Kind: kind, Trigger: true, Health: "ok"},
+		}
+		if !reflect.DeepEqual(flows, want) {
+			t.Errorf("flows = %+v, want %+v", flows, want)
+		}
+	})
+
+	t.Run("a declaration with no address still draws its flow", func(t *testing.T) {
+		plain := comp("audit", "audit")
+		plain.Inputs = []Slot{{Kind: "audit.event.recorded"}}
+		writer := comp("ledger", "ledger")
+		writer.Outputs = []Slot{{Kind: "audit.event.recorded", Pattern: "svc.ledger.recorded"}}
+
+		flows := BuildFlows(BuildGraph(model(plain, writer)))
+
+		want := []Flow{{From: "ledger", To: "audit", Kind: "audit.event.recorded", Trigger: true, Health: "ok"}}
+		if !reflect.DeepEqual(flows, want) {
+			t.Errorf("flows = %+v, want %+v", flows, want)
+		}
+	})
+}
+
+func TestSubjectsMatch(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{"identical", "a.b.{c}", "a.b.{c}", true},
+		{"a slot takes a literal", "a.{name}.c", "a.slack.c", true},
+		{"two literals must agree", "a.runner.c", "a.slack.c", false},
+		{"a star is open too", "svc.*.billing.issued", "svc.app.billing.issued", true},
+		{"different lengths address different things", "a.b.c", "a.b.c.d", false},
+		{"a missing subject matches anything", "", "a.b.c", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SubjectsMatch(tt.a, tt.b); got != tt.want {
+				t.Errorf("SubjectsMatch(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+			if got := SubjectsMatch(tt.b, tt.a); got != tt.want {
+				t.Errorf("SubjectsMatch(%q, %q) = %v, want %v (not symmetric)", tt.b, tt.a, got, tt.want)
+			}
+		})
+	}
 }

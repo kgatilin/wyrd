@@ -50,6 +50,8 @@ export interface EventFlow {
 export interface EventKind {
   name: string;
   pattern?: string;
+  /** Every address the kind was declared at, when it travels more than one. */
+  subjects?: string[];
   description?: string;
   partition_key?: string[];
   delivery?: string;
