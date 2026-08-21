@@ -149,7 +149,8 @@ Two exemptions, both deliberate:
 
 Place `.arch/events.yaml` in each component's directory. wyrd walks the tree
 from the specified root, entering `.arch/` directories and reading
-`events.yaml` when present.
+`events.yaml` when present. It reads `.arch/asyncapi.yaml` from the same
+directory too — see [Reading AsyncAPI](#reading-asyncapi-declarations).
 
 **Skipped directories** (below the root, not at the root itself):
 `.git`, `.worktrees`, `.claude`, `bin`, `vendor`, `node_modules`, `testdata`.
@@ -235,6 +236,85 @@ extra:                           # optional; opaque passthrough for templates
 `componet:` or `inpts:` are caught immediately. A file still on `version: 1` is
 rejected with a message naming what changed, because the old shape
 (`receives`/`emits`/`folds`) parses far enough to fail confusingly.
+
+## Reading AsyncAPI declarations
+
+A project that already publishes its event log as AsyncAPI 3 does not have to
+restate it. Put the document at `.arch/asyncapi.yaml` and wyrd projects it onto
+the same three lists, so the graph, the canvas and the MCP tools work over it
+without knowing which format it came from. Both files may sit in one `.arch/`
+directory; they produce two components, and only colliding ids are an error.
+
+wyrd reads the documents. It does not write them — there is no projection from
+`events.yaml` to AsyncAPI.
+
+### The extension the documents carry
+
+AsyncAPI describes what one application sends and receives. Four facts of an
+event-log contract have no vocabulary in it, and the documents carry them under
+a single `x-eventlog` key at four locations:
+
+| Where | Field | What it says |
+|---|---|---|
+| root | `owns` | address prefixes this application owns |
+| root | `key` | the fold's partition key, in canonical order |
+| root | `addressing` | the framework prefix and the tenant parameter |
+| root | `port` | the instance parameter and the family it names |
+| channel | `partition` | which of this address's parameters are partition coordinates |
+| operation | `role` | `command`, `event`, `call` or `observe` |
+| message | `class` | `command` or `event` |
+
+Documents state `vocabulary: eventlog-asyncapi/1` at the root as a version gate.
+
+### Roles map onto the three lists
+
+| `x-eventlog.role` | action | address | wyrd list |
+|---|---|---|---|
+| `command` | receive | owned | `inputs` |
+| `observe` | receive | either | `state_events` |
+| `event` | send | owned | `outputs` |
+| `call` | send | foreign | `outputs` |
+
+The source model's read-set is commands plus observes, which is inputs plus
+state events exactly. What the projection drops is the event/call distinction,
+and it is recoverable by matching the address against `owns`. Both are kept on
+the slot for display, so the canvas still shows a call as a call.
+
+A document with no `x-eventlog` at all still reads: `action: receive` becomes an
+observe and `send` becomes an output. That is enough to place every operation,
+and not enough to tell an event from a call.
+
+### The partition key is read, not derived
+
+For a native declaration the key is every `{slot}` of the pattern. That rule is
+wrong for an AsyncAPI address, which is in wire coordinates: `{tenant}` is
+stamped by the bus and the port parameter selects an instance, and neither keys
+a fold. The document states the answer — `x-eventlog.key` at the root, and
+`partition` per channel — and wyrd takes it verbatim.
+
+### A port is one component
+
+One document describes a family of instances sharing a contract. It reads as one
+component; `port.instances` and any per-operation `instances` ride along and are
+shown on the node and in its detail. Nothing expands the family into one
+component per instance.
+
+### Imported declarations are not validated
+
+`wyrd plugin events validate` skips them, and so does the CLI's component count.
+Every rule is written against the native format's conventions, and the imported
+form breaks three of them by construction:
+
+- a port puts one kind on one address per instance, so `kind-pattern-conflict`
+  would fire on every port kind;
+- a caller may bind coordinates the owner leaves open, which is the same rule
+  again from the other side;
+- a document describes one application, not a closed system, so closure warnings
+  would fire on every edge that leaves it.
+
+wyrd reads a published document to draw it, not to grade it. The graph still
+computes health across the composed set, so a kind nobody in the repo observes
+still reads as an orphan on the canvas.
 
 ## Schemas
 
@@ -461,8 +541,28 @@ Renders each component's declaration through project-supplied templates. See
 
 ### HTTP
 
-`GET /api/plugins/events/model` returns the composed model and projected graph
-as JSON.
+`GET /api/plugins/events/model` returns the composed model in the canvas's
+units: `components`, `flows` and `kinds`.
+
+A flow is one producer-to-observer edge with the kind it carries and whether
+that kind triggers the target or is only folded by it — the bipartite graph
+collapsed onto the components, which is what a reader of an event model looks
+at. Empty repos answer with empty lists, never nulls.
+
+### Canvas
+
+The **Events** button in the app bar opens the event canvas over the review
+canvas. One node per component, one edge per component pair labelled with what
+travels it, solid for a trigger and dashed for a fold. Clicking a node accents
+everything it touches and opens its three lists; clicking a kind shows its
+subject, partition coordinates, class, schema owner, payload schema and everyone
+that appends, is triggered by, or folds it. Esc puts the detail down, and a
+second Esc closes the canvas.
+
+An imported node is marked `asyncapi` and says so in its detail, because it is
+not validated. A component nothing reaches and that reaches nothing is drawn
+with a dashed border rather than dropped — a declaration reaching nobody is the
+finding the picture exists to make visible.
 
 ## Graph Projection
 

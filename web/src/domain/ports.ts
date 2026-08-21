@@ -1,5 +1,6 @@
 import type { UIGraph } from '../types';
 import type { ArchMotifScopeInput, RawLatentDomains } from './archMotifDomains';
+import type { EventModel } from './eventModel';
 import type { RawAskHit } from './ask';
 import type { Interaction } from './state';
 
@@ -33,6 +34,15 @@ export interface LensPort {
  */
 export interface DomainsPort {
   load(scope: ArchMotifScopeInput, options: { worktree?: string }): Promise<RawLatentDomains>;
+}
+
+/**
+ * The composed event model. Its own transport, like DomainsPort: the plugin
+ * serves it from its own endpoint, and the answer is a whole model rather than
+ * one tool's result.
+ */
+export interface EventModelPort {
+  load(options: { worktree?: string }): Promise<EventModel>;
 }
 
 export interface NavigationPort {

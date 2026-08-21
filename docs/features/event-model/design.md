@@ -38,8 +38,10 @@ a non-goal; *parseability, completeness and checkability* are the goals.
 
 ## Non-goals (v1)
 
-- AsyncAPI / xRegistry / CloudEvents projections. The format is shaped so these
-  map mechanically later, but nothing is built for them now.
+- xRegistry / CloudEvents projections. The format is shaped so these map
+  mechanically later, but nothing is built for them now. (AsyncAPI 3 is now
+  read, not written: see "Reading AsyncAPI declarations" in the usage guide.
+  There is still no projection out of wyrd into AsyncAPI.)
 - A persistent declaration registry, federated admission control, breaking-change
   diffing across deploys.
 - Runtime conformance (observed log vs declared graph).

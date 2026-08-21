@@ -129,13 +129,33 @@ function chromeSlice(state: AppState, event: Event): AppState {
     case 'ArchMotifToggled':
       return { ...state, ui: { ...state.ui, archMotifOpen: !state.ui.archMotifOpen } };
     case 'ArchMotifCanvasOpened':
-      return { ...state, ui: { ...state.ui, archMotifCanvas: { open: true, scope: event.scope } } };
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          archMotifCanvas: { open: true, scope: event.scope },
+          eventCanvasOpen: false,
+        },
+      };
     case 'ArchMotifCanvasClosed':
       // The scope survives a close: reopening lands back on the question the
       // reviewer was asking, not on the default one.
       return { ...state, ui: { ...state.ui, archMotifCanvas: { ...state.ui.archMotifCanvas, open: false } } };
     case 'ArchMotifScopeChanged':
       return { ...state, ui: { ...state.ui, archMotifCanvas: { ...state.ui.archMotifCanvas, scope: event.scope } } };
+    case 'EventCanvasToggled':
+      // Two canvases cover the same pane, so opening this one puts the other
+      // down rather than stacking a second full-bleed overlay on top of it.
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          eventCanvasOpen: !state.ui.eventCanvasOpen,
+          archMotifCanvas: { ...state.ui.archMotifCanvas, open: false },
+        },
+      };
+    case 'EventCanvasClosed':
+      return { ...state, ui: { ...state.ui, eventCanvasOpen: false } };
     case 'EdgesHighlighted':
       // Clicking the same row again takes the accent off. A pointer you cannot
       // put down accumulates, and two findings accented at once read as one.

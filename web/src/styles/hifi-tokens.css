@@ -3359,3 +3359,281 @@ body {
 }
 .hf-domains-state.error .hf-domains-state-title { color: var(--rem-fg); }
 .hf-domains-state.no-embedder .hf-domains-state-title { color: var(--chg-fg); }
+
+/* ── Event canvas ────────────────────────────────────────────────────────────
+   Covers the centre pane like the domains grid: who appends what, and who it
+   reaches. Geometry comes from ELK (layout/eventLayout.ts), so the diagram is
+   one SVG with absolute coordinates rather than flowed elements. */
+.hf-events {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-0);
+}
+.hf-events-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-1);
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+.hf-events-title { display: flex; align-items: center; gap: 8px; }
+.hf-events-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--fg-2);
+}
+.hf-events-stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.hf-events-stat {
+  font-size: 11px;
+  color: var(--fg-2);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+.hf-events-stat.warn { color: var(--chg-fg); border-color: var(--chg-line); }
+.hf-events-stat.import { color: var(--syn-fn); border-color: var(--layer-internal-line); }
+
+.hf-events-legend { display: flex; gap: 12px; margin-left: auto; }
+.hf-events-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--fg-3);
+}
+.hf-events-legend-line { stroke: var(--fg-3); stroke-width: 1.5; }
+.hf-events-legend-line.fold { stroke-dasharray: 4 3; }
+
+.hf-events-close {
+  background: none;
+  border: none;
+  color: var(--fg-3);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.hf-events-close:hover { color: var(--fg-0); }
+
+.hf-events-body { display: flex; flex: 1; min-height: 0; }
+.hf-events-stage { flex: 1; overflow: auto; min-width: 0; }
+.hf-events-svg { display: block; }
+
+.hf-events-notice {
+  padding: 24px;
+  font-size: 12px;
+  color: var(--fg-2);
+  max-width: 560px;
+  line-height: 1.6;
+}
+.hf-events-notice.error { color: var(--rem-fg); }
+
+/* Nodes. A component is a box; the counts under the name are the three lists,
+   coloured the way their edges are. */
+.hf-events-node { cursor: pointer; }
+.hf-events-node-box {
+  fill: var(--bg-1);
+  stroke: var(--line-2);
+  stroke-width: 1;
+}
+.hf-events-node:hover .hf-events-node-box { stroke: var(--line-3); }
+.hf-events-node.on .hf-events-node-box { stroke: var(--accent); fill: var(--accent-bg); }
+.hf-events-node.dim { opacity: 0.32; }
+/* A declaration nothing reaches and that reaches nothing. Dashed rather than
+   hidden: it is the finding this picture exists to make visible. */
+.hf-events-node.isolated .hf-events-node-box { stroke-dasharray: 4 3; stroke: var(--chg-line); }
+
+.hf-events-node-name {
+  fill: var(--fg-0);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.hf-events-node-badge {
+  fill: var(--syn-fn);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.hf-events-node-sub { fill: var(--fg-3); font-size: 10px; }
+.hf-events-node-counts { font-size: 10px; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.hf-events-node-counts .in { fill: var(--accent); }
+.hf-events-node-counts .out { fill: var(--add-fg); }
+.hf-events-node-counts .state { fill: var(--syn-fn); }
+
+/* Links. Solid triggers, dashed folds — the same distinction the mermaid
+   output draws, for the same reason: being driven by an event and remembering
+   it are different relationships. */
+.hf-events-link { cursor: pointer; }
+.hf-events-line {
+  fill: none;
+  stroke: var(--line-3);
+  stroke-width: 1.4;
+}
+.hf-events-line.fold { stroke-dasharray: 5 4; }
+.hf-events-line.starved,
+.hf-events-line.orphan { stroke: var(--chg-line); }
+.hf-events-line.ambiguous { stroke: var(--rem-line); }
+.hf-events-link:hover .hf-events-line { stroke: var(--fg-2); }
+.hf-events-link.on .hf-events-line { stroke: var(--accent); stroke-width: 2; }
+.hf-events-link.dim { opacity: 0.22; }
+.hf-events-arrow { fill: var(--line-3); }
+.hf-events-arrow.on { fill: var(--accent); }
+
+.hf-events-label-bg { fill: var(--bg-0); stroke: var(--line-1); stroke-width: 1; }
+.hf-events-label-text {
+  fill: var(--fg-2);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.hf-events-link.on .hf-events-label-text { fill: var(--accent); }
+.hf-events-link.on .hf-events-label-bg { stroke: var(--accent-line); }
+
+/* Detail rail. */
+.hf-events-detail {
+  position: relative;
+  width: 380px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--line-1);
+  background: var(--bg-1);
+  overflow-y: auto;
+  padding: 14px 16px 24px;
+}
+.hf-events-detail-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--fg-3);
+  font-size: 16px;
+  cursor: pointer;
+}
+.hf-events-detail-close:hover { color: var(--fg-0); }
+.hf-events-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0 22px 6px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-0);
+}
+.hf-events-detail-title.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
+.hf-events-detail-desc { margin: 0 0 12px; font-size: 12px; color: var(--fg-2); line-height: 1.55; }
+.hf-events-detail-empty { font-size: 12px; color: var(--fg-3); }
+
+.hf-events-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin: 0 0 14px;
+  font-size: 11px;
+}
+.hf-events-facts-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+}
+.hf-events-facts-value { margin: 0; color: var(--fg-1); word-break: break-all; }
+.hf-events-facts-value.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; }
+.hf-events-facts-value.warn { color: var(--chg-fg); }
+
+.hf-events-section-title {
+  margin: 14px 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+.hf-events-section-hint {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--fg-3);
+}
+
+.hf-events-slots { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.hf-events-slot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  background: var(--bg-2);
+  border: 1px solid var(--line-1);
+  border-radius: 4px;
+  padding: 5px 8px;
+  cursor: pointer;
+  color: inherit;
+}
+.hf-events-slot:hover { border-color: var(--line-3); background: var(--bg-hover); }
+.hf-events-slot-kind {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--fg-0);
+}
+.hf-events-slot-pattern {
+  flex-basis: 100%;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--fg-3);
+  word-break: break-all;
+}
+.hf-events-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  padding: 1px 5px;
+  border: 1px solid var(--line-2);
+  color: var(--fg-3);
+}
+.hf-events-tag.trigger { color: var(--accent); border-color: var(--accent-line); }
+.hf-events-tag.fold { color: var(--syn-fn); border-color: var(--layer-internal-line); }
+.hf-events-tag.role { color: var(--fg-2); }
+.hf-events-tag.excl { color: var(--chg-fg); border-color: var(--chg-line); }
+
+.hf-events-participants { margin: 0 0 6px; font-size: 11px; color: var(--fg-2); }
+.hf-events-none { color: var(--fg-3); font-style: italic; }
+.hf-events-link-btn {
+  background: none;
+  border: none;
+  padding: 0 4px 0 0;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--accent);
+  cursor: pointer;
+}
+.hf-events-link-btn:hover { text-decoration: underline; }
+.hf-events-arrow-glyph { color: var(--fg-3); }
+
+.hf-events-schema {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg-0);
+  border: 1px solid var(--line-1);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--fg-1);
+  overflow-x: auto;
+  max-height: 320px;
+}

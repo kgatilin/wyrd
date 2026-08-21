@@ -14,6 +14,10 @@ export interface AppBarProps {
   onDomains?: () => void;
   /** The domains canvas is up in place of the review canvas */
   domainsOn?: boolean;
+  /** Open the event canvas: who appends what, and who it reaches */
+  onEvents?: () => void;
+  /** The event canvas is up in place of the review canvas */
+  eventsOn?: boolean;
   /** Open the file-level diff of the reviewed branch */
   onDiff?: () => void;
   /** Open the ask panel and put the cursor in its question box */
@@ -32,6 +36,8 @@ export function AppBar({
   onReport,
   onDomains,
   domainsOn = false,
+  onEvents,
+  eventsOn = false,
   onDiff,
   onAsk,
   asking = false,
@@ -89,6 +95,13 @@ export function AppBar({
         title="Read the structural clusters against the semantic ones"
       >
         Domains
+      </button>
+      <button
+        className={`hf-btn ${eventsOn ? 'on' : ''}`}
+        onClick={onEvents}
+        title="Read the event model: who appends what, and who it reaches"
+      >
+        Events
       </button>
       <button
         className="hf-btn"

@@ -26,6 +26,8 @@ export type Event =
   | { type: 'ArchMotifCanvasOpened'; scope: ArchMotifScope }
   | { type: 'ArchMotifCanvasClosed' }
   | { type: 'ArchMotifScopeChanged'; scope: ArchMotifScope }
+  | { type: 'EventCanvasToggled' }
+  | { type: 'EventCanvasClosed' }
   | { type: 'EdgesHighlighted'; edges: HighlightedEdge[] }
   | { type: 'EdgesHighlightCleared' }
   | { type: 'ZoomChanged'; zoom: number }

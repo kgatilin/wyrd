@@ -85,6 +85,8 @@ export interface AppUI {
   archMotifOpen: boolean;
   /** ArchMotif domains canvas — replaces the review canvas while open. */
   archMotifCanvas: ArchMotifCanvasState;
+  /** Event canvas — replaces the review canvas while open. */
+  eventCanvasOpen: boolean;
   /**
    * Edges the review report asked the canvas to accent. It lives in the store
    * rather than in the panel because the canvas draws it: closing the panel
@@ -185,6 +187,7 @@ export const initialState: AppState = {
     leftCollapsed: false,
     archMotifOpen: false,
     archMotifCanvas: { open: false, scope: { kind: 'diff' } },
+    eventCanvasOpen: false,
     highlightedEdges: [],
     activeChangeId: null,
     activeMarkerId: null,

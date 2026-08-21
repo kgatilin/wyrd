@@ -1,0 +1,203 @@
+import { test, expect, type Page } from '@playwright/test';
+import { PlaywrightEnvironment, routeGraph } from '../testing/harness/playwright-env';
+import { AppHarness } from '../testing/harness/app.harness';
+import { EventCanvasHarness } from '../testing/harness/event-canvas.harness';
+import { diffGraph } from '../testing/fixtures';
+
+/**
+ * The event model the daemon serves, in the shape the endpoint answers with.
+ * Two imported AsyncAPI documents and one native declaration, which is the
+ * mixed case the canvas exists to draw: `router` calls into `connectors`, and
+ * `audit` folds what `connectors` appends.
+ */
+const eventModel = {
+  components: [
+    {
+      id: 'audit',
+      owns: 'audit',
+      description: 'Read models over the event log',
+      source_file: '/repo/audit/.arch/events.yaml',
+      partition_key: ['scope'],
+      has_state: true,
+      state_events: [{ kind: 'connectors.event.call.completed', pattern: 'svc.connectors.{scope}.completed' }],
+    },
+    {
+      id: 'connectors',
+      owns: 'connectors',
+      description: 'Event-log port connectors; one instance per configured backend.',
+      source: 'asyncapi',
+      source_file: '/repo/connectors/.arch/asyncapi.yaml',
+      partition_key: ['scope'],
+      has_state: false,
+      instances: ['alpha', 'beta'],
+      inputs: [
+        {
+          kind: 'connectors.command.call',
+          pattern: 'svc.connectors.{group}.{scope}.call',
+          description: 'Request one operation from the configured backend',
+          role: 'command',
+        },
+      ],
+      outputs: [
+        {
+          kind: 'connectors.event.call.completed',
+          pattern: 'svc.connectors.{group}.{scope}.completed',
+          role: 'event',
+        },
+      ],
+    },
+    {
+      id: 'router',
+      owns: 'router',
+      source: 'asyncapi',
+      source_file: '/repo/router/.arch/asyncapi.yaml',
+      partition_key: ['session'],
+      has_state: false,
+      outputs: [
+        {
+          kind: 'connectors.command.call',
+          pattern: 'svc.connectors.alpha.{session}.call',
+          role: 'call',
+          instances: ['north'],
+        },
+      ],
+    },
+  ],
+  flows: [
+    { from: 'connectors', to: 'audit', kind: 'connectors.event.call.completed', trigger: false, health: 'ok' },
+    { from: 'router', to: 'connectors', kind: 'connectors.command.call', trigger: true, health: 'ok' },
+  ],
+  kinds: [
+    {
+      name: 'connectors.command.call',
+      pattern: 'svc.connectors.{group}.{scope}.call',
+      description: 'Request one operation from the configured backend',
+      partition_key: ['scope'],
+      delivery: 'broadcast',
+      health: 'ok',
+      class: 'command',
+      owner: 'connectors',
+      producers: ['router'],
+      triggers: ['connectors'],
+      schema: { type: 'object', properties: { op: { type: 'string' } } },
+    },
+    {
+      name: 'connectors.event.call.completed',
+      pattern: 'svc.connectors.{group}.{scope}.completed',
+      partition_key: ['scope'],
+      delivery: 'broadcast',
+      health: 'ok',
+      class: 'event',
+      owner: 'connectors',
+      producers: ['connectors'],
+      folders: ['audit'],
+    },
+  ],
+};
+
+async function openCanvas(page: Page, model: unknown = eventModel) {
+  await routeGraph(page, diffGraph);
+  await page.route('**/api/plugins/events/model', (route) => route.fulfill({ json: model as object }));
+  await page.goto('/');
+
+  const env = new PlaywrightEnvironment(page);
+  const app = await env.load(AppHarness);
+  await app.waitForLoaded();
+
+  const canvas = await env.load(EventCanvasHarness);
+  await canvas.open();
+  return canvas;
+}
+
+test('the canvas draws a node per component and one edge per pair', async ({ page }) => {
+  const canvas = await openCanvas(page);
+  await canvas.waitForDiagram();
+
+  expect((await canvas.nodeNames()).sort()).toEqual(['audit', 'connectors', 'router']);
+  // Edge labels are the last two segments of the kind — the leading ones
+  // repeat the component the edge starts at.
+  expect((await canvas.linkLabels()).sort()).toEqual(['call.completed', 'command.call']);
+});
+
+test('the header counts what was read, and says how much of it is imported', async ({ page }) => {
+  const canvas = await openCanvas(page);
+  await canvas.waitForDiagram();
+
+  const stats = await canvas.stats();
+  expect(stats).toContain('3 components');
+  expect(stats).toContain('2 kinds');
+  expect(stats).toContain('2 imported');
+});
+
+test('selecting a component accents what it touches and opens its three lists', async ({ page }) => {
+  const canvas = await openCanvas(page);
+  await canvas.waitForDiagram();
+
+  await canvas.clickNode('connectors');
+
+  expect(await canvas.isDetailOpen()).toBe(true);
+  expect(await canvas.detailTitle()).toBe('connectors');
+  // connectors, plus router upstream and audit downstream.
+  expect(await canvas.accentedNodeCount()).toBe(3);
+
+  const sections = await canvas.detailSections();
+  expect(sections.some((s) => s.startsWith('Inputs'))).toBe(true);
+  expect(sections.some((s) => s.startsWith('Outputs'))).toBe(true);
+
+  const facts = await canvas.facts();
+  expect(facts.instances).toBe('alpha, beta');
+  expect(facts.source).toContain('AsyncAPI');
+});
+
+test('a native declaration is not labelled as imported', async ({ page }) => {
+  const canvas = await openCanvas(page);
+  await canvas.waitForDiagram();
+
+  await canvas.clickNode('audit');
+
+  const facts = await canvas.facts();
+  expect(facts.source).toBeUndefined();
+  expect(facts.file).toContain('events.yaml');
+});
+
+test('a kind opens from a component, and names everyone it reaches', async ({ page }) => {
+  const canvas = await openCanvas(page);
+  await canvas.waitForDiagram();
+
+  await canvas.clickNode('connectors');
+  await canvas.clickDetailKind('connectors.command.call');
+
+  expect(await canvas.detailTitle()).toBe('connectors.command.call');
+  const facts = await canvas.facts();
+  expect(facts.subject).toBe('svc.connectors.{group}.{scope}.call');
+  expect(facts.class).toBe('command');
+  // The coordinates the document declared, not every {slot} of the address:
+  // {group} selects the port instance and keys nothing.
+  expect(facts.partition).toBe('scope');
+});
+
+test('Esc puts the detail down first and the canvas second', async ({ page }) => {
+  const canvas = await openCanvas(page);
+  await canvas.waitForDiagram();
+
+  await canvas.clickNode('router');
+  expect(await canvas.isDetailOpen()).toBe(true);
+
+  await page.keyboard.press('Escape');
+  expect(await canvas.isDetailOpen()).toBe(false);
+  expect(await canvas.isPresent()).toBe(true);
+
+  await page.keyboard.press('Escape');
+  await canvas.env.waitUntil(async () => !(await canvas.isPresent()), {
+    message: 'the canvas stayed up after a second Escape',
+  });
+});
+
+test('an empty model says where declarations go instead of drawing nothing', async ({ page }) => {
+  const canvas = await openCanvas(page, { components: [], flows: [], kinds: [] });
+
+  await canvas.env.waitUntil(async () => (await canvas.notice()) !== null, {
+    message: 'no notice for an empty model',
+  });
+  expect(await canvas.notice()).toContain('.arch/asyncapi.yaml');
+});

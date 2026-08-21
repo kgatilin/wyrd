@@ -31,6 +31,7 @@ import { Tree, TreeFocusTarget } from './components/Tree';
 import { SourceDrawer, type SaveSourceResult, type SourceDrawerState } from './components/SourceDrawer';
 import { ArchMotifPanel, useArchReportSession } from './components/ArchMotifPanel';
 import { ArchMotifCanvas } from './components/ArchMotifCanvas';
+import { EventCanvas } from './components/EventCanvas';
 import { AskPanel } from './components/AskPanel';
 import { DiffOverlay, useDiffSession } from './components/DiffOverlay';
 import { SymbolGraphOverlay } from './components/SymbolGraphOverlay';
@@ -39,7 +40,7 @@ import { PinnedMarker } from './components/PinnedMarker';
 import type { SymbolFocusTarget } from './domain/symbolFocus';
 import type { ArchMotifScope } from './domain/state';
 import type { ReportAction } from './domain/archReport';
-import type { DomainsPort, LensPort } from './domain/ports';
+import type { DomainsPort, EventModelPort, LensPort } from './domain/ports';
 
 /**
  * Embed mode (?embed=1): render just the review canvas + reviewbar — no
@@ -56,18 +57,28 @@ const EMBED =
  * now drives data/layout/semantic state. AppContent renders once a graph exists.
  */
 export default function App() {
-  const [{ store, viewport, lens, domains }] = useState(() => createAppStore());
+  const [{ store, viewport, lens, domains, events }] = useState(() => createAppStore());
   useEffect(() => {
     store.dispatch({ type: 'GraphRequested' });
   }, [store]);
   return (
     <StoreProvider store={store}>
-      <AppRoot viewport={viewport} lens={lens} domains={domains} />
+      <AppRoot viewport={viewport} lens={lens} domains={domains} events={events} />
     </StoreProvider>
   );
 }
 
-function AppRoot({ viewport, lens, domains }: { viewport: DomViewport; lens: LensPort; domains: DomainsPort }) {
+function AppRoot({
+  viewport,
+  lens,
+  domains,
+  events,
+}: {
+  viewport: DomViewport;
+  lens: LensPort;
+  domains: DomainsPort;
+  events: EventModelPort;
+}) {
   const theme = useStore((s) => s.ui.theme);
   const load = useStore((s) => s.load);
   const graph = useStore((s) => s.graph);
@@ -89,7 +100,7 @@ function AppRoot({ viewport, lens, domains }: { viewport: DomViewport; lens: Len
   if (!graph || pending) {
     return <LoadingScreen theme={theme} worktree={pending} />;
   }
-  return <AppContent graph={graph} viewport={viewport} lens={lens} domains={domains} />;
+  return <AppContent graph={graph} viewport={viewport} lens={lens} domains={domains} events={events} />;
 }
 
 function LoadingScreen({
@@ -138,11 +149,13 @@ function AppContent({
   viewport,
   lens,
   domains,
+  events,
 }: {
   graph: UIGraph;
   viewport: DomViewport;
   lens: LensPort;
   domains: DomainsPort;
+  events: EventModelPort;
 }) {
   // Store-owned data/layout/semantic state (Plan 2a/2c). The viewport (zoom/pan/
   // scroll) remains a local island.
@@ -159,6 +172,8 @@ function AppContent({
   const ask = useStore((s) => s.ask);
   const archMotifOpen = useStore((s) => s.ui.archMotifOpen);
   const archMotifCanvas = useStore((s) => s.ui.archMotifCanvas);
+  const eventCanvasOpen = useStore((s) => s.ui.eventCanvasOpen);
+  const [eventReloadToken, setEventReloadToken] = useState(0);
   const highlightedEdges = useStore((s) => s.ui.highlightedEdges);
   const markers = useStore((s) => s.markers);
   const activeMarkerId = useStore((s) => s.ui.activeMarkerId);
@@ -298,6 +313,9 @@ function AppContent({
         // different working trees.
         reloadDiff();
         reloadReport();
+        // The declarations live in the working tree too, so the event canvas
+        // re-reads with everything else rather than showing the old model.
+        setEventReloadToken((token) => token + 1);
       }, 250);
     });
     return () => {
@@ -789,6 +807,8 @@ function AppContent({
         onReport={toggleArchMotifPanel}
         onDomains={toggleDomainsCanvas}
         domainsOn={archMotifCanvas.open}
+        onEvents={() => dispatch({ type: 'EventCanvasToggled' })}
+        eventsOn={eventCanvasOpen}
         onDiff={() => setDiffOpen(true)}
         onAsk={() => {
           if (leftCollapsed) dispatch({ type: 'LeftCollapsedToggled' });
@@ -1171,6 +1191,18 @@ function AppContent({
               onScopeChange={(scope) => dispatch({ type: 'ArchMotifScopeChanged', scope })}
               onSymbolFocus={setSymbolFocus}
               onClose={() => dispatch({ type: 'ArchMotifCanvasClosed' })}
+            />
+          )}
+          {/* The event canvas covers the same pane, for the same reason. It
+              answers "who appends what, and who it reaches", which the review
+              canvas has no way to show: an event edge is an append and a read
+              of a log, not a call. */}
+          {eventCanvasOpen && (
+            <EventCanvas
+              worktree={activeWorktree}
+              events={events}
+              reloadToken={eventReloadToken}
+              onClose={() => dispatch({ type: 'EventCanvasClosed' })}
             />
           )}
           {symbolFocus && (
