@@ -409,3 +409,75 @@ func kindsOf(slots []Slot) []string {
 	}
 	return out
 }
+
+// Not grading an imported declaration must not mean pretending its events do
+// not exist. A native component wired to one is fed and observed like any
+// other, and reporting it as starved or orphaned would make every mixed repo
+// noisy in exactly the place the two formats meet.
+func TestClosureSeesImportedProducersAndConsumers(t *testing.T) {
+	root := t.TempDir()
+	writeAsyncAPI(t, filepath.Join(root, "connectors"), portDoc)
+
+	nativeDir := filepath.Join(root, "ops", ".arch")
+	if err := os.MkdirAll(nativeDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Fed by the port's event, and feeding the port's command.
+	native := `version: 2
+component: ops
+owns: ops
+inputs:
+  - kind: connectors.event.call.completed
+    pattern: 'svc.app.{tenant}.connectors.{group}.{scope}.{scope-id}.event.call.completed'
+outputs:
+  - kind: connectors.command.call
+    pattern: 'svc.app.{tenant}.connectors.alpha.{scope}.{scope-id}.command.call'
+`
+	if err := os.WriteFile(filepath.Join(nativeDir, eventsFileName), []byte(native), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	model, err := Read(root)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	for _, f := range Validate(model) {
+		t.Errorf("unexpected %s finding on %s: %s", f.Kind, f.Component, f.Message)
+	}
+}
+
+// The other half of the same rule: a native declaration wired to nothing is
+// still reported, so widening the indexes did not quietly disable closure.
+func TestClosureStillReportsAnUnwiredNativeDeclaration(t *testing.T) {
+	root := t.TempDir()
+	writeAsyncAPI(t, filepath.Join(root, "connectors"), portDoc)
+
+	nativeDir := filepath.Join(root, "ops", ".arch")
+	if err := os.MkdirAll(nativeDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	native := `version: 2
+component: ops
+owns: ops
+inputs:
+  - kind: ops.command.sweep
+    pattern: 'svc.app.{tenant}.ops.{scope}.command.sweep'
+`
+	if err := os.WriteFile(filepath.Join(nativeDir, eventsFileName), []byte(native), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	model, err := Read(root)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var kinds []FindingKind
+	for _, f := range Validate(model) {
+		kinds = append(kinds, f.Kind)
+	}
+	if !reflect.DeepEqual(kinds, []FindingKind{KindStarvedInput}) {
+		t.Errorf("findings = %v, want exactly one starved-input", kinds)
+	}
+}

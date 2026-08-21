@@ -1,0 +1,155 @@
+asyncapi: 3.0.0
+id: urn:eventlog:shop:carrier
+info:
+  title: carrier
+  version: '1'
+  description: Event-log port carrier; one instance per carrier lane.
+defaultContentType: application/json
+x-eventlog:
+  vocabulary: eventlog-asyncapi/1
+  identity:
+    service: carrier
+  addressing:
+    prefix: shop
+    tenant: tenant
+  owns:
+  - shop.{tenant}.carrier.{lane}
+  key:
+  - order
+  port:
+    parameter: lane
+    instances:
+    - air
+    - ground
+channels:
+  carrier.LANE.ORDER.command.dispatch:
+    address: shop.{tenant}.carrier.{lane}.{order}.command.dispatch
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      lane:
+        description: Port instance.
+        enum:
+        - air
+        - ground
+    messages:
+      carrier.command.dispatch:
+        $ref: '#/components/messages/carrier.command.dispatch'
+    x-eventlog:
+      partition:
+      - order
+  carrier.LANE.ORDER.event.dispatched:
+    address: shop.{tenant}.carrier.{lane}.{order}.event.dispatched
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      lane:
+        description: Port instance.
+        enum:
+        - air
+        - ground
+    messages:
+      carrier.event.dispatched:
+        $ref: '#/components/messages/carrier.event.dispatched'
+    x-eventlog:
+      partition:
+      - order
+  carrier.LANE.ORDER.event.delivered:
+    address: shop.{tenant}.carrier.{lane}.{order}.event.delivered
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      lane:
+        description: Port instance.
+        enum:
+        - air
+        - ground
+    messages:
+      carrier.event.delivered:
+        $ref: '#/components/messages/carrier.event.delivered'
+    x-eventlog:
+      partition:
+      - order
+operations:
+  command.carrier.LANE.ORDER.command.dispatch:
+    action: receive
+    channel:
+      $ref: '#/channels/carrier.LANE.ORDER.command.dispatch'
+    messages:
+    - $ref: '#/channels/carrier.LANE.ORDER.command.dispatch/messages/carrier.command.dispatch'
+    summary: Hand one parcel to the configured lane
+    x-eventlog:
+      role: command
+  event.carrier.LANE.ORDER.event.dispatched:
+    action: send
+    channel:
+      $ref: '#/channels/carrier.LANE.ORDER.event.dispatched'
+    messages:
+    - $ref: '#/channels/carrier.LANE.ORDER.event.dispatched/messages/carrier.event.dispatched'
+    summary: The parcel left the warehouse
+    x-eventlog:
+      role: event
+  event.carrier.LANE.ORDER.event.delivered:
+    action: send
+    channel:
+      $ref: '#/channels/carrier.LANE.ORDER.event.delivered'
+    messages:
+    - $ref: '#/channels/carrier.LANE.ORDER.event.delivered/messages/carrier.event.delivered'
+    summary: The parcel reached the customer
+    x-eventlog:
+      role: event
+  observe.carrier.LANE.ORDER.event.dispatched:
+    action: receive
+    channel:
+      $ref: '#/channels/carrier.LANE.ORDER.event.dispatched'
+    messages:
+    - $ref: '#/channels/carrier.LANE.ORDER.event.dispatched/messages/carrier.event.dispatched'
+    summary: The parcel left the warehouse
+    x-eventlog:
+      role: observe
+  observe.carrier.LANE.ORDER.event.delivered:
+    action: receive
+    channel:
+      $ref: '#/channels/carrier.LANE.ORDER.event.delivered'
+    messages:
+    - $ref: '#/channels/carrier.LANE.ORDER.event.delivered/messages/carrier.event.delivered'
+    summary: The parcel reached the customer
+    x-eventlog:
+      role: observe
+components:
+  messages:
+    carrier.command.dispatch:
+      name: carrier.command.dispatch
+      summary: Hand one parcel to the configured lane
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: &id001
+          type: object
+          required:
+          - order_id
+          - parcel_id
+          properties:
+            order_id:
+              type: string
+            parcel_id:
+              type: string
+            carrier:
+              type: string
+      x-eventlog:
+        class: command
+    carrier.event.dispatched:
+      name: carrier.event.dispatched
+      summary: The parcel left the warehouse
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: *id001
+      x-eventlog:
+        class: event
+    carrier.event.delivered:
+      name: carrier.event.delivered
+      summary: The parcel reached the customer
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: *id001
+      x-eventlog:
+        class: event

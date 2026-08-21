@@ -1,0 +1,15 @@
+version: 2
+component: pricing
+owns: pricing
+description: >-
+  Quotes prices. Wired to nothing yet: its input has no producer and its output
+  has no observer, so the canvas draws it as an isolated node.
+
+inputs:
+  - kind: pricing.command.quote
+    pattern: 'shop.*.pricing.{basket}.command.quote'
+    description: Price a basket before it becomes an order
+
+outputs:
+  - kind: pricing.event.quoted
+    pattern: 'shop.*.pricing.{basket}.event.quoted'

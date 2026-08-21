@@ -1,0 +1,163 @@
+asyncapi: 3.0.0
+id: urn:eventlog:shop:payments
+info:
+  title: payments
+  version: '2'
+  description: Event-log port payments; one instance per configured payment method.
+defaultContentType: application/json
+x-eventlog:
+  vocabulary: eventlog-asyncapi/1
+  identity:
+    service: payments
+  addressing:
+    prefix: shop
+    tenant: tenant
+  owns:
+  - shop.{tenant}.payments.{method}
+  key:
+  - order
+  port:
+    parameter: method
+    instances:
+    - card
+    - transfer
+channels:
+  payments.METHOD.ORDER.command.authorize:
+    address: shop.{tenant}.payments.{method}.{order}.command.authorize
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      method:
+        description: Port instance.
+        enum:
+        - card
+        - transfer
+      order:
+        description: Partition coordinate.
+    messages:
+      payments.command.authorize:
+        $ref: '#/components/messages/payments.command.authorize'
+    x-eventlog:
+      partition:
+      - order
+  payments.METHOD.ORDER.event.authorized:
+    address: shop.{tenant}.payments.{method}.{order}.event.authorized
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      method:
+        description: Port instance.
+        enum:
+        - card
+        - transfer
+      order:
+        description: Partition coordinate.
+    messages:
+      payments.event.authorized:
+        $ref: '#/components/messages/payments.event.authorized'
+    x-eventlog:
+      partition:
+      - order
+  payments.METHOD.ORDER.event.declined:
+    address: shop.{tenant}.payments.{method}.{order}.event.declined
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      method:
+        description: Port instance.
+        enum:
+        - card
+        - transfer
+      order:
+        description: Partition coordinate.
+    messages:
+      payments.event.declined:
+        $ref: '#/components/messages/payments.event.declined'
+    x-eventlog:
+      partition:
+      - order
+operations:
+  command.payments.METHOD.ORDER.command.authorize:
+    action: receive
+    channel:
+      $ref: '#/channels/payments.METHOD.ORDER.command.authorize'
+    messages:
+    - $ref: '#/channels/payments.METHOD.ORDER.command.authorize/messages/payments.command.authorize'
+    summary: Place an authorization hold through the configured method
+    x-eventlog:
+      role: command
+  event.payments.METHOD.ORDER.event.authorized:
+    action: send
+    channel:
+      $ref: '#/channels/payments.METHOD.ORDER.event.authorized'
+    messages:
+    - $ref: '#/channels/payments.METHOD.ORDER.event.authorized/messages/payments.event.authorized'
+    summary: An authorization hold was placed
+    x-eventlog:
+      role: event
+  event.payments.METHOD.ORDER.event.declined:
+    action: send
+    channel:
+      $ref: '#/channels/payments.METHOD.ORDER.event.declined'
+    messages:
+    - $ref: '#/channels/payments.METHOD.ORDER.event.declined/messages/payments.event.declined'
+    summary: An authorization hold was refused
+    x-eventlog:
+      role: event
+      instances:
+      - card
+  observe.payments.METHOD.ORDER.event.authorized:
+    action: receive
+    channel:
+      $ref: '#/channels/payments.METHOD.ORDER.event.authorized'
+    messages:
+    - $ref: '#/channels/payments.METHOD.ORDER.event.authorized/messages/payments.event.authorized'
+    summary: An authorization hold was placed
+    x-eventlog:
+      role: observe
+components:
+  messages:
+    payments.command.authorize:
+      name: payments.command.authorize
+      summary: Place an authorization hold through the configured method
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: &id001
+          type: object
+          required:
+          - order_id
+          - amount
+          properties:
+            order_id:
+              type: string
+            amount:
+              type: number
+            currency:
+              type: string
+              default: EUR
+      x-eventlog:
+        class: command
+    payments.event.authorized:
+      name: payments.event.authorized
+      summary: An authorization hold was placed
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: *id001
+      x-eventlog:
+        class: event
+    payments.event.declined:
+      name: payments.event.declined
+      summary: An authorization hold was refused
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema:
+          type: object
+          required:
+          - order_id
+          properties:
+            order_id:
+              type: string
+            reason:
+              type: string
+      x-eventlog:
+        class: event

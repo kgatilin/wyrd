@@ -1,0 +1,22 @@
+version: 2
+component: storefront
+description: HTTP entry point; turns customer requests into commands and reports back
+
+inputs:
+  - kind: orders.event.confirmed
+    pattern: 'shop.*.orders.{order}.event.confirmed'
+    description: Answer the waiting client once the order is secured
+  - kind: orders.event.cancelled
+    pattern: 'shop.*.orders.{order}.event.cancelled'
+    description: Answer the waiting client when the order falls through
+
+outputs:
+  - kind: orders.command.place
+    pattern: 'shop.*.orders.{order}.command.place'
+    description: >-
+      Appended into a namespace the gateway does not own. Legal: ownership is
+      schema authority, not an exclusive right to produce.
+    exposure: [public_api]
+  - kind: orders.command.cancel
+    pattern: 'shop.*.orders.{order}.command.cancel'
+    exposure: [public_api]

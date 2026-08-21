@@ -38,26 +38,23 @@ import (
 // document describes one application rather than a closed system, so closure
 // warnings would fire on every edge that leaves it. See ValidatableModel.
 func Validate(m *Model) []Finding {
-	m = ValidatableModel(m)
+	// Two models, and the split is the whole point. Findings are reported
+	// against the graded set — the native declarations — while reachability is
+	// computed over everything that was read. An imported document is still a
+	// producer and still a consumer; not grading it must not mean pretending
+	// its events do not exist, or every native declaration wired to one would
+	// come back starved or orphaned.
+	graded := ValidatableModel(m)
 	var findings []Finding
 
-	// Build indexes for efficient lookup.
+	// Build indexes for efficient lookup, over the whole composed set.
 	ownerOf := make(map[string]string)          // namespace -> component id
 	inputsOf := make(map[string][]string)       // kind -> component ids triggered by it
 	foldersOf := make(map[string][]string)      // kind -> component ids folding it as state
 	producersOf := make(map[string][]string)    // kind -> component ids that append it
 	exclusiveKinds := make(map[string]struct{}) // kinds that opted into single-handler delivery
 
-	// Track ownership claims (map prefix -> list of component IDs claiming it).
-	ownerClaims := make(map[string][]string)
-
 	for id, comp := range m.Components {
-		// Record ownership prefixes for later validation.
-		if comp.Owns != "" {
-			ownerClaims[comp.Owns] = append(ownerClaims[comp.Owns], id)
-			ownerOf[comp.Owns] = id
-		}
-
 		index := func(slots []Slot, into map[string][]string) {
 			for _, slot := range slots {
 				into[slot.Kind] = append(into[slot.Kind], id)
@@ -71,24 +68,37 @@ func Validate(m *Model) []Finding {
 		index(comp.StateEvents, foldersOf)
 	}
 
+	// Ownership claims come from the graded set alone. Two claimants mean two
+	// answers to "what does this kind look like", and settling that between a
+	// declaration this repo owns and one it merely read is not a call the
+	// validator gets to make.
+	ownerClaims := make(map[string][]string)
+	for id, comp := range graded.Components {
+		if comp.Owns != "" {
+			ownerClaims[comp.Owns] = append(ownerClaims[comp.Owns], id)
+			ownerOf[comp.Owns] = id
+		}
+	}
+
 	// Check for overlapping namespace ownership. Exact duplicates and nesting
 	// without explicit containment are both errors — sub-namespace ownership
 	// must be unique among the declared set.
-	findings = append(findings, validateOwnershipOverlaps(m, ownerOf, ownerClaims)...)
+	findings = append(findings, validateOwnershipOverlaps(graded, ownerOf, ownerClaims)...)
 
 	// Per-component validation.
-	for id, comp := range m.Components {
-		findings = append(findings, validateRefs(id, comp, m)...)
+	for id, comp := range graded.Components {
+		findings = append(findings, validateRefs(id, comp, graded)...)
 		findings = append(findings, validateReadSet(id, comp)...)
 		findings = append(findings, validateState(id, comp)...)
 		findings = append(findings, validateSelfInput(id, comp)...)
 	}
 
-	// Cross-component validation.
-	findings = append(findings, validatePatterns(m)...)
-	findings = append(findings, validateClosure(m, inputsOf, foldersOf, producersOf)...)
-	findings = append(findings, validateExclusiveDelivery(m, inputsOf, exclusiveKinds)...)
-	findings = append(findings, validateRefCycles(m)...)
+	// Cross-component validation. Closure and exclusive delivery read the full
+	// indexes; who they report against is still the graded set.
+	findings = append(findings, validatePatterns(graded)...)
+	findings = append(findings, validateClosure(graded, inputsOf, foldersOf, producersOf)...)
+	findings = append(findings, validateExclusiveDelivery(graded, inputsOf, exclusiveKinds)...)
+	findings = append(findings, validateRefCycles(graded)...)
 
 	sortFindings(findings)
 	return findings

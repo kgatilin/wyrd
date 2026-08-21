@@ -1,0 +1,21 @@
+version: 2
+component: analytics
+owns: analytics
+description: Read models over the log; folds a lot, appends nothing
+
+state_events:
+  - kind: orders.event.placed
+    pattern: 'shop.*.orders.{order}.event.placed'
+  - kind: orders.event.cancelled
+    pattern: 'shop.*.orders.{order}.event.cancelled'
+  - kind: payments.event.authorized
+    pattern: 'shop.*.payments.*.{order}.event.authorized'
+  - kind: carrier.event.delivered
+    pattern: 'shop.*.carrier.*.{order}.event.delivered'
+
+state:
+  type: object
+  properties:
+    Placed: {type: integer}
+    Cancelled: {type: integer}
+    Revenue: {type: number}

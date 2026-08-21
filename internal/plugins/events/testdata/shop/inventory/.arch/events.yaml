@@ -1,0 +1,51 @@
+version: 2
+component: inventory
+owns: inventory
+description: Stock ledger; holds and releases the lines an order needs
+
+inputs:
+  - kind: inventory.command.reserve
+    pattern: 'shop.*.inventory.{order}.command.reserve'
+    delivery: exclusive
+    description: Hold the ordered lines, or say why it cannot be done
+    schema:
+      type: object
+      required: [order_id]
+      properties:
+        order_id: {type: string}
+        lines: {type: array, items: {$ref: '#/types/Line'}}
+
+outputs:
+  - kind: inventory.event.reserved
+    pattern: 'shop.*.inventory.{order}.event.reserved'
+    schema: {$ref: '#/types/Hold'}
+  - kind: inventory.event.rejected
+    pattern: 'shop.*.inventory.{order}.event.rejected'
+    schema:
+      type: object
+      properties:
+        order_id: {type: string}
+        reason: {type: string}
+
+state_events:
+  - kind: inventory.event.reserved
+    pattern: 'shop.*.inventory.{order}.event.reserved'
+  - kind: inventory.event.rejected
+    pattern: 'shop.*.inventory.{order}.event.rejected'
+
+state:
+  type: object
+  properties:
+    Held: {type: array, items: {$ref: '#/types/Hold'}}
+
+types:
+  Line:
+    type: object
+    properties:
+      Sku: {type: string}
+      Qty: {type: integer}
+  Hold:
+    type: object
+    properties:
+      OrderID: {type: string}
+      Lines: {type: array, items: {$ref: '#/types/Line'}}

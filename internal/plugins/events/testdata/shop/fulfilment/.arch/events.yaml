@@ -1,0 +1,25 @@
+version: 2
+component: fulfilment
+description: Turns a confirmed order into a parcel and follows it to the door
+
+inputs:
+  - kind: orders.event.confirmed
+    pattern: 'shop.*.orders.{order}.event.confirmed'
+    description: A secured order is ready to leave the warehouse
+
+outputs:
+  - kind: carrier.command.dispatch
+    pattern: 'shop.*.carrier.ground.{order}.command.dispatch'
+    description: Hand the parcel to whichever lane the order qualifies for
+
+state_events:
+  - kind: carrier.event.dispatched
+    pattern: 'shop.*.carrier.*.{order}.event.dispatched'
+  - kind: carrier.event.delivered
+    pattern: 'shop.*.carrier.*.{order}.event.delivered'
+
+state:
+  type: object
+  properties:
+    InFlight: {type: integer}
+    Delivered: {type: integer}

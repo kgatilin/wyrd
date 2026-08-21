@@ -1,0 +1,411 @@
+asyncapi: 3.0.0
+id: urn:eventlog:shop:orders
+info:
+  title: orders
+  version: '3'
+  description: 'Order lifecycle: accepts orders, waits on payment and stock, confirms or cancels.'
+defaultContentType: application/json
+x-eventlog:
+  vocabulary: eventlog-asyncapi/1
+  identity:
+    service: orders
+  addressing:
+    prefix: shop
+    tenant: tenant
+  owns:
+  - shop.{tenant}.orders
+  key:
+  - order
+channels:
+  orders.ORDER.command.place:
+    address: shop.{tenant}.orders.{order}.command.place
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      order:
+        description: Partition coordinate.
+    messages:
+      orders.command.place:
+        $ref: '#/components/messages/orders.command.place'
+    x-eventlog:
+      partition:
+      - order
+  orders.ORDER.command.cancel:
+    address: shop.{tenant}.orders.{order}.command.cancel
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      order:
+        description: Partition coordinate.
+    messages:
+      orders.command.cancel:
+        $ref: '#/components/messages/orders.command.cancel'
+    x-eventlog:
+      partition:
+      - order
+  orders.ORDER.event.placed:
+    address: shop.{tenant}.orders.{order}.event.placed
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      order:
+        description: Partition coordinate.
+    messages:
+      orders.event.placed:
+        $ref: '#/components/messages/orders.event.placed'
+    x-eventlog:
+      partition:
+      - order
+  orders.ORDER.event.confirmed:
+    address: shop.{tenant}.orders.{order}.event.confirmed
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      order:
+        description: Partition coordinate.
+    messages:
+      orders.event.confirmed:
+        $ref: '#/components/messages/orders.event.confirmed'
+    x-eventlog:
+      partition:
+      - order
+  orders.ORDER.event.cancelled:
+    address: shop.{tenant}.orders.{order}.event.cancelled
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      order:
+        description: Partition coordinate.
+    messages:
+      orders.event.cancelled:
+        $ref: '#/components/messages/orders.event.cancelled'
+    x-eventlog:
+      partition:
+      - order
+  payments.card.ORDER.command.authorize:
+    address: shop.{tenant}.payments.card.{order}.command.authorize
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      order:
+        description: Partition coordinate.
+    messages:
+      payments.command.authorize:
+        $ref: '#/components/messages/payments.command.authorize'
+    x-eventlog:
+      partition:
+      - order
+  inventory.ORDER.command.reserve:
+    address: shop.{tenant}.inventory.{order}.command.reserve
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      order:
+        description: Partition coordinate.
+    messages:
+      inventory.command.reserve:
+        $ref: '#/components/messages/inventory.command.reserve'
+    x-eventlog:
+      partition:
+      - order
+  payments.METHOD.ORDER.event.authorized:
+    address: shop.{tenant}.payments.{method}.{order}.event.authorized
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      method:
+        description: Partition coordinate.
+      order:
+        description: Partition coordinate.
+    messages:
+      payments.event.authorized:
+        $ref: '#/components/messages/payments.event.authorized'
+    x-eventlog:
+      partition:
+      - order
+  payments.METHOD.ORDER.event.declined:
+    address: shop.{tenant}.payments.{method}.{order}.event.declined
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      method:
+        description: Partition coordinate.
+      order:
+        description: Partition coordinate.
+    messages:
+      payments.event.declined:
+        $ref: '#/components/messages/payments.event.declined'
+    x-eventlog:
+      partition:
+      - order
+  inventory.ORDER.event.reserved:
+    address: shop.{tenant}.inventory.{order}.event.reserved
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      order:
+        description: Partition coordinate.
+    messages:
+      inventory.event.reserved:
+        $ref: '#/components/messages/inventory.event.reserved'
+    x-eventlog:
+      partition:
+      - order
+  inventory.ORDER.event.rejected:
+    address: shop.{tenant}.inventory.{order}.event.rejected
+    parameters:
+      tenant:
+        description: Deployment tenant, stamped by the event bus on append.
+      order:
+        description: Partition coordinate.
+    messages:
+      inventory.event.rejected:
+        $ref: '#/components/messages/inventory.event.rejected'
+    x-eventlog:
+      partition:
+      - order
+operations:
+  command.orders.ORDER.command.place:
+    action: receive
+    channel:
+      $ref: '#/channels/orders.ORDER.command.place'
+    messages:
+    - $ref: '#/channels/orders.ORDER.command.place/messages/orders.command.place'
+    summary: Accept a new order from a customer
+    x-eventlog:
+      role: command
+  command.orders.ORDER.command.cancel:
+    action: receive
+    channel:
+      $ref: '#/channels/orders.ORDER.command.cancel'
+    messages:
+    - $ref: '#/channels/orders.ORDER.command.cancel/messages/orders.command.cancel'
+    summary: Cancel an order that has not shipped
+    x-eventlog:
+      role: command
+  event.orders.ORDER.event.placed:
+    action: send
+    channel:
+      $ref: '#/channels/orders.ORDER.event.placed'
+    messages:
+    - $ref: '#/channels/orders.ORDER.event.placed/messages/orders.event.placed'
+    summary: Record an accepted order
+    x-eventlog:
+      role: event
+  event.orders.ORDER.event.confirmed:
+    action: send
+    channel:
+      $ref: '#/channels/orders.ORDER.event.confirmed'
+    messages:
+    - $ref: '#/channels/orders.ORDER.event.confirmed/messages/orders.event.confirmed'
+    summary: Record an order with payment and stock secured
+    x-eventlog:
+      role: event
+  event.orders.ORDER.event.cancelled:
+    action: send
+    channel:
+      $ref: '#/channels/orders.ORDER.event.cancelled'
+    messages:
+    - $ref: '#/channels/orders.ORDER.event.cancelled/messages/orders.event.cancelled'
+    summary: Record a cancelled order
+    x-eventlog:
+      role: event
+  call.payments.card.ORDER.command.authorize:
+    action: send
+    channel:
+      $ref: '#/channels/payments.card.ORDER.command.authorize'
+    messages:
+    - $ref: '#/channels/payments.card.ORDER.command.authorize/messages/payments.command.authorize'
+    summary: Ask for an authorization hold on the order total
+    x-eventlog:
+      role: call
+  call.inventory.ORDER.command.reserve:
+    action: send
+    channel:
+      $ref: '#/channels/inventory.ORDER.command.reserve'
+    messages:
+    - $ref: '#/channels/inventory.ORDER.command.reserve/messages/inventory.command.reserve'
+    summary: Ask for the ordered lines to be held
+    x-eventlog:
+      role: call
+  observe.orders.ORDER.event.placed:
+    action: receive
+    channel:
+      $ref: '#/channels/orders.ORDER.event.placed'
+    messages:
+    - $ref: '#/channels/orders.ORDER.event.placed/messages/orders.event.placed'
+    summary: Record an accepted order
+    x-eventlog:
+      role: observe
+  observe.orders.ORDER.event.confirmed:
+    action: receive
+    channel:
+      $ref: '#/channels/orders.ORDER.event.confirmed'
+    messages:
+    - $ref: '#/channels/orders.ORDER.event.confirmed/messages/orders.event.confirmed'
+    summary: Record an order with payment and stock secured
+    x-eventlog:
+      role: observe
+  observe.payments.METHOD.ORDER.event.authorized:
+    action: receive
+    channel:
+      $ref: '#/channels/payments.METHOD.ORDER.event.authorized'
+    messages:
+    - $ref: '#/channels/payments.METHOD.ORDER.event.authorized/messages/payments.event.authorized'
+    summary: An authorization hold was placed
+    x-eventlog:
+      role: observe
+  observe.payments.METHOD.ORDER.event.declined:
+    action: receive
+    channel:
+      $ref: '#/channels/payments.METHOD.ORDER.event.declined'
+    messages:
+    - $ref: '#/channels/payments.METHOD.ORDER.event.declined/messages/payments.event.declined'
+    summary: An authorization hold was refused
+    x-eventlog:
+      role: observe
+  observe.inventory.ORDER.event.reserved:
+    action: receive
+    channel:
+      $ref: '#/channels/inventory.ORDER.event.reserved'
+    messages:
+    - $ref: '#/channels/inventory.ORDER.event.reserved/messages/inventory.event.reserved'
+    summary: The ordered lines are held
+    x-eventlog:
+      role: observe
+  observe.inventory.ORDER.event.rejected:
+    action: receive
+    channel:
+      $ref: '#/channels/inventory.ORDER.event.rejected'
+    messages:
+    - $ref: '#/channels/inventory.ORDER.event.rejected/messages/inventory.event.rejected'
+    summary: The ordered lines could not be held
+    x-eventlog:
+      role: observe
+components:
+  messages:
+    orders.command.place:
+      name: orders.command.place
+      summary: Accept a new order from a customer
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: &id001
+          type: object
+          required:
+          - order_id
+          properties:
+            order_id:
+              type: string
+            customer:
+              type: string
+            lines:
+              type: array
+              items:
+                type: object
+                properties:
+                  sku:
+                    type: string
+                  qty:
+                    type: integer
+      x-eventlog:
+        class: command
+    orders.command.cancel:
+      name: orders.command.cancel
+      summary: Cancel an order that has not shipped
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: &id002
+          type: object
+          required:
+          - order_id
+          properties:
+            order_id:
+              type: string
+            reason:
+              type: string
+      x-eventlog:
+        class: command
+    orders.event.placed:
+      name: orders.event.placed
+      summary: Record an accepted order
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: *id001
+      x-eventlog:
+        class: event
+    orders.event.confirmed:
+      name: orders.event.confirmed
+      summary: Record an order with payment and stock secured
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: *id001
+      x-eventlog:
+        class: event
+    orders.event.cancelled:
+      name: orders.event.cancelled
+      summary: Record a cancelled order
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: *id002
+      x-eventlog:
+        class: event
+    payments.command.authorize:
+      name: payments.command.authorize
+      summary: Ask for an authorization hold on the order total
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: &id003
+          type: object
+          required:
+          - order_id
+          - amount
+          properties:
+            order_id:
+              type: string
+            amount:
+              type: number
+            currency:
+              type: string
+              default: EUR
+      x-eventlog:
+        class: command
+    inventory.command.reserve:
+      name: inventory.command.reserve
+      summary: Ask for the ordered lines to be held
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: *id001
+      x-eventlog:
+        class: command
+    payments.event.authorized:
+      name: payments.event.authorized
+      summary: An authorization hold was placed
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: *id003
+      x-eventlog:
+        class: event
+    payments.event.declined:
+      name: payments.event.declined
+      summary: An authorization hold was refused
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: *id002
+      x-eventlog:
+        class: event
+    inventory.event.reserved:
+      name: inventory.event.reserved
+      summary: The ordered lines are held
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: *id001
+      x-eventlog:
+        class: event
+    inventory.event.rejected:
+      name: inventory.event.rejected
+      summary: The ordered lines could not be held
+      payload:
+        schemaFormat: application/schema+json;version=draft-2020-12
+        schema: *id002
+      x-eventlog:
+        class: event

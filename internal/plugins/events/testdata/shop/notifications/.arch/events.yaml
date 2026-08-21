@@ -1,0 +1,19 @@
+version: 2
+component: notifications
+owns: notifications
+description: Customer-facing mail and push
+
+inputs:
+  - kind: orders.event.confirmed
+    pattern: 'shop.*.orders.{order}.event.confirmed'
+    description: Send the order confirmation
+  - kind: carrier.event.delivered
+    pattern: 'shop.*.carrier.*.{order}.event.delivered'
+    description: Send the delivery notice
+
+outputs:
+  # Nothing in this system folds a sent notification. That is an orphan-event
+  # warning and, here, an intentional one: the receipt leaves for an external
+  # mail provider.
+  - kind: notifications.event.sent
+    pattern: 'shop.*.notifications.{order}.event.sent'
