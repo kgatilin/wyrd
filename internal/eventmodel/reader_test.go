@@ -152,8 +152,19 @@ func TestReadRejectsVersion1(t *testing.T) {
 	if err := os.MkdirAll(archDir, 0755); err != nil {
 		t.Fatal(err)
 	}
+	// A realistic version 1 document, carrying the fields that make it one.
+	// Strict decoding rejects `receives` before any version check can run, so
+	// reading the version first is what makes the message below reachable at
+	// all — a minimal `version: 1` stub would pass either way.
 	yaml := `version: 1
 component: billing
+owns: billing
+receives:
+  - kind: billing.invoice.issue
+emits:
+  - kind: billing.invoice.issued
+folds:
+  - kind: billing.invoice.issued
 `
 	if err := os.WriteFile(filepath.Join(archDir, "events.yaml"), []byte(yaml), 0644); err != nil {
 		t.Fatal(err)

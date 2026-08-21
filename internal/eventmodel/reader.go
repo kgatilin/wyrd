@@ -300,21 +300,29 @@ func parseEventsFile(path string) (*Component, error) {
 		return nil, fmt.Errorf("reading file: %w", err)
 	}
 
+	// The version is read first, leniently. Strict decoding is right for a
+	// version this reader understands, but it rejects a version 1 document on
+	// its first `receives:` — before the version check below, whose whole job
+	// is to say what happened to a version 1 document.
+	var probe struct {
+		Version int `yaml:"version"`
+	}
+	if err := yamlv3.Unmarshal(data, &probe); err != nil {
+		return nil, fmt.Errorf("parsing YAML: %w", err)
+	}
+	switch probe.Version {
+	case SchemaVersion:
+	case 1:
+		return nil, fmt.Errorf("version 1 is no longer supported: replace receives/emits/folds with inputs/outputs/state_events and set version: %d", SchemaVersion)
+	default:
+		return nil, fmt.Errorf("unsupported version %d (want %d)", probe.Version, SchemaVersion)
+	}
+
 	var raw rawComponent
 	dec := yamlv3.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true) // Strict decoding: unknown fields are errors.
 	if err := dec.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("parsing YAML: %w", err)
-	}
-
-	// Structural validation. Version 1 is named explicitly because its shape
-	// (receives/emits/folds) is close enough to this one to fail confusingly.
-	switch raw.Version {
-	case SchemaVersion:
-	case 1:
-		return nil, fmt.Errorf("version 1 is no longer supported: replace receives/emits/folds with inputs/outputs/state_events and set version: %d", SchemaVersion)
-	default:
-		return nil, fmt.Errorf("unsupported version %d (want %d)", raw.Version, SchemaVersion)
 	}
 	if raw.Component == "" {
 		return nil, fmt.Errorf("missing required field 'component'")
