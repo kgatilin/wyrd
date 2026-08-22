@@ -66,8 +66,16 @@ jobs:
                 -trimpath \
                 -ldflags "-s -w -X main.Version=${VERSION}" \
                 -o "$stage/$cmd" "./cmd/$cmd"
-              cp README.md "$stage/" 2>/dev/null || true
-              tar -czf "dist/${cmd}_${VERSION}_${GOOS}_${GOARCH}.tar.gz" -C "$stage" .
+              # Named members, not `.`: packing from `.` stores the binary as
+              # ./wyrd-check, and GNU tar will not extract that under the bare
+              # name the installer asks for. Spelled out in two branches so no
+              # unquoted word splitting is involved.
+              out="dist/${cmd}_${VERSION}_${GOOS}_${GOARCH}.tar.gz"
+              if cp README.md "$stage/" 2>/dev/null; then
+                tar -czf "$out" -C "$stage" "$cmd" README.md
+              else
+                tar -czf "$out" -C "$stage" "$cmd"
+              fi
             done
           done
           rm -rf dist/stage

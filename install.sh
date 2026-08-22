@@ -142,8 +142,13 @@ for bin in $BINARIES; do
 	[ "$got" = "$want" ] ||
 		die "checksum mismatch for $tarball (expected $want, got $got)"
 
-	tar -xzf "$tmp/$tarball" -C "$tmp" "$bin" ||
-		die "could not extract $bin from $tarball"
+	# Unpack the whole archive instead of naming the member: GNU tar will
+	# not match `$bin` against an archive that stores it as `./$bin`, and
+	# releases up to v2.24.0 are packed that way. BSD tar matches either
+	# spelling, which is why this only ever failed on Linux.
+	tar -xzf "$tmp/$tarball" -C "$tmp" ||
+		die "could not unpack $tarball"
+	[ -f "$tmp/$bin" ] || die "$tarball does not contain $bin"
 
 	cp "$tmp/$bin" "$DIR/$bin.tmp$$" && chmod 0755 "$DIR/$bin.tmp$$" &&
 		mv -f "$DIR/$bin.tmp$$" "$DIR/$bin" ||
