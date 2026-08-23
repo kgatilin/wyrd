@@ -3451,6 +3451,9 @@ body {
   padding: 1px 6px;
 }
 .hf-events-stat.warn { color: var(--chg-fg); border-color: var(--chg-line); }
+/* Broken wires read louder than the counting states: the others say an end is
+   missing, this one says two present ends do not meet. */
+.hf-events-stat.bad { color: var(--rem-fg); border-color: var(--rem-line); }
 .hf-events-stat.import { color: var(--syn-fn); border-color: var(--layer-internal-line); }
 /* A chip that counts something the reader can be taken to is a button. */
 button.hf-events-stat {
@@ -3472,6 +3475,7 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
 }
 .hf-events-legend-line { stroke: var(--fg-3); stroke-width: 1.5; }
 .hf-events-legend-line.fold { stroke-dasharray: 4 3; }
+.hf-events-legend-line.broken { stroke: var(--rem-fg); stroke-dasharray: 2 4; stroke-linecap: round; }
 
 .hf-events-close {
   position: absolute;
@@ -3542,11 +3546,21 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
 .hf-events-line.starved,
 .hf-events-line.orphan { stroke: var(--chg-line); }
 .hf-events-line.ambiguous { stroke: var(--rem-line); }
+/* A broken wire: both ends declared, on addresses that never meet. Short dashes
+   at full strength rather than a colour change alone, so it still reads as
+   broken at a zoom where hue does not survive — and placed after .fold, whose
+   dash pattern it has to override. */
+.hf-events-line.unwired {
+  stroke: var(--rem-fg);
+  stroke-dasharray: 2 4;
+  stroke-linecap: round;
+}
 .hf-events-link:hover .hf-events-line { stroke: var(--fg-2); }
 .hf-events-link.on .hf-events-line { stroke: var(--accent); stroke-width: 2; }
 .hf-events-link.dim { opacity: 0.22; }
 .hf-events-arrow { fill: var(--line-3); }
 .hf-events-arrow.on { fill: var(--accent); }
+.hf-events-arrow.broken { fill: var(--rem-fg); }
 
 .hf-events-label-bg { fill: var(--bg-0); stroke: var(--line-1); stroke-width: 1; }
 .hf-events-label-text {

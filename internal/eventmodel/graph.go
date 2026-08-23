@@ -87,6 +87,18 @@ const (
 	// that are the input of more than one component. Multiple observers of an
 	// ordinary broadcast event are normal and healthy.
 	HealthAmbiguous Health = "ambiguous"
+	// HealthUnwired is a kind with a producer and an observer in different
+	// components whose declared addresses never match: the append lands
+	// somewhere nobody in this set is listening.
+	//
+	// Its own state because the counting rules cannot see it. Orphan and
+	// starved count declarations by kind *name*, while a flow only exists when
+	// two ends agree on the *subject* — so a kind appended by one component and
+	// taken as an input by another scored "ok" while the canvas drew no edge
+	// between them, and nothing said why. That gap is the whole reason this
+	// exists: a reader looking at empty space cannot tell a relation the model
+	// does not have from one it has and could not draw.
+	HealthUnwired Health = "unwired"
 )
 
 // BuildGraph projects a Model into a Graph. The model should be validated
@@ -193,9 +205,11 @@ func BuildGraph(m *Model) *Graph {
 	}
 	sort.Strings(kindNames)
 
+	unwired := UnwiredKinds(m)
+
 	for _, kind := range kindNames {
 		_, exclusive := exclusiveKinds[kind]
-		health := computeKindHealth(kind, inputsOf, foldersOf, producersOf, exclusive)
+		health := computeKindHealth(kind, inputsOf, foldersOf, producersOf, exclusive, unwired[kind])
 		delivery := DeliveryBroadcast
 		if exclusive {
 			delivery = DeliveryExclusive
@@ -372,7 +386,10 @@ func BuildGraph(m *Model) *Graph {
 // which some component folds into state, is observed. Only an explicit
 // `delivery: exclusive` declaration makes consumer cardinality a health signal,
 // and it counts inputs alone — folding an exclusive kind competes with nobody.
-func computeKindHealth(kind string, inputsOf, foldersOf, producersOf map[string][]string, exclusive bool) Health {
+//
+// unwired comes from UnwiredKinds and is checked last: it asks whether the ends
+// meet on the wire, which is only a question once there are ends on both sides.
+func computeKindHealth(kind string, inputsOf, foldersOf, producersOf map[string][]string, exclusive, unwired bool) Health {
 	producers := len(producersOf[kind])
 	inputs := len(inputsOf[kind])
 	folders := len(foldersOf[kind])
@@ -386,7 +403,77 @@ func computeKindHealth(kind string, inputsOf, foldersOf, producersOf map[string]
 	if inputs == 0 && folders == 0 {
 		return HealthOrphan
 	}
+	if unwired {
+		return HealthUnwired
+	}
 	return HealthOK
+}
+
+// kindEnd is one end of a kind: the component that declared it and the address
+// that declaration named.
+type kindEnd struct {
+	component string
+	pattern   string
+}
+
+// indexKindEnds indexes every declaration of every kind by the address it
+// named. Counting by kind name is not enough for any question about whether an
+// append reaches an observer — that is decided by the subject — and this is the
+// index that keeps health and flows answering from the same facts.
+func indexKindEnds(m *Model) (producers, observers map[string][]kindEnd) {
+	producers = make(map[string][]kindEnd)
+	observers = make(map[string][]kindEnd)
+	for _, id := range sortedComponentIDs(m) {
+		comp := m.Components[id]
+		for _, slot := range comp.Outputs {
+			producers[slot.Kind] = append(producers[slot.Kind], kindEnd{id, slot.Pattern})
+		}
+		for _, slots := range [][]Slot{comp.Inputs, comp.StateEvents} {
+			for _, slot := range slots {
+				observers[slot.Kind] = append(observers[slot.Kind], kindEnd{id, slot.Pattern})
+			}
+		}
+	}
+	return producers, observers
+}
+
+// UnwiredKinds names every kind that is appended by one component and observed
+// by another, yet has no producer/observer pair whose subjects match.
+//
+// Two guards keep it honest:
+//
+//   - A pair inside one component is skipped. Folding your own output is the
+//     normal idiom and draws no flow, so a component that appends on one
+//     address and folds on another is not evidence of a broken wire.
+//   - A cross-component pair must exist by name first. A kind whose observers
+//     are simply absent from this repository is starved or orphaned, and those
+//     already have their own states; this one is for ends that are both here.
+//
+// It runs over the whole composed set, imported documents included. The rules
+// Validate skips for an AsyncAPI document assume the native format's
+// conventions; this one assumes only that two declarations state an address in
+// the same alphabet, which every format wyrd reads does.
+func UnwiredKinds(m *Model) map[string]bool {
+	producers, observers := indexKindEnds(m)
+	out := make(map[string]bool)
+	for kind, appends := range producers {
+		crossComponent, matched := false, false
+		for _, app := range appends {
+			for _, obs := range observers[kind] {
+				if obs.component == app.component {
+					continue
+				}
+				crossComponent = true
+				if SubjectsMatch(app.pattern, obs.pattern) {
+					matched = true
+				}
+			}
+		}
+		if crossComponent && !matched {
+			out[kind] = true
+		}
+	}
+	return out
 }
 
 // resolveRefToTypeID converts a $ref string to a graph type node ID.
@@ -594,6 +681,15 @@ func BuildFlows(g *Graph) []Flow {
 	for kindNode, appends := range producers {
 		kind := trimKindID(kindNode)
 
+		// An unwired kind has ends on both sides and no matching pair among
+		// them (see UnwiredKinds), so the subject test below would drop every
+		// candidate and the pair would be drawn as nothing at all. Draw them
+		// instead, carrying the kind's health: empty space where a reader
+		// expects a line is the least informative way to report a broken wire,
+		// because it looks exactly like a relation the model never had.
+		broken := health[kindNode] == string(HealthUnwired)
+		connects := func(a, b string) bool { return broken || SubjectsMatch(a, b) }
+
 		// An append reaches an observer when the two subjects address the same
 		// events. Sharing a kind name is not enough: a port family puts one
 		// kind on one address per instance, and a producer that named a single
@@ -601,13 +697,13 @@ func BuildFlows(g *Graph) []Flow {
 		reached := make(map[[2]string]bool)
 		for _, out := range appends {
 			for _, in := range triggers[kindNode] {
-				if in.component == out.component || !SubjectsMatch(out.pattern, in.pattern) {
+				if in.component == out.component || !connects(out.pattern, in.pattern) {
 					continue
 				}
 				reached[[2]string{out.component, in.component}] = true
 			}
 			for _, fold := range folders[kindNode] {
-				if fold.component == out.component || !SubjectsMatch(out.pattern, fold.pattern) {
+				if fold.component == out.component || !connects(out.pattern, fold.pattern) {
 					continue
 				}
 				pair := [2]string{out.component, fold.component}

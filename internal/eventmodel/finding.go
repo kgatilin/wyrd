@@ -40,6 +40,14 @@ const (
 	// input nor a state event anywhere in the composed set.
 	KindOrphanEvent FindingKind = "orphan-event"
 
+	// KindUnwiredKind — a kind is appended by one component and observed by
+	// another, but no producer address matches any observer address. Both ends
+	// are present and neither can reach the other, so the wire is declared and
+	// broken rather than merely absent — which is why it is not an orphan or a
+	// starved entry: those count declarations by kind name and this one is
+	// exactly the case where the name agrees and the address does not.
+	KindUnwiredKind FindingKind = "unwired-kind"
+
 	// KindPartitionMismatch — a component's inputs and state events do not
 	// all extract the same ordered partition key, so its fold read-set
 	// cannot address one state.

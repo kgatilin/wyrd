@@ -394,8 +394,18 @@ function roleClass(role: string): string {
   return TONED_ROLES.has(tone) ? ` ${tone}` : '';
 }
 
+/**
+ * Which arrowhead caps a link. Selection wins over health: an accented edge is
+ * the reader's own doing and must read as accented whatever state it is in.
+ */
+function arrowFor(health: EventHealth, accented: boolean): string {
+  if (accented) return 'hf-ev-arrow-on';
+  return health === 'unwired' ? 'hf-ev-arrow-broken' : 'hf-ev-arrow';
+}
+
 /** What each unhealthy state means, for the legend chips. */
 const HEALTH_HINTS: Record<string, string> = {
+  unwired: 'appended and observed by different components, on addresses that never match — the append reaches nobody',
   orphan: 'appended by somebody, and no component takes it as an input or folds it into state',
   starved: 'taken as an input or folded into state, and no component appends it',
   ambiguous: 'declared delivery: exclusive, but not by exactly one input',
@@ -441,7 +451,7 @@ function Hud({
               return (
                 <button
                   key={state}
-                  className={`hf-events-stat warn${on ? ' on' : ''}`}
+                  className={`hf-events-stat ${state === 'unwired' ? 'bad' : 'warn'}${on ? ' on' : ''}`}
                   title={HEALTH_HINTS[state]}
                   onClick={() => onSelect(on ? null : { kind: 'health', health: state })}
                 >
@@ -465,6 +475,16 @@ function Hud({
           </svg>
           folded into state
         </span>
+        {/* Only when there is one to explain. A legend entry for a style the
+            diagram never uses is one more thing to read past. */}
+        {health.unwired > 0 && (
+          <span className="hf-events-legend-item" title={HEALTH_HINTS.unwired}>
+            <svg width="26" height="8" aria-hidden="true">
+              <line x1="0" y1="4" x2="26" y2="4" className="hf-events-legend-line broken" />
+            </svg>
+            never arrives
+          </span>
+        )}
       </div>
     </div>
   );
@@ -515,6 +535,12 @@ function Diagram({
         <marker id="hf-ev-arrow-on" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
           <path d="M0 0 L8 4 L0 8 z" className="hf-events-arrow on" />
         </marker>
+        {/* A marker does not inherit the referencing line's stroke, so a
+            broken wire needs its own or its head stays the ordinary grey and
+            contradicts the line it caps. */}
+        <marker id="hf-ev-arrow-broken" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L8 4 L0 8 z" className="hf-events-arrow broken" />
+        </marker>
       </defs>
       <g transform={`translate(${PADDING}, ${PADDING})`}>
         {layout.links.map((laid) => {
@@ -532,7 +558,7 @@ function Diagram({
               <path
                 d={linkPath(laid.points)}
                 className={`hf-events-line ${laid.link.trigger ? 'trigger' : 'fold'} ${laid.link.health}`}
-                markerEnd={`url(#${on ? 'hf-ev-arrow-on' : 'hf-ev-arrow'})`}
+                markerEnd={`url(#${arrowFor(laid.link.health, on)})`}
               />
               <LinkLabel laid={laid} />
             </g>
@@ -794,6 +820,10 @@ function whereItHangs(kind: EventKind, health: EventHealth): string {
   }
   if (health === 'ambiguous') {
     return `appended by ${producers.join(', ')} — ${kind.triggers?.length ?? 0} input(s)`;
+  }
+  // Both ends exist, so naming one of them is not the answer — the pair is.
+  if (health === 'unwired') {
+    return `${producers.join(', ') || 'nobody'} → ${observers.join(', ') || 'nobody'}, on addresses that never meet`;
   }
   return producers.length > 0 ? `appended by ${producers.join(', ')}` : 'appended by nobody';
 }

@@ -73,8 +73,15 @@ export interface EventModel {
   kinds: EventKind[];
 }
 
-/** Health values that are worth drawing differently. */
-export type EventHealth = 'ok' | 'orphan' | 'starved' | 'ambiguous';
+/**
+ * Health values that are worth drawing differently.
+ *
+ * `unwired` is the one that is about a pair rather than a kind: both ends are
+ * declared and their addresses never match, so the append lands where nobody is
+ * listening. The daemon draws that pair anyway and marks it, because the
+ * alternative — no line — reads as a relation the model never had.
+ */
+export type EventHealth = 'ok' | 'orphan' | 'starved' | 'ambiguous' | 'unwired';
 
 /**
  * Flows collapsed onto one edge per component pair. The daemon sends one flow
@@ -94,7 +101,10 @@ export interface EventLink {
   health: EventHealth;
 }
 
-const HEALTH_RANK: Record<string, number> = { ok: 0, starved: 1, orphan: 2, ambiguous: 3 };
+// Ranked by how much a reader has to do about it. `unwired` is worst: it is a
+// wire that was declared on both ends and is broken, where the others are
+// counts of ends that are missing or duplicated.
+const HEALTH_RANK: Record<string, number> = { ok: 0, starved: 1, orphan: 2, ambiguous: 3, unwired: 4 };
 
 /**
  * The id of the link between two components. One function rather than a
@@ -184,8 +194,8 @@ export function slotCount(component: EventComponent): number {
   return sections.inputs.length + sections.outputs.length + sections.stateEvents.length;
 }
 
-/** The three ways a kind can be unhealthy, in the order the header lists them. */
-export const UNHEALTHY: EventHealth[] = ['orphan', 'starved', 'ambiguous'];
+/** The ways a kind can be unhealthy, in the order the header lists them. */
+export const UNHEALTHY: EventHealth[] = ['unwired', 'orphan', 'starved', 'ambiguous'];
 
 /**
  * How many kinds sit in each unhealthy state.
@@ -196,7 +206,7 @@ export const UNHEALTHY: EventHealth[] = ['orphan', 'starved', 'ambiguous'];
  * different findings, and a single total names none of them.
  */
 export function healthCounts(kinds: EventKind[]): Record<EventHealth, number> {
-  const counts: Record<EventHealth, number> = { ok: 0, orphan: 0, starved: 0, ambiguous: 0 };
+  const counts: Record<EventHealth, number> = { ok: 0, orphan: 0, starved: 0, ambiguous: 0, unwired: 0 };
   for (const kind of kinds) {
     const health = kind.health;
     if (health && health in counts) counts[health as EventHealth] += 1;

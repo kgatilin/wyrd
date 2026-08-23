@@ -100,6 +100,10 @@ func Validate(m *Model) []Finding {
 	findings = append(findings, validateExclusiveDelivery(graded, inputsOf, exclusiveKinds)...)
 	findings = append(findings, validateRefCycles(graded)...)
 
+	// Wiring reads and reports against the whole composed set, imported
+	// documents included — the one rule here that does. See validateWiring.
+	findings = append(findings, validateWiring(m)...)
+
 	sortFindings(findings)
 	return findings
 }
@@ -441,6 +445,107 @@ func validateClosure(m *Model, inputsOf, foldersOf, producersOf map[string][]str
 	}
 
 	return findings
+}
+
+// validateWiring reports kinds whose two ends are both declared and never meet:
+// a producer appends on one address, an observer in another component listens
+// on a different one, and no pair among them matches. Nothing else here catches
+// it — closure counts declarations by kind name, so a name that agrees while
+// the address does not scores healthy on both sides while no append ever
+// arrives.
+//
+// It is the one rule reported against the whole composed set rather than the
+// graded one. The three reasons an AsyncAPI document is excluded elsewhere are
+// that a port puts one kind on several subjects, that its addresses carry wire
+// coordinates rather than partition keys, and that it describes one application
+// rather than a closed system — so closure would fire on every edge leaving it.
+// None of them apply: this rule compares two addresses in the same alphabet,
+// and it requires both ends to be inside the set before it says anything.
+//
+// A warning, not an error, for the reason closure findings are warnings: the
+// composed set read here may be a subset of the running one, and a sibling
+// instance of a port family that would have matched can legitimately live
+// outside this repository. The message states both addresses so the reader can
+// tell the two apart.
+func validateWiring(m *Model) []Finding {
+	unwired := UnwiredKinds(m)
+	if len(unwired) == 0 {
+		return nil
+	}
+	producers, observers := indexKindEnds(m)
+
+	var findings []Finding
+	for _, id := range sortedComponentIDs(m) {
+		comp := m.Components[id]
+		for _, slot := range comp.Outputs {
+			if !unwired[slot.Kind] {
+				continue
+			}
+			heard := observerAddresses(observers[slot.Kind], id)
+			if len(heard) == 0 {
+				continue
+			}
+			findings = append(findings, Finding{
+				Severity:  SeverityWarning,
+				Kind:      KindUnwiredKind,
+				Component: id,
+				File:      comp.SourceFile,
+				Location:  slot.Kind,
+				Message: fmt.Sprintf("appends %q on %s, but its observers listen on %s — no append reaches them",
+					slot.Kind, addressOrAny(slot.Pattern), strings.Join(heard, ", ")),
+				Related: map[string]any{
+					"appends_on":     slot.Pattern,
+					"observed_on":    heard,
+					"observers":      observerComponents(observers[slot.Kind], id),
+					"producer_count": len(producers[slot.Kind]),
+				},
+			})
+		}
+	}
+	return findings
+}
+
+// observerAddresses lists the distinct addresses every component other than
+// self listens on, in declaration order, so the message names what the append
+// would have had to say to arrive.
+func observerAddresses(ends []kindEnd, self string) []string {
+	seen := make(map[string]bool, len(ends))
+	var out []string
+	for _, end := range ends {
+		if end.component == self {
+			continue
+		}
+		address := addressOrAny(end.pattern)
+		if seen[address] {
+			continue
+		}
+		seen[address] = true
+		out = append(out, address)
+	}
+	return out
+}
+
+func observerComponents(ends []kindEnd, self string) []string {
+	seen := make(map[string]bool, len(ends))
+	var out []string
+	for _, end := range ends {
+		if end.component == self || seen[end.component] {
+			continue
+		}
+		seen[end.component] = true
+		out = append(out, end.component)
+	}
+	return out
+}
+
+// addressOrAny names an undeclared address. An empty pattern matches anything
+// in SubjectsMatch, so it can never be half of an unwired pair, but a caller
+// building a message must not print an empty string as if it were an address.
+func addressOrAny(pattern string) string {
+	if pattern == "" {
+		return "(any subject)"
+	}
+	return pattern
 }
 
 // validateExclusiveDelivery enforces single-handler cardinality, but ONLY for

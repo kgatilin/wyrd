@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildLinks,
+  healthCounts,
   isolatedComponents,
   linkId,
   shortKind,
@@ -49,6 +50,30 @@ describe('buildLinks', () => {
 
   it('defaults an unstated health to ok rather than dropping the link', () => {
     expect(buildLinks([flow('a', 'b', 'x')])[0].health).toBe('ok');
+  });
+
+  it('ranks a broken wire above every counting state', () => {
+    const links = buildLinks([
+      flow('a', 'b', 'x', { health: 'unwired' }),
+      flow('a', 'b', 'y', { health: 'ambiguous' }),
+      flow('a', 'b', 'z', { health: 'orphan' }),
+    ]);
+
+    expect(links[0].health).toBe('unwired');
+  });
+});
+
+describe('healthCounts', () => {
+  it('counts each state on its own, unwired included', () => {
+    const counts = healthCounts([
+      { name: 'a', health: 'unwired' },
+      { name: 'b', health: 'unwired' },
+      { name: 'c', health: 'orphan' },
+      { name: 'd', health: 'ok' },
+      { name: 'e' },
+    ]);
+
+    expect(counts).toEqual({ ok: 1, orphan: 1, starved: 0, ambiguous: 0, unwired: 2 });
   });
 });
 
