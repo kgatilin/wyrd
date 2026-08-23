@@ -27,6 +27,7 @@ import (
 
 	adapterem "github.com/kgatilin/wyrd/internal/adapter/eventmodel"
 	"github.com/kgatilin/wyrd/internal/eventmodel"
+	"github.com/kgatilin/wyrd/internal/eventquery"
 	"github.com/kgatilin/wyrd/internal/eventsrc"
 	"github.com/kgatilin/wyrd/internal/plugin"
 )
@@ -66,8 +67,14 @@ func (p *Plugin) CLICommands() []plugin.CLICommand {
 	}
 }
 
-// MCPTools implements plugin.Plugin. Exposes event_model, event_kind,
-// and event_validate tools.
+// MCPTools implements plugin.Plugin. Exposes event_model, event_search,
+// event_wiring, event_kind and event_validate.
+//
+// The middle two exist because the outer two are the wrong size for most
+// questions. event_model returns every payload schema in the repository —
+// tens of thousands of tokens — and event_kind answers only when the caller
+// already knows a kind's exact full name. Almost every real question ("who
+// folds this", "what does this component append") falls between them.
 func (p *Plugin) MCPTools() []plugin.MCPTool {
 	return []plugin.MCPTool{
 		{
@@ -78,6 +85,34 @@ func (p *Plugin) MCPTools() []plugin.MCPTool {
 				"properties": map[string]any{},
 			},
 			Handler: p.handleEventModel,
+		},
+		{
+			Name:        "event_search",
+			Description: "Find event kinds and components by substring over names, component ids, owned namespaces, subject patterns and descriptions. Returns each hit with its wiring — who appends the kind, who it triggers, whose state folds it, the addresses it travels, and any health finding — but no payload schemas. Use this before event_kind when the exact kind name is not already known.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Substring to match (e.g. \"turn.completed\", \"entrypoint\", \"command.cancel\").",
+					},
+					"limit": map[string]any{
+						"type":        "integer",
+						"description": "Maximum hits to return (default 20, 0 for all).",
+					},
+				},
+				"required": []string{"query"},
+			},
+			Handler: p.handleEventSearch,
+		},
+		{
+			Name:        "event_wiring",
+			Description: "Return the whole event model as one flow per line: every component, everything it appends, who receives it, whether it triggers them or is only folded into their state, and any health finding. This is the event graph at a size that fits in context — a few thousand tokens where event_model is tens of thousands. Use it to orient before asking about a specific kind.",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+			Handler: p.handleEventWiring,
 		},
 		{
 			Name:        "event_kind",
@@ -616,6 +651,60 @@ func (p *Plugin) handleEventModel(ctx context.Context, _ map[string]any) (any, e
 }
 
 // handleEventKind is the MCP handler for event_kind.
+// handleEventSearch answers event_search.
+func (p *Plugin) handleEventSearch(ctx context.Context, args map[string]any) (any, error) {
+	query, _ := args["query"].(string)
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("missing required argument: query")
+	}
+	limit := 20
+	if raw, ok := args["limit"]; ok {
+		if n, ok := toInt(raw); ok {
+			limit = n
+		}
+	}
+
+	model, err := p.loadModel(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	if len(model.Components) == 0 {
+		return nil, fmt.Errorf("no event declarations found")
+	}
+
+	hits := eventquery.WithHealth(eventquery.Search(model, query, limit), eventmodel.BuildGraph(model))
+	return map[string]any{"query": query, "count": len(hits), "hits": hits}, nil
+}
+
+// handleEventWiring answers event_wiring. Text rather than a structure: the
+// caller is a context window, and the same facts as JSON cost several times
+// the tokens to say the same thing.
+func (p *Plugin) handleEventWiring(ctx context.Context, args map[string]any) (any, error) {
+	model, err := p.loadModel(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	if len(model.Components) == 0 {
+		return nil, fmt.Errorf("no event declarations found")
+	}
+	var buf bytes.Buffer
+	eventquery.Wiring(model, eventmodel.BuildGraph(model), &buf)
+	return buf.String(), nil
+}
+
+// toInt accepts the number shapes a JSON decoder can hand back.
+func toInt(raw any) (int, bool) {
+	switch n := raw.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	}
+	return 0, false
+}
+
 func (p *Plugin) handleEventKind(ctx context.Context, args map[string]any) (any, error) {
 	kindName, _ := args["kind"].(string)
 	if kindName == "" {

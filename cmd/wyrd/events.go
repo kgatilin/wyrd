@@ -1,24 +1,45 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/kgatilin/wyrd/internal/check"
+	"github.com/kgatilin/wyrd/internal/eventmodel"
+	"github.com/kgatilin/wyrd/internal/eventquery"
+	"github.com/kgatilin/wyrd/internal/eventsrc"
 )
 
-// newEventsCmd mounts the event-model gate at the top level of the full CLI.
+// newEventsCmd groups the questions asked of the event model: is it sound
+// (check), where is this thing (search), and how is it wired (wiring).
+//
+// All three read the declarations off disk. None needs a running daemon,
+// because a gate that only answers while a server is up is a gate nobody can
+// put in CI, and an agent asking "who folds this" should not have to start one.
+func newEventsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "events",
+		Short: "Inspect and check the event model",
+		Long: `Commands for the event model declared in .arch/events.yaml and
+imported AsyncAPI documents: check it, search it, and print how it is wired.`,
+	}
+	cmd.AddCommand(newEventsCheckCmd(), newEventsSearchCmd(), newEventsWiringCmd())
+	return cmd
+}
+
+// newEventsCheckCmd is the gate.
 //
 // The plugin contributes its own `wyrd plugin events validate`, which reports
 // the same findings in its own wording. This one runs the internal/check gate
 // — the same code and the same report `wyrd-check events` runs in CI — so a
 // developer reading a build log and a developer reading their terminal are
 // reading the same sentences.
-func newEventsCmd() *cobra.Command {
+func newEventsCheckCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "events",
+		Use:   "check",
 		Short: "Check the event model declared in .arch/events.yaml and AsyncAPI sources",
 		Long: `Validate the project's event declarations and report every finding:
 duplicate namespace owners, conflicting subject patterns, unresolved $refs,
@@ -32,16 +53,16 @@ in CI, reporting in the same words.
 
 Examples:
   # Everything the validator has to say
-  wyrd events
+  wyrd events check
 
   # Just the broken wires
-  wyrd events --only unwired-kind
+  wyrd events check --only unwired-kind
 
   # Fail on them
-  wyrd events --only unwired-kind --strict
+  wyrd events check --only unwired-kind --strict
 
   # Machine-readable
-  wyrd events --format json`,
+  wyrd events check --format json`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -71,5 +92,103 @@ Examples:
 	cmd.Flags().StringP("format", "f", "text", "Output format: text or json")
 	cmd.Flags().Bool("strict", false, "Fail on warnings as well as errors")
 	cmd.Flags().Bool("warn", false, "Report findings but exit 0 (do not fail)")
+	return cmd
+}
+
+// loadEventModel reads the project's event declarations off disk and projects
+// the graph, which is where per-kind health comes from.
+func loadEventModel(cmd *cobra.Command) (*eventmodel.Model, *eventmodel.Graph, error) {
+	root, _ := cmd.Flags().GetString("root")
+	if root == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return nil, nil, fmt.Errorf("resolving cwd: %w", err)
+		}
+		root = cwd
+	}
+	locations, err := eventsrc.Locations(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	model, err := eventmodel.ReadSources(root, locations)
+	if err != nil {
+		return nil, nil, err
+	}
+	if model == nil || len(model.Components) == 0 {
+		return nil, nil, fmt.Errorf("no event declarations found under %s", root)
+	}
+	return model, eventmodel.BuildGraph(model), nil
+}
+
+func newEventsSearchCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Find event kinds and components by name, subject, or description",
+		Long: `Search the event model and print what each hit is wired to:
+who appends the kind, who it triggers, whose state folds it, and the addresses
+it travels on.
+
+Matching is a case-insensitive substring over kind names, component ids, owned
+namespaces, subject patterns and descriptions. Payload schemas are left out —
+ask for a kind by name with 'wyrd plugin events graph' or the event_kind MCP
+tool when you want the shape.
+
+Examples:
+  wyrd events search turn.completed
+  wyrd events search entrypoint
+  wyrd events search 'session.{session}.command'
+  wyrd events search cancel --format json`,
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			model, graph, err := loadEventModel(cmd)
+			if err != nil {
+				return err
+			}
+			limit, _ := cmd.Flags().GetInt("limit")
+			format, _ := cmd.Flags().GetString("format")
+
+			hits := eventquery.WithHealth(eventquery.Search(model, args[0], limit), graph)
+			if format == "json" {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(hits)
+			}
+			eventquery.FormatHits(cmd.OutOrStdout(), hits, args[0])
+			return nil
+		},
+	}
+	cmd.Flags().String("root", "", "Root directory to scan (default: current directory)")
+	cmd.Flags().Int("limit", 20, "Maximum hits to print (0 for all)")
+	cmd.Flags().StringP("format", "f", "text", "Output format: text or json")
+	return cmd
+}
+
+func newEventsWiringCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "wiring",
+		Short: "Print the whole event model as one flow per line",
+		Long: `Print every component and every flow it appends, one per line:
+who receives it, whether it triggers them or is only folded into their state,
+and any health finding on the kind.
+
+This is the event graph in the size an agent can read. For a picture, use
+'wyrd plugin events graph' (mermaid or graphml).
+
+Examples:
+  wyrd events wiring
+  wyrd events wiring --root ./service`,
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			model, graph, err := loadEventModel(cmd)
+			if err != nil {
+				return err
+			}
+			eventquery.Wiring(model, graph, cmd.OutOrStdout())
+			return nil
+		},
+	}
+	cmd.Flags().String("root", "", "Root directory to scan (default: current directory)")
 	return cmd
 }
