@@ -23,14 +23,19 @@ export interface SearchPort {
  */
 export interface LensPort {
   call(name: string, args: Record<string, unknown>, options: { worktree?: string }): Promise<unknown>;
+  /**
+   * Daemon readiness. Its own call rather than `call('status', …)`: the tools
+   * surface renders text for an agent to read, and a poll needs fields.
+   */
+  status(options: { worktree?: string }): Promise<unknown>;
 }
 
 /**
  * The domains partition at one scope. Separate from LensPort because it is a
  * separate transport, not a separate tool: the lens endpoint clamps a result at
  * 256 KiB for an agent's sake and a full partition does not fit, so the canvas
- * reads its own endpoint. Readiness still comes over LensPort — `status` is
- * cheap and says which phase a cold daemon is in.
+ * reads its own endpoint. Readiness still comes over LensPort — its `status`
+ * call is cheap and says which phase a cold daemon is in.
  */
 export interface DomainsPort {
   load(scope: ArchMotifScopeInput, options: { worktree?: string }): Promise<RawLatentDomains>;

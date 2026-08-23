@@ -147,7 +147,7 @@ func builtinToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
 		{
 			Name:        "extract",
-			Description: "Survey the extracted Go model. With no `paths`, returns an INDEX: every package's metadata and per-kind symbol census (no symbol bodies) — an overview to drill into. With `paths`, returns a bounded symbol digest per requested package (signatures + synopses, paged via offset/limit, narrowed via kinds), the same shape as get_package. It never dumps full package models; read a symbol's body with get_node.",
+			Description: "Survey the extracted Go model. With no `paths`, returns an INDEX: every package's metadata and per-kind symbol census (no symbol bodies) — an overview to drill into. With `paths`, returns a bounded symbol digest per requested package (signatures + synopses, paged via offset/limit, narrowed via kinds), rendered exactly as get_package renders it. It never dumps full package models; read a symbol's body with get_node. Both forms are text, sorted by package path.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -174,7 +174,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "list_packages",
-			Description: "List packages known to the daemon with minimal summary fields (path, name, layer, counts).",
+			Description: "List packages known to the daemon — one text line per package with its path, interface/struct/func counts and layer, sorted by path so sibling packages sit together and the listing reads as a map of the repository.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -293,7 +293,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "list_bounded_contexts",
-			Description: "List all bounded contexts declared in the wyrd.yaml overlay with their aggregates and context-map relationships.",
+			Description: "List all bounded contexts declared in the wyrd.yaml overlay as text: one line per context with its relationship, aggregates and upstream/downstream peers, plus its description beneath.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -301,7 +301,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "get_bounded_context",
-			Description: "Return the full detail of a single bounded context identified by name, including aggregates, upstream/downstream peers, and member packages.",
+			Description: "Return the full detail of a single bounded context identified by name as text: description, aggregates, upstream/downstream peers, and member packages.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -316,7 +316,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		// Retrieval tools
 		{
 			Name:        "search",
-			Description: "The one code search, and it answers WHERE something lives and HOW it connects in the same call. Dense vector similarity (when an embedder is configured) and BM25 lexical matching are fused into a calibrated relevance mass per symbol; that mass is then the weight each hit carries into a graph diffusion (Andersen-Chung-Lang push + min-conductance sweep cut) over calls/implements/uses/returns edges, with per-kind weights and hub damping so shared glue symbols stop turning up on every query. The response is therefore one node list plus the edges among those nodes: first the symbols the query text matched (`seed: true`, in text-relevance order), then the community they sit in (in diffusion-mass order). Reach for it to find code by meaning, to trace impact, and to ask 'what calls / implements / returns X' — prefer `search_files` for exact strings not yet indexed. `k` is how many text hits seed the search; those hits always come back, even when the diffusion places them nowhere. The region around them is query-adaptive — the sweep grows it while the boundary keeps getting cheaper — so a narrow question yields a small dense community and a broad one a larger region; `truncated` reports that the node cap trimmed it (seeds are never trimmed). `hops` is a hard radius on that region — nothing farther than that many edges from a seed comes back, whatever mass it collected — so keep it at 1-2 unless you deliberately want a wider blast radius. `conductance` is the fraction of edge weight crossing the region's boundary, in [0,1]: low means the query landed on a genuine community, high means the best cut still runs through the middle of a hairball, which is the 'nothing coherent found' signal. `filters` narrow what the query text may match, not the region it grows into — that region is the wiring you asked the graph for. Scores order within one response and nothing else: `score` is the diffusion mass, `text_score` the calibrated text mass on seeds; neither is comparable across queries and neither is a cutoff. The `dense` flag is true when the vector layer contributed and false when the seeds are BM25-only (no embedder / empty vector index) — a hint about recall, not validity. Node ids are `package.Symbol` for a package-level symbol and `package.Receiver.Method` for a method, which is searchable in its own right and returned as kind `method`. Results reflect the last indexed snapshot; symbols written since then stay invisible until you call `refresh`.",
+			Description: "The one code search, and it answers WHERE something lives and HOW it connects in the same call. Dense vector similarity (when an embedder is configured) and BM25 lexical matching are fused into a calibrated relevance mass per symbol; that mass is then the weight each hit carries into a graph diffusion (Andersen-Chung-Lang push + min-conductance sweep cut) over calls/implements/uses/returns edges, with per-kind weights and hub damping so shared glue symbols stop turning up on every query. The response is therefore one node list plus the edges among those nodes: first the symbols the query text matched (`seed: true`, in text-relevance order), then the community they sit in (in diffusion-mass order). Reach for it to find code by meaning, to trace impact, and to ask 'what calls / implements / returns X' — prefer `search_files` for exact strings not yet indexed. `k` is how many text hits seed the search; those hits always come back, even when the diffusion places them nowhere. The region around them is query-adaptive — the sweep grows it while the boundary keeps getting cheaper — so a narrow question yields a small dense community and a broad one a larger region; `truncated` reports that the node cap trimmed it (seeds are never trimmed). `hops` is a hard radius on that region — nothing farther than that many edges from a seed comes back, whatever mass it collected — so keep it at 1-2 unless you deliberately want a wider blast radius. `conductance` is the fraction of edge weight crossing the region's boundary, in [0,1]: low means the query landed on a genuine community, high means the best cut still runs through the middle of a hairball, which is the 'nothing coherent found' signal. `filters` narrow what the query text may match, not the region it grows into — that region is the wiring you asked the graph for. Scores order within one response and nothing else: `score` is the diffusion mass, `text_score` the calibrated text mass on seeds; neither is comparable across queries and neither is a cutoff. The `dense` flag is true when the vector layer contributed and false when the seeds are BM25-only (no embedder / empty vector index) — a hint about recall, not validity. Node ids are `package.Symbol` for a package-level symbol and `package.Receiver.Method` for a method, which is searchable in its own right and returned as kind `method`. Results reflect the last indexed snapshot; symbols written since then stay invisible until you call `refresh`. The result is text, not JSON, and reads: a header with the hit/region sizes; a `cut` line whose conductance is the boundary fraction above (0 = isolated community, 1 = no boundary); a `home` line naming the top hit's package, after which every bare name belongs to it and cross-package names read as <lastsegment>.<Name>; `hits`, with each match's signature; `region`, with name, kind and location only (get_node has the signature); and `edges`, folded onto whichever endpoint carries the most of them — `src --kind--> a, b, c` where one source fans out, `dst <--kind-- a, b, c` where many sources converge.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -353,7 +353,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "expand",
-			Description: "Expand from node IDs you already have (from a prior `search` result) to their neighbors via graph edges, up to `hops` away. This is the breadth tool — it walks outward from many nodes at once and returns lightweight node summaries plus edges, without source bodies; use `get_node` when you instead need the full code of one symbol. Use expand to widen the graph around symbols you've already found without re-running a query. Restrict `edges` to specific kinds (uses, returns, implements, calls, contains) to keep the result focused; node IDs use the format search returns — package.SymbolName, or package.Receiver.Method for a method. A method's own calls hang off the method node, and `contains` is what ties a type to its methods, so expanding a type with `edges` unset reaches through it to what its methods touch.",
+			Description: "Expand from node IDs you already have (from a prior `search` result) to their neighbors via graph edges, up to `hops` away. This is the breadth tool — it walks outward from many nodes at once and returns lightweight node summaries plus edges, without source bodies; use `get_node` when you instead need the full code of one symbol. Use expand to widen the graph around symbols you've already found without re-running a query. Restrict `edges` to specific kinds (uses, returns, implements, calls, contains) to keep the result focused; node IDs use the format search returns — package.SymbolName, or package.Receiver.Method for a method. A method's own calls hang off the method node, and `contains` is what ties a type to its methods, so expanding a type with `edges` unset reaches through it to what its methods touch. The result is text in the same shape as search's node and edge sections: nodes grouped under their package with file:line (bare names belong to the `home` package named in the header), then edges folded as `src --kind--> a, b, c` / `dst <--kind-- a, b, c`.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -377,7 +377,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "get_node",
-			Description: "Return full detail for a single symbol — its complete source body and incident edges — given a node_id (package.SymbolName, or package.Receiver.Method for a method) from a `search` result. This is the depth tool: one node, with its actual code; use `expand` instead when you want to walk edges across many nodes without bodies. Use it to read the code once search has located the symbol.",
+			Description: "Return full detail for a single symbol — its complete source body and incident edges — given a node_id (package.SymbolName, or package.Receiver.Method for a method) from a `search` result. This is the depth tool: one node, with its actual code; use `expand` instead when you want to walk edges across many nodes without bodies. Use it to read the code once search has located the symbol. The result is text: a header line, the signature and doc, then `out` and `in` sections folding the incident edges by kind (`--calls--> a, b, c` and `<--calls-- a, b, c`, with the node itself implied), then the body.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -391,7 +391,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "refresh",
-			Description: "Rebuild the retrieval indexes from the current model snapshot, picking up code written since the last index. `search` reads this snapshot, so newly added or changed symbols stay invisible to them until you refresh. Returns counts of reindexed and removed nodes.",
+			Description: "Rebuild the retrieval indexes from the current model snapshot, picking up code written since the last index. `search` reads this snapshot, so newly added or changed symbols stay invisible to them until you refresh. Returns a one-line text summary: nodes reindexed, nodes removed, and whether the dense layer is available.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -399,7 +399,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "status",
-			Description: "Report daemon readiness and indexing progress — cheaply, without running any heavy analysis. Returns {ready, indexing, dense_available, packages, nodes, embedded/embeddable/pending, embedder, message}. On a large repo the dense-embedding pass runs for a while after startup or a refresh; call this first to see whether embedding-backed lenses (semantic_cluster, latent_domains) are ready or still building, instead of firing one that blocks until the transport times out. ready=true means dense search is operational and no indexing pass is in flight.",
+			Description: "Report daemon readiness and indexing progress — cheaply, without running any heavy analysis. Returns text: a state word (ready / indexing / lexical-only), the package/node/embedding counts, the embedder id, and a message saying what to do next. Programs that need the fields rather than the prose read the same record as JSON from GET /api/mcp/status. On a large repo the dense-embedding pass runs for a while after startup or a refresh; call this first to see whether embedding-backed lenses (semantic_cluster, latent_domains) are ready or still building, instead of firing one that blocks until the transport times out. ready=true means dense search is operational and no indexing pass is in flight.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -407,7 +407,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "embedding_coverage",
-			Description: "Report dense-embedding coverage over the indexed graph: how many nodes are embeddable (func/method/iface/struct/type) versus how many actually carry a vector, broken down by kind, plus a capped sample of embeddable nodes still missing an embedding. Answers \"are embeddings built for everything, or is something not built?\" Non-embeddable kinds (const/var/error/field/file/package) are reported but never counted as missing — they are excluded from dense search by design. A nonzero missing count with dense_available=true usually means the embedder failed on those nodes or a refresh is needed.",
+			Description: "Report dense-embedding coverage over the indexed graph: how many nodes are embeddable (func/method/iface/struct/type) versus how many actually carry a vector, broken down by kind, plus a capped sample of embeddable nodes still missing an embedding. Answers \"are embeddings built for everything, or is something not built?\" Non-embeddable kinds (const/var/error/field/file/package) are reported but never counted as missing — they are excluded from dense search by design. A nonzero missing count with dense_available=true usually means the embedder failed on those nodes or a refresh is needed. Returned as text: a census line, a per-kind `embedded/embeddable` breakdown, and the missing sample.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -800,12 +800,12 @@ func handleExtract(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RP
 	if len(args.Paths) == 0 {
 		res := extractResult{
 			Packages: []packageDigest{},
-			Hint:     "Index only (no symbols). Pass `paths` for per-package symbol digests, or call get_package for a single package.",
+			Hint:     "Pass `paths` for per-package symbol digests, or call get_package for a single package.",
 		}
 		for _, m := range snap.Packages {
 			res.Packages = append(res.Packages, buildPackageIndex(m))
 		}
-		return textResult(res)
+		return text(renderExtractIndex(res.Packages, res.Hint))
 	}
 
 	want := make(map[string]struct{}, len(args.Paths))
@@ -818,7 +818,8 @@ func handleExtract(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RP
 			res.Packages = append(res.Packages, buildPackageDigest(m, args.Kinds, args.Offset, args.Limit))
 		}
 	}
-	return textResult(res)
+	sort.Slice(res.Packages, func(i, j int) bool { return res.Packages[i].Path < res.Packages[j].Path })
+	return text(renderExtractDigests(res.Packages))
 }
 
 // handleListPackages returns the minimal per-package summary.
@@ -1105,7 +1106,7 @@ func handleValidate(state *serve.State, rawArgs json.RawMessage) (ToolResult, *R
 func handleListBoundedContexts(state *serve.State) (ToolResult, *RPCError) {
 	snap := snapshotOrEmpty(state)
 	if snap.Overlay == nil || len(snap.Overlay.BoundedContexts) == 0 {
-		return textResult([]BCSummary{})
+		return text(renderBCList(nil))
 	}
 
 	names := make([]string, 0, len(snap.Overlay.BoundedContexts))
@@ -1130,7 +1131,7 @@ func handleListBoundedContexts(state *serve.State) (ToolResult, *RPCError) {
 			Downstream:   bc.Downstream,
 		})
 	}
-	return textResult(out)
+	return text(renderBCList(out))
 }
 
 // getBCArgs is the input schema for the get_bounded_context tool.
@@ -1196,7 +1197,7 @@ func handleGetBoundedContext(state *serve.State, rawArgs json.RawMessage) (ToolR
 		},
 		Packages: pkgPaths,
 	}
-	return textResult(detail)
+	return text(renderBCDetail(detail))
 }
 
 // --- shared helpers ---
@@ -1693,7 +1694,7 @@ func handleSearch(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 				File:      h.File,
 				Line:      h.Line,
 				Signature: clip(h.Signature, maxSubgraphSig),
-				Doc:       firstLine(h.Doc, maxSubgraphDoc),
+				Doc:       synopsis(h.Doc, maxSubgraphDoc),
 				Score:     h.Score,
 			},
 			Seed:      h.Seed,
@@ -1880,7 +1881,7 @@ func handleExpand(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 			File:      n.File,
 			Line:      n.Line,
 			Signature: clip(n.Signature, maxSubgraphSig),
-			Doc:       firstLine(n.Doc, maxSubgraphDoc),
+			Doc:       synopsis(n.Doc, maxSubgraphDoc),
 			Score:     n.Score,
 		}
 	}
@@ -2024,11 +2025,11 @@ func handleRefresh(state *serve.State) (ToolResult, *RPCError) {
 		removed = oldCount - newCount
 	}
 
-	return textResult(refreshResult{
+	return text(renderRefresh(refreshResult{
 		Reindexed: newCount,
 		Removed:   removed,
 		Dense:     svc.DenseAvailable(),
-	})
+	}))
 }
 
 // statusResult is a cheap readiness snapshot of the daemon's model + retrieval
@@ -2048,6 +2049,14 @@ type statusResult struct {
 	Message        string `json:"message"`
 }
 
+// StatusSnapshot returns the readiness record as a JSON-marshalable value.
+// The `status` tool renders this same record as text for an agent to read;
+// programs — the review UI's readiness poll — read the JSON from
+// GET /api/mcp/status instead of parsing a tool result meant for a reader.
+func StatusSnapshot(state *serve.State) any {
+	return buildStatus(state)
+}
+
 // handleStatus reports daemon readiness and indexing progress without touching
 // the heavy analysis paths. On a large repo, the dense-embedding pass can run
 // for a while after startup or a refresh; this tool lets a client see "indexing
@@ -2057,13 +2066,21 @@ func handleStatus(state *serve.State) (ToolResult, *RPCError) {
 	if state == nil {
 		return errorResult("no state available"), nil
 	}
+	return text(renderStatus(buildStatus(state)))
+}
+
+// buildStatus assembles the readiness record both surfaces share.
+func buildStatus(state *serve.State) statusResult {
+	if state == nil {
+		return statusResult{Message: "No state available: the daemon holds no model for this worktree."}
+	}
 	snap := state.Snapshot()
 	res := statusResult{Packages: len(snap.Packages)}
 
 	svc := state.Retrieval()
 	if svc == nil {
 		res.Message = "Retrieval is disabled: lexical/dense search and embedding-backed lenses are unavailable."
-		return textResult(res)
+		return res
 	}
 
 	st := svc.IndexStatus()
@@ -2086,7 +2103,7 @@ func handleStatus(state *serve.State) (ToolResult, *RPCError) {
 	default:
 		res.Message = "Ready (lexical only). Dense embeddings are unavailable — the embedder is not configured or failed, so semantic_cluster/latent_domains will not run. Check the embedder and call refresh."
 	}
-	return textResult(res)
+	return res
 }
 
 // indexingGate returns a structured "indexing in progress" ToolResult (and
@@ -2201,7 +2218,7 @@ func handleEmbeddingCoverage(state *serve.State) (ToolResult, *RPCError) {
 	for k, v := range byKind {
 		out.ByKind[k] = *v
 	}
-	return textResult(out)
+	return text(renderEmbeddingCoverage(out))
 }
 
 // --- Spectral cluster tool handler ---

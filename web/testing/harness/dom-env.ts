@@ -197,10 +197,12 @@ export interface MountOptions {
    */
   report?: (baseRef: string, fresh: boolean) => unknown;
   /**
-   * Answers POST /api/mcp/tools/call — the daemon's analysis lenses. Return
-   * the payload; the MCP ToolResult envelope is added here, so a spec writes
-   * the tool's own shape. Without it the domains canvas reports the lens
-   * failed, which is itself a state worth testing.
+   * Answers POST /api/mcp/tools/call — the daemon's analysis lenses — and
+   * GET /api/mcp/status, the readiness record, which arrives here as the name
+   * "status". Return the payload; the MCP ToolResult envelope is added here
+   * for the tool call, so a spec writes the tool's own shape. Without it the
+   * domains canvas reports the lens failed, which is itself a state worth
+   * testing.
    */
   lens?: (name: string, args: Record<string, unknown>) => unknown;
   /**
@@ -252,6 +254,11 @@ export async function mountAppDom(graph: UIGraph, options?: MountOptions): Promi
     }
     if (url.includes('/api/archmotif/domains') && options?.domains) {
       return okJson(options.domains(new URLSearchParams(url.split('?')[1] ?? '')));
+    }
+    if (url.includes('/api/mcp/status') && options?.lens) {
+      // The readiness endpoint answers the record directly — no ToolResult
+      // envelope — so a spec writes the same shape the daemon serves.
+      return okJson(options.lens('status', {}));
     }
     if (url.includes('/api/mcp/tools/call') && options?.lens) {
       const body = JSON.parse(String(init?.body ?? '{}')) as {

@@ -74,15 +74,15 @@ func TestClip(t *testing.T) {
 	}
 }
 
-func TestFirstLine(t *testing.T) {
-	if got := firstLine("Doc synopsis.\nMore detail below.\nAnd more.", 200); got != "Doc synopsis." {
-		t.Errorf("firstLine = %q, want %q", got, "Doc synopsis.")
+func TestSynopsis(t *testing.T) {
+	// The rule itself is covered in internal/godoc; this pins that the
+	// renderer's doc field goes through it rather than a width cut of its own.
+	doc := "Dispatch routes a call to its handler.\nEverything after this is detail."
+	if got, want := synopsis(doc, 200), "Dispatch routes a call to its handler."; got != want {
+		t.Errorf("synopsis = %q, want %q", got, want)
 	}
-	if got := firstLine("   \n  ", 200); got != "" {
-		t.Errorf("blank doc should yield empty, got %q", got)
-	}
-	if got := firstLine(strings.Repeat("w", 300), 50); len(got) < 50 || !strings.Contains(got, "bytes]") {
-		t.Errorf("firstLine should clip long single line: %q", got)
+	if got := synopsis(strings.Repeat("word ", 60), 50); !strings.HasSuffix(got, " …") {
+		t.Errorf("over-budget synopsis should be clipped and marked: %q", got)
 	}
 }
 

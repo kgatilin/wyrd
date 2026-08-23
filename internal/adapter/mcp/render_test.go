@@ -143,10 +143,18 @@ func TestRenderSearch_SeparatesHitsFromRegionAndReportsTheCut(t *testing.T) {
 	out := renderSearch("dispatch", r)
 
 	// One answer, two sections: what the text matched and what the graph added.
-	hits := strings.Index(out, "hits  (matched the query text)")
-	region := strings.Index(out, "region  (what the hits diffuse into)")
+	hits := strings.Index(out, "\nhits\n")
+	region := strings.Index(out, "\nregion\n")
 	if hits < 0 || region < 0 || hits > region {
 		t.Fatalf("hits and region sections missing or out of order:\n%s", out)
+	}
+	// The section headers carry no legend: the format is in the tool
+	// description, which the client already has, not on every response.
+	for _, legend := range []string{"matched the query text", "diffuse into", "src --kind--> dst",
+		"bare names are in this package", "isolated community"} {
+		if strings.Contains(out, legend) {
+			t.Errorf("legend %q reprinted in the response body:\n%s", legend, out)
+		}
 	}
 	if strings.Index(out, "Dispatch  (res ToolResult)") > region {
 		t.Errorf("a seed was printed under the region:\n%s", out)
@@ -199,7 +207,7 @@ func TestRenderSearch_LeadsWithTheTopHitNotTheBiggestPackage(t *testing.T) {
 	if !strings.Contains(out, "home "+top) {
 		t.Errorf("home is not the top hit's package:\n%s", out)
 	}
-	if strings.Index(out, "fuseCalibrated\n") > strings.Index(out, "trophicVerdict") {
+	if strings.Index(out, "fuseCalibrated") > strings.Index(out, "trophicVerdict") {
 		t.Errorf("the answer leads with the weak tail:\n%s", out)
 	}
 }
@@ -248,5 +256,173 @@ func assertNoFloatNoise(t *testing.T, s string) {
 	t.Helper()
 	if m := regexp.MustCompile(`\d\.\d{7,}`).FindString(s); m != "" {
 		t.Errorf("float-precision noise leaked into output: %q", m)
+	}
+}
+
+func TestFoldEdges_ConvergingEdgesFoldOntoTheirTarget(t *testing.T) {
+	// Every action implements one interface and uses one payload type. Folding
+	// by source alone spends a line per action saying the same thing twice.
+	var edges []edgeInfo
+	names := []string{"AgentAction", "ForeachAction", "IfAction", "MapAction", "SwitchAction"}
+	for _, n := range names {
+		edges = append(edges,
+			edgeInfo{From: "internal/actions." + n, To: "internal/workflow.Action", Kind: "implements"},
+			edgeInfo{From: "internal/actions." + n, To: "internal/workflow.ErrorData", Kind: "uses"},
+		)
+	}
+	lines := foldEdges(edges, func(id string) string { return shortEndpoint(id, "internal/actions") })
+
+	if len(lines) != 2 {
+		t.Fatalf("10 converging edges should fold to 2 lines, got %d:\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "workflow.Action <--implements-- AgentAction, ForeachAction, IfAction, MapAction, SwitchAction") {
+		t.Errorf("implements edges not folded onto their target:\n%s", joined)
+	}
+	if !strings.Contains(joined, "workflow.ErrorData <--uses-- ") {
+		t.Errorf("uses edges not folded onto their target:\n%s", joined)
+	}
+	// Every edge is printed exactly once, on one side of the arrow or the other.
+	for _, n := range names {
+		if got := strings.Count(joined, n); got != 2 {
+			t.Errorf("%s appears %d times, want 2 (once per edge):\n%s", n, got, joined)
+		}
+	}
+}
+
+func TestFoldEdges_FanOutStillFoldsOntoItsSource(t *testing.T) {
+	// The other direction has to keep working: one source, many targets.
+	var edges []edgeInfo
+	for _, n := range []string{"Alpha", "Beta", "Gamma"} {
+		edges = append(edges, edgeInfo{From: "pkg.Run", To: "pkg." + n, Kind: "calls"})
+	}
+	lines := foldEdges(edges, func(id string) string { return shortEndpoint(id, "pkg") })
+	if len(lines) != 1 || !strings.Contains(lines[0], "Run --calls--> Alpha, Beta, Gamma") {
+		t.Fatalf("fan-out not folded onto its source: %v", lines)
+	}
+}
+
+func TestRenderSearch_RegionCarriesNoSignatures(t *testing.T) {
+	home := "internal/adapter/mcp"
+	sig := "streamCompletion(ctx context.Context, params anthropic.MessageNewParams) <-chan event.Event"
+	out := renderSearch("stream", searchResult{
+		SeedCount: 1,
+		Hits: []searchHit{
+			{nodeInfo: nodeInfo{ID: home + ".Dispatch", Kind: "func", Package: home, Name: "Dispatch",
+				Signature: "Dispatch(a int) error", File: home + "/tools.go", Line: 10}, Seed: true},
+			{nodeInfo: nodeInfo{ID: "internal/llm.streamCompletion", Kind: "func", Package: "internal/llm",
+				Name: "streamCompletion", Signature: sig, File: "internal/llm/stream.go", Line: 42}},
+		},
+	})
+
+	// The hit keeps its signature; the region entry is name, kind, location.
+	if !strings.Contains(out, "Dispatch  (a int) error") {
+		t.Errorf("a hit lost its signature:\n%s", out)
+	}
+	if strings.Contains(out, "MessageNewParams") {
+		t.Errorf("a region entry printed its full signature:\n%s", out)
+	}
+	if !strings.Contains(out, "streamCompletion  func   stream.go:42") {
+		t.Errorf("region entry should be name, kind and location:\n%s", out)
+	}
+}
+
+func TestRenderSubgraph_NoTrailingWhitespace(t *testing.T) {
+	// A node without a location used to leave the padding of the missing
+	// column at the end of its line.
+	out := renderSubgraph("", subgraphResult{
+		Nodes: []nodeInfo{
+			{ID: "internal/serve.State", Kind: "struct", Package: "internal/serve", Name: "State"},
+			{ID: "internal/serve.Load", Kind: "func", Package: "internal/serve", Name: "Load",
+				File: "internal/serve/state.go", Line: 12},
+		},
+	})
+	for _, line := range strings.Split(out, "\n") {
+		if line != strings.TrimRight(line, " ") {
+			t.Errorf("line has trailing whitespace: %q\n%s", line, out)
+		}
+	}
+	if !strings.Contains(out, "Load  func   state.go:12") {
+		t.Errorf("expand node lost its file:line:\n%s", out)
+	}
+}
+
+func TestRenderNodeDetail_IncidentEdgesFoldByKind(t *testing.T) {
+	home := "internal/adapter/mcp"
+	id := home + ".Dispatch"
+	var edges []edgeInfo
+	for _, c := range []string{"Alpha", "Beta", "Gamma"} {
+		edges = append(edges, edgeInfo{From: home + "." + c, To: id, Kind: "calls"})
+	}
+	edges = append(edges, edgeInfo{From: id, To: home + ".ToolResult", Kind: "returns"})
+
+	out := renderNodeDetail(nodeDetailResult{
+		NodeID: id, Kind: "func", Package: home, Name: "Dispatch",
+		File: home + "/tools.go", Line: 10, Edges: edges,
+	})
+	if !strings.Contains(out, "  <--calls-- Alpha, Beta, Gamma\n") {
+		t.Errorf("callers not folded onto one line per kind:\n%s", out)
+	}
+	if !strings.Contains(out, "  --returns--> ToolResult\n") {
+		t.Errorf("outgoing edges not folded by kind:\n%s", out)
+	}
+	if strings.Contains(out, "Dispatch --") || strings.Contains(out, "--> Dispatch") {
+		t.Errorf("the section's own node is repeated on its edge lines:\n%s", out)
+	}
+}
+
+func TestRenderPackageList_SortedByPath(t *testing.T) {
+	out := renderPackageList([]PackageSummary{
+		{Path: "internal/serve"},
+		{Path: "cmd/wyrd"},
+		{Path: "internal/adapter/mcp"},
+	})
+	lines := strings.Split(strings.TrimSpace(out), "\n")[1:]
+	got := make([]string, len(lines))
+	for i, l := range lines {
+		got[i] = strings.Fields(l)[0]
+	}
+	want := []string{"cmd/wyrd", "internal/adapter/mcp", "internal/serve"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("packages not sorted by path: %v", got)
+	}
+}
+
+func TestRenderBCList_OneLinePerContext(t *testing.T) {
+	out := renderBCList([]BCSummary{{
+		Name: "billing", Relationship: "customer-supplier",
+		Description: "Handles money movement.\nEverything else is elsewhere.",
+		Aggregates:  []string{"invoice", "payment"},
+		Upstream:    []string{"catalog"},
+	}})
+	if !strings.Contains(out, "billing  «customer-supplier»   aggregates invoice, payment   up catalog\n") {
+		t.Errorf("context not rendered on one line:\n%s", out)
+	}
+	if !strings.Contains(out, "· Handles money movement.\n") {
+		t.Errorf("description should be the synopsis:\n%s", out)
+	}
+	if strings.Contains(out, "down ") {
+		t.Errorf("empty column printed:\n%s", out)
+	}
+}
+
+func TestRenderStatus_ReportsThePhaseAsAWord(t *testing.T) {
+	out := renderStatus(statusResult{
+		Ready: true, DenseAvailable: true, Packages: 267, Nodes: 8412,
+		Embedded: 8100, Embeddable: 8100, Embedder: "ollama:nomic", Message: "Ready.",
+	})
+	if !strings.HasPrefix(out, "status  ready\n") {
+		t.Errorf("state word missing:\n%s", out)
+	}
+	if !strings.Contains(out, "packages 267  nodes 8412  embedded 8100/8100") {
+		t.Errorf("counts line wrong:\n%s", out)
+	}
+	if strings.Contains(out, "{") {
+		t.Errorf("status still renders JSON:\n%s", out)
+	}
+
+	indexing := renderStatus(statusResult{Indexing: true, Embedded: 10, Embeddable: 100, Pending: 90})
+	if !strings.HasPrefix(indexing, "status  indexing\n") || !strings.Contains(indexing, "pending 90") {
+		t.Errorf("indexing state not reported:\n%s", indexing)
 	}
 }

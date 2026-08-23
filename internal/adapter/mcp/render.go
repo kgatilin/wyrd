@@ -19,8 +19,8 @@ import (
 //   - the analysed package is named once in a header; same-package symbols are
 //     rendered bare (id = header-package + "." + name), so the package path is
 //     not repeated on every node, edge endpoint, and signature type;
-//   - edges are folded by (source, kind) with an arrow and a fan-out list
-//     instead of one {from,to,kind} object each;
+//   - edges are folded onto whichever endpoint carries the most of them, as
+//     an arrow and a fan-out list, instead of one {from,to,kind} object each;
 //   - relevance scores are dropped — results are already emitted in rank order
 //     and the scores were never a threshold;
 //   - snippets that duplicated the signature/doc are dropped.
@@ -28,6 +28,11 @@ import (
 // Cross-package symbols keep enough of their path to round-trip back into
 // get_node/expand: node lists show them under their own package header, and
 // edge endpoints shorten to <lastsegment>.<Name> which the node list resolves.
+//
+// The format is documented once, in the tool descriptions the client receives
+// with the tool list — not re-explained in the body of every result. A legend
+// on each response is a per-call tax on something the reader already knows by
+// the second call.
 
 // text wraps a pre-rendered string as a plain-text tool result (no JSON).
 func text(s string) (ToolResult, *RPCError) {
@@ -134,27 +139,112 @@ func shortArchmotifIDs(ids []string, home string) []string {
 	return out
 }
 
-// foldEdges groups edges by (from, kind) into `from --kind--> a, b, c` lines,
-// endpoints rendered via short. Lines and fan-out lists are sorted, duplicate
-// targets removed, for deterministic output.
-func foldEdges(edges []edgeInfo, short func(string) string) []string {
-	type key struct{ from, kind string }
-	groups := map[key]map[string]bool{}
-	for _, e := range edges {
-		k := key{short(e.From), e.Kind}
-		if groups[k] == nil {
-			groups[k] = map[string]bool{}
-		}
-		groups[k][short(e.To)] = true
+// foldKey identifies one folded edge group: a hub node, an edge kind, and
+// which side of the arrow the hub sits on.
+type foldKey struct {
+	hub     string
+	kind    string
+	reverse bool // hub is the target: `hub <--kind-- a, b, c`
+}
+
+// lessFoldKey orders fold keys so the greedy choice below is deterministic
+// when two groups are the same size. Forward wins ties, since a singleton
+// group reads more naturally as src --kind--> dst.
+func lessFoldKey(a, b foldKey) bool {
+	if a.reverse != b.reverse {
+		return !a.reverse
 	}
-	lines := make([]string, 0, len(groups))
-	for k, tos := range groups {
-		targets := make([]string, 0, len(tos))
-		for t := range tos {
-			targets = append(targets, t)
+	if a.hub != b.hub {
+		return a.hub < b.hub
+	}
+	return a.kind < b.kind
+}
+
+// foldEdges collapses an edge list into hub lines, folding in whichever
+// direction pays: `from --kind--> a, b, c` where one source fans out, and
+// `to <--kind-- a, b, c` where many sources converge on one target.
+//
+// Folding by (source, kind) alone — what this replaced — leaves the converging
+// case unfolded, and that case is the common one: every implementation of an
+// interface emits its own `X --implements--> Iface` line, so a package with
+// twenty implementations spent twenty lines saying one thing. Groups are
+// chosen greedily, largest first, so each edge is printed exactly once under
+// whichever hub carries the most of its siblings.
+func foldEdges(edges []edgeInfo, short func(string) string) []string {
+	type edge struct{ from, kind, to string }
+	remaining := make(map[edge]bool, len(edges))
+	for _, e := range edges {
+		remaining[edge{short(e.From), e.Kind, short(e.To)}] = true
+	}
+
+	var lines []string
+	for len(remaining) > 0 {
+		counts := map[foldKey]int{}
+		for e := range remaining {
+			counts[foldKey{e.from, e.kind, false}]++
+			counts[foldKey{e.to, e.kind, true}]++
 		}
-		sort.Strings(targets)
-		lines = append(lines, fmt.Sprintf("  %s --%s--> %s", k.from, k.kind, strings.Join(targets, ", ")))
+		var best foldKey
+		bestN := 0
+		for k, n := range counts {
+			if n > bestN || (n == bestN && lessFoldKey(k, best)) {
+				best, bestN = k, n
+			}
+		}
+
+		var peers []string
+		for e := range remaining {
+			if e.kind != best.kind {
+				continue
+			}
+			switch {
+			case best.reverse && e.to == best.hub:
+				peers = append(peers, e.from)
+			case !best.reverse && e.from == best.hub:
+				peers = append(peers, e.to)
+			default:
+				continue
+			}
+			delete(remaining, e)
+		}
+		sort.Strings(peers)
+		lines = append(lines, foldLine(best, peers))
+	}
+	sort.Strings(lines)
+	return lines
+}
+
+// foldLine renders one folded group.
+func foldLine(k foldKey, peers []string) string {
+	if k.reverse {
+		return fmt.Sprintf("  %s <--%s-- %s", k.hub, k.kind, strings.Join(peers, ", "))
+	}
+	return fmt.Sprintf("  %s --%s--> %s", k.hub, k.kind, strings.Join(peers, ", "))
+}
+
+// foldIncident folds a single node's incident edges by kind alone. Every edge
+// already shares that node as one endpoint — the section header names it — so
+// only the kind and the far side need printing.
+func foldIncident(edges []edgeInfo, far func(edgeInfo) string, reverse bool) []string {
+	byKind := map[string]map[string]bool{}
+	for _, e := range edges {
+		if byKind[e.Kind] == nil {
+			byKind[e.Kind] = map[string]bool{}
+		}
+		byKind[e.Kind][far(e)] = true
+	}
+	lines := make([]string, 0, len(byKind))
+	for kind, set := range byKind {
+		peers := make([]string, 0, len(set))
+		for p := range set {
+			peers = append(peers, p)
+		}
+		sort.Strings(peers)
+		if reverse {
+			lines = append(lines, fmt.Sprintf("  <--%s-- %s", kind, strings.Join(peers, ", ")))
+		} else {
+			lines = append(lines, fmt.Sprintf("  --%s--> %s", kind, strings.Join(peers, ", ")))
+		}
 	}
 	sort.Strings(lines)
 	return lines
@@ -215,26 +305,31 @@ func renderSearch(query string, r searchResult) string {
 	if r.SeedCount > 0 {
 		// Conductance is the headline quality number: it says whether the
 		// region is a community or an arbitrary slice of a hairball, so it is
-		// reported next to the size the reader would otherwise judge by.
-		fmt.Fprintf(&b, "cut  conductance %.3f (0 = isolated community, 1 = no boundary)  ·  %d seeds\n",
-			r.Conductance, r.SeedCount)
+		// reported next to the size the reader would otherwise judge by. What
+		// the number means is in the tool description, not on every line.
+		fmt.Fprintf(&b, "cut  conductance %.3f  ·  %d seeds\n", r.Conductance, r.SeedCount)
 	}
 	if r.Truncated {
 		b.WriteString("(region truncated to the node cap — narrow the query or lower k/hops)\n")
 	}
 	if home != "" {
-		fmt.Fprintf(&b, "home %s   · bare names are in this package\n", home)
+		fmt.Fprintf(&b, "home %s\n", home)
 	}
 
-	b.WriteString("\nhits  (matched the query text)\n")
-	writeHitGroups(&b, seeds, home)
+	b.WriteString("\nhits\n")
+	writeHitGroups(&b, seeds, home, true)
 	if len(region) > 0 {
-		b.WriteString("\nregion  (what the hits diffuse into)\n")
-		writeHitGroups(&b, region, home)
+		// The region is context, not the answer: a reader scanning it wants to
+		// know what is nearby and where to look next, and follows up on the
+		// one or two entries that matter with get_node. Printing every
+		// neighbour's full signature here spends the response's bulk on
+		// parameter lists nobody reads.
+		b.WriteString("\nregion\n")
+		writeHitGroups(&b, region, home, false)
 	}
 
 	if len(r.Edges) > 0 {
-		b.WriteString("\nedges  (src --kind--> dst)\n")
+		b.WriteString("\nedges\n")
 		for _, line := range foldEdges(r.Edges, func(id string) string { return shortEndpoint(id, home) }) {
 			b.WriteString(line + "\n")
 		}
@@ -246,7 +341,10 @@ func renderSearch(query string, r searchResult) string {
 // unlabelled, each group keeping the order it arrived in — which is the order
 // the search ranked them. The groups keep it too: a package appears where its
 // best hit did, so reading top to bottom is reading the ranking.
-func writeHitGroups(b *strings.Builder, hits []searchHit, home string) {
+//
+// withSig prints each entry's signature; without it an entry is name, kind and
+// location — enough to decide whether to open it.
+func writeHitGroups(b *strings.Builder, hits []searchHit, home string, withSig bool) {
 	var order []string
 	byPkg := map[string][]searchHit{}
 	for _, h := range hits {
@@ -263,12 +361,14 @@ func writeHitGroups(b *strings.Builder, hits []searchHit, home string) {
 			fmt.Fprintf(b, " %s\n", pkg)
 		}
 		for _, h := range byPkg[pkg] {
-			sig := sigTail(simplifyType(h.Signature, home), h.Name)
-			if sig == "" {
-				sig = h.Kind
+			detail := h.Kind
+			if withSig {
+				if sig := sigTail(simplifyType(h.Signature, home), h.Name); sig != "" {
+					detail = sig
+				}
 			}
-			fmt.Fprintf(b, "  %s  %s   %s\n", h.Name, sig, baseLoc(h.File, h.Line))
-			if d := firstLine(h.Doc, maxSubgraphDoc); d != "" {
+			b.WriteString(symbolLine(h.Name, detail, baseLoc(h.File, h.Line)))
+			if d := synopsis(h.Doc, maxSubgraphDoc); d != "" {
 				fmt.Fprintf(b, "    · %s\n", d)
 			}
 		}
@@ -305,7 +405,7 @@ func renderSubgraph(seed string, r subgraphResult) string {
 		b.WriteString("(truncated to the node cap — narrow the query or lower k/hops)\n")
 	}
 	if home != "" {
-		fmt.Fprintf(&b, "home %s   · bare names are in this package\n", home)
+		fmt.Fprintf(&b, "home %s\n", home)
 	}
 
 	// Nodes grouped by package, home package first.
@@ -332,20 +432,19 @@ func renderSubgraph(seed string, r subgraphResult) string {
 			fmt.Fprintf(&b, " %s\n", pkg)
 		}
 		for _, n := range byPkg[pkg] {
-			sig := sigTail(simplifyType(n.Signature, home), n.Name)
-			loc := baseLoc(n.File, n.Line)
-			if sig == "" {
-				sig = n.Kind
+			detail := sigTail(simplifyType(n.Signature, home), n.Name)
+			if detail == "" {
+				detail = n.Kind
 			}
-			fmt.Fprintf(&b, "  %s  %s   %s\n", n.Name, sig, loc)
-			if d := firstLine(n.Doc, maxSubgraphDoc); d != "" {
+			b.WriteString(symbolLine(n.Name, detail, baseLoc(n.File, n.Line)))
+			if d := synopsis(n.Doc, maxSubgraphDoc); d != "" {
 				fmt.Fprintf(&b, "    · %s\n", d)
 			}
 		}
 	}
 
 	if len(r.Edges) > 0 {
-		b.WriteString("\nedges  (src --kind--> dst)\n")
+		b.WriteString("\nedges\n")
 		for _, line := range foldEdges(r.Edges, func(id string) string { return shortEndpoint(id, home) }) {
 			b.WriteString(line + "\n")
 		}
@@ -376,15 +475,17 @@ func renderNodeDetail(d nodeDetailResult) string {
 	}
 	short := func(id string) string { return shortEndpoint(id, home) }
 	if len(out) > 0 {
-		b.WriteString("\nout  (this --kind--> X)\n")
-		for _, line := range foldEdges(out, short) {
-			b.WriteString(strings.Replace(line, "  "+d.Name+" --", "  --", 1) + "\n")
+		b.WriteString("\nout\n")
+		for _, line := range foldIncident(out, func(e edgeInfo) string { return short(e.To) }, false) {
+			b.WriteString(line + "\n")
 		}
 	}
 	if len(in) > 0 {
-		b.WriteString("\nin  (X --kind--> this)\n")
-		// Fold by (from,kind) but render as reverse arrows grouped per source.
-		for _, line := range foldEdges(in, short) {
+		// One line per kind, not per caller: a hub symbol has hundreds of
+		// callers and one `<--calls-- a, b, c` line says the same thing the
+		// old per-source folding said in hundreds.
+		b.WriteString("\nin\n")
+		for _, line := range foldIncident(in, func(e edgeInfo) string { return short(e.From) }, true) {
 			b.WriteString(line + "\n")
 		}
 	}
@@ -511,7 +612,7 @@ func renderSymbolDigest(s symbolDigest, home string) string {
 		star = "  «" + s.Stereotype + "»"
 	}
 	fmt.Fprintf(&b, "  %s%s   %s\n", head, star, loc)
-	if d := firstLine(s.Doc, digestDocBytes); d != "" {
+	if d := synopsis(s.Doc, digestDocBytes); d != "" {
 		fmt.Fprintf(&b, "    · %s\n", d)
 	}
 	for _, m := range s.Methods {
@@ -540,18 +641,57 @@ func sigTailSpace(tail string) string {
 
 // --- list_packages ---
 
+// renderPackageList prints the repo's package census, sorted by path. The
+// order is the point: the daemon holds its packages in a map, and a few
+// hundred lines in hash order are unreadable as a map of the repository —
+// sorted, sibling packages sit together and the tree shows through.
 func renderPackageList(sums []PackageSummary) string {
+	ordered := make([]PackageSummary, len(sums))
+	copy(ordered, sums)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Path < ordered[j].Path })
+
 	var b strings.Builder
-	fmt.Fprintf(&b, "packages  ·  %d\n", len(sums))
-	for _, s := range sums {
-		layer := ""
-		if s.Layer != "" {
-			layer = "  layer=" + s.Layer
+	fmt.Fprintf(&b, "packages  ·  %d\n", len(ordered))
+	for _, s := range ordered {
+		line := "  " + s.Path
+		// Zero counts say nothing a missing column doesn't; extract's index
+		// drops them too, and the two listings sit next to each other.
+		if counts := countCols(map[string]int{"iface": s.InterfaceCount, "struct": s.StructCount, "func": s.FunctionCount},
+			[]string{"iface", "struct", "func"}); counts != "" {
+			line += "   " + counts
 		}
-		fmt.Fprintf(&b, "  %s   iface %d  struct %d  func %d%s\n",
-			s.Path, s.InterfaceCount, s.StructCount, s.FunctionCount, layer)
+		if s.Layer != "" {
+			line += "   layer=" + s.Layer
+		}
+		b.WriteString(line + "\n")
 	}
 	return b.String()
+}
+
+// countCols renders the non-zero entries of a symbol census in the given key
+// order, as `label n` pairs.
+func countCols(counts map[string]int, order []string) string {
+	parts := make([]string, 0, len(order))
+	for _, k := range order {
+		if n := counts[k]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", k, n))
+		}
+	}
+	return strings.Join(parts, "  ")
+}
+
+// symbolLine renders one `name  detail  location` entry. Absent columns are
+// dropped rather than padded: a node without a location used to leave three
+// trailing spaces on every line of the answer.
+func symbolLine(name, detail, loc string) string {
+	line := "  " + name
+	if detail != "" {
+		line += "  " + detail
+	}
+	if loc != "" {
+		line += "   " + loc
+	}
+	return line + "\n"
 }
 
 // locOf renders a file:line locator, omitting an absent line.
@@ -824,6 +964,200 @@ func renderLatentDomains(r latentDomainsResponse) string {
 	b.WriteString(renderClusters(r.Semantic.Clusters, "M", home))
 	if r.DroppedNodes > 0 {
 		fmt.Fprintf(&b, "dropped  %d (no embedding)\n", r.DroppedNodes)
+	}
+	return b.String()
+}
+
+// --- extract ---
+
+// renderExtractIndex prints the no-paths survey: one line per package with the
+// non-zero parts of its symbol census. Zero-valued kinds are dropped — an
+// index of a few hundred packages otherwise spends most of its width printing
+// `const 0  var 0  err 0`.
+func renderExtractIndex(pkgs []packageDigest, hint string) string {
+	ordered := make([]packageDigest, len(pkgs))
+	copy(ordered, pkgs)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Path < ordered[j].Path })
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "extract index  ·  %d packages  ·  no symbols\n", len(ordered))
+	for _, d := range ordered {
+		c := d.Counts
+		line := fmt.Sprintf("  %s   = %d", d.Path, c.Total)
+		if counts := countCols(map[string]int{
+			"iface": c.Interfaces, "struct": c.Structs, "func": c.Functions,
+			"type": c.TypeDefs, "const": c.Constants, "var": c.Variables, "err": c.Errors,
+		}, []string{"iface", "struct", "func", "type", "const", "var", "err"}); counts != "" {
+			line += "   " + counts
+		}
+		if d.Layer != "" {
+			line += "   layer=" + d.Layer
+		}
+		b.WriteString(line + "\n")
+	}
+	if hint != "" {
+		fmt.Fprintf(&b, "hint  %s\n", hint)
+	}
+	return b.String()
+}
+
+// renderExtractDigests prints the with-paths form: the same per-package digest
+// get_package renders, one after another. Sharing the renderer is the point —
+// extract's own JSON shape repeated every package path, every field name, and
+// every kind key on the wire, for text a reader already knows how to read.
+func renderExtractDigests(pkgs []packageDigest) string {
+	if len(pkgs) == 0 {
+		return "extract  ·  0 packages matched the requested paths\n"
+	}
+	parts := make([]string, 0, len(pkgs))
+	for _, d := range pkgs {
+		parts = append(parts, renderPackageDigest(d))
+	}
+	return strings.Join(parts, "\n")
+}
+
+// --- daemon state ---
+
+// renderStatus prints the daemon's readiness in the same text register as
+// every other tool, rather than as a JSON object the reader has to parse by
+// eye. The machine-readable form lives at GET /api/mcp/status, which is what
+// the review UI polls.
+func renderStatus(r statusResult) string {
+	var b strings.Builder
+	state := "lexical-only"
+	switch {
+	case r.Indexing:
+		state = "indexing"
+	case r.Ready:
+		state = "ready"
+	}
+	fmt.Fprintf(&b, "status  %s\n", state)
+
+	counts := []string{fmt.Sprintf("packages %d", r.Packages), fmt.Sprintf("nodes %d", r.Nodes)}
+	if r.Embeddable > 0 {
+		counts = append(counts, fmt.Sprintf("embedded %d/%d", r.Embedded, r.Embeddable))
+	}
+	if r.Pending > 0 {
+		counts = append(counts, fmt.Sprintf("pending %d", r.Pending))
+	}
+	fmt.Fprintf(&b, "counts  %s\n", strings.Join(counts, "  "))
+	if r.Embedder != "" {
+		fmt.Fprintf(&b, "embedder  %s\n", r.Embedder)
+	}
+	if r.Message != "" {
+		fmt.Fprintf(&b, "%s\n", r.Message)
+	}
+	return b.String()
+}
+
+// renderRefresh prints what a reindex changed.
+func renderRefresh(r refreshResult) string {
+	dense := "lexical-only"
+	if r.Dense {
+		dense = "dense"
+	}
+	return fmt.Sprintf("refresh  ·  reindexed %d  removed %d  ·  %s\n", r.Reindexed, r.Removed, dense)
+}
+
+// renderEmbeddingCoverage prints dense-embedding coverage as a census plus a
+// per-kind breakdown, one line each.
+func renderEmbeddingCoverage(r embeddingCoverageResult) string {
+	var b strings.Builder
+	dense := "lexical-only"
+	if r.DenseAvailable {
+		dense = "dense"
+	}
+	fmt.Fprintf(&b, "embedding_coverage  ·  %d nodes  ·  embeddable %d  embedded %d  missing %d  ·  %s\n",
+		r.TotalNodes, r.EmbeddableNodes, r.EmbeddedNodes, r.MissingNodes, dense)
+
+	kinds := make([]string, 0, len(r.ByKind))
+	for k := range r.ByKind {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	parts := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		c := r.ByKind[k]
+		if c.Embeddable == 0 {
+			// Non-embeddable kinds are excluded from dense search by design;
+			// their totals are noise next to the ones that can be missing.
+			parts = append(parts, fmt.Sprintf("%s %d (n/a)", k, c.Total))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %d/%d", k, c.Embedded, c.Embeddable))
+	}
+	if len(parts) > 0 {
+		fmt.Fprintf(&b, "by kind  %s\n", strings.Join(parts, "  "))
+	}
+	if len(r.MissingSample) > 0 {
+		fmt.Fprintf(&b, "missing  %s\n", membersLine(r.MissingSample, r.MissingNodes, ""))
+	}
+	return b.String()
+}
+
+// --- bounded contexts ---
+
+// renderBCList prints one line per bounded context plus its description, in
+// place of the JSON array that repeated six field names per context.
+func renderBCList(bcs []BCSummary) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "bounded_contexts  ·  %d\n", len(bcs))
+	for _, bc := range bcs {
+		line := "  " + bc.Name
+		if bc.Relationship != "" {
+			line += "  «" + bc.Relationship + "»"
+		}
+		line += relatedCols(bc)
+		b.WriteString(line + "\n")
+		if d := synopsis(bc.Description, digestDocBytes); d != "" {
+			fmt.Fprintf(&b, "    · %s\n", d)
+		}
+	}
+	return b.String()
+}
+
+// relatedCols renders a bounded context's aggregate and context-map columns,
+// omitting the empty ones.
+func relatedCols(bc BCSummary) string {
+	out := ""
+	for _, col := range []struct {
+		label string
+		items []string
+	}{
+		{"aggregates", bc.Aggregates},
+		{"up", bc.Upstream},
+		{"down", bc.Downstream},
+	} {
+		if len(col.items) > 0 {
+			out += fmt.Sprintf("   %s %s", col.label, strings.Join(col.items, ", "))
+		}
+	}
+	return out
+}
+
+// renderBCDetail prints one bounded context with its member packages.
+func renderBCDetail(d bcDetail) string {
+	var b strings.Builder
+	head := "bounded_context  " + d.Name
+	if d.Relationship != "" {
+		head += "  «" + d.Relationship + "»"
+	}
+	b.WriteString(head + "\n")
+	if desc := strings.TrimSpace(d.Description); desc != "" {
+		fmt.Fprintf(&b, "  · %s\n", desc)
+	}
+	for _, row := range []struct {
+		label string
+		items []string
+	}{
+		{"aggregates", d.Aggregates},
+		{"upstream", d.Upstream},
+		{"downstream", d.Downstream},
+		{"packages", d.Packages},
+	} {
+		if len(row.items) > 0 {
+			fmt.Fprintf(&b, "%-11s %s\n", row.label, strings.Join(row.items, ", "))
+		}
 	}
 	return b.String()
 }

@@ -202,7 +202,7 @@ func flattenSymbols(m domain.PackageModel, want map[string]bool) []symbolDigest 
 		for _, s := range m.Interfaces {
 			out = append(out, symbolDigest{
 				Name: s.Name, Kind: "interface", Exported: s.IsExported,
-				Doc: firstLine(s.Doc, digestDocBytes), File: s.SourceFile,
+				Doc: synopsis(s.Doc, digestDocBytes), File: s.SourceFile,
 				Line: s.Span.StartLine, Stereotype: s.Stereotype.String(),
 				Methods: methodSignatures(s.Methods),
 			})
@@ -212,7 +212,7 @@ func flattenSymbols(m domain.PackageModel, want map[string]bool) []symbolDigest 
 		for _, s := range m.Structs {
 			out = append(out, symbolDigest{
 				Name: s.Name, Kind: "struct", Exported: s.IsExported,
-				Doc: firstLine(s.Doc, digestDocBytes), File: s.SourceFile,
+				Doc: synopsis(s.Doc, digestDocBytes), File: s.SourceFile,
 				Line: s.Span.StartLine, Stereotype: s.Stereotype.String(),
 				Fields: fieldSignatures(s.Fields), Methods: methodSignatures(s.Methods),
 			})
@@ -222,7 +222,7 @@ func flattenSymbols(m domain.PackageModel, want map[string]bool) []symbolDigest 
 		for _, f := range m.Functions {
 			out = append(out, symbolDigest{
 				Name: f.Name, Kind: "func", Exported: f.IsExported,
-				Signature: f.Signature(), Doc: firstLine(f.Doc, digestDocBytes),
+				Signature: f.Signature(), Doc: synopsis(f.Doc, digestDocBytes),
 				File: f.SourceFile, Line: f.Span.StartLine, Stereotype: f.Stereotype.String(),
 			})
 		}
@@ -231,7 +231,7 @@ func flattenSymbols(m domain.PackageModel, want map[string]bool) []symbolDigest 
 		for _, t := range m.TypeDefs {
 			out = append(out, symbolDigest{
 				Name: t.Name, Kind: "type", Exported: t.IsExported,
-				Underlying: t.UnderlyingType.String(), Doc: firstLine(t.Doc, digestDocBytes),
+				Underlying: t.UnderlyingType.String(), Doc: synopsis(t.Doc, digestDocBytes),
 				File: t.SourceFile, Line: t.Span.StartLine, Stereotype: t.Stereotype.String(),
 				EnumValues: capMembers(t.Constants, digestMaxMembers),
 			})
@@ -242,7 +242,7 @@ func flattenSymbols(m domain.PackageModel, want map[string]bool) []symbolDigest 
 			out = append(out, symbolDigest{
 				Name: c.Name, Kind: "const", Exported: c.IsExported,
 				Signature: c.Type.String(), Value: c.Value,
-				Doc: firstLine(c.Doc, digestDocBytes), File: c.SourceFile, Line: c.Span.StartLine,
+				Doc: synopsis(c.Doc, digestDocBytes), File: c.SourceFile, Line: c.Span.StartLine,
 			})
 		}
 	}
@@ -250,7 +250,7 @@ func flattenSymbols(m domain.PackageModel, want map[string]bool) []symbolDigest 
 		for _, v := range m.Variables {
 			out = append(out, symbolDigest{
 				Name: v.Name, Kind: "var", Exported: v.IsExported,
-				Signature: v.Type.String(), Doc: firstLine(v.Doc, digestDocBytes),
+				Signature: v.Type.String(), Doc: synopsis(v.Doc, digestDocBytes),
 				File: v.SourceFile, Line: v.Span.StartLine,
 			})
 		}
@@ -259,7 +259,7 @@ func flattenSymbols(m domain.PackageModel, want map[string]bool) []symbolDigest 
 		for _, e := range m.Errors {
 			out = append(out, symbolDigest{
 				Name: e.Name, Kind: "error", Exported: e.IsExported,
-				Message: e.Message, Doc: firstLine(e.Doc, digestDocBytes),
+				Message: e.Message, Doc: synopsis(e.Doc, digestDocBytes),
 				File: e.SourceFile, Line: e.Span.StartLine,
 			})
 		}

@@ -61,6 +61,21 @@ export async function callLens(
   }
 }
 
+/**
+ * Read the daemon's readiness record. Separate from callLens because it is a
+ * separate surface: the `status` MCP tool renders prose for an agent to read,
+ * while this endpoint answers the same record as fields, which is what a poll
+ * on a timer needs. A cold or failed worktree answers here too, with the
+ * `loading`/`failed` shape isLensPending recognises.
+ */
+export async function fetchStatus(options: { worktree?: string } = {}): Promise<unknown> {
+  const res = await fetch(`${apiPrefix(options.worktree)}/api/mcp/status`);
+  if (!res.ok) {
+    throw new Error(await errorText(res, 'status'));
+  }
+  return (await res.json()) as unknown;
+}
+
 /** True when a payload is the daemon saying "not ready yet" rather than data. */
 export function isLensPending(payload: unknown): payload is LensPending {
   if (payload == null || typeof payload !== 'object') return false;

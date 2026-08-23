@@ -153,12 +153,8 @@ func TestExtract_EmptyStateReturnsEmptyIndex(t *testing.T) {
 	if len(res.Content) != 1 || res.Content[0].Type != "text" {
 		t.Fatalf("unexpected content: %+v", res.Content)
 	}
-	var out extractResult
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(out.Packages) != 0 {
-		t.Errorf("expected 0 packages, got %d", len(out.Packages))
+	if got := res.Content[0].Text; !strings.HasPrefix(got, "extract index  ·  0 packages") {
+		t.Errorf("expected an empty index header, got %q", got)
 	}
 }
 
@@ -168,21 +164,20 @@ func TestExtract_NoPathsReturnsIndex(t *testing.T) {
 	if rpcErr != nil {
 		t.Fatalf("unexpected RPC error: %v", rpcErr)
 	}
-	var out extractResult
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	out := res.Content[0].Text
+	if !strings.Contains(out, "extract index  ·  2 packages") {
+		t.Fatalf("expected a 2-package index header, got %q", out)
 	}
-	if len(out.Packages) != 2 {
-		t.Fatalf("expected 2 packages, got %d: %+v", len(out.Packages), out.Packages)
+	// Index mode: a census line per package, no symbol surface.
+	if !strings.Contains(out, "alpha   = ") || !strings.Contains(out, "beta   = ") {
+		t.Errorf("index mode must carry per-package counts: %q", out)
 	}
-	// Index mode: metadata + census but no symbol bodies.
-	for _, p := range out.Packages {
-		if len(p.Symbols) != 0 {
-			t.Errorf("index mode must carry no symbols; %s has %d", p.Path, len(p.Symbols))
-		}
-		if p.Counts.Total == 0 {
-			t.Errorf("index mode must carry counts; %s total=0", p.Path)
-		}
+	if strings.Contains(out, "\ninterfaces\n") || strings.Contains(out, "\nfuncs\n") {
+		t.Errorf("index mode must carry no symbols: %q", out)
+	}
+	// Zero-valued kinds are dropped rather than printed as `const 0  var 0`.
+	if strings.Contains(out, " 0  ") || strings.HasSuffix(strings.TrimSpace(out), " 0") {
+		t.Errorf("index mode printed a zero kind count: %q", out)
 	}
 }
 
@@ -193,16 +188,17 @@ func TestExtract_FilterByPathReturnsDigest(t *testing.T) {
 	if rpcErr != nil {
 		t.Fatalf("unexpected RPC error: %v", rpcErr)
 	}
-	var out extractResult
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	out := res.Content[0].Text
+	if !strings.Contains(out, "package alpha") {
+		t.Fatalf("expected the alpha digest, got %q", out)
 	}
-	if len(out.Packages) != 1 || out.Packages[0].Path != "alpha" {
-		t.Fatalf("expected single 'alpha' package, got %+v", out.Packages)
+	if strings.Contains(out, "package beta") {
+		t.Fatalf("path filter leaked another package: %q", out)
 	}
-	// With explicit paths the digest carries the symbol surface.
-	if len(out.Packages[0].Symbols) == 0 {
-		t.Errorf("expected symbol digest for alpha, got none")
+	// With explicit paths the digest carries the symbol surface, rendered the
+	// same way get_package renders it.
+	if !strings.Contains(out, "counts  ") || !strings.Contains(out, "\ninterfaces\n") {
+		t.Errorf("expected symbol digest for alpha, got %q", out)
 	}
 }
 
@@ -336,8 +332,8 @@ func TestListBoundedContexts_EmptyStateReturnsEmptyArray(t *testing.T) {
 	if rpcErr != nil {
 		t.Fatalf("unexpected RPC error: %v", rpcErr)
 	}
-	if !strings.HasPrefix(strings.TrimSpace(res.Content[0].Text), "[") {
-		t.Errorf("expected JSON array, got %q", res.Content[0].Text)
+	if got := strings.TrimSpace(res.Content[0].Text); got != "bounded_contexts  ·  0" {
+		t.Errorf("expected an empty context listing, got %q", got)
 	}
 }
 
@@ -350,19 +346,16 @@ func TestListBoundedContexts_ReturnsSortedList(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("unexpected error result: %+v", res)
 	}
-	var summaries []BCSummary
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &summaries); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(summaries) != 2 {
-		t.Fatalf("expected 2 BCs, got %d: %+v", len(summaries), summaries)
+	out := res.Content[0].Text
+	if !strings.HasPrefix(out, "bounded_contexts  ·  2\n") {
+		t.Fatalf("expected a 2-context header, got %q", out)
 	}
 	// Sorted alphabetically: main, secondary.
-	if summaries[0].Name != "main" || summaries[1].Name != "secondary" {
-		t.Errorf("unexpected order: %v, %v", summaries[0].Name, summaries[1].Name)
+	if i, j := strings.Index(out, "main"), strings.Index(out, "secondary"); i < 0 || j < 0 || i > j {
+		t.Errorf("unexpected order: %q", out)
 	}
-	if summaries[0].Description != "Main context" {
-		t.Errorf("wrong description: %q", summaries[0].Description)
+	if !strings.Contains(out, "· Main context") {
+		t.Errorf("description missing: %q", out)
 	}
 }
 
@@ -376,15 +369,12 @@ func TestGetBoundedContext_Found(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("unexpected error result: %+v", res)
 	}
-	var detail bcDetail
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &detail); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	out := res.Content[0].Text
+	if !strings.HasPrefix(out, "bounded_context  main") {
+		t.Errorf("wrong header: %q", out)
 	}
-	if detail.Name != "main" {
-		t.Errorf("wrong name: %q", detail.Name)
-	}
-	if len(detail.Aggregates) != 2 {
-		t.Errorf("expected 2 aggregates, got %d", len(detail.Aggregates))
+	if !strings.Contains(out, "aggregates  ") || strings.Count(out, ",") < 1 {
+		t.Errorf("expected the aggregate list: %q", out)
 	}
 }
 

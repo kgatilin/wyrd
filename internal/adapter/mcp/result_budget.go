@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/kgatilin/wyrd/internal/godoc"
 )
 
 // Response-size budgets.
@@ -108,18 +110,12 @@ func clip(s string, max int) string {
 	return strings.TrimRight(s[:cut], " \t\n") + fmt.Sprintf(" … [+%d bytes]", len(s)-cut)
 }
 
-// firstLine returns the first non-empty line of a doc comment (the Go
-// synopsis convention), clipped to max bytes. Multi-paragraph docs are
-// exactly the kind of bulk that inflates a package digest.
-func firstLine(doc string, max int) string {
-	doc = strings.TrimSpace(doc)
-	if doc == "" {
-		return ""
-	}
-	if i := strings.IndexByte(doc, '\n'); i >= 0 {
-		doc = strings.TrimSpace(doc[:i])
-	}
-	return clip(doc, max)
+// synopsis renders a doc comment as its first sentence, clipped to max bytes.
+// The rule lives in internal/godoc because retrieval bounds the same field on
+// the way in and this layer bounds it again on the way out; one definition
+// keeps a doc from being cut twice by two different rules.
+func synopsis(doc string, max int) string {
+	return godoc.Synopsis(doc, max)
 }
 
 // capMembers caps a string slice to max elements, appending a "… +N more"

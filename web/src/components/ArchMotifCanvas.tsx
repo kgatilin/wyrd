@@ -523,7 +523,7 @@ function useDomainsSession(
 
     const run = async (): Promise<void> => {
       try {
-        const status = (await lens.call('status', {}, { worktree })) as RawStatus | null;
+        const status = (await lens.status({ worktree })) as RawStatus | null;
         if (cancelled) return;
         if (isLensPending(status)) {
           setSession({ status: 'loading', phase: status.phase });

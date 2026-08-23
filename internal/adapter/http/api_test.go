@@ -94,6 +94,39 @@ func TestAPI_ListPackages_ReturnsSummaries(t *testing.T) {
 	}
 }
 
+// TestAPI_Status_IsJSONNotProse pins the split the review UI depends on: the
+// `status` MCP tool renders text for an agent to read, and this route answers
+// the same record as fields for the UI's readiness poll to test.
+func TestAPI_Status_IsJSONNotProse(t *testing.T) {
+	ts, _, _ := newAPITestServer(t)
+
+	resp, err := nethttp.Get(ts.URL + "/api/mcp/status")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+
+	var out struct {
+		Ready          *bool `json:"ready"`
+		Indexing       *bool `json:"indexing"`
+		DenseAvailable *bool `json:"dense_available"`
+		Packages       *int  `json:"packages"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("unmarshal %q: %v", body, err)
+	}
+	if out.Ready == nil || out.Indexing == nil || out.DenseAvailable == nil || out.Packages == nil {
+		t.Fatalf("readiness fields missing from %q", body)
+	}
+	if *out.Packages != 2 {
+		t.Errorf("expected the 2 fixture packages, got %d", *out.Packages)
+	}
+}
+
 func TestAPI_GetPackage_ReturnsDigest(t *testing.T) {
 	ts, _, _ := newAPITestServer(t)
 
@@ -143,25 +176,18 @@ func TestAPI_Extract_FilteredByPath(t *testing.T) {
 		t.Fatalf("status: %d body=%s", resp.StatusCode, body)
 	}
 
-	// extract now returns bounded digests wrapped in {"packages":[...]},
-	// not raw PackageModels. The digest types live (unexported) in the mcp
-	// package, so unmarshal into a local shape carrying just what we assert.
-	var out struct {
-		Packages []struct {
-			Path    string `json:"path"`
-			Symbols []struct {
-				Name string `json:"name"`
-			} `json:"symbols"`
-		} `json:"packages"`
+	// This route forwards the extract tool's own payload, and that payload is
+	// the same package digest an agent reads — text, not JSON. Assert on what
+	// the digest says rather than on a shape it no longer has.
+	text := string(body)
+	if !strings.Contains(text, "package alpha") {
+		t.Errorf("expected the alpha digest, got: %s", text)
 	}
-	if err := json.Unmarshal(body, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if strings.Contains(text, "package beta") {
+		t.Errorf("path filter leaked another package: %s", text)
 	}
-	if len(out.Packages) != 1 || out.Packages[0].Path != "alpha" {
-		t.Errorf("expected only alpha, got %v", out.Packages)
-	}
-	if len(out.Packages[0].Symbols) == 0 {
-		t.Errorf("expected alpha symbol digest, got none: %s", body)
+	if !strings.Contains(text, "Service") || !strings.Contains(text, "Impl") {
+		t.Errorf("expected alpha symbol digest, got none: %s", text)
 	}
 }
 

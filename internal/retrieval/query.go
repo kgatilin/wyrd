@@ -11,6 +11,8 @@ import (
 	"unicode"
 
 	"github.com/kgatilin/archmotif/pkg/localpartition"
+
+	"github.com/kgatilin/wyrd/internal/godoc"
 )
 
 // SearchOptions parameterizes the one search operation.
@@ -344,6 +346,12 @@ func (s *Service) buildAnswer(graph *Graph, seeds []scoredNode, region []string,
 	return hits, edges
 }
 
+// docSynopsisBytes bounds the doc carried per node in a search/expand answer.
+// Generous next to what any one renderer prints, because it is a payload
+// guard, not a display width: the sentence has to survive the trip so the
+// renderer has a whole one to show.
+const docSynopsisBytes = 400
+
 // nodeInfoOf projects a graph node onto the lightweight shape responses carry.
 func nodeInfoOf(node Node, score float64) NodeInfo {
 	return NodeInfo{
@@ -354,7 +362,7 @@ func nodeInfoOf(node Node, score float64) NodeInfo {
 		File:      node.Span.File,
 		Line:      node.Span.StartLine,
 		Signature: node.Signature,
-		Doc:       truncateString(node.Doc, 200),
+		Doc:       godoc.Synopsis(node.Doc, docSynopsisBytes),
 		Score:     score,
 	}
 }
@@ -517,12 +525,17 @@ func (s *Service) Expand(ctx context.Context, nodeIDs []string, hops int, edgeKi
 	for id := range nodeSet {
 		if node, ok := graph.NodesByID[id]; ok {
 			nodes = append(nodes, NodeInfo{
-				ID:        node.ID,
-				Kind:      node.Kind,
-				Package:   node.Package,
-				Name:      node.Name,
+				ID:      node.ID,
+				Kind:    node.Kind,
+				Package: node.Package,
+				Name:    node.Name,
+				// Search reports where each hit lives; expand answered with
+				// nodes a reader could not open. Same graph, same Span — it
+				// was simply never copied across.
+				File:      node.Span.File,
+				Line:      node.Span.StartLine,
 				Signature: node.Signature,
-				Doc:       truncateString(node.Doc, 200),
+				Doc:       godoc.Synopsis(node.Doc, docSynopsisBytes),
 			})
 		}
 	}
@@ -760,17 +773,6 @@ func queryTokens(query string) map[string]bool {
 		tokens[strings.ToLower(p)] = true
 	}
 	return tokens
-}
-
-// truncateString truncates s to maxLen characters with "..." suffix if needed.
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen < 4 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
 }
 
 // containsString checks if needle is in haystack.

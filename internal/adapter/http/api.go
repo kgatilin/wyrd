@@ -52,6 +52,7 @@ func (s *Server) handleAPIVersion(w nethttp.ResponseWriter, r *nethttp.Request) 
 //
 //	GET  /api/mcp/packages            — list_packages
 //	GET  /api/mcp/packages/{path}     — get_package
+//	GET  /api/mcp/status              — daemon readiness, as JSON
 //	GET  /api/mcp/targets             — list_targets
 //	GET  /api/mcp/diff?target=<id>    — diff (body returned as JSON)
 //	GET  /api/mcp/extract?path=a&…    — extract (filtered)
@@ -72,6 +73,7 @@ func (s *Server) handleAPIVersion(w nethttp.ResponseWriter, r *nethttp.Request) 
 // /api/diff graph endpoints.
 func (s *Server) registerAPIRoutes(mux *nethttp.ServeMux) {
 	mux.HandleFunc("/api/mcp/tools/call", s.handleAPIToolsCall)
+	mux.HandleFunc("/api/mcp/status", s.handleAPIStatus)
 	mux.HandleFunc("/api/mcp/extract", s.handleAPIExtract)
 	mux.HandleFunc("/api/mcp/packages", s.handleAPIPackages)
 	mux.HandleFunc("/api/mcp/packages/", s.handleAPIPackageGet)
@@ -177,6 +179,19 @@ func (s *Server) handleAPIToolsCall(w nethttp.ResponseWriter, r *nethttp.Request
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(res)
+}
+
+// handleAPIStatus serves GET /api/mcp/status — the daemon's readiness record
+// as JSON. The `status` MCP tool renders the same record as text, because an
+// agent reads its results; the review UI polls readiness on a timer and needs
+// fields, so it reads them here rather than parsing prose.
+func (s *Server) handleAPIStatus(w nethttp.ResponseWriter, r *nethttp.Request) {
+	if r.Method != nethttp.MethodGet {
+		nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(mcp.StatusSnapshot(s.stateFor(r)))
 }
 
 // handleAPIExtract serves GET /api/extract. Repeated `path` query

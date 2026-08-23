@@ -1,7 +1,10 @@
-import { callLens } from '../data/lens';
+import { callLens, fetchStatus } from '../data/lens';
 import type { LensPort } from '../domain/ports';
 
 /** LensPort backed by the daemon's MCP tool endpoint. */
 export function createHttpLensSource(): LensPort {
-  return { call: (name, args, options) => callLens(name, args, options) };
+  return {
+    call: (name, args, options) => callLens(name, args, options),
+    status: (options) => fetchStatus(options),
+  };
 }

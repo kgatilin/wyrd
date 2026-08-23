@@ -158,10 +158,10 @@ func Hello() string { return "hi" }
 		t.Fatalf("extract error: %+v", resp.Error)
 	}
 	extractText := textContent(t, resp)
-	if !strings.Contains(extractText, `"path":"alpha"`) {
+	if !strings.Contains(extractText, "package alpha") {
 		t.Errorf("extract did not include alpha digest: %s", extractText)
 	}
-	if strings.Contains(extractText, `"path":"beta"`) {
+	if strings.Contains(extractText, "package beta") {
 		t.Errorf("extract should not include beta when filtered: %s", extractText)
 	}
 

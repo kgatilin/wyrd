@@ -169,6 +169,25 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 			return
 		}
 
+		// The readiness poll must not block on the cold parse either — it is
+		// the call a client makes precisely to find out whether that parse is
+		// still running. Same body as the tools/call gate above, without the
+		// ToolResult envelope: this endpoint answers a program directly.
+		if rest == "/api/mcp/status" {
+			state, ok := s.multi.Loaded(name)
+			if !ok {
+				body := loadingStatusBody()
+				if retryAt, loadErr := s.multi.LoadError(name); loadErr != nil {
+					body = failedStatusBody(name, loadErr, retryAt)
+				}
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				_ = json.NewEncoder(w).Encode(body)
+				return
+			}
+			next.ServeHTTP(w, s.rewriteWorktreeRequest(r, name, rest, state))
+			return
+		}
+
 		state, err := s.multi.Get(r.Context(), name)
 		if err != nil {
 			nethttp.Error(w, "load worktree: "+err.Error(), nethttp.StatusInternalServerError)
@@ -185,13 +204,7 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 // uniformly: a JSON object with ready=false and a status/phase. This is the
 // parse-phase counterpart to indexingGate's dense-embedding "indexing" gate.
 func writeLoadingToolResult(w nethttp.ResponseWriter) {
-	payload, _ := json.Marshal(map[string]any{
-		"ready":  false,
-		"status": "loading",
-		"phase":  "parsing",
-		"message": "Daemon is parsing the project model (cold start); analysis tools aren't ready yet. " +
-			"Call `status` to watch progress and retry shortly.",
-	})
+	payload, _ := json.Marshal(loadingStatusBody())
 	res := mcp.ToolResult{Content: []mcp.ToolResultContent{{Type: "text", Text: string(payload)}}}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(res)
@@ -203,6 +216,29 @@ func writeLoadingToolResult(w nethttp.ResponseWriter) {
 // — the caller must know the daemon is not going to become ready on its own,
 // instead of polling an eternal "parsing".
 func writeFailedToolResult(w nethttp.ResponseWriter, name string, loadErr error, retryAt time.Time) {
+	payload, _ := json.Marshal(failedStatusBody(name, loadErr, retryAt))
+	res := mcp.ToolResult{Content: []mcp.ToolResultContent{{Type: "text", Text: string(payload)}}}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+// loadingStatusBody is the readiness record for a worktree still being parsed.
+// One definition serves both the tools/call gate and the JSON status endpoint,
+// so a client polling either sees the same phase names.
+func loadingStatusBody() map[string]any {
+	return map[string]any{
+		"ready":  false,
+		"status": "loading",
+		"phase":  "parsing",
+		"message": "Daemon is parsing the project model (cold start); analysis tools aren't ready yet. " +
+			"Call `status` to watch progress and retry shortly.",
+	}
+}
+
+// failedStatusBody is the readiness record for a worktree whose background
+// load failed: the caller must know the daemon will not become ready on its
+// own, instead of polling an eternal "parsing".
+func failedStatusBody(name string, loadErr error, retryAt time.Time) map[string]any {
 	retry := "shortly"
 	if !retryAt.IsZero() {
 		if d := time.Until(retryAt); d > 0 {
@@ -211,7 +247,7 @@ func writeFailedToolResult(w nethttp.ResponseWriter, name string, loadErr error,
 			retry = "on the next request"
 		}
 	}
-	payload, _ := json.Marshal(map[string]any{
+	return map[string]any{
 		"ready":  false,
 		"status": "failed",
 		"phase":  "failed",
@@ -220,10 +256,7 @@ func writeFailedToolResult(w nethttp.ResponseWriter, name string, loadErr error,
 			"Daemon failed to load worktree %q; analysis tools are unavailable for it. "+
 				"The load is retried %s — fix the reported error (see the daemon log) and retry.",
 			name, retry),
-	})
-	res := mcp.ToolResult{Content: []mcp.ToolResultContent{{Type: "text", Text: string(payload)}}}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(res)
+	}
 }
 
 func (s *Server) canServeWorktreeRouteWithoutState(rest string) bool {

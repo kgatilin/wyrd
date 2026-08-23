@@ -271,13 +271,17 @@ All take `{package, include_subpackages}` and run on the package subgraph.
 (Exception: `status` takes no args — it reports daemon readiness, not a subgraph.)
 
 - **`status`** — daemon readiness + indexing progress, cheap (no graph build).
-  Reports `ready` (dense index available **and** not indexing), `indexing`,
-  `embedded`/`embeddable`/`pending` counts, `embedder` id, and a human `message`.
-  Call this when an embedding-backed lens (`semantic_cluster`, `latent_domains`)
-  comes back `{status:"indexing"}` or `{status:"loading"}` — it tells you whether
-  to wait (dense pass still running) or that the embedder is misconfigured
-  (`dense_available:false` ⇒ lexical-only, those lenses won't run). Also exposed
-  as `wyrd daemon status [name|pid]` over the same endpoint.
+  Renders a state word (`ready` = dense index available **and** not indexing /
+  `indexing` / `lexical-only`), the package/node/embedding counts, the
+  `embedder` id, and a message saying what to do next. Call this when an
+  embedding-backed lens (`semantic_cluster`, `latent_domains`) comes back
+  `{status:"indexing"}` or `{status:"loading"}` — it tells you whether to wait
+  (dense pass still running) or that the embedder is misconfigured
+  (lexical-only ⇒ those lenses won't run). Also exposed as
+  `wyrd daemon status [name|pid]` over the same endpoint. **The same record as
+  JSON is at `GET /api/mcp/status`** — the tool renders text because an agent
+  reads it, and the review UI polls fields on a timer, so the two surfaces are
+  separate (`mcp.StatusSnapshot`, `internal/adapter/http/api.go`).
 - **`components`** — connected components over *all* edges. Finds shattered
   graphs / isolated symbols (missing edges). Singletons = something unlinked.
 - **`file_hotspots`** — top-level declarations per file; flags structural
@@ -308,6 +312,47 @@ All take `{package, include_subpackages}` and run on the package subgraph.
   hiding real domains). Requires embeddings (`refresh` first). This is the lens
   that surfaces, on its own, what otherwise needs eyeballing spectral vs
   semantic side by side.
+
+### Tool results are text
+
+Every read tool (`search`, `expand`, `get_node`, `get_package`, `extract`,
+`list_packages`, `list_bounded_contexts`, `get_bounded_context`, `status`,
+`refresh`, `embedding_coverage`, the lenses) renders compact indented text in
+`internal/adapter/mcp/render.go`. The rules the renderers hold to:
+
+- **The format is documented once**, in the tool description the client gets
+  with `tools/list` — never re-explained in the body of a result. A legend on
+  every response is a per-call tax on something the reader knows by the second
+  call.
+- **Name the home package once.** A header declares it; same-package symbols
+  print bare, others as `<lastsegment>.<Name>`, which the node list resolves
+  back into a `get_node` id.
+- **Fold edges toward whichever endpoint carries the most of them.**
+  `foldEdges` picks groups greedily: `src --kind--> a, b, c` where one source
+  fans out, `dst <--kind-- a, b, c` where many converge. Folding by source
+  alone left the converging case — twenty implementations of one interface,
+  twenty identical lines — completely unfolded. `get_node` goes further and
+  folds its incident edges by kind alone (`foldIncident`): the section header
+  already names the node.
+- **Depth is per-section, not global.** `search` prints signatures under
+  `hits` and name/kind/location under `region`: the region is context, and a
+  reader who wants a signature there calls `get_node`.
+- **Drop empty columns, never pad them.** `symbolLine` omits an absent
+  location rather than leaving the trailing spaces of the column; census lines
+  omit zero counts (`countCols`).
+- **Sort what a reader reads as a map.** `list_packages` and `extract`'s index
+  sort by package path — the daemon holds packages in a map, and a few hundred
+  lines in hash order are not a map of the repository.
+- **A doc comment is cut at its first sentence, not at a width.**
+  `internal/godoc.Synopsis` unwraps the leading paragraph and stops at the
+  sentence end (with go/doc's initials rule), clipping on a word boundary only
+  when no sentence end arrives first. Retrieval bounds the field on the way in
+  and the renderer bounds it again on the way out; both call the same helper,
+  so a doc is never cut twice by two different rules.
+- **Programs get their own surface.** Anything a program parses — the review
+  UI's readiness poll, the domains partition — has a JSON endpoint of its own
+  (`GET /api/mcp/status`, `GET /api/archmotif/domains`). Do not reintroduce
+  JSON into a tool result to serve a client; add the endpoint.
 
 ### Key concepts (hard-won)
 
@@ -409,8 +454,11 @@ All take `{package, include_subpackages}` and run on the package subgraph.
 - Readiness: `handleStatus` + `indexingGate` (`tools.go`) report/gate on
   `retrieval.Service.IndexStatus()` (`internal/retrieval/service.go`). The
   non-blocking parse path is `MultiState.Loaded`/`ensureLoad` (`multistate.go`)
-  and the `/api/mcp/tools/call` loading short-circuit in
-  `internal/adapter/http/multi.go`. CLI: `cmd/wyrd/daemon.go`.
+  and the loading short-circuits for `/api/mcp/tools/call` and
+  `/api/mcp/status` in `internal/adapter/http/multi.go`, which share one body
+  (`loadingStatusBody`/`failedStatusBody`). CLI: `cmd/wyrd/daemon.go`.
+- **Result rendering: `internal/adapter/mcp/render.go`.** Every read tool
+  answers compact indented text, not JSON — see "Tool results are text" below.
 
 ### File diff in the review UI
 
@@ -740,8 +788,10 @@ glue holding it together.
   every id twice — measured on this repository at 46 bytes per node against 94.
   The client joins the two sides by index, not by id lookup
   (`web/src/domain/archMotifDomains.ts`).
-- Readiness first, over the `LensPort` (`data/lens.ts`): `status` is cheap and
-  says whether the dense pass is still running or no embedder is configured. The
+- Readiness first, over the `LensPort`'s own `status` call (`data/lens.ts` →
+  `GET /api/mcp/status`, not the tools surface — that one answers text now): it
+  is cheap and says whether the dense pass is still running or no embedder is
+  configured. The
   partition comes over a second port (`data/domains.ts` +
   `adapters/httpDomainsSource.ts`) because it is a second transport, not a
   second tool. The structural half is never drawn on its own — half a grid
