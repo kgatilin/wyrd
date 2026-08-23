@@ -125,22 +125,28 @@ func endpointForm(id string, depth int, home string) string {
 	if name == "" {
 		return id
 	}
+	if prefix := packageForm(pkg, depth, home); prefix != "" {
+		return prefix + "." + name
+	}
+	return name
+}
+
+// packageForm is the qualifier endpointForm puts in front of a name: empty for
+// the home package undisplayed, otherwise the last depth+1 segments of the
+// path (the home package counts one fewer, since its zero is the bare name).
+func packageForm(pkg string, depth int, home string) string {
 	if pkg != home {
 		depth++
 	}
 	if depth <= 0 {
-		return name
+		return ""
 	}
-	return pkgTail(pkg, depth) + "." + name
+	return pkgTail(pkg, depth)
 }
 
-// endpointDepthCap is the depth past which endpointForm stops changing: the
-// whole path is already in the name.
-func endpointDepthCap(id, home string) int {
-	pkg, name := splitNodeID(id)
-	if name == "" {
-		return 0
-	}
+// packageDepthCap is the depth past which packageForm stops changing: the
+// whole path is already in the qualifier.
+func packageDepthCap(pkg, home string) int {
 	segments := strings.Count(pkg, "/") + 1
 	if pkg != home {
 		segments--
@@ -164,41 +170,82 @@ func pkgTail(pkg string, n int) string {
 // name that two ids share does not shorten the answer, it deletes half of it:
 // `impl.reduce` under a node's callers is one line whether one package calls
 // it or three, and a reader who folds an edge list into a set of names never
-// learns which. Ids that collide grow a package segment at a time until they
+// learns which. Colliding names grow a package segment at a time until they
 // stand apart, so the disambiguation is paid for only where it is needed.
+//
+// The decision is made per package, not per symbol. Expanding only the two
+// names that collided would print `processor/impl.reduce` beside
+// `impl.completedState` — the same package under two spellings, one of which
+// is the spelling that was just declared ambiguous.
 func newEndpointShortener(ids []string, home string) func(string) string {
-	depth := make(map[string]int, len(ids))
+	depth := map[string]int{}
 	for _, id := range ids {
-		depth[id] = 0
-	}
-	for {
-		claims := make(map[string][]string, len(depth))
-		for id, d := range depth {
-			form := endpointForm(id, d, home)
-			claims[form] = append(claims[form], id)
+		if pkg, name := splitNodeID(id); name != "" {
+			depth[pkg] = 0
 		}
-		grew := false
-		for _, group := range claims {
-			if len(group) < 2 {
-				continue
-			}
-			for _, id := range group {
-				if depth[id] < endpointDepthCap(id, home) {
-					depth[id]++
-					grew = true
+	}
+
+	// Two passes over the same knob. The first keeps packages apart, which is
+	// where nearly every collision is; the second catches the rare pair whose
+	// qualifiers differ and whose rendered names still land on one string —
+	// a method `X.Y` at home against `<pkg ending in X>.Y` — by widening the
+	// package of whichever ids collided.
+	grow := func(claim func(map[string][]string)) {
+		for {
+			claims := map[string][]string{}
+			claim(claims)
+			grew := false
+			for _, group := range claims {
+				if len(group) < 2 {
+					continue
+				}
+				for _, pkg := range group {
+					if depth[pkg] < packageDepthCap(pkg, home) {
+						depth[pkg]++
+						grew = true
+					}
 				}
 			}
-		}
-		if !grew {
-			break
+			if !grew {
+				return
+			}
 		}
 	}
+	grow(func(claims map[string][]string) {
+		for pkg, d := range depth {
+			form := packageForm(pkg, d, home)
+			claims[form] = append(claims[form], pkg)
+		}
+	})
+	grow(func(claims map[string][]string) {
+		for _, id := range ids {
+			pkg, name := splitNodeID(id)
+			if name == "" {
+				continue
+			}
+			form := endpointForm(id, depth[pkg], home)
+			claims[form] = appendUniqueString(claims[form], pkg)
+		}
+	})
+
 	return func(id string) string {
-		if d, ok := depth[id]; ok {
-			return endpointForm(id, d, home)
+		pkg, name := splitNodeID(id)
+		if name == "" {
+			return id
 		}
-		return shortEndpoint(id, home)
+		return endpointForm(id, depth[pkg], home)
 	}
+}
+
+// appendUniqueString keeps a claim list free of the same package twice, so a
+// package's own two symbols never read as a collision with itself.
+func appendUniqueString(list []string, value string) []string {
+	for _, existing := range list {
+		if existing == value {
+			return list
+		}
+	}
+	return append(list, value)
 }
 
 // edgeEndpoints lists every id an edge set touches, which is the set an

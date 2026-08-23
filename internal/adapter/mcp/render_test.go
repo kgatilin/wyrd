@@ -528,6 +528,10 @@ func TestEndpointShortenerExpandsOnlyWhatCollides(t *testing.T) {
 		home + ".Run",
 		"internal/a/impl.Reduce",
 		"internal/b/impl.Reduce",
+		// Its name collides with nothing, but its package does. Leaving it
+		// short would print one package under two spellings, one of them the
+		// spelling just declared ambiguous.
+		"internal/a/impl.Terminal",
 		"internal/plugins/events.New",
 	}
 	short := newEndpointShortener(ids, home)
@@ -535,7 +539,8 @@ func TestEndpointShortenerExpandsOnlyWhatCollides(t *testing.T) {
 		ids[0]: "Run",
 		ids[1]: "a/impl.Reduce",
 		ids[2]: "b/impl.Reduce",
-		ids[3]: "events.New",
+		ids[3]: "a/impl.Terminal",
+		ids[4]: "events.New",
 	} {
 		if got := short(id); got != want {
 			t.Errorf("short(%s) = %q, want %q", id, got, want)
