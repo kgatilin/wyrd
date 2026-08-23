@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildLinks,
   diffCounts,
+  linksInDiff,
   healthCounts,
   isolatedComponents,
   linkId,
@@ -116,7 +117,7 @@ describe('movedFields', () => {
 });
 
 describe('diffCounts', () => {
-  it('counts components and kinds together and ignores flows', () => {
+  it('counts components, kinds and pairs together', () => {
     const counts = diffCounts({
       components: [
         { id: 'a', has_state: false, diff: 'added' },
@@ -124,12 +125,69 @@ describe('diffCounts', () => {
         { id: 'c', has_state: false },
       ],
       kinds: [{ name: 'k', diff: 'removed' }],
-      // Flows are excluded on purpose: an edge is not a thing a reader counts,
-      // it is what two counted things do.
       flows: [{ from: 'a', to: 'b', kind: 'k', trigger: true, diff: 'added' }],
     });
 
-    expect(counts).toEqual({ added: 1, changed: 1, removed: 1 });
+    expect(counts).toEqual({ added: 2, changed: 1, removed: 1 });
+  });
+
+  // The reason pairs are counted at all. Flows used to be excluded on the
+  // reasoning that an edge is not a thing a reader counts, it is what two
+  // counted things do — which holds right up until a branch moves who folds
+  // what. Then every component and every kind survives, only the wiring moved,
+  // and a header counting the other two units reports nothing changed while the
+  // canvas draws a dozen faded lines.
+  it('sees a rewiring that changed no component and no kind', () => {
+    const counts = diffCounts({
+      components: [
+        { id: 'a', has_state: false },
+        { id: 'b', has_state: false },
+      ],
+      kinds: [{ name: 'k' }],
+      flows: [{ from: 'a', to: 'b', kind: 'k', trigger: false, diff: 'removed' }],
+    });
+
+    expect(counts).toEqual({ added: 0, changed: 0, removed: 1 });
+  });
+
+  // Counted per pair, not per flow, because that is the unit the canvas draws
+  // and the unit clicking the chip opens.
+  it('counts a pair once however many kinds travel it', () => {
+    const counts = diffCounts({
+      components: [
+        { id: 'a', has_state: false },
+        { id: 'b', has_state: false },
+      ],
+      kinds: [],
+      flows: [
+        { from: 'a', to: 'b', kind: 'k1', trigger: true, diff: 'added' },
+        { from: 'a', to: 'b', kind: 'k2', trigger: false, diff: 'added' },
+        { from: 'a', to: 'b', kind: 'k3', trigger: false, diff: 'added' },
+      ],
+    });
+
+    expect(counts).toEqual({ added: 1, changed: 0, removed: 0 });
+  });
+});
+
+describe('linksInDiff', () => {
+  // A pair is `changed` when its kinds did not all move the same way, so the
+  // list behind a chip has to agree with the mark the canvas painted.
+  it('lists a pair under the mark the canvas drew it with', () => {
+    const model = {
+      components: [
+        { id: 'a', has_state: false },
+        { id: 'b', has_state: false },
+      ],
+      kinds: [],
+      flows: [
+        { from: 'a', to: 'b', kind: 'k1', trigger: true, diff: 'removed' as const },
+        { from: 'a', to: 'b', kind: 'k2', trigger: false },
+      ],
+    };
+
+    expect(linksInDiff(model, 'removed')).toEqual([]);
+    expect(linksInDiff(model, 'changed').map((l) => l.id)).toEqual(['a \u2192 b']);
   });
 });
 

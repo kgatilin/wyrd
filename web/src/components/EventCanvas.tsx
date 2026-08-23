@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { EventModelPort } from '../domain/ports';
 import {
+  buildLinks,
   componentById,
   componentsInDiff,
   DIFFS,
@@ -11,6 +12,7 @@ import {
   kindsInState,
   kindByName,
   linkId,
+  linksInDiff,
   movedFields,
   participantsOf,
   sectionsOf,
@@ -425,9 +427,9 @@ function arrowFor(health: EventHealth, accented: boolean): string {
 
 /** What each mark means. The caller completes the sentence with the base ref. */
 const DIFF_HINTS: Record<EventDiff, string> = {
-  added: 'components and kinds this branch declares and there is no trace of on',
-  changed: 'components and kinds this branch declares differently from',
-  removed: 'components and kinds this branch dropped, drawn anyway so the shape they left is visible — present on',
+  added: 'components, kinds and pairs this branch declares and there is no trace of on',
+  changed: 'components, kinds and pairs this branch declares differently from',
+  removed: 'components, kinds and pairs this branch dropped, drawn anyway so the shape they left is visible — present on',
 };
 
 /** A sigil, so the three marks stay distinguishable without relying on colour. */
@@ -855,11 +857,14 @@ function Detail({
 }
 
 /**
- * What a diff chip opens: everything carrying that mark, components first.
+ * What a diff chip opens: everything carrying that mark, components first,
+ * then kinds, then the pairs between them.
  *
- * Both units in one list rather than two panels. A reader who clicked "3
+ * All three units in one list rather than three panels. A reader who clicked "3
  * changed" is asking what moved, not what moved *and is a component*, and the
- * row itself says which it is.
+ * row itself says which it is. Pairs come last because they are derived from
+ * the other two: a kind that left takes its edges with it, and reading the
+ * cause before the consequence is the order the reader is already in.
  */
 function DiffDetail({
   model,
@@ -872,11 +877,12 @@ function DiffDetail({
 }) {
   const components = componentsInDiff(model, diff);
   const kinds = kindsInDiff(model, diff);
+  const links = linksInDiff(model, diff);
 
   return (
     <>
       <h2 className="hf-events-detail-title">
-        {components.length + kinds.length} {diff}
+        {components.length + kinds.length + links.length} {diff}
       </h2>
       <p className="hf-events-detail-desc">
         {DIFF_HINTS[diff]} {model.base?.ref ?? 'the base'}
@@ -906,6 +912,20 @@ function DiffDetail({
               <span className="hf-events-slot-kind">{kind.name}</span>
               <Moved now={kind} was={kind.was} fields={KIND_FIELDS} />
               {kind.was?.schema_changed && <span className="hf-events-slot-was">payload schema changed</span>}
+            </button>
+          </li>
+        ))}
+        {links.map((link) => (
+          <li key={`link:${link.id}`}>
+            <button
+              className={`hf-events-slot ${diff}`}
+              onClick={() => onSelect({ kind: 'link', from: link.from, to: link.to })}
+            >
+              <span className={`hf-events-sigil ${diff}`}>{DIFF_SIGILS[diff]}</span>
+              <span className="hf-events-slot-kind">{link.id}</span>
+              <span className="hf-events-tag role">
+                {link.kinds.length} {link.kinds.length === 1 ? 'kind' : 'kinds'}
+              </span>
             </button>
           </li>
         ))}
@@ -1062,6 +1082,16 @@ function ComponentDetail({
   );
 }
 
+/**
+ * What an edge opens: who talks to whom, and why the line looks the way it does.
+ *
+ * The picture paints this line from two facts the panel used to keep to itself
+ * — the pair's health and its mark against the base — so a reader who clicked a
+ * red line to ask what was wrong with it got a list of kind names and no
+ * answer. Both now say themselves, at the pair and again per kind, because a
+ * pair reading `changed` is the sum of rows that did not all change the same
+ * way.
+ */
 function LinkDetail({
   model,
   from,
@@ -1073,7 +1103,8 @@ function LinkDetail({
   to: string;
   onSelect: (selection: Selection | null) => void;
 }) {
-  const flows = model.flows.filter((flow) => flow.from === from && flow.to === to);
+  const link = buildLinks(model.flows).find((candidate) => candidate.from === from && candidate.to === to);
+  const flows = link?.kinds ?? [];
   return (
     <>
       <h2 className="hf-events-detail-title">
@@ -1084,18 +1115,31 @@ function LinkDetail({
         <button className="hf-events-link-btn" onClick={() => onSelect({ kind: 'component', id: to })}>
           {to}
         </button>
+        {link?.diff && <span className={`hf-events-tag diff ${link.diff}`}>{link.diff}</span>}
       </h2>
       <p className="hf-events-detail-desc">
         {flows.length} {flows.length === 1 ? 'kind' : 'kinds'} travel this edge.
       </p>
+      {link && link.health !== 'ok' && (
+        <p className={`hf-events-detail-desc ${link.health === 'unwired' ? 'broken' : 'warn'}`}>
+          {link.health} — {HEALTH_HINTS[link.health]}
+        </p>
+      )}
       <ul className="hf-events-slots">
         {flows.map((flow) => (
           <li key={flow.kind}>
-            <button className="hf-events-slot" onClick={() => onSelect({ kind: 'event', name: flow.kind })}>
+            <button
+              className={`hf-events-slot${flow.diff ? ` ${flow.diff}` : ''}`}
+              onClick={() => onSelect({ kind: 'event', name: flow.kind })}
+            >
+              {flow.diff && <span className={`hf-events-sigil ${flow.diff}`}>{DIFF_SIGILS[flow.diff]}</span>}
               <span className="hf-events-slot-kind">{flow.kind}</span>
               <span className={`hf-events-tag ${flow.trigger ? 'trigger' : 'fold'}`}>
                 {flow.trigger ? 'triggers' : 'folded'}
               </span>
+              {flow.health && flow.health !== 'ok' && (
+                <span className={`hf-events-tag ${flow.health === 'unwired' ? 'broken' : 'excl'}`}>{flow.health}</span>
+              )}
             </button>
           </li>
         ))}

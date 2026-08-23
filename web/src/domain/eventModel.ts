@@ -295,16 +295,22 @@ export function healthCounts(kinds: EventKind[]): Record<EventHealth, number> {
 export const DIFFS: EventDiff[] = ['added', 'changed', 'removed'];
 
 /**
- * How many components, kinds and flows carry each mark.
+ * How many components, kinds and pairs carry each mark.
  *
  * Counted per unit rather than as one total: "three components changed" and
  * "three kinds changed" are different findings, and a reader who clicks a
  * number expects the list behind it to be one kind of thing.
+ *
+ * Pairs are counted from the links rather than from `model.flows`, because a
+ * pair carrying six removed kinds is one edge the reader sees leave, not six.
+ * Leaving them out entirely is what this used to do, and a branch that moved
+ * which component folds what — every kind surviving, ten edges gone — drew ten
+ * faded lines under a header that offered no mark to explain them.
  */
 export function diffCounts(model: EventModel | null): Record<EventDiff, number> {
   const counts: Record<EventDiff, number> = { added: 0, removed: 0, changed: 0 };
   if (!model) return counts;
-  for (const item of [...model.components, ...model.kinds]) {
+  for (const item of [...model.components, ...model.kinds, ...buildLinks(model.flows)]) {
     if (item.diff) counts[item.diff] += 1;
   }
   return counts;
@@ -318,6 +324,11 @@ export function componentsInDiff(model: EventModel | null, diff: EventDiff): Eve
 /** The kinds sitting under one mark, in the order the model lists them. */
 export function kindsInDiff(model: EventModel | null, diff: EventDiff): EventKind[] {
   return (model?.kinds ?? []).filter((k) => k.diff === diff);
+}
+
+/** The component pairs sitting under one mark, in the order the canvas draws them. */
+export function linksInDiff(model: EventModel | null, diff: EventDiff): EventLink[] {
+  return buildLinks(model?.flows ?? []).filter((l) => l.diff === diff);
 }
 
 /**

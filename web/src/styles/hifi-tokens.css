@@ -41,6 +41,13 @@
   --chg-bg: rgba(187, 128, 9, 0.15);
   --chg-line: rgba(187, 128, 9, 0.4);
 
+  /* A broken wire. Its own hue rather than the removed red: "these two ends
+     never meet" and "this is gone" are different findings, and one colour for
+     both made a reader decode the dash pattern to tell them apart. Lighter and
+     higher-chroma than --chg-fg, which the counting states already hold. */
+  --broken-fg: #f2cc60;
+  --broken-line: rgba(242, 204, 96, 0.45);
+
   /* accent */
   --accent: #58a6ff;
   --accent-bg: rgba(56, 139, 253, 0.12);
@@ -136,6 +143,8 @@
   --chg-fg: #9a6700;
   --chg-bg: rgba(187, 128, 9, 0.10);
   --chg-line: rgba(154, 103, 0, 0.5);
+  --broken-fg: #bf8700;
+  --broken-line: rgba(191, 135, 0, 0.5);
 
   --accent: #0969da;
   --accent-bg: rgba(9, 105, 218, 0.10);
@@ -3453,7 +3462,7 @@ body {
 .hf-events-stat.warn { color: var(--chg-fg); border-color: var(--chg-line); }
 /* Broken wires read louder than the counting states: the others say an end is
    missing, this one says two present ends do not meet. */
-.hf-events-stat.bad { color: var(--rem-fg); border-color: var(--rem-line); }
+.hf-events-stat.bad { color: var(--broken-fg); border-color: var(--broken-line); }
 /* Diff chips carry the review canvas's three colours, so a reader moving
    between the two surfaces reads one vocabulary. */
 .hf-events-stat.diff.added { color: var(--add-fg); border-color: var(--add-line); }
@@ -3480,7 +3489,7 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
 }
 .hf-events-legend-line { stroke: var(--fg-3); stroke-width: 1.5; }
 .hf-events-legend-line.fold { stroke-dasharray: 4 3; }
-.hf-events-legend-line.broken { stroke: var(--rem-fg); stroke-dasharray: 2 4; stroke-linecap: round; }
+.hf-events-legend-line.broken { stroke: var(--broken-fg); stroke-dasharray: 2 4; stroke-linecap: round; }
 
 .hf-events-close {
   position: absolute;
@@ -3568,17 +3577,21 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
 .hf-events-node.changed .hf-events-node-diff { fill: var(--chg-fg); }
 .hf-events-node.removed .hf-events-node-diff { fill: var(--rem-fg); }
 
+.hf-events-line.added { stroke: var(--add-fg); stroke-width: 2; }
+.hf-events-line.changed { stroke: var(--chg-fg); stroke-width: 2; }
 /* A broken wire: both ends declared, on addresses that never meet. Short dashes
    at full strength rather than a colour change alone, so it still reads as
-   broken at a zoom where hue does not survive — and placed after .fold, whose
-   dash pattern it has to override. */
+   broken at a zoom where hue does not survive.
+   Ordering carries an argument, since these rules have equal specificity and
+   the last one wins. After .fold, whose dash pattern it overrides. After .added
+   and .changed, because a wire that is new *and* broken is broken first — the
+   node sigil and the header chip still say it is new. Before .removed, because
+   a pair that is gone is not a wire anyone has to fix. */
 .hf-events-line.unwired {
-  stroke: var(--rem-fg);
+  stroke: var(--broken-fg);
   stroke-dasharray: 2 4;
   stroke-linecap: round;
 }
-.hf-events-line.added { stroke: var(--add-fg); stroke-width: 2; }
-.hf-events-line.changed { stroke: var(--chg-fg); stroke-width: 2; }
 /* A removed edge keeps its route and loses its weight: it says two components
    used to exchange this and no longer do, which a deleted line cannot say. */
 .hf-events-link.removed { opacity: 0.45; }
@@ -3588,7 +3601,7 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
 .hf-events-link.dim { opacity: 0.22; }
 .hf-events-arrow { fill: var(--line-3); }
 .hf-events-arrow.on { fill: var(--accent); }
-.hf-events-arrow.broken { fill: var(--rem-fg); }
+.hf-events-arrow.broken { fill: var(--broken-fg); }
 
 .hf-events-label-bg { fill: var(--bg-0); stroke: var(--line-1); stroke-width: 1; }
 .hf-events-label-text {
@@ -3632,6 +3645,9 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
 }
 .hf-events-detail-title.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
 .hf-events-detail-desc { margin: 0 0 12px; font-size: 12px; color: var(--fg-2); line-height: 1.55; }
+/* The health line under an unhealthy pair, in the colour the canvas drew it. */
+.hf-events-detail-desc.warn { color: var(--chg-fg); }
+.hf-events-detail-desc.broken { color: var(--broken-fg); }
 .hf-events-detail-empty { font-size: 12px; color: var(--fg-3); }
 
 .hf-events-facts {
@@ -3742,6 +3758,7 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
 .hf-events-tag.fold { color: var(--syn-fn); border-color: var(--layer-internal-line); }
 .hf-events-tag.role { color: var(--fg-2); }
 .hf-events-tag.excl { color: var(--chg-fg); border-color: var(--chg-line); }
+.hf-events-tag.broken { color: var(--broken-fg); border-color: var(--broken-line); }
 .hf-events-tag.diff.added { color: var(--add-fg); border-color: var(--add-line); }
 .hf-events-tag.diff.changed { color: var(--chg-fg); border-color: var(--chg-line); }
 .hf-events-tag.diff.removed { color: var(--rem-fg); border-color: var(--rem-line); }
