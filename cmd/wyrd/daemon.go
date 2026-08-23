@@ -85,11 +85,7 @@ func callDaemonTool(daemonArg, tool string, arguments map[string]any) (text stri
 	if err != nil {
 		return "", false, err
 	}
-	prefix := ""
-	if rec.HasCap("multi") {
-		prefix = "/w/" + daemonWorktreeName(rec)
-	}
-	url := "http://" + rec.HTTPAddr + prefix + "/api/mcp/tools/call"
+	url := daemonBaseURL(rec) + "/api/mcp/tools/call"
 
 	if arguments == nil {
 		arguments = map[string]any{}
@@ -150,6 +146,18 @@ func prettyJSON(s string) string {
 		}
 	}
 	return s
+}
+
+// daemonBaseURL is the URL every request to this daemon hangs off: its HTTP
+// address, plus the /w/<worktree> prefix when the daemon serves several. It is
+// what `where` prints and what the tool proxy posts to, so the address a
+// reader is given is the address their calls take.
+func daemonBaseURL(rec *serve.DaemonRecord) string {
+	prefix := ""
+	if rec.HasCap("multi") {
+		prefix = "/w/" + daemonWorktreeName(rec)
+	}
+	return "http://" + rec.HTTPAddr + prefix
 }
 
 // daemonWorktreeName picks the worktree to scope a multi daemon request to:

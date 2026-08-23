@@ -361,9 +361,12 @@ and as a base for future features.`,
 	whereCmd := &cobra.Command{
 		Use:   "where",
 		Short: "Print this worktree's running serve URL",
-		Long: `Read .arch/.worktree/<name>/serve.json and print the URL of the
-daemon currently serving this worktree. Exits non-zero when no
-daemon is running.`,
+		Long: `Print the base URL that serves this worktree, resolved the way
+every other command resolves one: the global registry first, then a
+legacy per-worktree serve.json. A repo-level daemon serving several
+worktrees answers under /w/<name>/, and that is the URL printed.
+
+Exits non-zero when no daemon serves this directory.`,
 		Args: cobra.NoArgs,
 		RunE: runWhere,
 	}
@@ -1769,22 +1772,16 @@ func validatePatch(d *diff.Diff) error {
 // currently serving this worktree (if any) and exits non-zero when no
 // daemon is recorded or the record is stale.
 func runWhere(cmd *cobra.Command, args []string) error {
-	projectRoot, err := os.Getwd()
+	// The same resolution `graph` and `daemon status` use, rather than this
+	// worktree's serve.json alone. One repo-level daemon serving every
+	// worktree under /w/<name>/ is the normal arrangement now, and reading
+	// only the per-worktree file made `where` report no daemon in a directory
+	// where every other command was talking to one.
+	rec, err := resolveDaemonTarget("")
 	if err != nil {
-		return fmt.Errorf("resolving cwd: %w", err)
+		return err
 	}
-	name := worktree.Name(projectRoot)
-	rec, err := worktree.ReadServe(projectRoot, name)
-	if err != nil {
-		return fmt.Errorf("reading serve.json: %w", err)
-	}
-	if rec == nil {
-		return fmt.Errorf("no daemon running in worktree %q (run `wyrd serve`)", name)
-	}
-	if !worktree.PIDAlive(rec.PID) {
-		return fmt.Errorf("stale serve.json for worktree %q (pid %d not alive)", name, rec.PID)
-	}
-	fmt.Printf("http://%s\n", rec.HTTPAddr)
+	fmt.Fprintf(cmd.OutOrStdout(), "%s\n", daemonBaseURL(rec))
 	return nil
 }
 

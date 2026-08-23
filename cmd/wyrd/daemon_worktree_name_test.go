@@ -95,3 +95,25 @@ func TestDaemonWorktreeName_MatchesListedWorktree(t *testing.T) {
 		t.Fatalf("daemonWorktreeName = %q, want %q", got, want)
 	}
 }
+
+// The URL a reader is handed is the URL their calls take. A repo-level daemon
+// answers a worktree under /w/<name>/, and `where` printing the bare address
+// would send them to another worktree's model.
+func TestDaemonBaseURL_ScopesAMultiDaemonToThisWorktree(t *testing.T) {
+	repo, linked := newRepoWithWorktree(t)
+	t.Chdir(linked)
+
+	multi := &serve.DaemonRecord{
+		RepoRoot: repo, HTTPAddr: "127.0.0.1:47824",
+		Caps:      []string{"mcp", "ui", "multi"},
+		Worktrees: []string{filepath.Base(linked), filepath.Base(repo)},
+	}
+	if got, want := daemonBaseURL(multi), "http://127.0.0.1:47824/w/"+filepath.Base(linked); got != want {
+		t.Errorf("daemonBaseURL = %q, want %q", got, want)
+	}
+
+	single := &serve.DaemonRecord{RepoRoot: repo, HTTPAddr: "127.0.0.1:47824", Caps: []string{"mcp"}}
+	if got, want := daemonBaseURL(single), "http://127.0.0.1:47824"; got != want {
+		t.Errorf("daemonBaseURL = %q, want %q", got, want)
+	}
+}
