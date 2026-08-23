@@ -124,14 +124,18 @@ func newEventsSearchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Find event kinds and components by name, subject, or description",
-		Long: `Search the event model and print what each hit is wired to:
-who appends the kind, who it triggers, whose state folds it, and the addresses
-it travels on.
+		Long: `Search the event model and print what each hit is wired to.
+For a kind: who appends it, who it triggers, whose state folds it, and the
+addresses it travels on. For a component: the kinds it takes, appends and
+folds.
 
 Matching is a case-insensitive substring over kind names, component ids, owned
 namespaces, subject patterns and descriptions. Payload schemas are left out —
 ask for a kind by name with 'wyrd plugin events graph' or the event_kind MCP
 tool when you want the shape.
+
+The header states how many matched and how many are printed when --limit cut
+the list; --limit 0 prints all of them.
 
 Examples:
   wyrd events search turn.completed
@@ -148,13 +152,19 @@ Examples:
 			limit, _ := cmd.Flags().GetInt("limit")
 			format, _ := cmd.Flags().GetString("format")
 
-			hits := eventquery.WithHealth(eventquery.Search(model, args[0], limit), graph)
+			hits, total := eventquery.Search(model, args[0], limit)
+			hits = eventquery.WithHealth(hits, graph)
 			if format == "json" {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
-				return enc.Encode(hits)
+				return enc.Encode(map[string]any{
+					"query": args[0],
+					"count": len(hits),
+					"total": total,
+					"hits":  hits,
+				})
 			}
-			eventquery.FormatHits(cmd.OutOrStdout(), hits, args[0])
+			eventquery.FormatHits(cmd.OutOrStdout(), hits, total, args[0])
 			return nil
 		},
 	}
@@ -168,9 +178,15 @@ func newEventsWiringCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "wiring",
 		Short: "Print the whole event model as one flow per line",
-		Long: `Print every component and every flow it appends, one per line:
-who receives it, whether it triggers them or is only folded into their state,
-and any health finding on the kind.
+		Long: `Print every component and everything it appends, one line per
+destination: who receives it, whether it triggers them or is only folded into
+their state, and any health finding on the kind.
+
+Every append is resolved against the address it names, not the kind alone. A
+component that publishes one kind on several addresses — the port-family
+idiom, one address per instance — reaches a different component from each, and
+those lines carry an "on <subject>" telling you which address they took.
+"(nobody)" marks an append no declared subscriber matches.
 
 This is the event graph in the size an agent can read. For a picture, use
 'wyrd plugin events graph' (mermaid or graphml).

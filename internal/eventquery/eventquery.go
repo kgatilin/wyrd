@@ -43,12 +43,19 @@ type Hit struct {
 	Triggers  []string `json:"triggers,omitempty"`
 	Folders   []string `json:"folders,omitempty"`
 
-	// Component facts.
+	// Component facts. The counts summarise; the lists are the answer. A
+	// count on its own ends the enquiry it started — a reader who learns a
+	// component takes two kinds and appends five has to go to the wiring and
+	// grep to learn which, and that second lookup is the one this command
+	// exists to save.
 	Owns         string   `json:"owns,omitempty"`
 	PartitionKey []string `json:"partition_key,omitempty"`
 	Inputs       int      `json:"inputs,omitempty"`
 	Outputs      int      `json:"outputs,omitempty"`
 	StateEvents  int      `json:"state_events,omitempty"`
+	Takes        []string `json:"takes,omitempty"`
+	Appends      []string `json:"appends,omitempty"`
+	Folds        []string `json:"folds,omitempty"`
 
 	score int
 }
@@ -65,7 +72,12 @@ const (
 	scoreDescription = 20
 )
 
-// Search returns the kinds and components matching query, best first.
+// Search returns the kinds and components matching query, best first, and the
+// number that matched before limit was applied.
+//
+// The caller gets both because a page that reports its own length as the total
+// is a wrong answer with no tell: a reader who asks for "event" and is told
+// "20 match(es)" stops looking, and the other 28 are never mentioned.
 //
 // Matching is a case-insensitive substring over the fields a reader actually
 // remembers: names, wire addresses, owned namespaces and descriptions. There
@@ -73,14 +85,14 @@ const (
 // entries, not the hundreds of thousands the code graph carries, and a
 // substring that always finds `turn.completed` beats a ranking that sometimes
 // does.
-func Search(m *eventmodel.Model, query string, limit int) []Hit {
+func Search(m *eventmodel.Model, query string, limit int) (hits []Hit, total int) {
 	needle := strings.ToLower(strings.TrimSpace(query))
 	if m == nil || needle == "" {
-		return nil
+		return nil, 0
 	}
 
 	facts := collectKinds(m)
-	hits := make([]Hit, 0, len(facts)+len(m.Components))
+	hits = make([]Hit, 0, len(facts)+len(m.Components))
 
 	for _, name := range sortedKeys(facts) {
 		k := facts[name]
@@ -105,10 +117,11 @@ func Search(m *eventmodel.Model, query string, limit int) []Hit {
 		}
 		return hits[i].Name < hits[j].Name
 	})
+	total = len(hits)
 	if limit > 0 && len(hits) > limit {
 		hits = hits[:limit]
 	}
-	return hits
+	return hits, total
 }
 
 func scoreKind(k *kindFacts, needle string) (int, string) {
@@ -222,6 +235,10 @@ func collectKinds(m *eventmodel.Model) map[string]*kindFacts {
 }
 
 func componentHit(id string, comp *eventmodel.Component) Hit {
+	takes, appends, folds := slotKinds(comp.Inputs), slotKinds(comp.Outputs), slotKinds(comp.StateEvents)
+	// The counts count the lists printed under them. Counting declarations
+	// instead would put "5 out" over four kinds whenever a component puts one
+	// kind on two addresses, which reads as a list that was cut short.
 	return Hit{
 		Type:         "component",
 		Name:         id,
@@ -229,10 +246,25 @@ func componentHit(id string, comp *eventmodel.Component) Hit {
 		SourceFile:   comp.SourceFile,
 		Owns:         comp.Owns,
 		PartitionKey: comp.PartitionKey,
-		Inputs:       len(comp.Inputs),
-		Outputs:      len(comp.Outputs),
-		StateEvents:  len(comp.StateEvents),
+		Inputs:       len(takes),
+		Outputs:      len(appends),
+		StateEvents:  len(folds),
+		Takes:        takes,
+		Appends:      appends,
+		Folds:        folds,
 	}
+}
+
+// slotKinds names the kinds in a slot list, once each. A component that puts
+// one kind on one address per port instance declares it several times and
+// takes it once.
+func slotKinds(slots []eventmodel.Slot) []string {
+	var out []string
+	for _, slot := range slots {
+		out = appendUnique(out, slot.Kind)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // WithHealth stamps each kind hit with the health the graph computed for it,
@@ -258,13 +290,20 @@ func WithHealth(hits []Hit, g *eventmodel.Graph) []Hit {
 	return hits
 }
 
-// FormatHits renders search results as lines.
-func FormatHits(w io.Writer, hits []Hit, query string) {
+// FormatHits renders search results as lines. total is how many matched
+// before the limit cut the list, which the header states whenever the two
+// differ — a page that presents itself as the whole answer is the one kind of
+// wrong a reader cannot detect.
+func FormatHits(w io.Writer, hits []Hit, total int, query string) {
 	if len(hits) == 0 {
 		fmt.Fprintf(w, "No event kind or component matches %q.\n", query)
 		return
 	}
-	fmt.Fprintf(w, "%d match(es) for %q\n\n", len(hits), query)
+	if total > len(hits) {
+		fmt.Fprintf(w, "showing %d of %d match(es) for %q  (--limit 0 for all)\n\n", len(hits), total, query)
+	} else {
+		fmt.Fprintf(w, "%d match(es) for %q\n\n", total, query)
+	}
 	for _, hit := range hits {
 		if hit.Type == "component" {
 			fmt.Fprintf(w, "component  %s", hit.Name)
@@ -279,6 +318,9 @@ func FormatHits(w io.Writer, hits []Hit, query string) {
 			if hit.Description != "" {
 				fmt.Fprintf(w, "           %s\n", hit.Description)
 			}
+			writeKinds(w, "triggered by", hit.Takes)
+			writeKinds(w, "appends", hit.Appends)
+			writeKinds(w, "folds", hit.Folds)
 			fmt.Fprintln(w)
 			continue
 		}
@@ -311,32 +353,64 @@ func writeRole(w io.Writer, label string, who []string) {
 	fmt.Fprintf(w, "           %-12s %s\n", label, strings.Join(who, ", "))
 }
 
-// Wiring renders the whole model as one flow per line, grouped by the
-// component that appends.
+// writeKinds lists a component's kinds one per line. Comma-joining them would
+// fit more on the screen and less through a grep, and the reader of this
+// output is usually piping it.
+func writeKinds(w io.Writer, label string, kinds []string) {
+	if len(kinds) == 0 {
+		return
+	}
+	for i, kind := range kinds {
+		head := ""
+		if i == 0 {
+			head = label
+		}
+		fmt.Fprintf(w, "           %-12s %s\n", head, kind)
+	}
+}
+
+// Wiring renders the whole model as one append per destination, grouped by
+// the component that appends.
 //
-// Out-edges only, so every flow appears exactly once and the listing is the
-// graph rather than a view of it. A kind nobody observes still gets its line,
-// pointing at nobody: an append that reaches no one is the finding a reader is
-// most often looking for, and leaving it out would hide it behind a blank.
+// Out-edges only, so every relation appears exactly once and the listing is
+// the graph rather than a view of it. Resolution is per address, from
+// eventmodel.BuildAppends: a component that publishes one kind on several
+// addresses reaches a different observer from each, and pairing every address
+// with every observer of the kind — which is what joining on the kind name
+// does — prints relations the model does not have. When one kind travels more
+// than one address out of a component, each line names the address it took,
+// because that fan-out is the whole point of addressing it.
+//
+// An append nobody hears still gets its line, pointing at nobody: it is the
+// finding a reader is most often looking for, and leaving it out would hide it
+// behind a blank.
 func Wiring(m *eventmodel.Model, g *eventmodel.Graph, w io.Writer) {
 	if m == nil || len(m.Components) == 0 {
 		fmt.Fprintln(w, "No event declarations found.")
 		return
 	}
+	if g == nil {
+		g = eventmodel.BuildGraph(m)
+	}
 	facts := collectKinds(m)
-	health := map[string]string{}
-	if g != nil {
-		for _, node := range g.Nodes {
-			if node.Kind == eventmodel.NodeEventKind {
-				if h, ok := node.Attrs["health"].(string); ok {
-					health[strings.TrimPrefix(node.ID, "kind:")] = h
-				}
-			}
+
+	// Appends by the component that made them, and the addresses each kind
+	// left that component on — the second is what decides whether a line has
+	// to name its address to be unambiguous.
+	byComponent := map[string][]eventmodel.Append{}
+	addresses := map[[2]string]map[string]bool{}
+	for _, app := range eventmodel.BuildAppends(g) {
+		byComponent[app.From] = append(byComponent[app.From], app)
+		key := [2]string{app.From, app.Kind}
+		if addresses[key] == nil {
+			addresses[key] = map[string]bool{}
 		}
+		addresses[key][app.Subject] = true
 	}
 
 	fmt.Fprintf(w, "EVENT MODEL  %d components  %d kinds\n", len(m.Components), len(facts))
-	fmt.Fprintln(w, "→ triggers the target · ⇢ folded into its state · (nobody) nothing observes it")
+	fmt.Fprintln(w, "\u2192 triggers the target \u00b7 \u21e2 folded into its state \u00b7 (nobody) nothing observes it")
+	fmt.Fprintln(w, "on <subject>  the address this append took, shown when the kind takes more than one")
 
 	for _, id := range sortedComponentIDs(m) {
 		comp := m.Components[id]
@@ -349,42 +423,36 @@ func Wiring(m *eventmodel.Model, g *eventmodel.Graph, w io.Writer) {
 		}
 		fmt.Fprintln(w)
 
-		if len(comp.Outputs) == 0 {
+		appends := byComponent[id]
+		if len(appends) == 0 {
 			fmt.Fprintln(w, "  (appends nothing)")
 			continue
 		}
-		for _, slot := range comp.Outputs {
-			k := facts[slot.Kind]
+		for _, app := range appends {
 			mark := ""
-			if h := health[slot.Kind]; h != "" && h != "ok" {
-				mark = "  " + strings.ToUpper(h)
+			if app.Health != "" && app.Health != string(eventmodel.HealthOK) {
+				mark = "  " + strings.ToUpper(app.Health)
 			}
-			observers := 0
-			for _, target := range without(k.triggers, id) {
-				fmt.Fprintf(w, "  → %-22s %s%s\n", target, slot.Kind, mark)
-				observers++
+			// Only a kind that left on more than one address needs its line
+			// to say which; naming the single address every other append took
+			// would double the width of the listing to disambiguate nothing.
+			where := ""
+			if len(addresses[[2]string{id, app.Kind}]) > 1 {
+				where = "  on " + app.Subject
 			}
-			for _, target := range without(k.folders, id) {
-				fmt.Fprintf(w, "  ⇢ %-22s %s%s\n", target, slot.Kind, mark)
-				observers++
+			if len(app.Reaches) == 0 {
+				fmt.Fprintf(w, "  \u2192 %-22s %s%s%s\n", "(nobody)", app.Kind, mark, where)
+				continue
 			}
-			if observers == 0 {
-				fmt.Fprintf(w, "  → %-22s %s%s\n", "(nobody)", slot.Kind, mark)
+			for _, reach := range app.Reaches {
+				arrow := "\u21e2"
+				if reach.Trigger {
+					arrow = "\u2192"
+				}
+				fmt.Fprintf(w, "  %s %-22s %s%s%s\n", arrow, reach.To, app.Kind, mark, where)
 			}
 		}
 	}
-}
-
-// without drops one id from a list, so a component folding its own output —
-// the normal idiom for recording an outcome — does not draw a line to itself.
-func without(ids []string, self string) []string {
-	out := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if id != self {
-			out = append(out, id)
-		}
-	}
-	return out
 }
 
 func appendUnique(list []string, value string) []string {

@@ -88,7 +88,7 @@ func (p *Plugin) MCPTools() []plugin.MCPTool {
 		},
 		{
 			Name:        "event_search",
-			Description: "Find event kinds and components by substring over names, component ids, owned namespaces, subject patterns and descriptions. Returns each hit with its wiring — who appends the kind, who it triggers, whose state folds it, the addresses it travels, and any health finding — but no payload schemas. Use this before event_kind when the exact kind name is not already known.",
+			Description: "Find event kinds and components by substring over names, component ids, owned namespaces, subject patterns and descriptions. Returns each hit with its wiring — for a kind: who appends it, who it triggers, whose state folds it, the addresses it travels and any health finding; for a component: the kinds it takes, appends and folds — but no payload schemas. `count` is what came back and `total` is what matched, so a capped page says so; raise `limit` (0 for all) to see the rest. Use this before event_kind when the exact kind name is not already known.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -107,7 +107,7 @@ func (p *Plugin) MCPTools() []plugin.MCPTool {
 		},
 		{
 			Name:        "event_wiring",
-			Description: "Return the whole event model as one flow per line: every component, everything it appends, who receives it, whether it triggers them or is only folded into their state, and any health finding. This is the event graph at a size that fits in context — a few thousand tokens where event_model is tens of thousands. Use it to orient before asking about a specific kind.",
+			Description: "Return the whole event model as one line per destination: every component, everything it appends, who receives it on that address, whether it triggers them or is only folded into their state, and any health finding. Each append is resolved against the address it names, so a kind published on several addresses — one per port instance — reaches a different component from each, and a line reading `on <subject>` marks the appends whose kind travels more than one. `(nobody)` is an append no declared subscriber matches. This is the event graph at a size that fits in context — a few thousand tokens where event_model is tens of thousands. Use it to orient before asking about a specific kind.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -672,8 +672,11 @@ func (p *Plugin) handleEventSearch(ctx context.Context, args map[string]any) (an
 		return nil, fmt.Errorf("no event declarations found")
 	}
 
-	hits := eventquery.WithHealth(eventquery.Search(model, query, limit), eventmodel.BuildGraph(model))
-	return map[string]any{"query": query, "count": len(hits), "hits": hits}, nil
+	hits, total := eventquery.Search(model, query, limit)
+	hits = eventquery.WithHealth(hits, eventmodel.BuildGraph(model))
+	// total is what matched, count is what came back. Reporting only the
+	// second lets a limited page pass for the whole answer.
+	return map[string]any{"query": query, "count": len(hits), "total": total, "hits": hits}, nil
 }
 
 // handleEventWiring answers event_wiring. Text rather than a structure: the

@@ -489,3 +489,89 @@ func TestSubjectsMatch(t *testing.T) {
 		})
 	}
 }
+
+// The address each append names is the address it reaches on. Collapsing the
+// two sides on the kind name alone pairs every address with every observer:
+// with two addresses and two observers that is four relations where the model
+// declares two, and the two it invents are exactly the ones the addressing was
+// there to prevent.
+func TestBuildAppendsResolvesEachAddressSeparately(t *testing.T) {
+	const (
+		runnerSubject = "app.{tenant}.channel.runner.thread.{thread}.command.message.send"
+		slackSubject  = "app.{tenant}.channel.slack.thread.{thread}.command.message.send"
+		kind          = "channel.command.message.send"
+	)
+
+	runner := comp("channel/runner", "app.{tenant}.channel.runner")
+	runner.Inputs = []Slot{{Kind: kind, Pattern: runnerSubject}}
+	slack := comp("channel/slack", "app.{tenant}.channel.slack")
+	slack.Inputs = []Slot{{Kind: kind, Pattern: slackSubject}}
+	egress := comp("egress/router", "app.{tenant}.egress")
+	egress.Outputs = []Slot{
+		{Kind: kind, Pattern: runnerSubject},
+		{Kind: kind, Pattern: slackSubject},
+	}
+
+	got := BuildAppends(BuildGraph(model(runner, slack, egress)))
+	want := []Append{
+		{
+			From: "egress/router", Kind: kind, Subject: runnerSubject, Health: "ok",
+			Reaches: []Reach{{To: "channel/runner", Trigger: true, Subject: runnerSubject}},
+		},
+		{
+			From: "egress/router", Kind: kind, Subject: slackSubject, Health: "ok",
+			Reaches: []Reach{{To: "channel/slack", Trigger: true, Subject: slackSubject}},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("appends = %+v, want %+v", got, want)
+	}
+}
+
+// One kind, two addresses, one listener: the append nobody hears is a fact
+// about that address, not about the kind. Reporting per kind hides it behind
+// the sibling that works, and the kind scores healthy either way — every
+// counting rule sees a producer and an observer.
+func TestBuildAppendsReportsTheAddressNobodyHears(t *testing.T) {
+	const (
+		heard   = "app.{tenant}.channel.runner.thread.{thread}.command.message.send"
+		unheard = "app.{tenant}.channel.slack.thread.{thread}.command.message.send"
+		kind    = "channel.command.message.send"
+	)
+
+	runner := comp("channel/runner", "app.{tenant}.channel.runner")
+	runner.Inputs = []Slot{{Kind: kind, Pattern: heard}}
+	egress := comp("egress/router", "app.{tenant}.egress")
+	egress.Outputs = []Slot{{Kind: kind, Pattern: heard}, {Kind: kind, Pattern: unheard}}
+
+	got := BuildAppends(BuildGraph(model(runner, egress)))
+	if len(got) != 2 {
+		t.Fatalf("got %d appends, want one per address: %+v", len(got), got)
+	}
+	if len(got[0].Reaches) != 1 || got[0].Reaches[0].To != "channel/runner" {
+		t.Errorf("append on %s reaches %+v, want channel/runner", got[0].Subject, got[0].Reaches)
+	}
+	if len(got[1].Reaches) != 0 {
+		t.Errorf("append on %s reaches %+v, want nobody", got[1].Subject, got[1].Reaches)
+	}
+	// The pair-level view still says the pair is connected, because it is.
+	if flows := BuildFlows(BuildGraph(model(runner, egress))); len(flows) != 1 {
+		t.Errorf("flows = %+v, want one edge", flows)
+	}
+}
+
+// A component folding what it just appended is recording an outcome. It is not
+// a relation between two components, so it is not one of the observers an
+// append reaches.
+func TestBuildAppendsSkipsTheSelfFold(t *testing.T) {
+	const kind = "ingress.event.message.routed"
+
+	only := comp("ingress/router", "ingress")
+	only.Outputs = []Slot{{Kind: kind, Pattern: "app.{tenant}.ingress.event.message.routed"}}
+	only.StateEvents = []Slot{{Kind: kind, Pattern: "app.{tenant}.ingress.event.message.routed"}}
+
+	got := BuildAppends(BuildGraph(model(only)))
+	if len(got) != 1 || len(got[0].Reaches) != 0 {
+		t.Errorf("appends = %+v, want one append reaching nobody", got)
+	}
+}

@@ -624,35 +624,51 @@ func stringList(v any) ([]string, bool) {
 	}
 }
 
-// Flow is one producer-to-observer relation, the bipartite graph collapsed onto
-// the components. It is what a reader of an event model actually looks at: who
-// appends a kind, and who it reaches.
-type Flow struct {
-	// From is the component that appends the kind; To is the one that
-	// observes it. Both are bare component ids, not node ids.
-	From, To string
-	// Kind is the event kind travelling the edge.
-	Kind string
-	// Trigger distinguishes the two ways of observing: true when the kind is
-	// an input of the target and drives it, false when the target only folds
-	// it into state.
-	Trigger bool
+// Append is one output declaration resolved against the model: one component,
+// one kind, one address, and the observers that address actually reaches.
+//
+// It is the finest true statement the model can make about an append, and the
+// one every coarser view is built from. Collapsing to the kind loses the
+// address, and the address is what decides who hears it: a component that
+// publishes one kind on two addresses — the port-family idiom, one address per
+// instance — reaches a different observer from each. A view that pairs every
+// address with every observer of the kind draws edges the model does not have,
+// which is the whole reason this type exists rather than a name-keyed join.
+type Append struct {
+	// From is the component that appends; Kind is what it appends; Subject
+	// is the address it named.
+	From, Kind, Subject string
 	// Health is the kind node's health, carried so a renderer can mark a
-	// starved or ambiguous edge without a second lookup.
+	// broken or unobserved append without a second lookup.
 	Health string
+	// Reaches is every observer this address reaches, sorted by component
+	// then subject. Empty means the append reaches nobody in this model.
+	Reaches []Reach
 }
 
-// BuildFlows collapses a Graph onto component-to-component edges.
+// Reach is one observer an append arrives at.
+type Reach struct {
+	// To is the observing component.
+	To string
+	// Trigger is true when the kind is an input of the target and drives it,
+	// false when the target only folds it into state.
+	Trigger bool
+	// Subject is the address the observer declared, which is the address that
+	// matched — not necessarily the one the producer named, since either side
+	// may leave segments open.
+	Subject string
+}
+
+// BuildAppends resolves every output declaration in the graph against the
+// observers whose declared address it matches.
 //
-// A component that both takes a kind as an input and folds it appears once, as
-// the trigger: it is the stronger relation, and drawing both would put two
-// parallel edges between the same pair for one event. A component folding its
-// own output draws nothing — it is the normal idiom, so the self-loop would sit
-// on nearly every node and say nothing.
+// A component observing its own output is skipped: folding the outcome you
+// just appended is the normal idiom, so counting it would put nearly every
+// component in a relation with itself and say nothing.
 //
-// The result is sorted by (From, To, Kind), so a renderer and a diff over one
-// see the same order every time.
-func BuildFlows(g *Graph) []Flow {
+// The result is sorted by (From, Kind, Subject) so a renderer and a diff over
+// one see the same order every time.
+func BuildAppends(g *Graph) []Append {
 	health := make(map[string]string)
 	for _, n := range g.Nodes {
 		if n.Kind != NodeEventKind {
@@ -677,53 +693,120 @@ func BuildFlows(g *Graph) []Flow {
 		}
 	}
 
-	var flows []Flow
-	for kindNode, appends := range producers {
+	var appends []Append
+	for kindNode, declared := range producers {
 		kind := trimKindID(kindNode)
 
 		// An unwired kind has ends on both sides and no matching pair among
 		// them (see UnwiredKinds), so the subject test below would drop every
-		// candidate and the pair would be drawn as nothing at all. Draw them
-		// instead, carrying the kind's health: empty space where a reader
-		// expects a line is the least informative way to report a broken wire,
-		// because it looks exactly like a relation the model never had.
+		// candidate and the pair would be reported as nothing at all. Resolve
+		// them instead, carrying the kind's health: empty space where a reader
+		// expects a relation is the least informative way to report a broken
+		// wire, because it looks exactly like a relation the model never had.
 		broken := health[kindNode] == string(HealthUnwired)
 		connects := func(a, b string) bool { return broken || SubjectsMatch(a, b) }
 
-		// An append reaches an observer when the two subjects address the same
-		// events. Sharing a kind name is not enough: a port family puts one
-		// kind on one address per instance, and a producer that named a single
-		// instance reaches that one, not every sibling that takes the kind.
-		reached := make(map[[2]string]bool)
-		for _, out := range appends {
+		seen := make(map[endpoint]bool, len(declared))
+		for _, out := range declared {
+			if seen[out] {
+				continue
+			}
+			seen[out] = true
+
+			// Trigger beats fold for one (observer, address) pair: it is the
+			// stronger relation, and a component that both takes a kind as an
+			// input and folds it observes it once.
+			reached := make(map[Reach]bool)
 			for _, in := range triggers[kindNode] {
 				if in.component == out.component || !connects(out.pattern, in.pattern) {
 					continue
 				}
-				reached[[2]string{out.component, in.component}] = true
+				reached[Reach{To: in.component, Trigger: true, Subject: in.pattern}] = true
 			}
 			for _, fold := range folders[kindNode] {
 				if fold.component == out.component || !connects(out.pattern, fold.pattern) {
 					continue
 				}
-				pair := [2]string{out.component, fold.component}
-				if _, seen := reached[pair]; !seen {
-					reached[pair] = false
+				r := Reach{To: fold.component, Trigger: false, Subject: fold.pattern}
+				if !reached[Reach{To: r.To, Trigger: true, Subject: r.Subject}] {
+					reached[r] = true
 				}
 			}
-		}
 
-		for pair, trigger := range reached {
-			flows = append(flows, Flow{
-				From:    pair[0],
-				To:      pair[1],
-				Kind:    kind,
-				Trigger: trigger,
-				Health:  health[kindNode],
+			app := Append{From: out.component, Kind: kind, Subject: out.pattern, Health: health[kindNode]}
+			for r := range reached {
+				app.Reaches = append(app.Reaches, r)
+			}
+			sort.Slice(app.Reaches, func(i, j int) bool {
+				if app.Reaches[i].To != app.Reaches[j].To {
+					return app.Reaches[i].To < app.Reaches[j].To
+				}
+				return app.Reaches[i].Subject < app.Reaches[j].Subject
 			})
+			appends = append(appends, app)
 		}
 	}
 
+	sort.Slice(appends, func(i, j int) bool {
+		if appends[i].From != appends[j].From {
+			return appends[i].From < appends[j].From
+		}
+		if appends[i].Kind != appends[j].Kind {
+			return appends[i].Kind < appends[j].Kind
+		}
+		return appends[i].Subject < appends[j].Subject
+	})
+	return appends
+}
+
+// Flow is one producer-to-observer relation, the bipartite graph collapsed onto
+// the components. It is what a reader of an event model actually looks at: who
+// appends a kind, and who it reaches.
+type Flow struct {
+	// From is the component that appends the kind; To is the one that
+	// observes it. Both are bare component ids, not node ids.
+	From, To string
+	// Kind is the event kind travelling the edge.
+	Kind string
+	// Trigger distinguishes the two ways of observing: true when the kind is
+	// an input of the target and drives it, false when the target only folds
+	// it into state.
+	Trigger bool
+	// Health is the kind node's health, carried so a renderer can mark a
+	// starved or ambiguous edge without a second lookup.
+	Health string
+}
+
+// BuildFlows collapses a Graph onto component-to-component edges.
+//
+// One line per pair and kind, whatever the addresses: a picture wants one edge
+// between two boxes, not one per port instance. A reader who needs to know
+// which address carried it asks BuildAppends, which is what this collapses.
+//
+// A component that both takes a kind as an input and folds it appears once, as
+// the trigger: it is the stronger relation, and drawing both would put two
+// parallel edges between the same pair for one event. A component folding its
+// own output draws nothing — it is the normal idiom, so the self-loop would sit
+// on nearly every node and say nothing.
+//
+// The result is sorted by (From, To, Kind), so a renderer and a diff over one
+// see the same order every time.
+func BuildFlows(g *Graph) []Flow {
+	type pair struct{ from, to, kind string }
+	trigger := make(map[pair]bool)
+	health := make(map[pair]string)
+	for _, app := range BuildAppends(g) {
+		for _, r := range app.Reaches {
+			p := pair{app.From, r.To, app.Kind}
+			trigger[p] = trigger[p] || r.Trigger
+			health[p] = app.Health
+		}
+	}
+
+	flows := make([]Flow, 0, len(trigger))
+	for p, t := range trigger {
+		flows = append(flows, Flow{From: p.from, To: p.to, Kind: p.kind, Trigger: t, Health: health[p]})
+	}
 	sort.Slice(flows, func(i, j int) bool {
 		if flows[i].From != flows[j].From {
 			return flows[i].From < flows[j].From
