@@ -165,7 +165,9 @@ func (s *Service) textHits(ctx context.Context, query string, k int, filters Fil
 	// Fuse the two channels into one calibrated relevance mass
 	fused := s.fuseCalibrated(query, denseResults, lexicalResults)
 
-	// Apply filters and limit
+	// Apply filters and limit. The kind set takes either spelling, so a filter
+	// written from what an answer printed matches the nodes it came from.
+	wantKinds := canonicalKindSet(filters.Kinds)
 	var hits []scoredNode
 	for _, item := range fused {
 		node, ok := s.getNode(item.ID)
@@ -174,7 +176,7 @@ func (s *Service) textHits(ctx context.Context, query string, k int, filters Fil
 		}
 
 		// Kind filter
-		if len(filters.Kinds) > 0 && !containsString(filters.Kinds, node.Kind) {
+		if wantKinds != nil && !wantKinds[node.Kind] {
 			continue
 		}
 
@@ -773,14 +775,4 @@ func queryTokens(query string) map[string]bool {
 		tokens[strings.ToLower(p)] = true
 	}
 	return tokens
-}
-
-// containsString checks if needle is in haystack.
-func containsString(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
 }

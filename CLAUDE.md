@@ -339,7 +339,17 @@ Every read tool (`search`, `expand`, `get_node`, `get_package`, `extract`,
   reader who wants a signature there calls `get_node`.
 - **Drop empty columns, never pad them.** `symbolLine` omits an absent
   location rather than leaving the trailing spaces of the column; census lines
-  omit zero counts (`countCols`).
+  omit zero counts (`countCols`), on `get_package`/`extract` as well as
+  `list_packages`.
+- **One kind vocabulary, and it is Go's.** The graph stores `class`/`iface`,
+  inherited from the generic code model it is projected through; every surface
+  a reader sees prints `struct`/`interface` via `retrieval.DisplayKind`, and
+  `filters.kinds` takes either spelling via `retrieval.CanonicalKind`. Census
+  labels use the same words `kinds` accepts (`interface`, not `iface`; `error`,
+  not `err`). The rule is that whatever word an answer prints for a kind is a
+  word a filter accepts — reading `executor  struct` and passing
+  `--kind struct` used to be a silent zero. The JSON surfaces keep the stored
+  kind: `/api/node/…` is parsed by the review UI, not read.
 - **Sort what a reader reads as a map.** `list_packages` and `extract`'s index
   sort by package path — the daemon holds packages in a map, and a few hundred
   lines in hash order are not a map of the repository.

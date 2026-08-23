@@ -224,8 +224,9 @@ func TestListPackages(t *testing.T) {
 	if !strings.Contains(out, "packages  ·  2") {
 		t.Fatalf("expected 2 packages in header, got %q", out)
 	}
-	// alpha declares one interface, one struct, one func.
-	if !strings.Contains(out, "alpha   iface 1  struct 1  func 1") {
+	// alpha declares one interface, one struct, one func. The labels are the
+	// words `kinds` accepts, so a count can be filtered on as printed.
+	if !strings.Contains(out, "alpha   interface 1  struct 1  func 1") {
 		t.Errorf("alpha counts line missing/wrong: %q", out)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kgatilin/wyrd/internal/clustering"
+	"github.com/kgatilin/wyrd/internal/retrieval"
 )
 
 // Compact text rendering for the LLM-facing tool results.
@@ -361,7 +362,7 @@ func writeHitGroups(b *strings.Builder, hits []searchHit, home string, withSig b
 			fmt.Fprintf(b, " %s\n", pkg)
 		}
 		for _, h := range byPkg[pkg] {
-			detail := h.Kind
+			detail := retrieval.DisplayKind(h.Kind)
 			if withSig {
 				if sig := sigTail(simplifyType(h.Signature, home), h.Name); sig != "" {
 					detail = sig
@@ -434,7 +435,7 @@ func renderSubgraph(seed string, r subgraphResult) string {
 		for _, n := range byPkg[pkg] {
 			detail := sigTail(simplifyType(n.Signature, home), n.Name)
 			if detail == "" {
-				detail = n.Kind
+				detail = retrieval.DisplayKind(n.Kind)
 			}
 			b.WriteString(symbolLine(n.Name, detail, baseLoc(n.File, n.Line)))
 			if d := synopsis(n.Doc, maxSubgraphDoc); d != "" {
@@ -457,7 +458,7 @@ func renderSubgraph(seed string, r subgraphResult) string {
 func renderNodeDetail(d nodeDetailResult) string {
 	var b strings.Builder
 	home := d.Package
-	fmt.Fprintf(&b, "%s  ·  %s  ·  %s  ·  %s\n", d.Name, d.Kind, d.Package, locOf(d.File, d.Line))
+	fmt.Fprintf(&b, "%s  ·  %s  ·  %s  ·  %s\n", d.Name, retrieval.DisplayKind(d.Kind), d.Package, locOf(d.File, d.Line))
 	if sig := simplifyType(d.Signature, home); sig != "" {
 		fmt.Fprintf(&b, "signature  %s\n", sig)
 	}
@@ -512,9 +513,11 @@ func renderPackageDigest(d packageDigest) string {
 		name = ""
 	}
 	fmt.Fprintf(&b, "package %s%s\n", d.Path, name)
-	c := d.Counts
-	fmt.Fprintf(&b, "counts  iface %d  struct %d  func %d  type %d  const %d  var %d  err %d  = %d\n",
-		c.Interfaces, c.Structs, c.Functions, c.TypeDefs, c.Constants, c.Variables, c.Errors, c.Total)
+	line := fmt.Sprintf("counts  = %d", d.Counts.Total)
+	if cols := countCols(censusOf(d.Counts), censusOrder); cols != "" {
+		line += "   " + cols
+	}
+	b.WriteString(line + "\n")
 	meta := []string{}
 	if d.Layer != "" {
 		meta = append(meta, "layer="+d.Layer)
@@ -654,11 +657,10 @@ func renderPackageList(sums []PackageSummary) string {
 	fmt.Fprintf(&b, "packages  ·  %d\n", len(ordered))
 	for _, s := range ordered {
 		line := "  " + s.Path
-		// Zero counts say nothing a missing column doesn't; extract's index
-		// drops them too, and the two listings sit next to each other.
-		if counts := countCols(map[string]int{"iface": s.InterfaceCount, "struct": s.StructCount, "func": s.FunctionCount},
-			[]string{"iface", "struct", "func"}); counts != "" {
-			line += "   " + counts
+		if cols := countCols(map[string]int{
+			"interface": s.InterfaceCount, "struct": s.StructCount, "func": s.FunctionCount,
+		}, censusOrder); cols != "" {
+			line += "   " + cols
 		}
 		if s.Layer != "" {
 			line += "   layer=" + s.Layer
@@ -668,8 +670,22 @@ func renderPackageList(sums []PackageSummary) string {
 	return b.String()
 }
 
+// censusOrder is the order a symbol census prints in. The labels are the words
+// `kinds` accepts on get_package/extract, so a count a reader sees can be
+// filtered on — `iface 2` next to a filter that wants `interface` is the same
+// silent-zero trap in miniature.
+var censusOrder = []string{"interface", "struct", "func", "type", "const", "var", "error"}
+
+// censusOf projects a digest's counts onto that vocabulary.
+func censusOf(c symbolCounts) map[string]int {
+	return map[string]int{
+		"interface": c.Interfaces, "struct": c.Structs, "func": c.Functions,
+		"type": c.TypeDefs, "const": c.Constants, "var": c.Variables, "error": c.Errors,
+	}
+}
+
 // countCols renders the non-zero entries of a symbol census in the given key
-// order, as `label n` pairs.
+// order, as `label n` pairs. Zero counts say nothing a missing column doesn't.
 func countCols(counts map[string]int, order []string) string {
 	parts := make([]string, 0, len(order))
 	for _, k := range order {
@@ -982,13 +998,9 @@ func renderExtractIndex(pkgs []packageDigest, hint string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "extract index  ·  %d packages  ·  no symbols\n", len(ordered))
 	for _, d := range ordered {
-		c := d.Counts
-		line := fmt.Sprintf("  %s   = %d", d.Path, c.Total)
-		if counts := countCols(map[string]int{
-			"iface": c.Interfaces, "struct": c.Structs, "func": c.Functions,
-			"type": c.TypeDefs, "const": c.Constants, "var": c.Variables, "err": c.Errors,
-		}, []string{"iface", "struct", "func", "type", "const", "var", "err"}); counts != "" {
-			line += "   " + counts
+		line := fmt.Sprintf("  %s   = %d", d.Path, d.Counts.Total)
+		if cols := countCols(censusOf(d.Counts), censusOrder); cols != "" {
+			line += "   " + cols
 		}
 		if d.Layer != "" {
 			line += "   layer=" + d.Layer
@@ -1074,17 +1086,20 @@ func renderEmbeddingCoverage(r embeddingCoverageResult) string {
 	for k := range r.ByKind {
 		kinds = append(kinds, k)
 	}
-	sort.Strings(kinds)
+	// Ordered by the word the line prints, so the list reads alphabetically.
+	sort.Slice(kinds, func(i, j int) bool {
+		return retrieval.DisplayKind(kinds[i]) < retrieval.DisplayKind(kinds[j])
+	})
 	parts := make([]string, 0, len(kinds))
 	for _, k := range kinds {
-		c := r.ByKind[k]
+		c, word := r.ByKind[k], retrieval.DisplayKind(k)
 		if c.Embeddable == 0 {
 			// Non-embeddable kinds are excluded from dense search by design;
 			// their totals are noise next to the ones that can be missing.
-			parts = append(parts, fmt.Sprintf("%s %d (n/a)", k, c.Total))
+			parts = append(parts, fmt.Sprintf("%s %d (n/a)", word, c.Total))
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s %d/%d", k, c.Embedded, c.Embeddable))
+		parts = append(parts, fmt.Sprintf("%s %d/%d", word, c.Embedded, c.Embeddable))
 	}
 	if len(parts) > 0 {
 		fmt.Fprintf(&b, "by kind  %s\n", strings.Join(parts, "  "))

@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/kgatilin/wyrd/internal/retrieval"
 )
 
 func TestSplitNodeID(t *testing.T) {
@@ -424,5 +426,69 @@ func TestRenderStatus_ReportsThePhaseAsAWord(t *testing.T) {
 	indexing := renderStatus(statusResult{Indexing: true, Embedded: 10, Embeddable: 100, Pending: 90})
 	if !strings.HasPrefix(indexing, "status  indexing\n") || !strings.Contains(indexing, "pending 90") {
 		t.Errorf("indexing state not reported:\n%s", indexing)
+	}
+}
+
+func TestRenderSearch_OneKindVocabularyThroughout(t *testing.T) {
+	// The trap this closes: a reader saw `executor  struct` under hits, passed
+	// `--kind struct`, and got a silent zero because the region and the filter
+	// spoke the graph's `class`. Every surface of one answer now prints the
+	// word the filter accepts.
+	home := "internal/exec"
+	out := renderSearch("executor", searchResult{
+		SeedCount: 1,
+		Hits: []searchHit{
+			{nodeInfo: nodeInfo{ID: home + ".Executor", Kind: "class", Package: home, Name: "Executor",
+				Signature: "type Executor struct", File: home + "/exec.go", Line: 10}, Seed: true},
+			{nodeInfo: nodeInfo{ID: home + ".Runner", Kind: "iface", Package: home, Name: "Runner",
+				Signature: "type Runner interface", File: home + "/exec.go", Line: 3}, Seed: true},
+			// Region entries print their kind rather than a signature, which is
+			// where the graph's spelling used to leak out.
+			{nodeInfo: nodeInfo{ID: home + ".Job", Kind: "class", Package: home, Name: "Job",
+				Signature: "type Job struct", File: home + "/job.go", Line: 7}},
+			{nodeInfo: nodeInfo{ID: home + ".Sink", Kind: "iface", Package: home, Name: "Sink",
+				Signature: "type Sink interface", File: home + "/job.go", Line: 20}},
+		},
+	})
+
+	for _, leaked := range []string{"class", "iface"} {
+		if strings.Contains(out, leaked) {
+			t.Errorf("the graph's spelling %q reached the answer:\n%s", leaked, out)
+		}
+	}
+	if !strings.Contains(out, "Executor  struct") || !strings.Contains(out, "Runner  interface") {
+		t.Errorf("a hit lost its Go word:\n%s", out)
+	}
+	if !strings.Contains(out, "Job  struct") || !strings.Contains(out, "Sink  interface") {
+		t.Errorf("a region entry lost its Go word:\n%s", out)
+	}
+	// And the words printed are words the filter resolves back to those nodes.
+	if retrieval.CanonicalKind("struct") != "class" || retrieval.CanonicalKind("interface") != "iface" {
+		t.Error("the printed vocabulary is not the one the filter accepts")
+	}
+}
+
+func TestRenderNodeDetail_HeaderUsesTheGoWord(t *testing.T) {
+	out := renderNodeDetail(nodeDetailResult{
+		NodeID: "internal/exec.Executor", Kind: "class", Package: "internal/exec",
+		Name: "Executor", File: "internal/exec/exec.go", Line: 10,
+	})
+	if !strings.HasPrefix(out, "Executor  ·  struct  ·  internal/exec") {
+		t.Errorf("get_node header prints the stored kind:\n%s", out)
+	}
+}
+
+func TestRenderPackageDigest_CountsDropZeros(t *testing.T) {
+	out := renderPackageDigest(packageDigest{
+		Path:   "internal/godoc",
+		Counts: symbolCounts{Functions: 5, Total: 5},
+	})
+	if !strings.Contains(out, "counts  = 5   func 5\n") {
+		t.Errorf("counts line should carry only what the package has:\n%s", out)
+	}
+	for _, zero := range []string{"interface 0", "struct 0", "type 0", "const 0", "var 0", "error 0", "iface", "err "} {
+		if strings.Contains(out, zero) {
+			t.Errorf("counts line still prints %q:\n%s", zero, out)
+		}
 	}
 }
