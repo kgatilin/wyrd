@@ -767,3 +767,78 @@ func TestMultiState_LoadedHookSkipsAFailedLoad(t *testing.T) {
 		t.Errorf("hook calls = %d, want 0 — a failed load has no model to act on", got)
 	}
 }
+
+// TestMultiState_ChangedHookReportsAddedAndRemoved covers the notification the
+// daemon hangs its worktree tracking off: a scan that changes nothing must stay
+// silent, and a worktree created (then removed) while the MultiState is live
+// must be reported once, by name.
+func TestMultiState_ChangedHookReportsAddedAndRemoved(t *testing.T) {
+	root := newGitRepo(t)
+
+	m := NewMultiState(root, stubLoader(new(int64)))
+	if err := m.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	type delta struct{ added, removed []string }
+	deltas := make(chan delta, 4)
+	m.SetWorktreesChangedHook(func(added, removed []string) {
+		deltas <- delta{added: added, removed: removed}
+	})
+
+	// An unchanged set must not wake the hook: the daemon republishes its
+	// registry record from it, and a poll every 30s would rewrite the file
+	// forever.
+	if err := m.Refresh(); err != nil {
+		t.Fatalf("Refresh (no change): %v", err)
+	}
+	select {
+	case d := <-deltas:
+		t.Fatalf("hook fired for an unchanged worktree set: added=%v removed=%v", d.added, d.removed)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	extraPath := filepath.Join(filepath.Dir(root), "changed-"+filepath.Base(root))
+	runGit(t, root, "worktree", "add", "-b", "changed-branch", extraPath)
+	t.Cleanup(func() {
+		_ = exec.Command("git", "-C", root, "worktree", "remove", "--force", extraPath).Run()
+	})
+	extraName := filepath.Base(extraPath)
+
+	if err := m.Refresh(); err != nil {
+		t.Fatalf("Refresh (after add): %v", err)
+	}
+	d := awaitDelta(t, deltas)
+	if len(d.added) != 1 || d.added[0] != extraName {
+		t.Fatalf("added = %v, want [%s]", d.added, extraName)
+	}
+	if len(d.removed) != 0 {
+		t.Fatalf("removed = %v, want none", d.removed)
+	}
+
+	runGit(t, root, "worktree", "remove", "--force", extraPath)
+	if err := m.Refresh(); err != nil {
+		t.Fatalf("Refresh (after remove): %v", err)
+	}
+	d = awaitDelta(t, deltas)
+	if len(d.removed) != 1 || d.removed[0] != extraName {
+		t.Fatalf("removed = %v, want [%s]", d.removed, extraName)
+	}
+	if len(d.added) != 0 {
+		t.Fatalf("added = %v, want none", d.added)
+	}
+}
+
+// awaitDelta reads one hook notification, failing the test if none arrives.
+// The hook runs on its own goroutine, so the read cannot be unbuffered.
+func awaitDelta[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(2 * time.Second):
+		var zero T
+		t.Fatal("worktrees-changed hook did not fire within 2s")
+		return zero
+	}
+}

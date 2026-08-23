@@ -153,13 +153,22 @@ func prettyJSON(s string) string {
 }
 
 // daemonWorktreeName picks the worktree to scope a multi daemon request to:
-// the one matching cwd if the daemon serves it, otherwise the primary
-// worktree (whose name matches the repo-root basename — the one the daemon
-// warms at startup), falling back to the first worktree the daemon knows.
+// the one cwd sits in whenever cwd belongs to the daemon's repository,
+// otherwise the primary worktree (whose name matches the repo-root basename —
+// the one the daemon warms at startup), falling back to the first worktree the
+// daemon knows.
 //
-// The primary-worktree preference matters when targeting a daemon by name
-// from outside its repo (e.g. `--daemon wyrd` from $HOME): cwd matches no
-// served worktree, and routing to an arbitrary sibling worktree would hit a
+// cwd wins even when the record does not list its worktree. The record's
+// worktree list is a snapshot taken when the daemon bound its listener, so a
+// branch checked out since then is absent from it; the daemon itself
+// re-discovers on a miss and answers a genuinely unknown name with a 404. The
+// alternative — treating an unlisted name as "not served" and falling through
+// to the primary worktree — is how a command run inside a fresh worktree got
+// answered from the main checkout's model, confidently and without a word.
+//
+// The primary-worktree preference matters when targeting a daemon by name from
+// outside its repo (e.g. `--daemon wyrd` from $HOME): cwd belongs to another
+// repository or none, and routing to an arbitrary sibling worktree would hit a
 // cold/parsing state instead of the warm primary one.
 func daemonWorktreeName(rec *serve.DaemonRecord) string {
 	if cwd, err := os.Getwd(); err == nil {
@@ -168,6 +177,9 @@ func daemonWorktreeName(rec *serve.DaemonRecord) string {
 			if w == name {
 				return name
 			}
+		}
+		if name != "" && cwdServedByDaemon(cwd, rec.RepoRoot) {
+			return name
 		}
 	}
 	primary := filepath.Base(rec.RepoRoot)
@@ -180,6 +192,34 @@ func daemonWorktreeName(rec *serve.DaemonRecord) string {
 		return rec.Worktrees[0]
 	}
 	return ""
+}
+
+// cwdServedByDaemon reports whether cwd is a worktree of the repository the
+// daemon serves, which is what makes it safe to address a worktree name the
+// daemon's record has not caught up with yet.
+func cwdServedByDaemon(cwd, repoRoot string) bool {
+	root, ok := worktree.RepoRoot(cwd)
+	if !ok {
+		return false
+	}
+	return samePathOnDisk(root, repoRoot)
+}
+
+// samePathOnDisk compares two filesystem paths for identity, resolving
+// symlinks so /tmp and /private/tmp (or a symlinked checkout) do not read as
+// different repositories.
+func samePathOnDisk(a, b string) bool {
+	norm := func(p string) string {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if resolved, err := filepath.EvalSymlinks(p); err == nil {
+			p = resolved
+		}
+		return filepath.Clean(p)
+	}
+	a, b = norm(a), norm(b)
+	return a != "" && a == b
 }
 
 func newDaemonStartCmd() *cobra.Command {

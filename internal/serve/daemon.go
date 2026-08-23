@@ -105,6 +105,12 @@ type Options struct {
 	// StateLoader is what carries the cache to each worktree, so this
 	// field is unused there.
 	VectorCache VectorCacheProvider
+
+	// WorktreePollInterval overrides how often a multi-worktree daemon
+	// re-scans `git worktree list`. Zero uses defaultWorktreePollInterval;
+	// a negative value disables the poll, leaving new worktrees to be
+	// discovered by the first request that names one.
+	WorktreePollInterval time.Duration
 }
 
 // HTTPTransport is the minimal contract the serve daemon needs from an
@@ -138,6 +144,35 @@ type WorktreeWarmer interface {
 	WarmWorktree(name string, state *State)
 }
 
+// worktreesChanged builds the reaction to a change in the served worktree
+// set: correct the registry record, then start parsing whatever appeared.
+//
+// The record matters most. It is written once at bind time and read by the
+// CLI to choose which worktree to address; left at that snapshot, a command
+// run inside a branch created since startup matches nothing in the list and
+// is answered from the primary checkout instead — the right shape of answer
+// about the wrong tree, with nothing in the output saying so.
+//
+// Warming is why the poll is worth having beyond bookkeeping: a worktree
+// created a minute ago is one someone is about to work in, and the parse it
+// needs is the slow part. Loaded starts that parse and returns immediately.
+func worktreesChanged(multi *MultiState, records *daemonRecordPublisher, logOut io.Writer) WorktreesChangedHook {
+	return func(added, removed []string) {
+		if len(added) > 0 {
+			fmt.Fprintf(logOut, "serve: worktrees discovered: %s\n", strings.Join(added, ", "))
+		}
+		if len(removed) > 0 {
+			fmt.Fprintf(logOut, "serve: worktrees gone: %s\n", strings.Join(removed, ", "))
+		}
+		if _, err := records.republishWorktrees(multi.Names()); err != nil {
+			fmt.Fprintf(logOut, "serve: update global daemon record: %v\n", err)
+		}
+		for _, name := range added {
+			multi.Loaded(name)
+		}
+	}
+}
+
 // Serve runs the daemon: it builds the in-memory model, starts the
 // fsnotify watcher, wires stub transports, and blocks until ctx is
 // cancelled. Callers are expected to bridge SIGINT/SIGTERM into ctx.
@@ -160,6 +195,10 @@ func Serve(ctx context.Context, opts Options) error {
 	if logOut == nil {
 		logOut = os.Stderr
 	}
+
+	// Owns the registry record from the moment the listener binds, so the
+	// worktree poll can correct its worktree list in place.
+	var records daemonRecordPublisher
 
 	// In multi-worktree mode we defer per-worktree loads to the
 	// MultiState; there is no shared State. The HTTP factory receives
@@ -192,6 +231,11 @@ func Serve(ctx context.Context, opts Options) error {
 		// watcher the first time it is loaded. The watchers are closed
 		// when Refresh drops a worktree or when the daemon shuts down.
 		opts.MultiState.SetWatcherHook(multiWatcherHook(ctx, opts.Debounce, logOut, opts.Debug))
+		// React once, wherever the re-discovery came from: the periodic poll
+		// below, or the miss-driven scan a request for an unknown name runs.
+		// Installed after the caller's initial Refresh, so the repository's
+		// existing worktrees do not all arrive here as "added".
+		opts.MultiState.SetWorktreesChangedHook(worktreesChanged(opts.MultiState, &records, logOut))
 		defer func() { _ = opts.MultiState.Close() }()
 	}
 
@@ -312,7 +356,7 @@ func Serve(ctx context.Context, opts Options) error {
 					Worktrees:  worktrees,
 					BaseBranch: opts.ReviewBaseRef,
 				}
-				if err := WriteGlobalRecord(globalRec); err != nil {
+				if err := records.publish(globalRec); err != nil {
 					fmt.Fprintf(logOut, "serve: write global daemon record: %v\n", err)
 				} else {
 					globalRecorded = true
@@ -362,11 +406,27 @@ func Serve(ctx context.Context, opts Options) error {
 		if d := opts.MultiState.Default(); d != "" {
 			opts.MultiState.Loaded(d)
 		}
+		// Track worktrees created while the daemon runs. Requests already
+		// re-discover on a miss, but only for a name someone asks for:
+		// nothing updates the registry record, and a client that picks its
+		// worktree from that record never asks for the new name at all.
+		interval := opts.WorktreePollInterval
+		if interval == 0 {
+			interval = defaultWorktreePollInterval
+		}
+		if interval > 0 {
+			fmt.Fprintf(logOut, "serve: polling for new worktrees every %s\n", interval)
+			go pollWorktrees(runCtx, opts.MultiState, interval, logOut)
+		}
 	}
 	_ = pluginRes // forwarded via PluginHTTPFactory only.
 	// Always remove serve.json and global record on return so a killed
 	// process doesn't leave dangling records when the shutdown path is taken.
 	defer func() {
+		// Retire first: a changed hook still in flight would otherwise
+		// republish the record after it was removed, leaving a record for a
+		// process that is on its way out.
+		records.retire()
 		if serveRecorded {
 			if err := worktree.RemoveServe(absRoot, wtName); err != nil {
 				fmt.Fprintf(logOut, "serve: remove serve.json: %v\n", err)

@@ -39,6 +39,16 @@ type WatcherHook func(ctx context.Context, name string, state *State) (io.Closer
 // that does real work cannot hold up the load or the callers waiting on it.
 type LoadedHook func(name string, state *State)
 
+// WorktreesChangedHook is invoked after a re-discovery that changed the set of
+// served worktrees, with the names added and removed relative to the previous
+// set. Every scan reports through it — the periodic poll, the miss-driven
+// re-discovery, an explicit Refresh — so a reaction that has to happen when a
+// worktree appears or disappears is written once and cannot be skipped by
+// whichever path noticed first. Each call runs on its own goroutine, so a hook
+// that parses the new checkout or rewrites a registry file cannot hold up the
+// request that triggered the scan. A nil hook disables the notification.
+type WorktreesChangedHook func(added, removed []string)
+
 // DefaultStateLoader is the production StateLoader used when
 // NewMultiState is called without one. It builds a fresh State
 // anchored at path and loads the full Go + overlay + target model.
@@ -51,9 +61,11 @@ func DefaultStateLoader(ctx context.Context, _, path string) (*State, error) {
 }
 
 // MultiState holds one State per discovered worktree and lazy-loads
-// each State on first access. The set of worktrees is fixed at
-// construction but can be refreshed by calling Refresh() again — this
-// is intended for SIGHUP or a periodic poller.
+// each State on first access. The worktree set is a cache of `git worktree
+// list`, re-scanned by Refresh: the daemon calls it on a timer, and a request
+// naming an unknown worktree triggers one on the miss, so a checkout created
+// while the daemon runs is picked up without a restart. Scans that change the
+// set report through the WorktreesChangedHook.
 //
 // MultiState is safe for concurrent use.
 type MultiState struct {
@@ -104,6 +116,10 @@ type MultiState struct {
 	// loadedHook, when non-nil, is invoked once per successful load so a
 	// transport can act on a freshly available model.
 	loadedHook LoadedHook
+
+	// changedHook, when non-nil, is invoked after any scan that changed the
+	// worktree set.
+	changedHook WorktreesChangedHook
 
 	// watchers tracks per-worktree closers registered by watcherHook.
 	watchers map[string]io.Closer
@@ -369,6 +385,16 @@ func (m *MultiState) SetLoadedHook(hook LoadedHook) {
 	m.loadedHook = hook
 }
 
+// SetWorktreesChangedHook installs the WorktreesChangedHook invoked after each
+// scan that changed the worktree set. Install it after the initial Refresh:
+// that first scan populates an empty entry set, so every worktree counts as
+// added and the hook would fire for the whole repository.
+func (m *MultiState) SetWorktreesChangedHook(hook WorktreesChangedHook) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.changedHook = hook
+}
+
 // Refresh re-discovers worktrees via `git worktree list --porcelain`
 // and replaces the internal entry set. Previously-loaded States for
 // worktrees that still exist are retained (so lazy caches survive a
@@ -380,6 +406,15 @@ func (m *MultiState) SetLoadedHook(hook LoadedHook) {
 // to rename or relocate one of them; silent last-write-wins would
 // hide one worktree from all transports.
 func (m *MultiState) Refresh() error {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+	return m.refreshLocked()
+}
+
+// refreshLocked is Refresh's body. Callers must hold refreshMu, which is what
+// lets the miss-driven path consult and stamp lastRefresh in the same critical
+// section as the scan it is debouncing.
+func (m *MultiState) refreshLocked() error {
 	entries, err := worktree.Discover(m.root)
 	if err != nil {
 		return fmt.Errorf("serve: discover worktrees: %w", err)
@@ -410,6 +445,23 @@ func (m *MultiState) Refresh() error {
 	if defaultName == "" && len(order) > 0 {
 		defaultName = order[0]
 	}
+	// Delta against the previous set, taken before the swap. It is what the
+	// changed hook reports, so a worktree created while the daemon runs is
+	// announced once regardless of which scan noticed it.
+	var added, removed []string
+	for name := range next {
+		if _, ok := m.entries[name]; !ok {
+			added = append(added, name)
+		}
+	}
+	for name := range m.entries {
+		if _, ok := next[name]; !ok {
+			removed = append(removed, name)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+
 	m.entries = next
 	m.order = order
 	m.defaultName = defaultName
@@ -436,10 +488,14 @@ func (m *MultiState) Refresh() error {
 			delete(m.failures, name)
 		}
 	}
+	changed := m.changedHook
 	m.mu.Unlock()
 
 	for _, c := range toClose {
 		_ = c.Close()
+	}
+	if changed != nil && (len(added) > 0 || len(removed) > 0) {
+		go changed(added, removed)
 	}
 	return nil
 }
@@ -524,7 +580,11 @@ func (m *MultiState) refreshOnMiss() {
 	if !m.lastRefresh.IsZero() && time.Since(m.lastRefresh) < refreshDebounce {
 		return
 	}
-	_ = m.Refresh()
+	_ = m.refreshLocked()
+	// Stamped only here, and even when the scan failed. The window throttles
+	// misses against each other; a scan from the poll or an explicit Refresh
+	// must not suppress the next miss, because a worktree created since that
+	// scan is exactly what the miss is asking about.
 	m.lastRefresh = time.Now()
 }
 

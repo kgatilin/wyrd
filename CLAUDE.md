@@ -189,6 +189,22 @@ record and a dead URL. This is why `wyrd daemon start` used to appear
 to do nothing. `detachStdio` (`internal/serve/autostart.go`) is the one
 place that wires it.
 
+**A worktree created after the daemon started must find its way in.** The
+registry record (`~/.arch/daemons/<repo-key>.json`) lists the worktrees that
+existed when the listener bound, and the CLI picks which worktree to address
+from that list — so a branch checked out since then matched nothing, and
+`wyrd graph search` was answered from the primary checkout's model at
+`status: ready` with no warning at all. (MCP was unaffected: the thin client
+derives the name from cwd, and the HTTP dispatcher already re-discovers on a
+miss.) Two changes: the daemon re-scans `git worktree list` every 30s
+(`Options.WorktreePollInterval`), and any scan that changes the set —
+periodic, miss-driven, or explicit — fires `MultiState`'s
+`WorktreesChangedHook`, which republishes the record and starts parsing the
+new checkout so it is warm before anyone asks. `daemonWorktreeName` also
+addresses the worktree cwd is standing in whenever cwd belongs to the daemon's
+repo, listed or not; a name that genuinely does not exist comes back as a
+loud 404 instead of a quiet answer about `main`.
+
 Rebuilding the binary bumps the model-cache stamp ⇒ the next start re-parses
 every package from scratch. Embeddings survive it: `vectors.json` is keyed by
 node id + content hash, so only nodes whose text changed are re-embedded. A
