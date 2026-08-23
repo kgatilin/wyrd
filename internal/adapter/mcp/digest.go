@@ -1,6 +1,9 @@
 package mcp
 
-import "github.com/kgatilin/wyrd/internal/domain"
+import (
+	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/retrieval"
+)
 
 // Package-digest sizing. A full domain.PackageModel dump embeds every
 // symbol's call edges, the package-level dependency list, and source spans —
@@ -179,14 +182,43 @@ func buildPackageDigest(m domain.PackageModel, kinds []string, offset, limit int
 	return dg
 }
 
+// digestKinds is the vocabulary a package digest partitions and counts by, in
+// the order it prints them. A digest is built from the package model, not the
+// graph, so it has no `method` — methods hang off the struct that declares
+// them — and it names the rest the way Go does.
+var digestKinds = []string{"interface", "struct", "func", "type", "const", "var", "error"}
+
+// unknownDigestKinds returns the entries of kinds this digest cannot partition
+// by. `method` lands here: a real kind elsewhere in the tool, but not one a
+// package surface is split along, and silently returning nothing for it would
+// read as an empty package.
+func unknownDigestKinds(kinds []string) []string {
+	known := make(map[string]bool, len(digestKinds))
+	for _, k := range digestKinds {
+		known[k] = true
+	}
+	var bad []string
+	seen := map[string]bool{}
+	for _, k := range kinds {
+		if known[retrieval.DisplayKind(k)] || seen[k] {
+			continue
+		}
+		seen[k] = true
+		bad = append(bad, k)
+	}
+	return bad
+}
+
 // kindFilter turns a kinds argument into a lookup set; nil means "all kinds".
+// The graph's spellings are accepted here too, so one vocabulary works across
+// every tool that takes a kind.
 func kindFilter(kinds []string) map[string]bool {
 	if len(kinds) == 0 {
 		return nil
 	}
 	set := make(map[string]bool, len(kinds))
 	for _, k := range kinds {
-		set[k] = true
+		set[retrieval.DisplayKind(k)] = true
 	}
 	return set
 }

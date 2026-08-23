@@ -350,6 +350,14 @@ Every read tool (`search`, `expand`, `get_node`, `get_package`, `extract`,
   word a filter accepts — reading `executor  struct` and passing
   `--kind struct` used to be a silent zero. The JSON surfaces keep the stored
   kind: `/api/node/…` is parsed by the review UI, not read.
+- **A set-valued argument rejects what it does not recognise, by name.**
+  Nothing downstream can tell "filtered everything out" from "matched
+  nothing", so an unrecognised `filters.kinds` / `edges` / `kinds` entry would
+  reach the caller as an empty answer — "there is no such code" instead of
+  "there is no such kind". `unknownValueError` (`tools.go`) names the value and
+  lists the accepted ones, and the list it offers is one that then works. The
+  check runs before the state and index checks, so a typo is reported as a typo
+  even on a cold daemon.
 - **Sort what a reader reads as a map.** `list_packages` and `extract`'s index
   sort by package path — the daemon holds packages in a map, and a few hundred
   lines in hash order are not a map of the repository.

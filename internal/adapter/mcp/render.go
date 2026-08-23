@@ -514,7 +514,7 @@ func renderPackageDigest(d packageDigest) string {
 	}
 	fmt.Fprintf(&b, "package %s%s\n", d.Path, name)
 	line := fmt.Sprintf("counts  = %d", d.Counts.Total)
-	if cols := countCols(censusOf(d.Counts), censusOrder); cols != "" {
+	if cols := countCols(censusOf(d.Counts), digestKinds); cols != "" {
 		line += "   " + cols
 	}
 	b.WriteString(line + "\n")
@@ -659,7 +659,7 @@ func renderPackageList(sums []PackageSummary) string {
 		line := "  " + s.Path
 		if cols := countCols(map[string]int{
 			"interface": s.InterfaceCount, "struct": s.StructCount, "func": s.FunctionCount,
-		}, censusOrder); cols != "" {
+		}, digestKinds); cols != "" {
 			line += "   " + cols
 		}
 		if s.Layer != "" {
@@ -669,12 +669,6 @@ func renderPackageList(sums []PackageSummary) string {
 	}
 	return b.String()
 }
-
-// censusOrder is the order a symbol census prints in. The labels are the words
-// `kinds` accepts on get_package/extract, so a count a reader sees can be
-// filtered on — `iface 2` next to a filter that wants `interface` is the same
-// silent-zero trap in miniature.
-var censusOrder = []string{"interface", "struct", "func", "type", "const", "var", "error"}
 
 // censusOf projects a digest's counts onto that vocabulary.
 func censusOf(c symbolCounts) map[string]int {
@@ -999,7 +993,7 @@ func renderExtractIndex(pkgs []packageDigest, hint string) string {
 	fmt.Fprintf(&b, "extract index  ·  %d packages  ·  no symbols\n", len(ordered))
 	for _, d := range ordered {
 		line := fmt.Sprintf("  %s   = %d", d.Path, d.Counts.Total)
-		if cols := countCols(censusOf(d.Counts), censusOrder); cols != "" {
+		if cols := countCols(censusOf(d.Counts), digestKinds); cols != "" {
 			line += "   " + cols
 		}
 		if d.Layer != "" {

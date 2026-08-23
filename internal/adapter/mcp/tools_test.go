@@ -634,3 +634,108 @@ func TestCapBoundary_CapsAndCounts(t *testing.T) {
 		t.Errorf("short list mangled: capped=%d total=%d", len(capped), total)
 	}
 }
+
+// TestSearch_UnknownKindIsNamedNotFilteredAway pins the difference between
+// "no such code" and "no such kind". A typo used to reach the caller as an
+// empty answer with a generic hint, which reads as the former.
+func TestSearch_UnknownKindIsNamedNotFilteredAway(t *testing.T) {
+	args := json.RawMessage(`{"query":"anything","filters":{"kinds":["nonsense"]}}`)
+	res, rpcErr := Dispatch(loadFakeState(t), "search", args)
+	if rpcErr != nil {
+		t.Fatalf("unexpected RPC error: %v", rpcErr)
+	}
+	if !res.IsError {
+		t.Fatalf("an unknown kind should be an error result, got: %q", res.Content[0].Text)
+	}
+	msg := res.Content[0].Text
+	if !strings.Contains(msg, `"nonsense"`) {
+		t.Errorf("the message must name the bad value: %q", msg)
+	}
+	if !strings.Contains(msg, "filters.kinds") {
+		t.Errorf("the message must name the argument: %q", msg)
+	}
+	// And offer back something that works.
+	for _, want := range []string{"interface", "struct", "func", "method"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the message should list %q as accepted: %q", want, msg)
+		}
+	}
+	if strings.Contains(msg, "broaden the query") {
+		t.Errorf("a typo should not be reported as an empty result: %q", msg)
+	}
+}
+
+func TestSearch_KnownKindsInEitherVocabularyPass(t *testing.T) {
+	for _, kinds := range []string{`["struct"]`, `["class"]`, `["interface","func"]`} {
+		args := json.RawMessage(`{"query":"anything","filters":{"kinds":` + kinds + `}}`)
+		res, rpcErr := Dispatch(loadFakeState(t), "search", args)
+		if rpcErr != nil {
+			t.Fatalf("kinds=%s: unexpected RPC error: %v", kinds, rpcErr)
+		}
+		// The fixture state carries no retrieval index, so the call still
+		// fails — but on the missing index, never on the kind.
+		if msg := res.Content[0].Text; strings.Contains(msg, "unknown value") {
+			t.Errorf("kinds=%s rejected as unknown: %q", kinds, msg)
+		}
+	}
+}
+
+func TestExpand_UnknownEdgeKindIsNamed(t *testing.T) {
+	args := json.RawMessage(`{"node_ids":["alpha.Service"],"edges":["invokes"]}`)
+	res, rpcErr := Dispatch(loadFakeState(t), "expand", args)
+	if rpcErr != nil {
+		t.Fatalf("unexpected RPC error: %v", rpcErr)
+	}
+	if !res.IsError {
+		t.Fatalf("an unknown edge kind should be an error result, got: %q", res.Content[0].Text)
+	}
+	msg := res.Content[0].Text
+	if !strings.Contains(msg, `"invokes"`) || !strings.Contains(msg, "implements") {
+		t.Errorf("the message should name the bad value and list the good ones: %q", msg)
+	}
+}
+
+func TestGetPackage_UnknownKindIsNamed(t *testing.T) {
+	// `method` is a real kind elsewhere in the tool but not one a package
+	// digest is split along, so it is rejected rather than silently empty.
+	for _, kind := range []string{"nonsense", "method"} {
+		args := json.RawMessage(`{"path":"alpha","kinds":["` + kind + `"]}`)
+		res, rpcErr := Dispatch(loadFakeState(t), "get_package", args)
+		if rpcErr != nil {
+			t.Fatalf("unexpected RPC error: %v", rpcErr)
+		}
+		if !res.IsError {
+			t.Fatalf("kind %q should be rejected, got: %q", kind, res.Content[0].Text)
+		}
+		if !strings.Contains(res.Content[0].Text, `"`+kind+`"`) {
+			t.Errorf("the message must name %q: %q", kind, res.Content[0].Text)
+		}
+	}
+}
+
+func TestGetPackage_AcceptsTheGraphSpellingOfAKind(t *testing.T) {
+	// One vocabulary across the tool: `iface` works here even though the
+	// digest prints `interface`.
+	args := json.RawMessage(`{"path":"alpha","kinds":["iface"]}`)
+	res, rpcErr := Dispatch(loadFakeState(t), "get_package", args)
+	if rpcErr != nil {
+		t.Fatalf("unexpected RPC error: %v", rpcErr)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %q", res.Content[0].Text)
+	}
+	if !strings.Contains(res.Content[0].Text, "\ninterfaces\n") {
+		t.Errorf("expected the interface section: %q", res.Content[0].Text)
+	}
+}
+
+func TestExtract_UnknownKindIsNamed(t *testing.T) {
+	args := json.RawMessage(`{"paths":["alpha"],"kinds":["nonsense"]}`)
+	res, rpcErr := Dispatch(loadFakeState(t), "extract", args)
+	if rpcErr != nil {
+		t.Fatalf("unexpected RPC error: %v", rpcErr)
+	}
+	if !res.IsError || !strings.Contains(res.Content[0].Text, `"nonsense"`) {
+		t.Errorf("extract should name the bad kind: %+v", res.Content[0].Text)
+	}
+}

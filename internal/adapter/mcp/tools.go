@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -159,7 +160,7 @@ func builtinToolDefinitions() []ToolDefinition {
 					"kinds": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
-						"description": "Restrict symbols to these kinds: interface, struct, func, type, const, var, error. Only applies when paths is set.",
+						"description": "Restrict symbols to these kinds: interface, struct, func, type, const, var, error. Only applies when paths is set. An unrecognised kind is rejected by name rather than returning empty digests.",
 					},
 					"offset": map[string]any{
 						"type":        "integer",
@@ -193,7 +194,7 @@ func builtinToolDefinitions() []ToolDefinition {
 					"kinds": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
-						"description": "Restrict to these symbol kinds: interface, struct, func, type, const, var, error. Empty = all.",
+						"description": "Restrict to these symbol kinds: interface, struct, func, type, const, var, error. Empty = all. A digest has no `method` — methods hang off the struct that declares them — and an unrecognised kind is rejected by name rather than returning an empty package.",
 					},
 					"offset": map[string]any{
 						"type":        "integer",
@@ -339,7 +340,7 @@ func builtinToolDefinitions() []ToolDefinition {
 							"kinds": map[string]any{
 								"type":        "array",
 								"items":       map[string]any{"type": "string"},
-								"description": "Symbol kinds to include (interface, struct, func, method, type, const, var, error) — the same words the answer prints. The graph's own spellings, `iface` and `class`, are accepted too.",
+								"description": "Symbol kinds to include (interface, struct, func, method, type, const, var, error) — the same words the answer prints. The graph's own spellings, `iface` and `class`, are accepted too. A word that is neither is rejected by name rather than filtered to an empty answer.",
 							},
 							"package_prefix": map[string]any{
 								"type":        "string",
@@ -369,7 +370,7 @@ func builtinToolDefinitions() []ToolDefinition {
 					"edges": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
-						"description": "Edge kinds to traverse (uses, returns, implements, calls, contains). Empty means all.",
+						"description": "Edge kinds to traverse (uses, returns, implements, calls, contains). Empty means all; an unrecognised kind is rejected by name rather than walked to nothing.",
 					},
 				},
 				"required": []string{"node_ids"},
@@ -795,6 +796,10 @@ func handleExtract(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RP
 		}
 	}
 
+	if bad := unknownDigestKinds(args.Kinds); len(bad) > 0 {
+		return unknownValueError("kinds", bad, digestKinds), nil
+	}
+
 	snap := snapshotOrEmpty(state)
 
 	if len(args.Paths) == 0 {
@@ -867,6 +872,9 @@ func handleGetPackage(state *serve.State, rawArgs json.RawMessage) (ToolResult, 
 	}
 	if args.Path == "" {
 		return errorResult("missing required argument: path"), nil
+	}
+	if bad := unknownDigestKinds(args.Kinds); len(bad) > 0 {
+		return unknownValueError("kinds", bad, digestKinds), nil
 	}
 
 	snap := snapshotOrEmpty(state)
@@ -1571,6 +1579,32 @@ func textResult(payload any) (ToolResult, *RPCError) {
 	}, nil
 }
 
+// unknownValueError names the values a caller supplied that mean nothing, and
+// offers back the ones that do.
+//
+// An unrecognised value in a set-valued argument is indistinguishable
+// downstream from a filter that matched nothing, so it comes back as an empty
+// answer — "there is no such code" instead of "there is no such kind". Saying
+// which value was not understood is the whole fix; listing the alternatives
+// saves the round trip after it.
+func unknownValueError(field string, bad, accepted []string) ToolResult {
+	label := "value"
+	if len(bad) > 1 {
+		label = "values"
+	}
+	return errorResult(fmt.Sprintf("unknown %s %s in `%s`; accepted: %s",
+		label, quoteAll(bad), field, strings.Join(accepted, ", ")))
+}
+
+// quoteAll renders a list of supplied values as a quoted, comma-joined string.
+func quoteAll(values []string) string {
+	quoted := make([]string, len(values))
+	for i, v := range values {
+		quoted[i] = strconv.Quote(v)
+	}
+	return strings.Join(quoted, ", ")
+}
+
 // errorResult wraps a human-readable message as an IsError=true tool
 // result. Used for input validation failures the agent can surface.
 func errorResult(msg string) ToolResult {
@@ -1647,6 +1681,9 @@ func handleSearch(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 	}
 	if args.Query == "" {
 		return errorResult("missing required argument: query"), nil
+	}
+	if bad := retrieval.UnknownKinds(args.Filters.Kinds); len(bad) > 0 {
+		return unknownValueError("filters.kinds", bad, retrieval.NodeKinds()), nil
 	}
 
 	if state == nil {
@@ -1849,6 +1886,11 @@ func handleExpand(state *serve.State, rawArgs json.RawMessage) (ToolResult, *RPC
 	}
 	if len(args.NodeIDs) == 0 {
 		return errorResult("missing required argument: node_ids"), nil
+	}
+	if bad := retrieval.UnknownEdgeKinds(args.EdgeKinds); len(bad) > 0 {
+		// An unrecognised edge kind restricts the walk to nothing and hands
+		// back the seeds alone, which reads as an unconnected symbol.
+		return unknownValueError("edges", bad, retrieval.EdgeKinds()), nil
 	}
 
 	if state == nil {
