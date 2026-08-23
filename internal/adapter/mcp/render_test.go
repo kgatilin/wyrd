@@ -492,3 +492,53 @@ func TestRenderPackageDigest_CountsDropZeros(t *testing.T) {
 		}
 	}
 }
+
+// `impl` is the package name of a dozen packages in a layered repository, so
+// the last segment does not name one. Two callers rendered as one string fold
+// into one set entry and half the answer is gone, with nothing saying so.
+func TestGetNode_CallersInLikeNamedPackagesStayApart(t *testing.T) {
+	home := "controllers/processor"
+	out := renderNodeDetail(nodeDetailResult{
+		NodeID: home + ".DecodeProcessCancel", Kind: "func", Package: home,
+		Name: "DecodeProcessCancel", File: home + "/decode.go", Line: 12,
+		Edges: []edgeInfo{
+			{From: "controllers/entrypoint/impl.reduce", To: home + ".DecodeProcessCancel", Kind: "calls"},
+			{From: "controllers/processor/impl.reduce", To: home + ".DecodeProcessCancel", Kind: "calls"},
+			{From: "controllers/processor.Decode", To: home + ".DecodeProcessCancel", Kind: "calls"},
+		},
+	})
+
+	for _, want := range []string{"entrypoint/impl.reduce", "processor/impl.reduce"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("caller %q is missing:\n%s", want, out)
+		}
+	}
+	// The caller that never collided keeps the short form: disambiguation is
+	// paid for where it is needed, not charged to the whole listing.
+	if !strings.Contains(out, "Decode,") && !strings.Contains(out, ", Decode") {
+		t.Errorf("an unambiguous same-package caller was expanded anyway:\n%s", out)
+	}
+}
+
+// Expansion stops as soon as the names are distinct, and goes all the way to
+// the full path when that is what it takes.
+func TestEndpointShortenerExpandsOnlyWhatCollides(t *testing.T) {
+	home := "internal/service"
+	ids := []string{
+		home + ".Run",
+		"internal/a/impl.Reduce",
+		"internal/b/impl.Reduce",
+		"internal/plugins/events.New",
+	}
+	short := newEndpointShortener(ids, home)
+	for id, want := range map[string]string{
+		ids[0]: "Run",
+		ids[1]: "a/impl.Reduce",
+		ids[2]: "b/impl.Reduce",
+		ids[3]: "events.New",
+	} {
+		if got := short(id); got != want {
+			t.Errorf("short(%s) = %q, want %q", id, got, want)
+		}
+	}
+}

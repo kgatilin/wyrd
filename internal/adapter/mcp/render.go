@@ -101,6 +101,11 @@ func sigTail(sig, name string) string {
 
 // shortEndpoint renders an edge endpoint id relative to home: same-package ids
 // become bare names; cross-package ids become <lastsegment>.<Name>.
+//
+// The last segment is not a unique name. `impl` names a dozen packages in a
+// layered repository, so two symbols in two of them read identically here —
+// which is why edge rendering goes through newEndpointShortener rather than
+// calling this directly on each id.
 func shortEndpoint(id, home string) string {
 	pkg, name := splitNodeID(id)
 	if name == "" {
@@ -110,6 +115,106 @@ func shortEndpoint(id, home string) string {
 		return name
 	}
 	return lastSeg(pkg) + "." + name
+}
+
+// endpointForm renders an endpoint id carrying depth package segments: 0 is
+// the bare name (home package only), 1 is <lastsegment>.<Name>, and each step
+// prepends one more segment until the path is whole.
+func endpointForm(id string, depth int, home string) string {
+	pkg, name := splitNodeID(id)
+	if name == "" {
+		return id
+	}
+	if pkg != home {
+		depth++
+	}
+	if depth <= 0 {
+		return name
+	}
+	return pkgTail(pkg, depth) + "." + name
+}
+
+// endpointDepthCap is the depth past which endpointForm stops changing: the
+// whole path is already in the name.
+func endpointDepthCap(id, home string) int {
+	pkg, name := splitNodeID(id)
+	if name == "" {
+		return 0
+	}
+	segments := strings.Count(pkg, "/") + 1
+	if pkg != home {
+		segments--
+	}
+	return segments
+}
+
+// pkgTail returns the last n segments of a package path.
+func pkgTail(pkg string, n int) string {
+	segs := strings.Split(pkg, "/")
+	if n >= len(segs) {
+		return pkg
+	}
+	return strings.Join(segs[len(segs)-n:], "/")
+}
+
+// newEndpointShortener renders each of ids as briefly as it can while still
+// naming one symbol, and returns the renderer.
+//
+// Brevity per id is not the goal — distinctness across the set is. A short
+// name that two ids share does not shorten the answer, it deletes half of it:
+// `impl.reduce` under a node's callers is one line whether one package calls
+// it or three, and a reader who folds an edge list into a set of names never
+// learns which. Ids that collide grow a package segment at a time until they
+// stand apart, so the disambiguation is paid for only where it is needed.
+func newEndpointShortener(ids []string, home string) func(string) string {
+	depth := make(map[string]int, len(ids))
+	for _, id := range ids {
+		depth[id] = 0
+	}
+	for {
+		claims := make(map[string][]string, len(depth))
+		for id, d := range depth {
+			form := endpointForm(id, d, home)
+			claims[form] = append(claims[form], id)
+		}
+		grew := false
+		for _, group := range claims {
+			if len(group) < 2 {
+				continue
+			}
+			for _, id := range group {
+				if depth[id] < endpointDepthCap(id, home) {
+					depth[id]++
+					grew = true
+				}
+			}
+		}
+		if !grew {
+			break
+		}
+	}
+	return func(id string) string {
+		if d, ok := depth[id]; ok {
+			return endpointForm(id, d, home)
+		}
+		return shortEndpoint(id, home)
+	}
+}
+
+// edgeEndpoints lists every id an edge set touches, which is the set an
+// endpoint renderer has to keep apart.
+func edgeEndpoints(edges []edgeInfo) []string {
+	seen := make(map[string]bool, 2*len(edges))
+	out := make([]string, 0, 2*len(edges))
+	for _, e := range edges {
+		for _, id := range [2]string{e.From, e.To} {
+			if !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+	}
+	return out
 }
 
 // shortArchmotifID renders a lens member/center id (`fn:path.Name`,
@@ -330,8 +435,12 @@ func renderSearch(query string, r searchResult) string {
 	}
 
 	if len(r.Edges) > 0 {
-		b.WriteString("\nedges\n")
-		for _, line := range foldEdges(r.Edges, func(id string) string { return shortEndpoint(id, home) }) {
+		// Which edges these are, said once: the ones running between nodes
+		// that came back. A reader who takes them for a symbol's full wiring
+		// concludes a caller does not exist because the ranking placed it
+		// outside the region.
+		b.WriteString("\nedges  (between the nodes above; get_node <id> for all of one symbol's)\n")
+		for _, line := range foldEdges(r.Edges, newEndpointShortener(edgeEndpoints(r.Edges), home)) {
 			b.WriteString(line + "\n")
 		}
 	}
@@ -445,8 +554,12 @@ func renderSubgraph(seed string, r subgraphResult) string {
 	}
 
 	if len(r.Edges) > 0 {
-		b.WriteString("\nedges\n")
-		for _, line := range foldEdges(r.Edges, func(id string) string { return shortEndpoint(id, home) }) {
+		// Which edges these are, said once: the ones running between nodes
+		// that came back. A reader who takes them for a symbol's full wiring
+		// concludes a caller does not exist because the ranking placed it
+		// outside the region.
+		b.WriteString("\nedges  (between the nodes above; get_node <id> for all of one symbol's)\n")
+		for _, line := range foldEdges(r.Edges, newEndpointShortener(edgeEndpoints(r.Edges), home)) {
 			b.WriteString(line + "\n")
 		}
 	}
@@ -474,7 +587,7 @@ func renderNodeDetail(d nodeDetailResult) string {
 			out = append(out, e)
 		}
 	}
-	short := func(id string) string { return shortEndpoint(id, home) }
+	short := newEndpointShortener(edgeEndpoints(d.Edges), home)
 	if len(out) > 0 {
 		b.WriteString("\nout\n")
 		for _, line := range foldIncident(out, func(e edgeInfo) string { return short(e.To) }, false) {
