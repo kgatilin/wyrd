@@ -8,6 +8,22 @@
  * when the full name is too long to fit on an edge.
  */
 
+/**
+ * How one thing on the map differs from the base, in the review canvas's
+ * vocabulary (`../types`), because a reader moving between the two surfaces
+ * should not have to learn a second one.
+ *
+ * Present only when the request named a base. A model with no `base` carries no
+ * marks, which is how "not compared" stays distinguishable from "unchanged".
+ */
+export type EventDiff = 'added' | 'removed' | 'changed';
+
+/** The commit an event model was compared against. */
+export interface EventModelBase {
+  ref: string;
+  rev?: string;
+}
+
 /** One component: a declaration, native or imported. */
 export interface EventComponent {
   id: string;
@@ -23,6 +39,17 @@ export interface EventComponent {
   inputs?: EventSlot[];
   outputs?: EventSlot[];
   state_events?: EventSlot[];
+  diff?: EventDiff;
+  /** The scalar facts this component changed from. Slots carry their own. */
+  was?: EventComponentWas;
+}
+
+export interface EventComponentWas {
+  owns?: string;
+  description?: string;
+  source_file?: string;
+  partition_key?: string[];
+  has_state?: boolean;
 }
 
 /** One entry of one of the three lists. */
@@ -34,6 +61,9 @@ export interface EventSlot {
   /** command | event | call | observe, when the source declared it. */
   role?: string;
   instances?: string[];
+  diff?: EventDiff;
+  /** The whole entry this one changed from, so any moved field can be shown. */
+  was?: EventSlot;
 }
 
 /** One producer-to-observer edge. */
@@ -44,6 +74,7 @@ export interface EventFlow {
   /** True when the kind drives the target; false when it is only folded. */
   trigger: boolean;
   health?: string;
+  diff?: EventDiff;
 }
 
 /** One event kind, with everywhere it appears. */
@@ -65,12 +96,32 @@ export interface EventKind {
   schema?: unknown;
   /** One instance of `schema`, built by the daemon with $refs followed. */
   example?: unknown;
+  diff?: EventDiff;
+  /** What this kind's identity on the wire was, before. */
+  was?: EventKindWas;
+}
+
+export interface EventKindWas {
+  pattern?: string;
+  subjects?: string[];
+  delivery?: string;
+  health?: string;
+  class?: string;
+  owner?: string;
+  /**
+   * The payload contract moved. A flag rather than the old schema: it is the
+   * largest field a kind carries, and a reader who wants the detail has the
+   * file diff, where a schema change reads as a patch.
+   */
+  schema_changed?: boolean;
 }
 
 export interface EventModel {
   components: EventComponent[];
   flows: EventFlow[];
   kinds: EventKind[];
+  /** Set when this model was read against a base, absent when it was not. */
+  base?: EventModelBase;
 }
 
 /**
@@ -99,6 +150,13 @@ export interface EventLink {
   trigger: boolean;
   /** The worst health among the kinds on this link, for the accent. */
   health: EventHealth;
+  /**
+   * How the pair itself changed, which is not the same question as how its
+   * kinds did. A line is `removed` only when everything that travelled it is
+   * gone — one removed kind out of six leaves the pair standing, and drawing
+   * it as removed would say two components stopped talking when they did not.
+   */
+  diff?: EventDiff;
 }
 
 // Ranked by how much a reader has to do about it. `unwired` is worst: it is a
@@ -136,7 +194,26 @@ export function buildLinks(flows: EventFlow[]): EventLink[] {
       health: normalizeHealth(flow.health),
     });
   }
+  for (const link of byPair.values()) {
+    link.diff = linkDiff(link.kinds);
+  }
   return [...byPair.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * The mark for a pair, from the marks of everything travelling it.
+ *
+ * All-or-nothing at the ends: a pair is added only when every kind on it is new
+ * and removed only when every kind on it is gone, because those are the two
+ * claims about the *pair* — that these components started talking, or stopped.
+ * Anything else that moved is `changed`, and a pair whose kinds all stayed put
+ * carries no mark at all.
+ */
+function linkDiff(kinds: EventFlow[]): EventDiff | undefined {
+  if (kinds.length === 0) return undefined;
+  if (kinds.every((k) => k.diff === 'added')) return 'added';
+  if (kinds.every((k) => k.diff === 'removed')) return 'removed';
+  return kinds.some((k) => k.diff) ? 'changed' : undefined;
 }
 
 function normalizeHealth(health: string | undefined): EventHealth {
@@ -212,6 +289,69 @@ export function healthCounts(kinds: EventKind[]): Record<EventHealth, number> {
     if (health && health in counts) counts[health as EventHealth] += 1;
   }
   return counts;
+}
+
+/** The marks the header counts, in the order it lists them. */
+export const DIFFS: EventDiff[] = ['added', 'changed', 'removed'];
+
+/**
+ * How many components, kinds and flows carry each mark.
+ *
+ * Counted per unit rather than as one total: "three components changed" and
+ * "three kinds changed" are different findings, and a reader who clicks a
+ * number expects the list behind it to be one kind of thing.
+ */
+export function diffCounts(model: EventModel | null): Record<EventDiff, number> {
+  const counts: Record<EventDiff, number> = { added: 0, removed: 0, changed: 0 };
+  if (!model) return counts;
+  for (const item of [...model.components, ...model.kinds]) {
+    if (item.diff) counts[item.diff] += 1;
+  }
+  return counts;
+}
+
+/** The components sitting under one mark, in the order the model lists them. */
+export function componentsInDiff(model: EventModel | null, diff: EventDiff): EventComponent[] {
+  return (model?.components ?? []).filter((c) => c.diff === diff);
+}
+
+/** The kinds sitting under one mark, in the order the model lists them. */
+export function kindsInDiff(model: EventModel | null, diff: EventDiff): EventKind[] {
+  return (model?.kinds ?? []).filter((k) => k.diff === diff);
+}
+
+/**
+ * The fields a changed thing actually moved, as (label, before, after).
+ *
+ * The daemon sends the whole previous value rather than guessing which field a
+ * reader wants, so picking out what differs is this side's job — printing every
+ * field of `was` would bury the one line that moved in five that did not.
+ */
+export function movedFields(
+  now: object,
+  was: object | undefined,
+  fields: string[]
+): { field: string; before: string; after: string }[] {
+  if (!was) return [];
+  // `object` rather than an index signature on the model types: the fields
+  // asked for are a caller's list of names, and widening every declaration
+  // interface to accept arbitrary keys — to read six of them — would cost the
+  // typo-catching those interfaces exist for.
+  const from = was as Record<string, unknown>;
+  const to = now as Record<string, unknown>;
+  const out: { field: string; before: string; after: string }[] = [];
+  for (const field of fields) {
+    const before = describe(from[field]);
+    const after = describe(to[field]);
+    if (before !== after) out.push({ field, before, after });
+  }
+  return out;
+}
+
+function describe(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (Array.isArray(value)) return value.join(', ');
+  return String(value);
 }
 
 /** The kinds sitting in one unhealthy state, in the order the model lists them. */

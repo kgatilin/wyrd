@@ -112,9 +112,19 @@ func Validate(m *Model) []Finding {
 // the claimant of the longest `owns` prefix covering it — or "" when no
 // component claims the namespace. Ownership is definitional authority only: it
 // says nothing about who may emit the kind or who may observe it.
+// Two components can claim the same namespace: it is a duplicate-owner error
+// among native declarations, and among imported documents nothing reports it —
+// wyrd reads a published document to draw it, not to grade it. Either way this
+// has to answer, and it answers in sorted order with a strict improvement, so
+// tied claimants resolve to the first id rather than to whichever the map
+// handed over first. The previous map walk made the field flap between two
+// equally valid owners on consecutive requests, which is invisible until
+// something compares two answers — a diff of the model against its own base
+// reported every kind in the tied namespace as changed, at random.
 func OwnerOf(m *Model, kind string) string {
 	owner, bestLen := "", -1
-	for id, comp := range m.Components {
+	for _, id := range sortedComponentIDs(m) {
+		comp := m.Components[id]
 		if comp.Owns == "" || !kindHasPrefix(kind, comp.Owns) {
 			continue
 		}

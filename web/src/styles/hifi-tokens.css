@@ -3454,6 +3454,11 @@ body {
 /* Broken wires read louder than the counting states: the others say an end is
    missing, this one says two present ends do not meet. */
 .hf-events-stat.bad { color: var(--rem-fg); border-color: var(--rem-line); }
+/* Diff chips carry the review canvas's three colours, so a reader moving
+   between the two surfaces reads one vocabulary. */
+.hf-events-stat.diff.added { color: var(--add-fg); border-color: var(--add-line); }
+.hf-events-stat.diff.changed { color: var(--chg-fg); border-color: var(--chg-line); }
+.hf-events-stat.diff.removed { color: var(--rem-fg); border-color: var(--rem-line); }
 .hf-events-stat.import { color: var(--syn-fn); border-color: var(--layer-internal-line); }
 /* A chip that counts something the reader can be taken to is a button. */
 button.hf-events-stat {
@@ -3546,6 +3551,23 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
 .hf-events-line.starved,
 .hf-events-line.orphan { stroke: var(--chg-line); }
 .hf-events-line.ambiguous { stroke: var(--rem-line); }
+/* Diff marks on the picture. The box keeps its own accent for health and
+   selection, so a mark rides on the border and on a corner sigil: two states on
+   one fill would have to fight over it. A removed node is faded rather than
+   hidden — the shape it left is the point of keeping it. */
+.hf-events-node.added .hf-events-node-box { stroke: var(--add-line); stroke-width: 1.8; }
+.hf-events-node.changed .hf-events-node-box { stroke: var(--chg-line); stroke-width: 1.8; }
+.hf-events-node.removed .hf-events-node-box { stroke: var(--rem-line); stroke-dasharray: 5 3; }
+.hf-events-node.removed { opacity: 0.55; }
+.hf-events-node-diff {
+  font-size: 13px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 600;
+}
+.hf-events-node.added .hf-events-node-diff { fill: var(--add-fg); }
+.hf-events-node.changed .hf-events-node-diff { fill: var(--chg-fg); }
+.hf-events-node.removed .hf-events-node-diff { fill: var(--rem-fg); }
+
 /* A broken wire: both ends declared, on addresses that never meet. Short dashes
    at full strength rather than a colour change alone, so it still reads as
    broken at a zoom where hue does not survive — and placed after .fold, whose
@@ -3555,6 +3577,12 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
   stroke-dasharray: 2 4;
   stroke-linecap: round;
 }
+.hf-events-line.added { stroke: var(--add-fg); stroke-width: 2; }
+.hf-events-line.changed { stroke: var(--chg-fg); stroke-width: 2; }
+/* A removed edge keeps its route and loses its weight: it says two components
+   used to exchange this and no longer do, which a deleted line cannot say. */
+.hf-events-link.removed { opacity: 0.45; }
+.hf-events-line.removed { stroke: var(--rem-fg); stroke-dasharray: 6 5; }
 .hf-events-link:hover .hf-events-line { stroke: var(--fg-2); }
 .hf-events-link.on .hf-events-line { stroke: var(--accent); stroke-width: 2; }
 .hf-events-link.dim { opacity: 0.22; }
@@ -3668,6 +3696,35 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
   color: var(--fg-3);
   word-break: break-all;
 }
+/* A marked row: a coloured left edge and a sigil, so the mark survives both a
+   grayscale screen and a reader skimming the column of kind names. */
+.hf-events-slot.added { border-left: 2px solid var(--add-line); }
+.hf-events-slot.changed { border-left: 2px solid var(--chg-line); }
+.hf-events-slot.removed { border-left: 2px solid var(--rem-line); opacity: 0.7; }
+.hf-events-slot.removed .hf-events-slot-kind { text-decoration: line-through; }
+.hf-events-sigil {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+.hf-events-sigil.added { color: var(--add-fg); }
+.hf-events-sigil.changed { color: var(--chg-fg); }
+.hf-events-sigil.removed { color: var(--rem-fg); }
+/* `field: before → after`, one per line under the row it belongs to. */
+.hf-events-slot-was {
+  flex-basis: 100%;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--chg-fg);
+  word-break: break-all;
+}
+.hf-events-slot-was s { color: var(--fg-3); }
+.hf-events-detail-was {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 12px;
+}
 .hf-events-tag {
   font-size: 9px;
   font-weight: 700;
@@ -3685,6 +3742,9 @@ button.hf-events-stat.on { background: var(--bg-2); border-color: currentColor; 
 .hf-events-tag.fold { color: var(--syn-fn); border-color: var(--layer-internal-line); }
 .hf-events-tag.role { color: var(--fg-2); }
 .hf-events-tag.excl { color: var(--chg-fg); border-color: var(--chg-line); }
+.hf-events-tag.diff.added { color: var(--add-fg); border-color: var(--add-line); }
+.hf-events-tag.diff.changed { color: var(--chg-fg); border-color: var(--chg-line); }
+.hf-events-tag.diff.removed { color: var(--rem-fg); border-color: var(--rem-line); }
 /* The four roles, coloured by what the message is rather than by which list it
    sits in: an imperative somebody must act on (command in, call out) against a
    fact that is simply true (event out, observe in). The hues are the node

@@ -98,7 +98,9 @@ const eventModel = {
 
 async function openCanvas(page: Page, model: unknown = eventModel) {
   await routeGraph(page, diffGraph);
-  await page.route('**/api/plugins/events/model', (route) => route.fulfill({ json: model as object }));
+  // The trailing `*` matters: the canvas asks for `?base=<branch>`, and a glob
+  // without it stops matching the moment a query string appears.
+  await page.route('**/api/plugins/events/model*', (route) => route.fulfill({ json: model as object }));
   await page.goto('/');
 
   const env = new PlaywrightEnvironment(page);
@@ -362,4 +364,101 @@ test('an empty model says where declarations go instead of drawing nothing', asy
     message: 'no notice for an empty model',
   });
   expect(await canvas.notice()).toContain('.arch/asyncapi.yaml');
+});
+
+/**
+ * The same model marked against a base. `connectors` moved an address, `router`
+ * is new, and a `legacy` component the base had is gone — the three cases a
+ * reader looking at a branch's event map has to be able to tell apart.
+ */
+const markedModel = {
+  components: [
+    eventModel.components[0],
+    {
+      ...eventModel.components[1],
+      diff: 'changed',
+      was: { owns: 'connectors', partition_key: ['scope'], has_state: false },
+      inputs: [
+        {
+          ...eventModel.components[1].inputs[0],
+          diff: 'changed',
+          was: {
+            kind: 'connectors.command.call',
+            pattern: 'svc.connectors.{scope}.call',
+            role: 'command',
+          },
+        },
+      ],
+    },
+    { ...eventModel.components[2], diff: 'added' },
+    {
+      id: 'legacy',
+      owns: 'legacy',
+      source_file: '/repo/legacy/.arch/events.yaml',
+      has_state: false,
+      diff: 'removed',
+      outputs: [{ kind: 'legacy.event.relayed', pattern: 'svc.legacy.relayed' }],
+    },
+  ],
+  flows: [
+    ...eventModel.flows,
+    { from: 'legacy', to: 'audit', kind: 'legacy.event.relayed', trigger: false, health: 'ok', diff: 'removed' },
+  ],
+  kinds: [
+    { ...eventModel.kinds[0], diff: 'changed', was: { pattern: 'svc.connectors.{scope}.call' } },
+    eventModel.kinds[1],
+    { name: 'legacy.event.relayed', health: 'ok', producers: ['legacy'], folders: ['audit'], diff: 'removed' },
+  ],
+  base: { ref: 'main', rev: '8cf8121bf4b3b95da368b7490ebfe68acc7e02c7' },
+};
+
+test('a marked model keeps the whole map and says what moved on it', async ({ page }) => {
+  const canvas = await openCanvas(page, markedModel);
+  await canvas.waitForDiagram();
+
+  // The point of the feature: the component this branch dropped is still drawn,
+  // with the edge it used to carry. A map narrowed to the current half answers
+  // the question the unmarked view already answered.
+  expect((await canvas.nodeNames()).sort()).toEqual(['audit', 'connectors', 'legacy', 'router']);
+  expect(await canvas.markedNodes('removed')).toEqual(['legacy']);
+  expect(await canvas.markedNodes('added')).toEqual(['router']);
+  expect(await canvas.markedNodes('changed')).toEqual(['connectors']);
+  expect(await canvas.markedLinkCount('removed')).toBe(1);
+
+  const stats = await canvas.stats();
+  expect(stats).toContain('+1 added');
+  expect(stats).toContain('~2 changed');
+  expect(stats).toContain('−2 removed');
+});
+
+test('a changed component names the address its entry moved from', async ({ page }) => {
+  const canvas = await openCanvas(page, markedModel);
+  await canvas.waitForDiagram();
+
+  await canvas.clickNode('connectors');
+
+  const moved = await canvas.movedFields();
+  expect(moved.some((row) => row.includes('svc.connectors.{scope}.call'))).toBe(true);
+  expect(moved.some((row) => row.includes('svc.connectors.{group}.{scope}.call'))).toBe(true);
+});
+
+test('a diff chip dims everything that did not move', async ({ page }) => {
+  const canvas = await openCanvas(page, markedModel);
+  await canvas.waitForDiagram();
+
+  await canvas.clickStat('added');
+
+  expect(await canvas.detailTitle()).toBe('1 added');
+  // router alone: the only thing this branch introduced.
+  expect(await canvas.accentedNodeCount()).toBe(1);
+});
+
+test('an unmarked model counts no changes at all', async ({ page }) => {
+  const canvas = await openCanvas(page);
+  await canvas.waitForDiagram();
+
+  const stats = await canvas.stats();
+  // No base resolved, so there is nothing to report. Three zeroes here would
+  // read as "nothing changed" rather than "nothing was compared".
+  expect(stats.some((chip) => /added|changed|removed/.test(chip))).toBe(false);
 });

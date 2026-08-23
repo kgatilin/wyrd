@@ -123,11 +123,8 @@ func findDeclarationFiles(root string) ([]declarationFile, error) {
 		// requested root — an explicit --root is an instruction to scan that
 		// directory regardless of its name.
 		cleanPath := filepath.Clean(path)
-		if cleanPath != cleanRoot {
-			switch name {
-			case ".git", ".worktrees", ".claude", "bin", "vendor", "node_modules", "testdata":
-				return filepath.SkipDir
-			}
+		if cleanPath != cleanRoot && skippedScanDirs[name] {
+			return filepath.SkipDir
 		}
 		if name == ".arch" || name == ".wyrd" {
 			// Both declaration formats live side by side in this directory. A
@@ -221,6 +218,88 @@ func findSourceFiles(root string, sources []Location) ([]declarationFile, error)
 		}
 	}
 	return out, nil
+}
+
+// skippedScanDirs are the directory names findDeclarationFiles refuses to
+// descend into. Named once so a path-list filter cannot drift from the walk.
+var skippedScanDirs = map[string]bool{
+	".git": true, ".worktrees": true, ".claude": true,
+	"bin": true, "vendor": true, "node_modules": true, "testdata": true,
+}
+
+// DeclarationCandidates filters repository-relative, slash-separated paths down
+// to the ones that could hold a declaration, applying the same conventions
+// ReadSources walks with.
+//
+// It exists for readers that cannot walk a directory — reading a model out of a
+// git revision, above all. Such a caller lists a tree, materializes what this
+// returns, and hands the result to ReadSources, which re-applies the real rules
+// to what it finds. So this is deliberately a *superset* filter: being wrong by
+// including a file costs one `git show`, while being wrong by excluding one
+// would silently drop a component from the base model and report it as added.
+//
+// Paths are returned in the order given, deduplicated.
+func DeclarationCandidates(paths []string, sources []Location) []string {
+	seen := make(map[string]bool, len(paths))
+	var out []string
+	for _, p := range paths {
+		p = path.Clean(p)
+		if seen[p] || !isDeclarationCandidate(p, sources) {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
+}
+
+func isDeclarationCandidate(p string, sources []Location) bool {
+	segments := strings.Split(p, "/")
+	for _, segment := range segments[:len(segments)-1] {
+		if skippedScanDirs[segment] {
+			return false
+		}
+	}
+
+	// The `.arch/` convention. The walk does not recurse past that directory,
+	// so the file has to sit directly in it and carry a conventional name.
+	dir := path.Base(path.Dir(p))
+	if dir == ".arch" || dir == ".wyrd" {
+		switch path.Base(p) {
+		case eventsFileName, asyncAPIFileName:
+			return true
+		}
+	}
+
+	for _, src := range sources {
+		rel, ok := underSource(p, src.Path)
+		if !ok {
+			continue
+		}
+		match, err := matchesInclude(src.Include, rel)
+		if err != nil || !match {
+			// A bad include pattern is ReadSources' error to report against
+			// the real directory; here it only means "do not claim this one".
+			continue
+		}
+		if src.Format != "" || FormatOf(path.Base(p)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// underSource reports whether p lies under a source directory, returning the
+// path relative to it — the form an include pattern is matched against.
+func underSource(p, dir string) (string, bool) {
+	dir = strings.Trim(path.Clean(dir), "/")
+	if dir == "" || dir == "." {
+		return p, true
+	}
+	if !strings.HasPrefix(p, dir+"/") {
+		return "", false
+	}
+	return strings.TrimPrefix(p, dir+"/"), true
 }
 
 // matchesInclude reports whether rel (slash-separated, relative to the source

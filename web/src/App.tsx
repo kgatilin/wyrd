@@ -1201,6 +1201,9 @@ function AppContent({
             <EventCanvas
               worktree={activeWorktree}
               events={events}
+              // The review canvas's base, so the two diagrams sharing this pane
+              // can never end up marked against different commits.
+              base={reviewBaseRef}
               reloadToken={eventReloadToken}
               onClose={() => dispatch({ type: 'EventCanvasClosed' })}
             />

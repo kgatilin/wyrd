@@ -8,8 +8,11 @@ import type { EventModel } from '../domain/eventModel';
  * here either. The canvas re-reads on the model-changed SSE like everything
  * else on the page.
  */
-export async function fetchEventModel(options: { worktree?: string } = {}): Promise<EventModel> {
-  const res = await fetch(`${apiPrefix(options.worktree)}/api/plugins/events/model`);
+export async function fetchEventModel(
+  options: { worktree?: string; base?: string } = {}
+): Promise<EventModel> {
+  const query = options.base ? `?base=${encodeURIComponent(options.base)}` : '';
+  const res = await fetch(`${apiPrefix(options.worktree)}/api/plugins/events/model${query}`);
   if (!res.ok) {
     throw new Error(await errorText(res));
   }
@@ -20,6 +23,10 @@ export async function fetchEventModel(options: { worktree?: string } = {}): Prom
     components: body.components ?? [],
     flows: body.flows ?? [],
     kinds: body.kinds ?? [],
+    // Absent when no base was asked for, and also when one was asked for and
+    // would not resolve. Both mean the same thing to a reader: the marks below
+    // are not a comparison, so do not draw them as one.
+    base: body.base,
   };
 }
 

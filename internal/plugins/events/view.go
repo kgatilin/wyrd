@@ -17,6 +17,10 @@ type modelView struct {
 	Components []componentView `json:"components"`
 	Flows      []flowView      `json:"flows"`
 	Kinds      []kindView      `json:"kinds"`
+	// Base names the commit this view was compared against, present only when
+	// one was asked for and resolved. Its absence is how the canvas knows the
+	// marks below mean nothing rather than "nothing changed".
+	Base *baseIdentity `json:"base,omitempty"`
 }
 
 // componentView is one node of the canvas.
@@ -38,6 +42,26 @@ type componentView struct {
 	Inputs      []slotView `json:"inputs,omitempty"`
 	Outputs     []slotView `json:"outputs,omitempty"`
 	StateEvents []slotView `json:"state_events,omitempty"`
+
+	// Diff and Was are set only when the request named a base. Diff is
+	// "added", "removed" or "changed"; Was carries the previous value of the
+	// scalar facts, so a reader sees what a field moved from rather than only
+	// that it moved. Both are excluded from the comparison that sets them, by
+	// being empty on both sides when it runs.
+	Diff string            `json:"diff,omitempty"`
+	Was  *componentWasView `json:"was,omitempty"`
+}
+
+// componentWasView is a changed component's previous scalar facts — the ones
+// its panel prints as a definition list. The three slot lists are absent on
+// purpose: their entries carry their own marks, which localizes the change
+// instead of handing the reader a second list to compare against the first.
+type componentWasView struct {
+	Owns         string   `json:"owns,omitempty"`
+	Description  string   `json:"description,omitempty"`
+	SourceFile   string   `json:"source_file,omitempty"`
+	PartitionKey []string `json:"partition_key,omitempty"`
+	HasState     bool     `json:"has_state"`
 }
 
 // slotView is one entry of one of the three lists.
@@ -51,6 +75,13 @@ type slotView struct {
 	// call, and the reader wants to see the difference.
 	Role      string   `json:"role,omitempty"`
 	Instances []string `json:"instances,omitempty"`
+
+	// Diff marks the entry against the base; Was is the entry it changed from.
+	// A whole slot rather than picked fields: an entry is small, and the panel
+	// showing "was" for whichever field moved beats this file guessing which
+	// field a reader will care about.
+	Diff string    `json:"diff,omitempty"`
+	Was  *slotView `json:"was,omitempty"`
 }
 
 // flowView is one producer-to-observer edge.
@@ -62,6 +93,10 @@ type flowView struct {
 	// only being folded into its state.
 	Trigger bool   `json:"trigger"`
 	Health  string `json:"health,omitempty"`
+	// Diff marks the edge against the base. There is no Was: an edge has two
+	// mutable facts, trigger and health, and both are short enough that a
+	// reader comparing them wants the kind's panel, not a shadow copy here.
+	Diff string `json:"diff,omitempty"`
 }
 
 // kindView is one event kind, with everywhere it appears. This is what the
@@ -91,6 +126,25 @@ type kindView struct {
 	// Derived here rather than in the canvas because a `$ref` resolves
 	// against the declaring component, which the wire shape does not carry.
 	Example any `json:"example,omitempty"`
+
+	// Diff marks the kind against the base; Was carries its previous identity
+	// on the wire.
+	Diff string       `json:"diff,omitempty"`
+	Was  *kindWasView `json:"was,omitempty"`
+}
+
+// kindWasView is a changed kind's previous identity. Everything here is a
+// scalar or a short list, and the payload schema — the one large field a kind
+// carries — is reported as a flag instead of repeated. See kindFacts.
+type kindWasView struct {
+	Pattern  string   `json:"pattern,omitempty"`
+	Subjects []string `json:"subjects,omitempty"`
+	Delivery string   `json:"delivery,omitempty"`
+	Health   string   `json:"health,omitempty"`
+	Class    string   `json:"class,omitempty"`
+	Owner    string   `json:"owner,omitempty"`
+	// SchemaChanged says the payload contract moved, without carrying it.
+	SchemaChanged bool `json:"schema_changed,omitempty"`
 }
 
 // buildModelView projects the composed model and its graph onto the wire shape.

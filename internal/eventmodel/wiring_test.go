@@ -141,3 +141,35 @@ func kindHealth(t *testing.T, g *Graph, kind string) string {
 	t.Fatalf("no node for kind %q", kind)
 	return ""
 }
+
+// Two components claiming one namespace is legal among imported documents —
+// nothing grades them — so OwnerOf still has to answer, and it has to answer
+// the same way every time. A map walk did not: the field flapped between two
+// equally valid owners, and a diff of the model against its own base then
+// reported every kind in that namespace as changed, at random.
+func TestOwnerOfIsStableWhenTwoComponentsClaimOneNamespace(t *testing.T) {
+	runner := comp("channel/runner", "channel")
+	runner.Source = SourceAsyncAPI
+	slack := comp("channel/slack", "channel")
+	slack.Source = SourceAsyncAPI
+	m := model(runner, slack)
+
+	first := OwnerOf(m, "channel.command.message.send")
+	if first != "channel/runner" {
+		t.Errorf("owner = %q, want the first claimant in sorted order", first)
+	}
+	for i := 0; i < 50; i++ {
+		if got := OwnerOf(m, "channel.command.message.send"); got != first {
+			t.Fatalf("owner flapped to %q on call %d", got, i)
+		}
+	}
+}
+
+// A longer claim still wins over a shorter one; sorting is only the tiebreak.
+func TestOwnerOfPrefersTheLongestClaim(t *testing.T) {
+	broad := comp("aaa/broad", "channel")
+	narrow := comp("zzz/narrow", "channel.slack")
+	if got := OwnerOf(model(broad, narrow), "channel.slack.event.sent"); got != "zzz/narrow" {
+		t.Errorf("owner = %q, want the longer prefix even though it sorts last", got)
+	}
+}

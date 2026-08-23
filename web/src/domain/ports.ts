@@ -47,7 +47,13 @@ export interface DomainsPort {
  * one tool's result.
  */
 export interface EventModelPort {
-  load(options: { worktree?: string }): Promise<EventModel>;
+  /**
+   * `base` asks for the model marked up against merge-base(base, HEAD). The
+   * answer is still the whole map — everything current plus everything the base
+   * had and this branch does not — because "what changed" is a property of the
+   * picture, not a smaller picture.
+   */
+  load(options: { worktree?: string; base?: string }): Promise<EventModel>;
 }
 
 export interface NavigationPort {

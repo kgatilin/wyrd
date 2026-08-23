@@ -70,6 +70,23 @@ export class EventCanvasHarness extends ComponentHarness {
     return (await this.env.rootLocator('.hf-events-notice').first()).text();
   }
 
+  /** Component names carrying each diff mark, e.g. markedNodes('removed'). */
+  async markedNodes(mark: string): Promise<string[]> {
+    const nodes = await this.env.rootLocator(`.hf-events-node.${mark} .hf-events-node-name`).all();
+    return Promise.all(nodes.map((node) => node.text()));
+  }
+
+  /** How many edges carry a diff mark. */
+  async markedLinkCount(mark: string): Promise<number> {
+    return this.env.rootLocator(`.hf-events-link.${mark}`).count();
+  }
+
+  /** The `field: before → after` lines the open panel shows. */
+  async movedFields(): Promise<string[]> {
+    const rows = await this.env.rootLocator('.hf-events-detail .hf-events-slot-was').all();
+    return Promise.all(rows.map((row) => row.text()));
+  }
+
   async clickNode(name: string): Promise<void> {
     await (await this.env.rootLocator('.hf-events-node-name').filterByText(name).first()).click();
   }

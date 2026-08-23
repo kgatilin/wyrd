@@ -903,6 +903,83 @@ Consequences baked into the rules:
   `state-event` (kind→component), plus `defines`/`payload`/`refs`. The read-set,
   partition key and state shape are component attributes — a fold vertex would
   sit alone beside every component carrying exactly those three things.
+- **`unwired` is health for a *pair*, and it exists because two rules answered
+  from different keys.** Orphan and starved count declarations by kind *name*;
+  a flow exists only when producer and observer agree on the *subject*
+  (`BuildFlows` → `SubjectsMatch`). A kind appended by one component and taken
+  as an input by another, on addresses that never match, therefore scored `ok`
+  on both sides while the canvas drew nothing between them — and empty space
+  looks exactly like a relation the model never had. `UnwiredKinds` names that
+  state, `BuildFlows` draws the pair anyway (red, dotted), and `validateWiring`
+  reports `unwired-kind`.
+  - It is the **one rule reported over the whole composed set**, imported
+    documents included. The three reasons AsyncAPI is excluded elsewhere — one
+    kind on several subjects, wire coordinates instead of partition keys, an
+    open rather than closed system — none apply: it compares two addresses in
+    the same alphabet and says nothing until both ends are in the set.
+  - Guards against the port family: a pair inside one component is the
+    self-fold idiom and never fires, and a cross-component pair must exist by
+    name before the addresses are compared at all.
+- **`OwnerOf` must walk components in sorted order.** Two components may claim
+  one namespace — a `duplicate-owner` error natively, ungraded when both are
+  imported — and the map walk it used to do returned a different one of them
+  per call. Nothing noticed until something compared two answers: the model
+  diff below reported every kind in the tied namespace as `changed`, at random,
+  on a repo where nothing had changed.
+
+#### Diff on the event canvas
+
+`GET /api/plugins/events/model?base=<ref>` answers the model **marked up**
+against merge-base(base, HEAD) instead of narrowed to it. The review canvas's
+base is passed straight through (`App.tsx` → `EventCanvas base=`), so the two
+diagrams sharing that pane can never describe different comparisons.
+
+- **The response is a union, not a delta.** Everything current, plus everything
+  the base had and the branch does not, stamped `removed`. A view that drops the
+  removed half answers "what is here now", which the unmarked view already did —
+  and the whole ask was to keep seeing the map while seeing what moved on it.
+- **The diff is computed over the wire shape** (`internal/plugins/events/diff.go`),
+  not over `eventmodel.Model`. The reader's question is "what changed on this
+  picture", and the picture *is* that shape: a mark appears exactly when
+  something the canvas draws differs. A second comparison over the domain model
+  would have to track every projection choice `buildModelView` makes, and the
+  first time it drifted a component would paint unchanged while showing
+  different contents.
+- **The base is read a file at a time, not as a tree.** `git ls-tree` →
+  `eventmodel.DeclarationCandidates` → `git show` per file → `ReadSources` over a
+  scratch dir (`internal/plugins/events/base.go`). `serve.baseTrees` materializes
+  a whole checkout because the Go reader needs one; an event model is a handful
+  of YAML files, and exporting a large repo to read nine of them is the cost of a
+  feature nobody would enable. `DeclarationCandidates` is deliberately a
+  **superset** filter — a wrong include costs one `git show`, a wrong exclude
+  silently drops a base component and reports it as added.
+- **`rebaseSourceFiles` is not cosmetic.** Components read from the scratch dir
+  carry its path, which changes per request, so without rewriting it back to the
+  worktree every component differs from its own current self and a diff of
+  nothing comes back as "everything changed".
+- **Sources are the union of both sides' overlays.** Each alone is wrong in one
+  direction: the branch's alone hides what a deleted source used to find, the
+  base's alone makes everything under an added source look new. Hence
+  `overlay.Decode`, which parses the overlay out of a git revision.
+- **Slot matching is (kind, address) first, kind second.** A port family puts one
+  kind on several addresses, so the pair is the identity; but an address moving
+  is the thing a reader opens the panel for, and pair-only matching reports that
+  as a removal beside an unrelated addition. Exact pairs are claimed first so an
+  unmoved entry is never consumed as the "was" of a sibling that moved.
+- **A kind's `was` carries a `schema_changed` flag, not the old schema.** The
+  payload is the largest field a kind has; doubling it would cost more than every
+  other field together, and a reader who wants the detail has the file diff,
+  where a schema change reads as a patch instead of two JSON blobs.
+- **A link is `removed` only when everything on it is gone** (`linkDiff`). One
+  removed kind out of six leaves the pair standing; drawing it as removed would
+  say two components stopped talking when they did not.
+- **No marks at all when no base resolved.** An unresolvable ref returns the view
+  untouched *and unlabelled* — the absent `base` field is how the canvas keeps
+  "not compared" distinguishable from "nothing changed", and why a failed
+  comparison never takes down the picture that works.
+- Clicking a `+N ~N -N` chip dims everything that did not move. That is the
+  "changes only" reading of the same picture, with no second view to keep in step
+  and one click back to the whole map.
 
 Codegen (`wyrd plugin events gen`) is **template-driven and language-neutral**:
 templates live in the project (`.arch/templates/*.tmpl`), wyrd renders them

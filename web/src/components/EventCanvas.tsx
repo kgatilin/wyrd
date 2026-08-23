@@ -2,15 +2,21 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { EventModelPort } from '../domain/ports';
 import {
   componentById,
+  componentsInDiff,
+  DIFFS,
+  diffCounts,
   healthCounts,
   isolatedComponents,
+  kindsInDiff,
   kindsInState,
   kindByName,
   linkId,
+  movedFields,
   participantsOf,
   sectionsOf,
   UNHEALTHY,
   type EventComponent,
+  type EventDiff,
   type EventHealth,
   type EventKind,
   type EventModel,
@@ -85,13 +91,19 @@ type Session =
 export interface EventCanvasProps {
   worktree: string;
   events: EventModelPort;
+  /**
+   * The branch to mark the map against — the review canvas's base, so the two
+   * diagrams in this pane never end up describing different comparisons.
+   * Empty means draw the model with no marks.
+   */
+  base?: string;
   /** Bumped by the model-changed SSE, so the canvas re-reads with the page. */
   reloadToken?: number;
   onClose: () => void;
 }
 
-export function EventCanvas({ worktree, events, reloadToken = 0, onClose }: EventCanvasProps) {
-  const session = useEventModel(events, worktree, reloadToken);
+export function EventCanvas({ worktree, events, base = '', reloadToken = 0, onClose }: EventCanvasProps) {
+  const session = useEventModel(events, worktree, base, reloadToken);
   const [layout, setLayout] = useState<EventLayout | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -357,16 +369,22 @@ type Selection =
   | { kind: 'link'; from: string; to: string }
   | { kind: 'event'; name: string }
   | { kind: 'health'; health: EventHealth }
+  | { kind: 'diff'; diff: EventDiff }
   | { kind: 'imported' };
 
-function useEventModel(events: EventModelPort, worktree: string, reloadToken: number): Session {
+function useEventModel(
+  events: EventModelPort,
+  worktree: string,
+  base: string,
+  reloadToken: number
+): Session {
   const [session, setSession] = useState<Session>({ status: 'loading' });
   const requestRef = useRef(0);
 
   const load = useCallback(() => {
     const request = ++requestRef.current;
     setSession({ status: 'loading' });
-    events.load({ worktree: worktree || undefined }).then(
+    events.load({ worktree: worktree || undefined, base: base || undefined }).then(
       (model) => {
         if (requestRef.current === request) setSession({ status: 'ready', model });
       },
@@ -375,7 +393,9 @@ function useEventModel(events: EventModelPort, worktree: string, reloadToken: nu
         setSession({ status: 'error', error: error instanceof Error ? error.message : String(error) });
       }
     );
-  }, [events, worktree]);
+    // `base` is a dependency, so switching the compared branch re-reads rather
+    // than leaving the previous base's marks on the picture.
+  }, [events, worktree, base]);
 
   useEffect(load, [load, reloadToken]);
 
@@ -403,6 +423,16 @@ function arrowFor(health: EventHealth, accented: boolean): string {
   return health === 'unwired' ? 'hf-ev-arrow-broken' : 'hf-ev-arrow';
 }
 
+/** What each mark means. The caller completes the sentence with the base ref. */
+const DIFF_HINTS: Record<EventDiff, string> = {
+  added: 'components and kinds this branch declares and there is no trace of on',
+  changed: 'components and kinds this branch declares differently from',
+  removed: 'components and kinds this branch dropped, drawn anyway so the shape they left is visible — present on',
+};
+
+/** A sigil, so the three marks stay distinguishable without relying on colour. */
+const DIFF_SIGILS: Record<EventDiff, string> = { added: '+', changed: '~', removed: '\u2212' };
+
 /** What each unhealthy state means, for the legend chips. */
 const HEALTH_HINTS: Record<string, string> = {
   unwired: 'appended and observed by different components, on addresses that never match — the append reaches nobody',
@@ -428,6 +458,9 @@ function Hud({
 }) {
   const imported = model?.components.filter((c) => c.source === 'asyncapi').length ?? 0;
   const health = healthCounts(model?.kinds ?? []);
+  // Counted only when a base resolved. Three zeroes on an uncompared model
+  // would read as "nothing changed" rather than "nothing was compared".
+  const changes = model?.base ? diffCounts(model) : null;
 
   return (
     <div className="hf-events-hud">
@@ -446,6 +479,21 @@ function Hud({
                 {imported} imported
               </button>
             )}
+            {changes &&
+              DIFFS.filter((mark) => changes[mark] > 0).map((mark) => {
+                const on = selected?.kind === 'diff' && selected.diff === mark;
+                return (
+                  <button
+                    key={mark}
+                    className={`hf-events-stat diff ${mark}${on ? ' on' : ''}`}
+                    title={`${DIFF_HINTS[mark]} ${model?.base?.ref ?? ''}`.trim()}
+                    onClick={() => onSelect(on ? null : { kind: 'diff', diff: mark })}
+                  >
+                    {DIFF_SIGILS[mark]}
+                    {changes[mark]} {mark}
+                  </button>
+                );
+              })}
             {UNHEALTHY.filter((state) => health[state] > 0).map((state) => {
               const on = selected?.kind === 'health' && selected.health === state;
               return (
@@ -549,7 +597,10 @@ function Diagram({
           return (
             <g
               key={laid.link.id}
-              className={`hf-events-link${on ? ' on' : ''}${dim ? ' dim' : ''}`}
+              className={
+                `hf-events-link${on ? ' on' : ''}${dim ? ' dim' : ''}` +
+                `${laid.link.diff ? ` ${laid.link.diff}` : ''}`
+              }
               onClick={(e) => {
                 e.stopPropagation();
                 onSelect({ kind: 'link', from: laid.link.from, to: laid.link.to });
@@ -557,7 +608,10 @@ function Diagram({
             >
               <path
                 d={linkPath(laid.points)}
-                className={`hf-events-line ${laid.link.trigger ? 'trigger' : 'fold'} ${laid.link.health}`}
+                className={
+                  `hf-events-line ${laid.link.trigger ? 'trigger' : 'fold'} ` +
+                  `${laid.link.health}${laid.link.diff ? ` ${laid.link.diff}` : ''}`
+                }
                 markerEnd={`url(#${arrowFor(laid.link.health, on)})`}
               />
               <LinkLabel laid={laid} />
@@ -636,7 +690,10 @@ function ComponentNode({
 
   return (
     <g
-      className={`hf-events-node${accented ? ' on' : ''}${dimmed ? ' dim' : ''}${isolated ? ' isolated' : ''}`}
+      className={
+        `hf-events-node${accented ? ' on' : ''}${dimmed ? ' dim' : ''}` +
+        `${isolated ? ' isolated' : ''}${component.diff ? ` ${component.diff}` : ''}`
+      }
       transform={`translate(${x}, ${y})`}
       onClick={(e) => {
         e.stopPropagation();
@@ -644,6 +701,14 @@ function ComponentNode({
       }}
     >
       <rect className="hf-events-node-box" width={width} height={height} rx={6} />
+      {/* The mark rides in the top-right corner as a sigil rather than as a
+          border colour alone: a removed box is already drawn faintly, and two
+          faint things at one zoom are indistinguishable. */}
+      {component.diff && (
+        <text className="hf-events-node-diff" x={width - 10} y={20} textAnchor="end">
+          {DIFF_SIGILS[component.diff]}
+        </text>
+      )}
       {/* No source badge on the box: which document a component was read from
           is a property of the declaration, not of the component's place in the
           picture, and it cost a name-width of room on every node to say so.
@@ -697,6 +762,24 @@ function accentOf(
       for (const id of participantsOf(kind)) nodes.add(id);
       for (const laid of layout.links) {
         if (laid.link.kinds.some((flow) => flow.kind === kind.name)) links.add(laid.link.id);
+      }
+    }
+    return { active: true, nodes, links };
+  }
+
+  // Selecting a mark dims everything that did not move, which is the
+  // "changes only" reading of the same picture — no second view to keep in
+  // step, and one click back to the whole map.
+  if (selected.kind === 'diff') {
+    for (const component of componentsInDiff(model, selected.diff)) nodes.add(component.id);
+    for (const kind of kindsInDiff(model, selected.diff)) {
+      for (const id of participantsOf(kind)) nodes.add(id);
+    }
+    for (const laid of layout.links) {
+      if (laid.link.diff === selected.diff) {
+        links.add(laid.link.id);
+        nodes.add(laid.link.from);
+        nodes.add(laid.link.to);
       }
     }
     return { active: true, nodes, links };
@@ -765,8 +848,69 @@ function Detail({
       {selection.kind === 'health' && (
         <HealthDetail model={model} health={selection.health} onSelect={onSelect} />
       )}
+      {selection.kind === 'diff' && <DiffDetail model={model} diff={selection.diff} onSelect={onSelect} />}
       {selection.kind === 'imported' && <ImportedDetail model={model} onSelect={onSelect} />}
     </aside>
+  );
+}
+
+/**
+ * What a diff chip opens: everything carrying that mark, components first.
+ *
+ * Both units in one list rather than two panels. A reader who clicked "3
+ * changed" is asking what moved, not what moved *and is a component*, and the
+ * row itself says which it is.
+ */
+function DiffDetail({
+  model,
+  diff,
+  onSelect,
+}: {
+  model: EventModel;
+  diff: EventDiff;
+  onSelect: (selection: Selection | null) => void;
+}) {
+  const components = componentsInDiff(model, diff);
+  const kinds = kindsInDiff(model, diff);
+
+  return (
+    <>
+      <h2 className="hf-events-detail-title">
+        {components.length + kinds.length} {diff}
+      </h2>
+      <p className="hf-events-detail-desc">
+        {DIFF_HINTS[diff]} {model.base?.ref ?? 'the base'}
+        {model.base?.rev ? `@${model.base.rev.slice(0, 7)}` : ''}.
+      </p>
+      <ul className="hf-events-slots">
+        {components.map((component) => (
+          <li key={`component:${component.id}`}>
+            <button
+              className={`hf-events-slot ${diff}`}
+              onClick={() => onSelect({ kind: 'component', id: component.id })}
+            >
+              <span className={`hf-events-sigil ${diff}`}>{DIFF_SIGILS[diff]}</span>
+              <span className="hf-events-slot-kind">{component.id}</span>
+              <span className="hf-events-tag role">component</span>
+              <Moved now={component} was={component.was} fields={COMPONENT_FIELDS} />
+            </button>
+          </li>
+        ))}
+        {kinds.map((kind) => (
+          <li key={`kind:${kind.name}`}>
+            <button
+              className={`hf-events-slot ${diff}`}
+              onClick={() => onSelect({ kind: 'event', name: kind.name })}
+            >
+              <span className={`hf-events-sigil ${diff}`}>{DIFF_SIGILS[diff]}</span>
+              <span className="hf-events-slot-kind">{kind.name}</span>
+              <Moved now={kind} was={kind.was} fields={KIND_FIELDS} />
+              {kind.was?.schema_changed && <span className="hf-events-slot-was">payload schema changed</span>}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -884,8 +1028,16 @@ function ComponentDetail({
 
   return (
     <>
-      <h2 className="hf-events-detail-title">{component.id}</h2>
+      <h2 className="hf-events-detail-title">
+        {component.id}
+        {component.diff && <span className={`hf-events-tag diff ${component.diff}`}>{component.diff}</span>}
+      </h2>
       {component.description && <p className="hf-events-detail-desc">{component.description}</p>}
+      {component.diff === 'changed' && (
+        <p className="hf-events-detail-was">
+          <Moved now={component} was={component.was} fields={COMPONENT_FIELDS} />
+        </p>
+      )}
       <dl className="hf-events-facts">
         {component.owns && <Fact label="owns" value={component.owns} />}
         {component.partition_key && component.partition_key.length > 0 && (
@@ -968,8 +1120,19 @@ function KindDetail({
 
   return (
     <>
-      <h2 className="hf-events-detail-title mono">{kind.name}</h2>
+      <h2 className="hf-events-detail-title mono">
+        {kind.name}
+        {kind.diff && <span className={`hf-events-tag diff ${kind.diff}`}>{kind.diff}</span>}
+      </h2>
       {kind.description && <p className="hf-events-detail-desc">{kind.description}</p>}
+      {kind.diff === 'changed' && (
+        <p className="hf-events-detail-was">
+          <Moved now={kind} was={kind.was} fields={KIND_FIELDS} />
+          {kind.was?.schema_changed && (
+            <span className="hf-events-slot-was">payload schema changed — see the file diff</span>
+          )}
+        </p>
+      )}
       <dl className="hf-events-facts">
         {/* One kind can travel one address per port instance. Showing the
             first of them as "the" subject is what makes an edge into one
@@ -1065,7 +1228,11 @@ function SlotSection({
       <ul className="hf-events-slots">
         {slots.map((slot, index) => (
           <li key={`${slot.kind}-${index}`}>
-            <button className="hf-events-slot" onClick={() => onSelect({ kind: 'event', name: slot.kind })}>
+            <button
+              className={`hf-events-slot${slot.diff ? ` ${slot.diff}` : ''}`}
+              onClick={() => onSelect({ kind: 'event', name: slot.kind })}
+            >
+              {slot.diff && <span className={`hf-events-sigil ${slot.diff}`}>{DIFF_SIGILS[slot.diff]}</span>}
               <span className="hf-events-slot-kind">{slot.kind}</span>
               {slot.role && (
                 <span className={`hf-events-tag role${roleClass(slot.role)}`}>{slot.role}</span>
@@ -1075,10 +1242,46 @@ function SlotSection({
               {slot.instances && slot.instances.length > 0 && (
                 <span className="hf-events-slot-pattern">only {slot.instances.join(', ')}</span>
               )}
+              <Moved now={slot} was={slot.was} fields={SLOT_FIELDS} />
             </button>
           </li>
         ))}
       </ul>
+    </>
+  );
+}
+
+/** The fields of a slot or a kind worth reporting a previous value for. */
+const SLOT_FIELDS = ['pattern', 'delivery', 'role', 'description', 'instances'];
+const COMPONENT_FIELDS = ['owns', 'partition_key', 'has_state', 'description', 'source_file'];
+const KIND_FIELDS = ['pattern', 'subjects', 'delivery', 'health', 'class', 'owner'];
+
+/**
+ * The fields that moved, as `field: before → after`.
+ *
+ * Only the ones that differ. The daemon sends the whole previous value rather
+ * than guessing what a reader wants, so the choosing happens here — and a row
+ * repeating five unchanged fields to carry one changed one is how the change
+ * gets lost.
+ */
+function Moved({
+  now,
+  was,
+  fields,
+}: {
+  now: object;
+  was: object | undefined;
+  fields: string[];
+}) {
+  const moved = movedFields(now, was, fields);
+  if (moved.length === 0) return null;
+  return (
+    <>
+      {moved.map((change) => (
+        <span key={change.field} className="hf-events-slot-was">
+          {change.field}: <s>{change.before || '—'}</s> → {change.after || '—'}
+        </span>
+      ))}
     </>
   );
 }

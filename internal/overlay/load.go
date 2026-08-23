@@ -25,12 +25,19 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("overlay: reading %s: %w", path, err)
 	}
+	return Decode(path, data)
+}
 
+// Decode parses overlay bytes that did not come from the filesystem, naming
+// them for error messages. A caller reading the overlay out of a git revision
+// has the document without having a path to read it from, and parsing it its
+// own way is how two spellings of one format drift apart.
+func Decode(name string, data []byte) (*Config, error) {
 	var cfg Config
 	dec := yamlv3.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("overlay: parsing %s: %w", path, err)
+		return nil, fmt.Errorf("overlay: parsing %s: %w", name, err)
 	}
 	return &cfg, nil
 }

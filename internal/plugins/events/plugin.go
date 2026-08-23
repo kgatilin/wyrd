@@ -164,6 +164,17 @@ func eventLocations(root string) ([]eventmodel.Location, error) {
 	if err != nil {
 		return nil, fmt.Errorf("events: %w", err)
 	}
+	return overlayLocations(cfg), nil
+}
+
+// overlayLocations projects an overlay's events.sources onto reader locations.
+// Split out of eventLocations because the base model reads its overlay out of a
+// git revision rather than off disk, and both have to agree about what a source
+// declaration means.
+func overlayLocations(cfg *overlay.Config) []eventmodel.Location {
+	if cfg == nil {
+		return nil
+	}
 	out := make([]eventmodel.Location, 0, len(cfg.Events.Sources))
 	for _, src := range cfg.Events.Sources {
 		out = append(out, eventmodel.Location{
@@ -172,7 +183,7 @@ func eventLocations(root string) ([]eventmodel.Location, error) {
 			Format:  eventmodel.Format(src.Format),
 		})
 	}
-	return out, nil
+	return out
 }
 
 // validateCmd returns the `validate` subcommand.
@@ -785,7 +796,8 @@ func (p *Plugin) handleEventValidate(ctx context.Context, _ map[string]any) (any
 // observer is the same work in every renderer that has ever drawn this model,
 // and doing it once on the way out keeps one answer instead of three.
 func (p *Plugin) serveModel(w http.ResponseWriter, r *http.Request) {
-	model, err := p.loadModel(r.Context(), "")
+	root := p.hostFor(r.Context()).RepoRoot()
+	model, err := p.loadModel(r.Context(), root)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -793,8 +805,45 @@ func (p *Plugin) serveModel(w http.ResponseWriter, r *http.Request) {
 
 	view := buildModelView(model, eventmodel.BuildGraph(model))
 
+	// ?base marks the view against merge-base(base, HEAD) instead of replacing
+	// it: the reader asked to see what changed *on* the event map, and a map
+	// narrowed to the changed half is a different, smaller question.
+	if baseRef := r.URL.Query().Get("base"); baseRef != "" {
+		marked, err := p.markAgainstBase(root, baseRef, view)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		view = marked
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(view)
+}
+
+// markAgainstBase returns view marked up against the event model at
+// merge-base(baseRef, HEAD).
+//
+// A base that will not resolve returns the view untouched and unlabelled. It is
+// not an error: the daemon serves worktrees whose base branch may be absent, and
+// failing the whole canvas because a comparison is unavailable would take away
+// the picture that works to report the one that does not.
+func (p *Plugin) markAgainstBase(root, baseRef string, view modelView) (modelView, error) {
+	locations, err := eventLocations(root)
+	if err != nil {
+		return view, err
+	}
+	base, err := loadBaseModel(root, baseRef, locations)
+	if err != nil {
+		return view, err
+	}
+	if base == nil {
+		return view, nil
+	}
+	baseView := buildModelView(base.Model, eventmodel.BuildGraph(base.Model))
+	marked := diffModelView(view, baseView)
+	marked.Base = &baseIdentity{Ref: baseRef, Rev: base.Rev}
+	return marked, nil
 }
 
 // slotLine renders one inputs/outputs/state_events entry. The subject pattern
