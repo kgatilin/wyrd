@@ -224,8 +224,13 @@ func TestWiringSendsEachAddressToItsOwnSubscriber(t *testing.T) {
 func TestWiringNamesTheAddressOnlyWhenAKindTakesSeveral(t *testing.T) {
 	var buf bytes.Buffer
 	Wiring(shop(), eventmodel.BuildGraph(shop()), &buf)
-	if strings.Contains(buf.String(), " on ") {
-		t.Errorf("single-address model printed addresses:\n%s", buf.String())
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if !strings.HasPrefix(line, "  →") && !strings.HasPrefix(line, "  ⇢") {
+			continue // the legend explains the notation; it is not a flow
+		}
+		if strings.Contains(line, " on ") {
+			t.Errorf("single-address model printed an address: %s", line)
+		}
 	}
 }
 

@@ -100,8 +100,12 @@ record to `.arch/.worktree/<name>/serve.json`:
 
 Two helper commands inspect those records:
 
-- `wyrd where` — print the URL of the daemon currently serving the
-  current worktree (exits non-zero when no daemon is running).
+- `wyrd where` — print the base URL serving the current worktree,
+  resolved the way every other command resolves one: the global registry
+  first, a legacy per-worktree `serve.json` after. A repo-level daemon
+  serving several worktrees answers under `/w/<name>/`, and that is what
+  is printed, so the URL is the one a request should go to. Exits
+  non-zero when no daemon serves this directory.
 - `wyrd list-daemons` — table of every live daemon under the current
   project root (worktree, PID, URL, uptime). Stale records (process no
   longer alive) are skipped automatically.

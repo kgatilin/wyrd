@@ -409,8 +409,8 @@ func Wiring(m *eventmodel.Model, g *eventmodel.Graph, w io.Writer) {
 	}
 
 	fmt.Fprintf(w, "EVENT MODEL  %d components  %d kinds\n", len(m.Components), len(facts))
-	fmt.Fprintln(w, "\u2192 triggers the target \u00b7 \u21e2 folded into its state \u00b7 (nobody) nothing observes it")
-	fmt.Fprintln(w, "on <subject>  the address this append took, shown when the kind takes more than one")
+	fmt.Fprintln(w, "\u2192 triggers the target \u00b7 \u21e2 folded into its state \u00b7 (nobody) no subscriber on that address")
+	fmt.Fprintln(w, "on <subject>  the address the append took, printed where its kind takes more than one")
 
 	for _, id := range sortedComponentIDs(m) {
 		comp := m.Components[id]
