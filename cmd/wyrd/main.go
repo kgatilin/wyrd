@@ -273,6 +273,9 @@ root wyrd.yaml plus package-local .arch/overlay.yaml fragments.`,
 	}
 	rootCmd.AddCommand(overlayCmd)
 
+	// Event-model gate, same code and wording as `wyrd-check events`.
+	rootCmd.AddCommand(newEventsCmd())
+
 	// overlay check
 	overlayCheckCmd := &cobra.Command{
 		Use:   "check",

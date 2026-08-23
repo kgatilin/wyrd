@@ -51,7 +51,7 @@ server or review UI. Every command exits non-zero when its gate fails.`,
 	root.PersistentFlags().StringP("chdir", "C", "", "Change to this directory before checking (like 'go -C')")
 	root.PersistentFlags().String("overlay", "", "Path to wyrd.yaml overlay (default: auto-detect wyrd.yaml)")
 
-	root.AddCommand(newOverlayCmd(), newPolicyCmd(), newTargetCmd(), newAllCmd(), newVersionCmd())
+	root.AddCommand(newOverlayCmd(), newPolicyCmd(), newEventsCmd(), newTargetCmd(), newAllCmd(), newVersionCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -133,6 +133,62 @@ source and report every edge it forbids. Packages default to ./... .`,
 	}
 	cmd.Flags().String("format", "text", "Output format: text or json")
 	cmd.Flags().Bool("warn", false, "Report violations but exit 0 (do not fail)")
+	return cmd
+}
+
+// newEventsCmd gates the event map. It is deliberately not part of `all`:
+// most of what it reports is a warning by construction — the declarations in
+// one repository can be a subset of the running system — so which findings
+// should fail a build is the project's call, spelled with --only and --strict.
+func newEventsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "events",
+		Short: "Check the event model declared in .arch/events.yaml and AsyncAPI sources",
+		Long: `Validate the project's event declarations and report every finding:
+duplicate namespace owners, conflicting subject patterns, unresolved $refs,
+incoherent partition keys, orphaned and starved kinds, and unwired kinds —
+appended by one component and observed by another on an address that never
+matches, so the append reaches nobody.
+
+Exits non-zero when an error-severity finding is reported. Warnings pass
+unless --strict; --warn passes regardless.
+
+Examples:
+  # Everything the validator has to say
+  wyrd-check events
+
+  # Fail CI on broken wires only
+  wyrd-check events --only unwired-kind --strict
+
+  # Machine-readable, for a build annotation
+  wyrd-check events --format json`,
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := chdir(cmd); err != nil {
+				return err
+			}
+			root, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("resolving cwd: %w", err)
+			}
+			only, _ := cmd.Flags().GetStringSlice("only")
+			format, _ := cmd.Flags().GetString("format")
+			strict, _ := cmd.Flags().GetBool("strict")
+			warn, _ := cmd.Flags().GetBool("warn")
+			return newChecker().RunEvents(cmd.Context(), check.EventsOptions{
+				Root:   root,
+				Only:   only,
+				Format: format,
+				Strict: strict,
+				Warn:   warn,
+			}, cmd.OutOrStdout(), os.Stderr)
+		},
+	}
+	cmd.Flags().StringSlice("only", nil, "Report only these finding kinds (e.g. unwired-kind,orphan-event)")
+	cmd.Flags().StringP("format", "f", "text", "Output format: text or json")
+	cmd.Flags().Bool("strict", false, "Fail on warnings as well as errors")
+	cmd.Flags().Bool("warn", false, "Report findings but exit 0 (do not fail)")
 	return cmd
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/kgatilin/wyrd/internal/adapter/git"
 	"github.com/kgatilin/wyrd/internal/eventmodel"
+	"github.com/kgatilin/wyrd/internal/eventsrc"
 	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
@@ -128,7 +129,7 @@ func baseSourceLocations(root, rev string) []eventmodel.Location {
 		if err != nil {
 			return nil
 		}
-		return overlayLocations(cfg)
+		return eventsrc.From(cfg)
 	}
 	return nil
 }

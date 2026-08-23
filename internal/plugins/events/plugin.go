@@ -27,7 +27,7 @@ import (
 
 	adapterem "github.com/kgatilin/wyrd/internal/adapter/eventmodel"
 	"github.com/kgatilin/wyrd/internal/eventmodel"
-	"github.com/kgatilin/wyrd/internal/overlay"
+	"github.com/kgatilin/wyrd/internal/eventsrc"
 	"github.com/kgatilin/wyrd/internal/plugin"
 )
 
@@ -145,45 +145,11 @@ func (p *Plugin) loadModel(ctx context.Context, root string) (*eventmodel.Model,
 	if root == "" {
 		return nil, fmt.Errorf("events: repo root unavailable")
 	}
-	locations, err := eventLocations(root)
+	locations, err := eventsrc.Locations(root)
 	if err != nil {
 		return nil, err
 	}
 	return eventmodel.ReadSources(root, locations)
-}
-
-// eventLocations reads events.sources out of the project overlay at root.
-// A project with no overlay, or one that declares no sources, is scanned by
-// the `.arch/` convention alone.
-func eventLocations(root string) ([]eventmodel.Location, error) {
-	path := overlay.DiscoverPath(root)
-	if path == "" {
-		return nil, nil
-	}
-	cfg, err := overlay.Load(path)
-	if err != nil {
-		return nil, fmt.Errorf("events: %w", err)
-	}
-	return overlayLocations(cfg), nil
-}
-
-// overlayLocations projects an overlay's events.sources onto reader locations.
-// Split out of eventLocations because the base model reads its overlay out of a
-// git revision rather than off disk, and both have to agree about what a source
-// declaration means.
-func overlayLocations(cfg *overlay.Config) []eventmodel.Location {
-	if cfg == nil {
-		return nil
-	}
-	out := make([]eventmodel.Location, 0, len(cfg.Events.Sources))
-	for _, src := range cfg.Events.Sources {
-		out = append(out, eventmodel.Location{
-			Path:    src.Path,
-			Include: src.Include,
-			Format:  eventmodel.Format(src.Format),
-		})
-	}
-	return out
 }
 
 // validateCmd returns the `validate` subcommand.
@@ -829,7 +795,7 @@ func (p *Plugin) serveModel(w http.ResponseWriter, r *http.Request) {
 // failing the whole canvas because a comparison is unavailable would take away
 // the picture that works to report the one that does not.
 func (p *Plugin) markAgainstBase(root, baseRef string, view modelView) (modelView, error) {
-	locations, err := eventLocations(root)
+	locations, err := eventsrc.Locations(root)
 	if err != nil {
 		return view, err
 	}

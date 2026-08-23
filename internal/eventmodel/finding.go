@@ -104,3 +104,49 @@ type Finding struct {
 	// cycle path). Keys and semantics vary by Kind.
 	Related map[string]any
 }
+
+// findingKinds is every kind the validator can emit, in the order a reader
+// meets them: the fatal breaches first, then the ones that depend on the
+// composed set being whole.
+//
+// Written out rather than derived, because Go cannot enumerate the constants
+// of a type — and a caller filtering on a kind is better served by a list that
+// fails to compile when a kind is added than by one silently missing it.
+var findingKinds = []FindingKind{
+	KindDuplicateOwner,
+	KindPatternConflict,
+	KindSelfInputConflict,
+	KindUnresolvedRef,
+	KindRefCycle,
+	KindMalformedSlot,
+	KindPartitionMismatch,
+	KindExclusiveUnhandled,
+	KindExclusiveConflict,
+	KindUnwiredKind,
+	KindOrphanEvent,
+	KindStarvedInput,
+	KindStarvedStateEvent,
+	KindUnderspecifiedState,
+}
+
+// FindingKinds names every kind the validator can emit, for callers that let a
+// reader filter by one and have to say what the choices are.
+func FindingKinds() []string {
+	out := make([]string, 0, len(findingKinds))
+	for _, kind := range findingKinds {
+		out = append(out, string(kind))
+	}
+	return out
+}
+
+// KnownFindingKind reports whether name is a kind the validator emits, so a
+// caller can reject a misspelled filter instead of reporting nothing and
+// letting it read as a clean run.
+func KnownFindingKind(name string) bool {
+	for _, kind := range findingKinds {
+		if string(kind) == name {
+			return true
+		}
+	}
+	return false
+}
