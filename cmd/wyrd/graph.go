@@ -50,6 +50,10 @@ type argFlag struct {
 type toolCmd struct {
 	name  string
 	short string
+	// long is the CLI help body. It is where a tool says what its answer is
+	// not: `search` ranks rather than enumerates, and a reader who takes its
+	// output for a complete edge list gets a wrong answer with no tell.
+	long  string
 	flags []argFlag
 }
 
@@ -109,6 +113,18 @@ func graphTools() []toolCmd {
 		{
 			name:  "search",
 			short: "Hybrid semantic + lexical search, and the community around the hits",
+			long: `Find code by meaning: text hits seed a diffusion over the call
+graph, and the answer is those hits plus the community around them.
+
+It ranks; it does not enumerate. A symbol whose only producer sits outside the
+region it grew comes back without that producer, at any --k or --hops, and
+nothing on the output says so. For an exhaustive "who calls or produces X",
+locate the symbol here and then read its complete in-edges:
+
+  wyrd graph get_node --id <package>.<Symbol>
+
+The edges section likewise holds the edges between the nodes returned, not
+every edge those nodes have.`,
 			flags: []argFlag{
 				{name: "query", kind: argString, path: "query", required: true, usage: "Search query"},
 				{name: "k", kind: argInt, path: "k", usage: "Text hits that seed the search (default 10)"},
@@ -129,6 +145,15 @@ func graphTools() []toolCmd {
 		{
 			name:  "get_node",
 			short: "Full detail (source + edges) for one symbol",
+			long: `Return one symbol's signature, doc, source body and incident
+edges, folded by kind into "out" and "in" sections.
+
+Those two sections are exhaustive — every edge the model has on this node,
+unless a line reports the edge list was capped — which makes this, not
+'graph search', the way to answer "who calls or produces X" completely.
+Endpoint names carry as much of the package path as it takes to name one
+symbol, so callers in like-named packages read as entrypoint/impl.reduce and
+processor/impl.reduce rather than folding into one entry.`,
 			flags: []argFlag{{name: "id", kind: argString, path: "id", required: true, usage: "Node ID (package.SymbolName, or package.Receiver.Method)"}},
 		},
 		{name: "components", short: "Connected components of a package subgraph", flags: pkgFlags},
@@ -197,6 +222,7 @@ func newGraphToolCmd(t toolCmd) *cobra.Command {
 	sub := &cobra.Command{
 		Use:   t.name,
 		Short: t.short,
+		Long:  t.long,
 		Args:  cobra.NoArgs,
 		// A daemon-unreachable or tool-level error is a runtime failure, not
 		// a usage mistake — don't dump the help text on it.
