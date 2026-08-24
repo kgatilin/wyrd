@@ -15,10 +15,11 @@ import (
 func testReviewUIFS() fstest.MapFS {
 	return fstest.MapFS{
 		"index.html": {
-			Data: []byte(`<!doctype html><script type="module" src="/assets/app.js"></script><link rel="stylesheet" href="/assets/app.css"><div id="root"></div>`),
+			Data: []byte(`<!doctype html><link rel="icon" type="image/svg+xml" href="/assets/favicon.svg"><script type="module" src="/assets/app.js"></script><link rel="stylesheet" href="/assets/app.css"><div id="root"></div>`),
 		},
-		"assets/app.js":  {Data: []byte(`console.log("review")`)},
-		"assets/app.css": {Data: []byte(`body{margin:0}`)},
+		"assets/app.js":      {Data: []byte(`console.log("review")`)},
+		"assets/app.css":     {Data: []byte(`body{margin:0}`)},
+		"assets/favicon.svg": {Data: []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"></svg>`)},
 	}
 }
 
@@ -213,5 +214,41 @@ func TestReviewUI_MultiModeWorktreeRootRedirectsToReview(t *testing.T) {
 	}
 	if got := atomic.LoadInt64(loadCount); got != 0 {
 		t.Fatalf("worktree review redirect loaded worktree state %d time(s), want 0", got)
+	}
+}
+
+// The favicon only resolves because index.html spells it "/assets/favicon.svg"
+// and handleReviewUIIndex rewrites that one absolute prefix. Any other path
+// (say "/favicon.svg") escapes the rewrite and the /review/assets/ route, and
+// the tab falls back to the blank page icon.
+func TestReviewUI_FaviconIsScopedToWorktreeAndServed(t *testing.T) {
+	srv, _, _ := buildMultiServer(t)
+	srv.WithReviewUI(testReviewUIFS())
+	mux := nethttp.NewServeMux()
+	srv.routes(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := nethttp.Get(ts.URL + "/w/beta/review/")
+	if err != nil {
+		t.Fatalf("GET /w/beta/review/: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if want := `href="/w/beta/review/assets/favicon.svg"`; !strings.Contains(string(body), want) {
+		t.Fatalf("index missing scoped favicon path %q: %s", want, body)
+	}
+
+	iconResp, err := nethttp.Get(ts.URL + "/w/beta/review/assets/favicon.svg")
+	if err != nil {
+		t.Fatalf("GET favicon: %v", err)
+	}
+	defer iconResp.Body.Close()
+	iconBody, _ := io.ReadAll(iconResp.Body)
+	if iconResp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("favicon status = %d body=%s", iconResp.StatusCode, iconBody)
+	}
+	if ct := iconResp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "image/svg+xml") {
+		t.Fatalf("favicon Content-Type = %q, want image/svg+xml", ct)
 	}
 }

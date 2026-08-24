@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="wyrd">
+  <title>wyrd</title>
+  <!-- The mark is a "w" drawn as a call graph: two leaf nodes and a junction,
+       joined by edges. Colours come from the review canvas tokens: accent blue
+       for edges, syn-var green for the leaves, layer-internal purple for the
+       junction. Five straight strokes, so it survives a 16px browser tab. -->
+  <defs>
+    <linearGradient id="wyrdTile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2734"/>
+      <stop offset="1" stop-color="#0d1117"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#wyrdTile)"/>
+  <path d="M11 18 L24 47 L32 29 L40 47 L53 18" fill="none" stroke="#58a6ff"
+        stroke-width="4.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="32" cy="29" r="4.3" fill="#d2a8ff"/>
+  <circle cx="11" cy="18" r="4.9" fill="#7ee787"/>
+  <circle cx="53" cy="18" r="4.9" fill="#7ee787"/>
+</svg>
