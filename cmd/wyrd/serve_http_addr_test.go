@@ -63,3 +63,57 @@ func TestResolveReviewUIFS_EmbeddedDefault(t *testing.T) {
 		t.Fatalf("embedded index.html does not look like the review UI")
 	}
 }
+
+// The token itself is read by overlay.ServeAuthToken (tested there); what is
+// wired here is which source wins. The environment has to, or a secret can
+// only be supplied by writing it into a file that ships with the project.
+func TestResolveServeAuthToken_EnvironmentWinsOverTheOverlay(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "wyrd.yaml"), []byte(`module: github.com/example/app
+
+layers:
+  domain:
+    - internal/domain/...
+
+layer_rules:
+  domain: []
+
+aggregates: {}
+configs: []
+
+serve:
+  auth_token: "from-the-file"
+`), 0o644); err != nil {
+		t.Fatalf("write overlay: %v", err)
+	}
+
+	t.Setenv("WYRD_HTTP_TOKEN", "")
+	got, err := resolveServeAuthToken(root)
+	if err != nil {
+		t.Fatalf("resolveServeAuthToken: %v", err)
+	}
+	if want := "from-the-file"; got != want {
+		t.Errorf("token = %q, want %q", got, want)
+	}
+
+	t.Setenv("WYRD_HTTP_TOKEN", "  from-the-env  ")
+	got, err = resolveServeAuthToken(root)
+	if err != nil {
+		t.Fatalf("resolveServeAuthToken: %v", err)
+	}
+	if want := "from-the-env"; got != want {
+		t.Errorf("token = %q, want %q", got, want)
+	}
+}
+
+// No token anywhere leaves the endpoint open — the loopback default.
+func TestResolveServeAuthToken_NothingConfiguredIsOpen(t *testing.T) {
+	t.Setenv("WYRD_HTTP_TOKEN", "")
+	got, err := resolveServeAuthToken(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolveServeAuthToken: %v", err)
+	}
+	if got != "" {
+		t.Errorf("token = %q, want it empty", got)
+	}
+}
