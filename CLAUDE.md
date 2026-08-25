@@ -226,6 +226,39 @@ The MCP thin client pings `POST /w/<worktree>/api/warm` as soon as it attaches,
 so that cold parse starts at client startup rather than on the agent's first
 tool call. The daemon separately warms only its *default* worktree at startup.
 
+### MCP over HTTP (`/mcp`)
+
+The daemon speaks MCP itself, not only through the stdio thin client:
+`/mcp` on a single-worktree daemon, `/w/<name>/mcp` on a repo-level one, and
+`wyrd where` prints the endpoint for the worktree you are in. It exists
+whenever HTTP does — no flag. This is the transport for a client that cannot
+spawn a process (an agent in a container reaching the daemon on the host);
+`.mcp.json` clients keep using stdio.
+
+Stateless Streamable HTTP: one JSON-RPC message per POST, one back, `202` for a
+notification, `405` on GET/DELETE (no SSE stream, no session id — the tools are
+synchronous, so there is nothing to stream). Both transports route through
+`mcp.HandleRequest`, so neither holds a method switch of its own, and
+`protocolVersion` is negotiated rather than fixed (a client's revision is
+echoed when we speak it, else `2025-06-18`).
+
+Two guards, on `/mcp` only — the browser UI cannot send headers:
+`WYRD_HTTP_TOKEN` (or `serve.auth_token`; the environment wins) demands
+`Authorization: Bearer`, and an `Origin` that is neither this daemon's host nor
+a loopback address is refused. The second is not optional paranoia: without it
+any website can drive every tool on `127.0.0.1` from a visitor's browser.
+
+The endpoint does not block on a cold parse — `initialize` and `tools/list`
+need no model, and `tools/call` returns the same `{"status":"loading"}` record
+the thin client gets — so an agent can attach while the worktree is still being
+read.
+
+**The compatibility test is the specification.**
+`internal/adapter/http/mcp_sdk_compat_test.go` drives the official
+`modelcontextprotocol/go-sdk` client (the one an agent's MCP client plugin uses)
+against a live listener. Hand-written checks only pin what we *believe* the
+contract is; that one fails when the belief is wrong.
+
 ### Search is one tool
 
 `search` is the only search: the text channels (dense embeddings + BM25) score

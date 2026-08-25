@@ -366,6 +366,10 @@ every other command resolves one: the global registry first, then a
 legacy per-worktree serve.json. A repo-level daemon serving several
 worktrees answers under /w/<name>/, and that is the URL printed.
 
+A second line prints the MCP endpoint, <base>/mcp — the address an MCP
+client that connects over HTTP (rather than spawning wyrd itself) is
+pointed at.
+
 Exits non-zero when no daemon serves this directory.`,
 		Args: cobra.NoArgs,
 		RunE: runWhere,
@@ -549,6 +553,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		})
 	}
 
+	// The MCP endpoint is the one HTTP surface that executes tool calls, so
+	// it is the one that can be closed with a bearer token. Resolved once,
+	// here, and handed to whichever server mode is built below.
+	authToken, err := resolveServeAuthToken(root)
+	if err != nil {
+		return fmt.Errorf("serve: %w", err)
+	}
+
 	// Build the reader and the shared vector cache once, then share them
 	// across every State the daemon may construct (single-state and
 	// per-worktree multi-state loads alike).
@@ -600,7 +612,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return nil, err
 			}
-			srv = srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins)
+			srv = srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins).WithAuthToken(authToken)
 			if reviewUI != nil {
 				srv = srv.WithReviewUI(reviewUI)
 			}
@@ -613,7 +625,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return nil, err
 			}
-			srv = srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins)
+			srv = srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins).WithAuthToken(authToken)
 			if reviewUI != nil {
 				srv = srv.WithReviewUI(reviewUI)
 			}
@@ -1781,7 +1793,13 @@ func runWhere(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s\n", daemonBaseURL(rec))
+	base := daemonBaseURL(rec)
+	// The base URL stays on its own first line: scripts read `wyrd where` as
+	// one address. The MCP endpoint follows it, because a client configured
+	// with a URL rather than a command needs that exact path and cannot
+	// discover it.
+	fmt.Fprintf(cmd.OutOrStdout(), "%s\n", base)
+	fmt.Fprintf(cmd.OutOrStdout(), "mcp: %s/mcp\n", base)
 	return nil
 }
 

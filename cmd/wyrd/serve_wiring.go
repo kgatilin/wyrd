@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kgatilin/wyrd/internal/adapter/golang"
 	"github.com/kgatilin/wyrd/internal/adapter/vindex/vecstore"
+	"github.com/kgatilin/wyrd/internal/overlay"
 	"github.com/kgatilin/wyrd/internal/serve"
 	"github.com/kgatilin/wyrd/internal/service"
 	"github.com/kgatilin/wyrd/internal/worktree"
@@ -60,4 +62,15 @@ func newServeStateLoader(reader service.ModelReader, vecCache serve.VectorCacheP
 		}
 		return state, nil
 	}
+}
+
+// resolveServeAuthToken returns the bearer token the daemon's MCP endpoint
+// requires, or "" to leave it open. WYRD_HTTP_TOKEN wins over the overlay's
+// serve.auth_token, so a workstation can hold the secret outside a file that
+// is committed with the project.
+func resolveServeAuthToken(root string) (string, error) {
+	if env := strings.TrimSpace(os.Getenv("WYRD_HTTP_TOKEN")); env != "" {
+		return env, nil
+	}
+	return overlay.ServeAuthToken(root)
 }

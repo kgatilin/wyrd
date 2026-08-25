@@ -8,42 +8,50 @@ For the higher-level user guide — installation, project setup, browser
 UI, editor integration — see [`user-guide.md`](user-guide.md). This
 document zooms in on §4 (server) and §6 (MCP) of that guide.
 
-> **Scope.** This guide covers what is on `main` today. The MCP
-> transport surface is defined in `internal/adapter/mcp/tools.go`; the
-> HTTP routes are in `internal/adapter/http/api.go`. Both are checked
-> against the binary in [§7](#7-verifying-against-the-binary).
+> **Scope.** This guide covers what is on `main` today. The MCP tool
+> surface is defined in `internal/adapter/mcp/tools.go` and the method
+> router in `internal/adapter/mcp/router.go`; the HTTP routes are in
+> `internal/adapter/http/api.go` and `internal/adapter/http/mcp_streamable.go`.
+> All are checked against the binary in [§7](#7-verifying-against-the-binary).
 
 ---
 
 ## 1. Architecture at a glance
 
 ```
-┌──────────────────────────┐
-│ MCP client (Claude Code, │
-│ Codex, custom)           │
-└────────────┬─────────────┘
-             │ stdio (JSON-RPC 2.0)
-             ▼
-┌──────────────────────────┐    HTTP    ┌───────────────────────────┐
-│ wyrd serve --mcp-stdio │ ─────────▶ │ wyrd serve --http       │
+┌──────────────────────────┐            ┌───────────────────────────┐
+│ MCP client that spawns a │            │ MCP client that connects  │
+│ process (Claude Code,    │            │ to a URL (agent in a      │
+│ Codex, custom)           │            │ container, remote client) │
+└────────────┬─────────────┘            └────────────┬──────────────┘
+             │ stdio (JSON-RPC 2.0)                  │ Streamable HTTP
+             ▼                                       │ (JSON-RPC 2.0)
+┌──────────────────────────┐    HTTP    ┌────────────▼──────────────┐
+│ wyrd serve --mcp-stdio   │ ─────────▶ │ wyrd serve --http         │
 │ (thin client; auto-spawn │            │ (long-running daemon;     │
 │  the HTTP daemon if      │            │  in-memory model + watcher)│
 │  none is running)        │            │                           │
 └──────────────────────────┘            │ • browser UI              │
+                                        │ • /mcp (MCP over HTTP)    │
                                         │ • /api/mcp/* JSON API     │
                                         └───────────────────────────┘
 ```
 
-Two transports, one model:
+Three ways in, one model:
 
 - **HTTP daemon** (`wyrd serve --http`) holds the parsed Go model,
   watches the project root with `fsnotify`, serves the browser UI, and
-  exposes every MCP tool over a JSON HTTP API under `/api/mcp/`.
+  exposes every MCP tool three ways: over MCP itself at `/mcp`, over a
+  JSON HTTP API under `/api/mcp/`, and to the stdio thin client.
 - **MCP stdio thin client** (`wyrd serve --mcp-stdio`) is the binary
   an MCP client launches. It speaks JSON-RPC on stdio, answers
   `initialize` / `tools/list` locally, and forwards every `tools/call`
   to the worktree's HTTP daemon. If no daemon is running, it
   auto-spawns one bound to `127.0.0.1` and registers it for discovery.
+- **MCP over Streamable HTTP** (`/mcp`) is for clients that cannot spawn
+  a process: they are configured with a URL and connect to a daemon that
+  is already running — an agent in a container reaching the daemon on the
+  host, say. Same tools, same results, no subprocess.
 
 A one-shot mode (`--mcp-stdio --no-daemon`) loads the model in-process
 once and skips the daemon — useful for sandboxed environments or
@@ -104,7 +112,9 @@ Two helper commands inspect those records:
   resolved the way every other command resolves one: the global registry
   first, a legacy per-worktree `serve.json` after. A repo-level daemon
   serving several worktrees answers under `/w/<name>/`, and that is what
-  is printed, so the URL is the one a request should go to. Exits
+  is printed, so the URL is the one a request should go to. A second
+  line prints the MCP endpoint (`<base>/mcp`, §3.3); the base URL stays
+  on line 1, so a script reads it with `wyrd where | head -1`. Exits
   non-zero when no daemon serves this directory.
 - `wyrd list-daemons` — table of every live daemon under the current
   project root (worktree, PID, URL, uptime). Stale records (process no
@@ -156,18 +166,22 @@ than quietly falling back to a random one.
 
 ### 3.1 Protocol
 
-Stdio JSON-RPC 2.0 (one message per line). Supported methods:
+JSON-RPC 2.0, carried either on stdio (one message per line) or over
+Streamable HTTP (§3.3). Both transports answer through one method router
+(`mcp.HandleRequest`), so the surface below is identical on either:
 
 | Method | Notes |
 |--------|-------|
 | `initialize` | Returns `{protocolVersion, capabilities, serverInfo}`. |
 | `notifications/initialized` / `initialized` | Acknowledgement; no response. |
 | `tools/list` | Returns all tools with JSON Schemas. Answered locally by the thin client. |
-| `tools/call` | Forwarded to the HTTP daemon (thin-client mode) or dispatched locally (`--no-daemon`). |
+| `tools/call` | Forwarded to the HTTP daemon (thin-client mode) or dispatched locally (`--no-daemon`, `/mcp`). |
 | `ping` | Returns `{}`. |
 
-The `serverInfo` block reports `{"name": "wyrd", "version": "0.1.0"}`
-and `protocolVersion` is `2024-11-05`.
+The `serverInfo` block reports `{"name": "wyrd", "version": "0.1.0"}`.
+`protocolVersion` is negotiated: a client that asks for a revision we
+speak (`2025-06-18`, `2025-03-26`, `2024-11-05`) gets that one back, and
+anything else is answered with `2025-06-18`.
 
 ### 3.2 Client configuration
 
@@ -192,14 +206,77 @@ command = "wyrd"
 args    = ["serve", "--mcp-stdio", "--root", "."]
 ```
 
-#### Custom MCP client
+#### Custom MCP client (stdio)
 
 Any client that can spawn a subprocess and exchange line-delimited
 JSON-RPC works. Send `initialize`, then `notifications/initialized`,
 then `tools/list` to discover the tool surface, then `tools/call` for
 each invocation.
 
-### 3.3 HTTP API (for non-MCP callers)
+#### Client configured with a URL
+
+A client that connects to an address instead of spawning a command
+points at the daemon's `/mcp` endpoint (§3.3). Nothing else is needed on
+the wyrd side: the endpoint exists whenever the daemon has an HTTP
+listener.
+
+```yaml
+# an agent's MCP client plugin, reaching a repo-level daemon on the host
+plugin_configs:
+  mcp-client:
+    endpoint:
+      url: http://host.docker.internal:47824/w/code/mcp
+      auth:
+        type: bearer            # omit for an open loopback daemon
+        token_env_var: WYRD_HTTP_TOKEN
+```
+
+### 3.3 MCP over Streamable HTTP (`/mcp`)
+
+The daemon speaks MCP itself, so a client that cannot spawn a process
+does not need the stdio thin client at all. The endpoint is mounted
+wherever the daemon serves a worktree:
+
+| Daemon | Endpoint |
+|--------|----------|
+| single-worktree (`wyrd serve --http`) | `http://<addr>/mcp` |
+| repo-level (`wyrd serve --multi`) | `http://<addr>/w/<worktree>/mcp` |
+
+`wyrd where` prints both the base URL and the MCP endpoint for the
+worktree you are standing in. A repo-level daemon answers a bare `/mcp`
+with a 404 naming the per-worktree URLs — an MCP session cannot be
+redirected to a worktree the way a browser can.
+
+The transport is the stateless form of Streamable HTTP: one JSON-RPC
+message per request, one back, no session id, no SSE stream (wyrd's
+tools are synchronous, so there is nothing for a stream to carry).
+
+| Request | Response |
+|---------|----------|
+| `POST` with a message that has an `id` | `200`, `Content-Type: application/json`, one JSON-RPC message |
+| `POST` with a notification (no `id`) | `202 Accepted`, empty body |
+| `GET` (the standalone SSE stream) | `405` — the spec's way of saying "no stream here" |
+| `DELETE` (end session) | `405` — no session is ever handed out |
+
+Two guards sit in front of it:
+
+- **Bearer token.** `WYRD_HTTP_TOKEN` (or `serve.auth_token` in
+  `wyrd.yaml`; the environment wins) makes the endpoint require
+  `Authorization: Bearer <token>` and answer `401` without it. Unset
+  leaves it open, which is the loopback default. It guards `/mcp` only —
+  the browser UI has no way to send a header.
+- **Origin.** A request whose `Origin` is neither this daemon's own host
+  nor a loopback address is refused with `403`. This is the DNS-rebinding
+  guard the MCP spec requires of a locally-bound server: without it, a
+  page on any website can drive every tool on `127.0.0.1` from a
+  visitor's browser. Clients that are not browsers send no `Origin` and
+  are unaffected.
+
+A worktree whose model is still parsing answers `initialize` and
+`tools/list` immediately and returns the usual `{"status":"loading"}`
+record from `tools/call`, so a client can attach during a cold start.
+
+### 3.4 HTTP API (for non-MCP callers)
 
 Every MCP tool also has a plain HTTP endpoint under `/api/mcp/`. This
 is what the thin client forwards to and what direct callers can use
@@ -465,11 +542,17 @@ func (s *Service) Greet(name string) string { return "hello " + name }
 EOF
 
 wyrd serve --http 127.0.0.1:0 --idle-timeout 60s &
-URL=$(wyrd where)
+URL=$(wyrd where | head -1)          # line 2 is the MCP endpoint
 curl -s "$URL/api/mcp/packages"
 curl -s -X POST "$URL/api/mcp/tools/call" \
      -H 'Content-Type: application/json' \
      -d '{"name":"list_packages","arguments":{}}'
+
+# MCP over Streamable HTTP: a full session in three requests
+POST="curl -s -H Content-Type:application/json -H Accept:application/json,text/event-stream"
+$POST -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' "$URL/mcp"
+$POST -d '{"jsonrpc":"2.0","method":"notifications/initialized"}' -o /dev/null -w '%{http_code}\n' "$URL/mcp"   # 202
+$POST -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_packages","arguments":{}}}' "$URL/mcp"
 
 # Stdio one-shot (no daemon)
 ( printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'

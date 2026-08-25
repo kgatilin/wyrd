@@ -166,9 +166,13 @@ type D2LegendStyle struct {
 //     Empty falls through to the daemon's flag default.
 //   - BaseBranch: the branch name to use as the diff baseline (typically
 //     "main" or "master"). Empty means auto-detect from repo convention.
+//   - AuthToken: the bearer token the MCP endpoint requires. Empty leaves it
+//     open, which is the loopback default. WYRD_HTTP_TOKEN overrides this, and
+//     is the better place for it: an overlay is a committed file.
 type ServeConfig struct {
 	HTTPAddr   string `yaml:"http_addr,omitempty"`
 	BaseBranch string `yaml:"base_branch,omitempty"`
+	AuthToken  string `yaml:"auth_token,omitempty"`
 }
 
 // ReviewView describes a named architecture review perspective. It is

@@ -57,6 +57,13 @@ type Server struct {
 	// and out-of-band callers see a usable value.
 	version buildinfo.Info
 
+	// authToken, when non-empty, is the bearer token the MCP endpoint
+	// requires. It guards /mcp only: that is the surface that executes tool
+	// calls, and the review UI is a browser page with no way to send a
+	// header. Empty leaves the endpoint open, which is what a loopback
+	// daemon on a workstation wants.
+	authToken string
+
 	// reports holds the built architecture review report per
 	// (worktree, base ref) so opening the panel reads an answer instead
 	// of commissioning one. See archmotif_report_cache.go.
@@ -74,6 +81,15 @@ type Server struct {
 // Safe to call before Serve; not safe to call concurrently with Serve.
 func (s *Server) WithVersion(info buildinfo.Info) *Server {
 	s.version = info
+	return s
+}
+
+// WithAuthToken requires callers of the MCP endpoint to present
+// "Authorization: Bearer <token>". An empty token leaves it open. Returns s
+// for chaining. Safe to call before Serve; not safe to call concurrently
+// with Serve.
+func (s *Server) WithAuthToken(token string) *Server {
+	s.authToken = strings.TrimSpace(token)
 	return s
 }
 

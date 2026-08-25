@@ -41,6 +41,11 @@ func (s *Server) registerMultiRoutes(mux *nethttp.ServeMux) {
 	s.routesContent(contentMux)
 	mux.Handle("/w/", s.dispatchWorktree(contentMux))
 
+	// A worktree-less /mcp is not redirected the way the read APIs below
+	// are: see handleMCPNoWorktree for why a 302 is the wrong answer to an
+	// MCP session.
+	mux.HandleFunc(mcpPath, s.handleMCPNoWorktree)
+
 	// Worktree-less API roots — redirect to the current worktree so a
 	// caller that does not know the worktree name still resolves. We
 	// enumerate them explicitly so unknown paths still 404 (rather than
@@ -165,6 +170,18 @@ func (s *Server) dispatchWorktree(next nethttp.Handler) nethttp.Handler {
 				writeLoadingToolResult(w)
 				return
 			}
+			next.ServeHTTP(w, s.rewriteWorktreeRequest(r, name, rest, state))
+			return
+		}
+
+		// Nor may the MCP endpoint block on it. A session opens with
+		// initialize and tools/list, which need no model at all, and a
+		// tools/call that arrives before the parse finishes is answered with
+		// the same "still loading" record the thin client gets (see
+		// mcpNotReadyResponse). So hand the content mux whatever state
+		// exists — possibly none — instead of waiting for one.
+		if rest == mcpPath {
+			state, _ := s.multi.Loaded(name)
 			next.ServeHTTP(w, s.rewriteWorktreeRequest(r, name, rest, state))
 			return
 		}

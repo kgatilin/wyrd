@@ -326,3 +326,18 @@ func ServeHTTPAddr(root string) (string, error) {
 	}
 	return cfg.Serve.HTTPAddr, nil
 }
+
+// ServeAuthToken returns the bearer token the daemon's MCP endpoint requires,
+// read from serve.auth_token in the overlay discovered under root. An absent
+// overlay or an absent token yields "", which leaves the endpoint open.
+func ServeAuthToken(root string) (string, error) {
+	path := DiscoverPath(root)
+	if path == "" {
+		return "", nil
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(cfg.Serve.AuthToken), nil
+}

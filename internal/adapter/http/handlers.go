@@ -108,6 +108,12 @@ func (s *Server) routesContent(mux *nethttp.ServeMux) {
 	s.registerAPIRoutes(mux)
 	// Retrieval API: search, expand, node detail, refresh.
 	s.registerRetrievalRoutes(mux)
+	// MCP over Streamable HTTP. It rides the content routes so a
+	// single-worktree daemon exposes /mcp and a repo-level one exposes
+	// /w/<name>/mcp — one endpoint per worktree, isolated the same way the
+	// tool calls under /api/mcp/ already are. No flag gates it: an HTTP
+	// listener is exactly what makes the endpoint reachable.
+	mux.HandleFunc(mcpPath, s.handleMCP)
 	// In multi mode, the root of a worktree ("/w/{name}/") is served
 	// by the content mux at "/" after dispatchWorktree rewrites the
 	// URL. In single mode the root is registered directly by routes()
