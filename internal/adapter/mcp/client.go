@@ -161,7 +161,7 @@ func handleClientLine(
 ) error {
 	var req Request
 	if err := json.Unmarshal(line, &req); err != nil {
-		return writeLine(newErrorResponse(nil, ErrParseError, fmt.Sprintf("parse error: %v", err)))
+		return writeLine(NewErrorResponse(nil, ErrParseError, fmt.Sprintf("parse error: %v", err)))
 	}
 	isNotification := len(req.ID) == 0
 
@@ -170,14 +170,14 @@ func handleClientLine(
 		if isNotification {
 			return nil
 		}
-		return writeLine(newResponse(req.ID, newInitializeResult()))
+		return writeLine(NewResponse(req.ID, newInitializeResult(clientProtocolVersion(req.Params))))
 	case "notifications/initialized", "initialized":
 		return nil
 	case "tools/list":
 		if isNotification {
 			return nil
 		}
-		return writeLine(newResponse(req.ID, map[string]any{
+		return writeLine(NewResponse(req.ID, map[string]any{
 			"tools": ToolDefinitions(),
 		}))
 	case "tools/call":
@@ -189,12 +189,12 @@ func handleClientLine(
 		if isNotification {
 			return nil
 		}
-		return writeLine(newResponse(req.ID, map[string]any{}))
+		return writeLine(NewResponse(req.ID, map[string]any{}))
 	default:
 		if isNotification {
 			return nil
 		}
-		return writeLine(newErrorResponse(req.ID, ErrMethodNotFound, fmt.Sprintf("method %q not supported", req.Method)))
+		return writeLine(NewErrorResponse(req.ID, ErrMethodNotFound, fmt.Sprintf("method %q not supported", req.Method)))
 	}
 }
 
@@ -304,7 +304,7 @@ func forwardToolsCall(
 		}
 		httpReq, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodPost, url, body)
 		if err != nil {
-			return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("build request: %v", err)))
+			return writeLine(NewErrorResponse(req.ID, ErrInternal, fmt.Sprintf("build request: %v", err)))
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
 
@@ -318,7 +318,7 @@ func forwardToolsCall(
 			// possibly-colder daemon or hard-failing the tool call. The agent
 			// polls `status` and retries, just as with the cold-parse gate.
 			if isTimeout(err) {
-				return writeLine(newResponse(req.ID, busyToolResult()))
+				return writeLine(NewResponse(req.ID, busyToolResult()))
 			}
 
 			// Connection error (refused/reset/EOF): the daemon moved or died —
@@ -329,7 +329,7 @@ func forwardToolsCall(
 					// Sleep briefly before retry.
 					select {
 					case <-ctx.Done():
-						return writeLine(newErrorResponse(req.ID, ErrInternal, "context cancelled"))
+						return writeLine(NewErrorResponse(req.ID, ErrInternal, "context cancelled"))
 					case <-time.After(backoff):
 					}
 					backoff *= 2 // Exponential backoff.
@@ -337,13 +337,13 @@ func forwardToolsCall(
 				}
 			}
 
-			return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("daemon unreachable: %v", lastErr)))
+			return writeLine(NewErrorResponse(req.ID, ErrInternal, fmt.Sprintf("daemon unreachable: %v", lastErr)))
 		}
 		defer resp.Body.Close()
 
 		data, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
-			return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("read response: %v", readErr)))
+			return writeLine(NewErrorResponse(req.ID, ErrInternal, fmt.Sprintf("read response: %v", readErr)))
 		}
 
 		// On 4xx/5xx with a JSON error envelope, translate to a JSON-RPC
@@ -358,9 +358,9 @@ func forwardToolsCall(
 				if code == 0 {
 					code = ErrInternal
 				}
-				return writeLine(newErrorResponse(req.ID, code, errEnv.Error))
+				return writeLine(NewErrorResponse(req.ID, code, errEnv.Error))
 			}
-			return writeLine(newErrorResponse(req.ID, ErrInternal,
+			return writeLine(NewErrorResponse(req.ID, ErrInternal,
 				fmt.Sprintf("daemon returned %d: %s", resp.StatusCode, string(data))))
 		}
 
@@ -368,11 +368,11 @@ func forwardToolsCall(
 		// as the result field.
 		var tr ToolResult
 		if err := json.Unmarshal(data, &tr); err != nil {
-			return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("decode tool result: %v", err)))
+			return writeLine(NewErrorResponse(req.ID, ErrInternal, fmt.Sprintf("decode tool result: %v", err)))
 		}
-		return writeLine(newResponse(req.ID, tr))
+		return writeLine(NewResponse(req.ID, tr))
 	}
 
 	// All retries exhausted.
-	return writeLine(newErrorResponse(req.ID, ErrInternal, fmt.Sprintf("daemon unreachable after %d attempts: %v", maxRetries+1, lastErr)))
+	return writeLine(NewErrorResponse(req.ID, ErrInternal, fmt.Sprintf("daemon unreachable after %d attempts: %v", maxRetries+1, lastErr)))
 }

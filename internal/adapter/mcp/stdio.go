@@ -72,7 +72,7 @@ func serveIO(ctx context.Context, state *serve.State, in io.Reader, out io.Write
 		case r := <-readCh:
 			// ReadBytes may return a partial final line with io.EOF.
 			if len(r.line) > 0 {
-				if err := handleLine(state, r.line, writeLine, errOut); err != nil {
+				if err := handleLine(ctx, state, r.line, writeLine, errOut); err != nil {
 					fmt.Fprintf(errOut, "mcp: write response: %v\n", err)
 				}
 			}
@@ -87,82 +87,19 @@ func serveIO(ctx context.Context, state *serve.State, in io.Reader, out io.Write
 }
 
 // handleLine parses a single incoming line and emits exactly one
-// response (unless the message is a notification — has no id — in
-// which case nothing is written).
-func handleLine(state *serve.State, line []byte, writeLine func(Response) error, errOut io.Writer) error {
+// response, unless the message is a notification (has no id) — then
+// nothing is written. Every method is answered by HandleRequest, which
+// the Streamable HTTP endpoint calls too.
+func handleLine(ctx context.Context, state *serve.State, line []byte, writeLine func(Response) error, errOut io.Writer) error {
 	var req Request
 	if err := json.Unmarshal(line, &req); err != nil {
 		// Unparseable input: respond with ParseError and a null id.
-		return writeLine(newErrorResponse(nil, ErrParseError, fmt.Sprintf("parse error: %v", err)))
+		return writeLine(NewErrorResponse(nil, ErrParseError, fmt.Sprintf("parse error: %v", err)))
 	}
 
-	// Notifications (no id) require no response per JSON-RPC 2.0.
-	isNotification := len(req.ID) == 0
-
-	switch req.Method {
-	case "initialize":
-		if isNotification {
-			return nil
-		}
-		return writeLine(newResponse(req.ID, newInitializeResult()))
-
-	case "notifications/initialized", "initialized":
-		// Client acknowledgement — no response required.
+	resp := HandleRequest(ctx, state, req, errOut)
+	if resp == nil {
 		return nil
-
-	case "tools/list":
-		if isNotification {
-			return nil
-		}
-		return writeLine(newResponse(req.ID, map[string]any{
-			"tools": ToolDefinitions(),
-		}))
-
-	case "tools/call":
-		if isNotification {
-			return nil
-		}
-		return dispatchToolsCall(state, req, writeLine, errOut)
-
-	case "ping":
-		if isNotification {
-			return nil
-		}
-		return writeLine(newResponse(req.ID, map[string]any{}))
-
-	default:
-		if isNotification {
-			return nil
-		}
-		return writeLine(newErrorResponse(req.ID, ErrMethodNotFound, fmt.Sprintf("method %q not supported", req.Method)))
 	}
-}
-
-// toolsCallParams is the shape of tools/call params per the MCP spec.
-type toolsCallParams struct {
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments"`
-}
-
-// dispatchToolsCall extracts name+arguments from the request, invokes
-// the tool, and writes the response.
-func dispatchToolsCall(state *serve.State, req Request, writeLine func(Response) error, errOut io.Writer) error {
-	var params toolsCallParams
-	if len(req.Params) > 0 {
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			return writeLine(newErrorResponse(req.ID, ErrInvalidParams, fmt.Sprintf("invalid params: %v", err)))
-		}
-	}
-	if params.Name == "" {
-		return writeLine(newErrorResponse(req.ID, ErrInvalidParams, "missing tool name"))
-	}
-
-	result, rpcErr := Dispatch(state, params.Name, params.Arguments)
-	if rpcErr != nil {
-		if errOut != nil {
-			fmt.Fprintf(errOut, "mcp: tool %q error: %s\n", params.Name, rpcErr.Message)
-		}
-		return writeLine(Response{JSONRPC: jsonRPCVersion, ID: req.ID, Error: rpcErr})
-	}
-	return writeLine(newResponse(req.ID, result))
+	return writeLine(*resp)
 }

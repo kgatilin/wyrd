@@ -1,17 +1,21 @@
-// Package mcp implements a minimal Model Context Protocol (MCP) stdio
-// transport for the wyrd daemon. The transport speaks line-based
-// JSON-RPC 2.0 over stdin/stdout and exposes three read-only tools
-// (extract, list_packages, get_package) backed by the in-memory
-// serve.State model.
+// Package mcp implements the Model Context Protocol (MCP) surface of the
+// wyrd daemon: the tools themselves, and the method router that answers a
+// JSON-RPC 2.0 message against the in-memory serve.State model.
+//
+// Two transports carry that router. This package owns the stdio one
+// (line-delimited JSON-RPC over stdin/stdout, plus a thin-client variant that
+// forwards tool calls to a running daemon over HTTP); the Streamable HTTP
+// endpoint lives in internal/adapter/http and calls HandleRequest for every
+// message it receives, so neither transport holds a method switch of its own.
 //
 // Only the subset of MCP needed to advertise and dispatch tools is
-// implemented: the initialize handshake, tools/list and tools/call.
-// Extract/list_packages/get_package return tool results as
-// [{type: "text", text: "<JSON payload>"}] content blocks.
+// implemented: the initialize handshake, tools/list and tools/call. Tool
+// results are [{type: "text", text: "..."}] content blocks.
 package mcp
 
 import (
 	"encoding/json"
+	"slices"
 )
 
 // JSON-RPC 2.0 message shapes. Requests may carry an id (client calls)
@@ -21,10 +25,48 @@ import (
 // JSON-RPC 2.0 message.
 const jsonRPCVersion = "2.0"
 
-// protocolVersion is the MCP protocol version we advertise during
-// initialize. Clients that don't recognize the exact string typically
-// negotiate down — for the current read-only tool set this is fine.
-const protocolVersion = "2024-11-05"
+// latestProtocolVersion is the newest MCP revision this server speaks, and
+// the one an initialize that names no version (or one we don't know) is
+// answered with. Streamable HTTP was introduced in 2025-03-26, so a session
+// on that transport cannot honestly claim the 2024-11-05 revision.
+const latestProtocolVersion = "2025-06-18"
+
+// protocolVersions are the revisions we speak, newest first. A client's
+// version is echoed when it appears here, which is what the spec asks for:
+// the two sides settle on a revision both know rather than on ours.
+var protocolVersions = []string{latestProtocolVersion, "2025-03-26", "2024-11-05"}
+
+// negotiateProtocolVersion returns the revision to advertise in reply to an
+// initialize that asked for clientVersion. An unknown or absent version gets
+// the newest one we speak — clients validate the answer against their own
+// supported set and fail the handshake on anything outside it, so answering
+// with a version nobody released is worse than answering with ours.
+func negotiateProtocolVersion(clientVersion string) string {
+	if slices.Contains(protocolVersions, clientVersion) {
+		return clientVersion
+	}
+	return latestProtocolVersion
+}
+
+// initializeParams is the part of the initialize params we read: the revision
+// the client speaks.
+type initializeParams struct {
+	ProtocolVersion string `json:"protocolVersion"`
+}
+
+// clientProtocolVersion pulls the requested revision out of raw initialize
+// params. Malformed or absent params yield "", which negotiates to the
+// latest revision rather than failing the handshake.
+func clientProtocolVersion(rawParams json.RawMessage) string {
+	if len(rawParams) == 0 {
+		return ""
+	}
+	var params initializeParams
+	if err := json.Unmarshal(rawParams, &params); err != nil {
+		return ""
+	}
+	return params.ProtocolVersion
+}
 
 // Request is an incoming JSON-RPC 2.0 request or notification. ID is
 // kept as a RawMessage so we can echo it back verbatim (clients may use
@@ -77,10 +119,11 @@ type initializeResult struct {
 	ServerInfo      serverInfo     `json:"serverInfo"`
 }
 
-// newInitializeResult builds the fixed response for initialize.
-func newInitializeResult() initializeResult {
+// newInitializeResult builds the response for an initialize that asked for
+// clientVersion.
+func newInitializeResult(clientVersion string) initializeResult {
 	return initializeResult{
-		ProtocolVersion: protocolVersion,
+		ProtocolVersion: negotiateProtocolVersion(clientVersion),
 		Capabilities: map[string]any{
 			"tools": map[string]any{},
 		},
@@ -92,12 +135,12 @@ func newInitializeResult() initializeResult {
 }
 
 // newResponse builds a successful response for id with result.
-func newResponse(id json.RawMessage, result interface{}) Response {
+func NewResponse(id json.RawMessage, result interface{}) Response {
 	return Response{JSONRPC: jsonRPCVersion, ID: id, Result: result}
 }
 
 // newErrorResponse builds an error response for id with code/message.
-func newErrorResponse(id json.RawMessage, code int, message string) Response {
+func NewErrorResponse(id json.RawMessage, code int, message string) Response {
 	return Response{
 		JSONRPC: jsonRPCVersion,
 		ID:      id,
