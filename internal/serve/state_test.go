@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -238,6 +239,53 @@ type Second struct{ X int }
 	if got := countStructs(t, st, "internal/bar"); got != 1 {
 		t.Fatalf("internal/bar structs = %d, want 1 from cache", got)
 	}
+	// The package kept from cache goes back to the reader: without it the
+	// reload cannot resolve calls that dispatch through internal/bar's types.
+	if got, want := incremental.knownPaths(0), []string{"internal/bar"}; !equalStrings(got, want) {
+		t.Fatalf("known models handed to the reload = %v, want %v", got, want)
+	}
+}
+
+func TestStateReloadPackagePassesTheRestOfTheModelAsKnown(t *testing.T) {
+	root := newFixture(t)
+	initial := &recordingReader{
+		responses: map[string][]domain.PackageModel{
+			"./...": {
+				{Path: "internal/foo", Name: "foo"},
+				{Path: "internal/bar", Name: "bar"},
+			},
+		},
+	}
+	st := NewState(root, WithReader(initial))
+	ctx := context.Background()
+	if err := st.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	reload := &recordingReader{
+		responses: map[string][]domain.PackageModel{
+			"./internal/foo": {{Path: "internal/foo", Name: "foo", Structs: []domain.StructDef{{Name: "Thing"}}}},
+		},
+	}
+	st.reader = reload
+	if _, err := st.ReloadPackage(ctx, "internal/foo"); err != nil {
+		t.Fatalf("ReloadPackage: %v", err)
+	}
+	if got, want := reload.knownPaths(0), []string{"internal/bar", "internal/foo"}; !equalStrings(got, want) {
+		t.Fatalf("known models handed to the reload = %v, want %v", got, want)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestStateLoadIgnoresModelCacheVersionMismatch(t *testing.T) {
@@ -397,12 +445,24 @@ func packagePaths(ps []domain.PackageModel) []string {
 type recordingReader struct {
 	responses map[string][]domain.PackageModel
 	calls     [][]string
-	fail      bool
+	// known records the models handed to each partial read, indexed the same
+	// way as calls. Nil for a read that arrived through Read.
+	known [][]domain.PackageModel
+	fail  bool
 }
 
 func (r *recordingReader) Read(_ context.Context, paths []string) ([]domain.PackageModel, error) {
+	return r.record(paths, nil)
+}
+
+func (r *recordingReader) ReadPartial(_ context.Context, paths []string, known []domain.PackageModel) ([]domain.PackageModel, error) {
+	return r.record(paths, known)
+}
+
+func (r *recordingReader) record(paths []string, known []domain.PackageModel) ([]domain.PackageModel, error) {
 	call := append([]string(nil), paths...)
 	r.calls = append(r.calls, call)
+	r.known = append(r.known, append([]domain.PackageModel(nil), known...))
 	if r.fail {
 		return nil, fmt.Errorf("reader should not have been called")
 	}
@@ -411,6 +471,19 @@ func (r *recordingReader) Read(_ context.Context, paths []string) ([]domain.Pack
 		return append([]domain.PackageModel(nil), models...), nil
 	}
 	return nil, fmt.Errorf("unexpected read paths %v", paths)
+}
+
+// knownPaths returns the package paths handed to the i-th read, sorted.
+func (r *recordingReader) knownPaths(i int) []string {
+	if i >= len(r.known) {
+		return nil
+	}
+	paths := make([]string, 0, len(r.known[i]))
+	for _, m := range r.known[i] {
+		paths = append(paths, m.Path)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func flattenCalls(calls [][]string) string {

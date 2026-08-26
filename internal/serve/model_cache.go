@@ -17,6 +17,7 @@ import (
 
 	"github.com/kgatilin/wyrd/internal/buildinfo"
 	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/service"
 )
 
 const (
@@ -171,7 +172,7 @@ func (s *State) readModelCache(ctx context.Context) ([]domain.PackageModel, *mod
 	}
 
 	if len(changed) > 0 {
-		reloaded, err := s.readPackageSet(ctx, changed)
+		reloaded, err := s.readPackageSet(ctx, changed, mapValues(modelsByPath))
 		if err != nil {
 			load.err = fmt.Errorf("reload changed packages from cache: %w", err)
 			return nil, load, false
@@ -231,12 +232,16 @@ func (s *State) readAllUncached(ctx context.Context) ([]domain.PackageModel, err
 	return models, nil
 }
 
-func (s *State) readPackageSet(ctx context.Context, pkgPaths []string) ([]domain.PackageModel, error) {
+// readPackageSet re-reads part of the project. known carries the models the
+// caller holds for everything it is not re-reading: without them the reader
+// cannot see which types implement an interface outside this set, and every
+// interface-dispatched call out of the re-read packages loses its edges.
+func (s *State) readPackageSet(ctx context.Context, pkgPaths []string, known []domain.PackageModel) ([]domain.PackageModel, error) {
 	patterns := make([]string, 0, len(pkgPaths))
 	for _, pkgPath := range pkgPaths {
 		patterns = append(patterns, packageLoadPattern(pkgPath))
 	}
-	return s.readPackages(ctx, patterns)
+	return s.readPackagesWithKnown(ctx, patterns, known)
 }
 
 // readPackagesMu serializes the chdir the Go reader needs. The working
@@ -246,6 +251,10 @@ func (s *State) readPackageSet(ctx context.Context, pkgPaths []string) ([]domain
 var readPackagesMu sync.Mutex
 
 func (s *State) readPackages(ctx context.Context, patterns []string) ([]domain.PackageModel, error) {
+	return s.readPackagesWithKnown(ctx, patterns, nil)
+}
+
+func (s *State) readPackagesWithKnown(ctx context.Context, patterns []string, known []domain.PackageModel) ([]domain.PackageModel, error) {
 	readPackagesMu.Lock()
 	defer readPackagesMu.Unlock()
 
@@ -257,6 +266,9 @@ func (s *State) readPackages(ctx context.Context, patterns []string) ([]domain.P
 		return nil, err
 	}
 	defer func() { _ = os.Chdir(prevCwd) }()
+	if partial, ok := s.reader.(service.PartialModelReader); ok && len(known) > 0 {
+		return partial.ReadPartial(ctx, patterns, known)
+	}
 	return s.reader.Read(ctx, patterns)
 }
 

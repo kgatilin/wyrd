@@ -454,7 +454,9 @@ func (s *State) ReloadPackage(ctx context.Context, pkgPath string) (bool, error)
 		}
 	}
 
-	models, err := s.readPackageSet(ctx, []string{pkgPath})
+	// The rest of the model goes in as known: reloading one package must not
+	// cost it the interface-dispatch edges a full read would have given it.
+	models, err := s.readPackageSet(ctx, []string{pkgPath}, mapValues(s.packages))
 	if err != nil {
 		// Package may have been removed; drop it and return no error so
 		// the watcher loop stays alive.

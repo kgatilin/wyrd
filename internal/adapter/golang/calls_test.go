@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/service"
 )
 
 // findFuncCalls returns the Calls slice for a package-level function by name.
@@ -413,4 +414,86 @@ func Run() int {
 	if calls[0].To.Symbol != "Helper" || calls[0].To.Package != "util" {
 		t.Errorf("expected util.Helper, got %+v", calls[0].To)
 	}
+}
+
+func TestCalls_PartialReadFansOutThroughKnownModels(t *testing.T) {
+	// Interface dispatch cannot be recovered from a scoped read: the
+	// implementation lives in a package that arrives as export data, and
+	// export data carries no unexported types at all. The models the caller
+	// already holds are what puts the edge back.
+	files := map[string]string{
+		"store/store.go": `package store
+
+type Store interface{ Get() string }
+`,
+		"mem/mem.go": `package mem
+
+type memStore struct{}
+
+func (m *memStore) Get() string { return "x" }
+
+func New() *memStore { return &memStore{} }
+`,
+		"app/app.go": `package app
+
+import (
+	"test.example/calls/known/mem"
+	"test.example/calls/known/store"
+)
+
+func Run() string {
+	var s store.Store = mem.New()
+	return s.Get()
+}
+`,
+	}
+	dir := writeTestModule(t, "test.example/calls/known", files)
+	oldDir, _ := os.Getwd()
+	defer os.Chdir(oldDir)
+	os.Chdir(dir)
+
+	reader, ok := NewReader().(service.PartialModelReader)
+	if !ok {
+		t.Fatalf("the Go reader must satisfy service.PartialModelReader")
+	}
+	full, err := reader.Read(context.Background(), []string{"./..."})
+	if err != nil {
+		t.Fatalf("full Read: %v", err)
+	}
+
+	partial, err := reader.Read(context.Background(), []string{"./app"})
+	if err != nil {
+		t.Fatalf("partial Read: %v", err)
+	}
+	if got := findFanOut(t, partial, "memStore.Get"); got != nil {
+		t.Errorf("without known models the fan-out cannot be resolved, got %+v", got)
+	}
+
+	withKnown, err := reader.ReadPartial(context.Background(), []string{"./app"}, full)
+	if err != nil {
+		t.Fatalf("ReadPartial: %v", err)
+	}
+	edge := findFanOut(t, withKnown, "memStore.Get")
+	if edge == nil {
+		t.Fatalf("expected mem.memStore.Get, got %+v", findFuncCalls(*findModel(withKnown, "app"), "Run"))
+	}
+	if edge.To.Package != "mem" || edge.Via != "store.Store" {
+		t.Errorf("expected mem.memStore.Get via store.Store, got %+v (via %q)", edge.To, edge.Via)
+	}
+}
+
+// findFanOut returns the edge out of app.Run pointing at symbol, if any.
+func findFanOut(t *testing.T, models []domain.PackageModel, symbol string) *domain.CallEdge {
+	t.Helper()
+	appModel := findModel(models, "app")
+	if appModel == nil {
+		t.Fatalf("app model not found")
+	}
+	calls := findFuncCalls(*appModel, "Run")
+	for i := range calls {
+		if calls[i].To.Symbol == symbol {
+			return &calls[i]
+		}
+	}
+	return nil
 }

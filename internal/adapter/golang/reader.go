@@ -35,6 +35,15 @@ func NewReader() service.ModelReader {
 // Read parses Go source code at the given paths and returns package models.
 // Paths can be package patterns like "./...", "./internal/...", etc.
 func (r *reader) Read(ctx context.Context, paths []string) ([]domain.PackageModel, error) {
+	return r.ReadPartial(ctx, paths, nil)
+}
+
+// ReadPartial parses the given paths the way Read does, and additionally
+// resolves interface dispatch against `known` — models the caller already has
+// for the packages outside this read. Only the implementations they carry are
+// used; the returned models describe the read paths alone. See
+// service.PartialModelReader for why a partial read needs them.
+func (r *reader) ReadPartial(ctx context.Context, paths []string, known []domain.PackageModel) ([]domain.PackageModel, error) {
 	// Check context cancellation before starting
 	select {
 	case <-ctx.Done():
@@ -96,7 +105,7 @@ func (r *reader) Read(ctx context.Context, paths []string) ([]domain.PackageMode
 
 	// Extract static call edges. Must run after implementations so that
 	// interface-dispatched calls can be fanned out to concrete targets.
-	r.extractCalls(usable, models)
+	r.extractCalls(usable, models, known)
 
 	return models, nil
 }

@@ -29,8 +29,11 @@ import (
 //
 // Interface-dispatched method calls expand into one edge per known
 // implementation (reusing M2b's Implementations data) with Via set to
-// "pkg.Interface".
-func (r *reader) extractCalls(pkgs []*packages.Package, models []domain.PackageModel) {
+// "pkg.Interface". The implementations come from the models being read plus
+// `known` — models the caller already holds for packages outside this read.
+// A partial read cannot recompute them: export data carries only exported
+// types, and most implementations in a real tree are unexported.
+func (r *reader) extractCalls(pkgs []*packages.Package, models []domain.PackageModel, known []domain.PackageModel) {
 	// Index models by path for mutation.
 	modelIdxByPath := make(map[string]int, len(models))
 	for i, m := range models {
@@ -50,7 +53,7 @@ func (r *reader) extractCalls(pkgs []*packages.Package, models []domain.PackageM
 	// Key format: "<pkg-path>.<InterfaceName>" where pkg-path is the
 	// go/types package path (not the module-relative one), so we can look
 	// it up directly from types.Interface receivers.
-	implIndex := r.buildImplementationIndex(universe, models, modelIdxByPath)
+	implIndex := r.buildImplementationIndex(universe, models, known)
 
 	for _, pkg := range pkgs {
 		if pkg.TypesInfo == nil {
@@ -336,11 +339,13 @@ func (r *reader) callTargetUniverse(pkgs []*packages.Package) []*packages.Packag
 // buildImplementationIndex maps each interface (keyed by its go/types
 // package path + "." + Name) to a list of concrete-type SymbolRefs that
 // implement it. Data is sourced from model.Implementations, computed by
-// the prior computeImplementations pass.
+// the prior computeImplementations pass for the packages being read, and
+// carried over from `known` for the packages outside the read. A package
+// present in both takes its implementations from this read.
 func (r *reader) buildImplementationIndex(
 	pkgs []*packages.Package,
 	models []domain.PackageModel,
-	modelIdxByPath map[string]int,
+	known []domain.PackageModel,
 ) map[string][]domain.SymbolRef {
 	// Resolve each model's path back to its go/types package path.
 	typesPkgByRelPath := make(map[string]string, len(pkgs))
@@ -348,8 +353,14 @@ func (r *reader) buildImplementationIndex(
 		typesPkgByRelPath[r.relativePath(pkg.PkgPath)] = pkg.PkgPath
 	}
 
-	index := make(map[string][]domain.SymbolRef)
+	read := make(map[string]bool, len(models))
 	for _, m := range models {
+		read[m.Path] = true
+	}
+
+	index := make(map[string][]domain.SymbolRef)
+	seen := make(map[string]bool)
+	collect := func(m domain.PackageModel) {
 		for _, impl := range m.Implementations {
 			ifacePkgPath, ok := typesPkgByRelPath[impl.Interface.Package]
 			if !ok {
@@ -357,8 +368,24 @@ func (r *reader) buildImplementationIndex(
 				continue
 			}
 			key := ifacePkgPath + "." + impl.Interface.Symbol
+			// One edge per concrete type: the same pair reaching us from
+			// both sources must not double the call's multiplicity.
+			pair := key + "->" + impl.Concrete.Package + "." + impl.Concrete.Symbol
+			if seen[pair] {
+				continue
+			}
+			seen[pair] = true
 			index[key] = append(index[key], impl.Concrete)
 		}
+	}
+	for _, m := range models {
+		collect(m)
+	}
+	for _, m := range known {
+		if read[m.Path] {
+			continue
+		}
+		collect(m)
 	}
 
 	// Keep implementation lists stably sorted for deterministic edges.
@@ -372,7 +399,6 @@ func (r *reader) buildImplementationIndex(
 		})
 		index[k] = list
 	}
-	_ = modelIdxByPath // retained for signature symmetry with caller
 	return index
 }
 

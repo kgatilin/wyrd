@@ -15,6 +15,21 @@ type ModelReader interface {
 	Read(ctx context.Context, paths []string) ([]domain.PackageModel, error)
 }
 
+// PartialModelReader is a ModelReader that can read part of a project without
+// losing the facts that only the whole project carries. Which concrete types
+// implement an interface is one of those: a read scoped to a few packages
+// cannot see the implementations living in the rest, so an interface-dispatched
+// call has nothing to fan out to and its edges are dropped. Callers that
+// already hold models for the packages they are not re-reading pass them as
+// `known`, and get edges as complete as a full read's.
+//
+// Implemented by adapter/golang.Reader. Callers type-assert and fall back to
+// Read when the reader does not support it.
+type PartialModelReader interface {
+	ModelReader
+	ReadPartial(ctx context.Context, paths []string, known []domain.PackageModel) ([]domain.PackageModel, error)
+}
+
 // ModelWriter writes package models to a destination.
 // This interface is implemented by:
 // - adapter/d2.Writer (writes D2 diagram files)
