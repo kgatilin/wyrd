@@ -368,3 +368,49 @@ func B() {}
 		t.Fatalf("expected 1 deduplicated edge, got %d: %+v", len(calls), calls)
 	}
 }
+
+func TestCalls_PartialReadKeepsCrossPackageCall(t *testing.T) {
+	// A read scoped to one package — what the daemon does when only that
+	// package's files changed — still resolves callees in the rest of the
+	// module. They arrive as export data rather than as loaded roots, and
+	// dropping them would erase the caller from every callee's incoming set.
+	files := map[string]string{
+		"util/util.go": `package util
+
+func Helper() int { return 42 }
+`,
+		"app/app.go": `package app
+
+import (
+	"fmt"
+
+	"test.example/calls/partial/util"
+)
+
+func Run() int {
+	fmt.Println("x")
+	return util.Helper()
+}
+`,
+	}
+	dir := writeTestModule(t, "test.example/calls/partial", files)
+	oldDir, _ := os.Getwd()
+	defer os.Chdir(oldDir)
+	os.Chdir(dir)
+
+	models, err := NewReader().Read(context.Background(), []string{"./app"})
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	appModel := findModel(models, "app")
+	if appModel == nil {
+		t.Fatalf("app model not found")
+	}
+	calls := findFuncCalls(*appModel, "Run")
+	if len(calls) != 1 {
+		t.Fatalf("expected only util.Helper to survive, got %d: %+v", len(calls), calls)
+	}
+	if calls[0].To.Symbol != "Helper" || calls[0].To.Package != "util" {
+		t.Errorf("expected util.Helper, got %+v", calls[0].To)
+	}
+}

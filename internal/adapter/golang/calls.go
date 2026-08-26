@@ -15,9 +15,17 @@ import (
 // the loaded package set. Results are written back into the corresponding
 // FunctionDef.Calls and MethodDef.Calls slices on the provided models.
 //
-// Edges are only emitted when the callee's package is among the loaded
-// packages (keyed by *types.Package pointer). Stdlib and third-party targets
-// are dropped, keeping the call graph scoped to the analyzed module.
+// Edges are only emitted when the callee's package belongs to the analyzed
+// module (keyed by *types.Package pointer). Stdlib and third-party targets
+// are dropped, keeping the call graph scoped to the module.
+//
+// The callee side is resolved against the in-module universe — the loaded
+// packages plus the in-module packages they import — not against the loaded
+// packages alone. A partial read (the daemon re-reads only the packages whose
+// files changed) returns just those as roots while their callees are still
+// type-checked from export data; scoping to the roots would drop every
+// cross-package edge out of a re-read package, erasing its callees' callers
+// from the graph until the next full read.
 //
 // Interface-dispatched method calls expand into one edge per known
 // implementation (reusing M2b's Implementations data) with Via set to
@@ -29,9 +37,10 @@ func (r *reader) extractCalls(pkgs []*packages.Package, models []domain.PackageM
 		modelIdxByPath[m.Path] = i
 	}
 
-	// Set of loaded *types.Package pointers — used to scope call targets.
-	loadedTypes := make(map[*types.Package]*packages.Package, len(pkgs))
-	for _, pkg := range pkgs {
+	// Set of in-module *types.Package pointers — used to scope call targets.
+	universe := r.callTargetUniverse(pkgs)
+	loadedTypes := make(map[*types.Package]*packages.Package, len(universe))
+	for _, pkg := range universe {
 		if pkg.Types != nil {
 			loadedTypes[pkg.Types] = pkg
 		}
@@ -41,7 +50,7 @@ func (r *reader) extractCalls(pkgs []*packages.Package, models []domain.PackageM
 	// Key format: "<pkg-path>.<InterfaceName>" where pkg-path is the
 	// go/types package path (not the module-relative one), so we can look
 	// it up directly from types.Interface receivers.
-	implIndex := r.buildImplementationIndex(pkgs, models, modelIdxByPath)
+	implIndex := r.buildImplementationIndex(universe, models, modelIdxByPath)
 
 	for _, pkg := range pkgs {
 		if pkg.TypesInfo == nil {
@@ -311,6 +320,17 @@ func (r *reader) handleSelectorCall(
 			Symbol:  recvName + "." + fn.Name(),
 		},
 	})
+}
+
+// callTargetUniverse returns the packages a call edge is allowed to point at:
+// the loaded packages plus the in-module packages they import. Without module
+// metadata inModuleUniverse cannot tell in-module imports from stdlib ones, so
+// there we stay with the loaded set rather than admit stdlib targets.
+func (r *reader) callTargetUniverse(pkgs []*packages.Package) []*packages.Package {
+	if r.modulePath == "" {
+		return pkgs
+	}
+	return r.inModuleUniverse(pkgs)
 }
 
 // buildImplementationIndex maps each interface (keyed by its go/types
