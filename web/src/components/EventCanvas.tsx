@@ -966,7 +966,15 @@ function HealthDetail({
               <span className="hf-events-slot-kind">{kind.name}</span>
               <span className="hf-events-tag excl">{health}</span>
               <span className="hf-events-slot-pattern">{whereItHangs(kind, health)}</span>
-              {kind.pattern && <span className="hf-events-slot-pattern">{kind.pattern}</span>}
+              {/* A kind on one address is shown at it. A kind a port family
+                  puts on one address per instance has none to show — naming
+                  the first is how an edge into one instance reads as an edge
+                  into all — so the row says how many and the panel lists them. */}
+              {kind.pattern ? (
+                <span className="hf-events-slot-pattern">{kind.pattern}</span>
+              ) : (
+                kind.subjects && <span className="hf-events-slot-pattern">on {kind.subjects.length} addresses</span>
+              )}
             </button>
           </li>
         ))}

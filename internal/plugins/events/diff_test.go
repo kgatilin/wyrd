@@ -3,6 +3,8 @@ package events
 import (
 	"reflect"
 	"testing"
+
+	"github.com/kgatilin/wyrd/internal/eventmodel"
 )
 
 func TestDiffModelViewKeepsWhatTheBaseHadAndTheBranchDropped(t *testing.T) {
@@ -133,5 +135,79 @@ func TestDiffModelViewAgainstAnEmptyBaseMarksEverythingAdded(t *testing.T) {
 
 	if got.Components[0].Diff != changeAdded || got.Kinds[0].Diff != changeAdded || got.Flows[0].Diff != changeAdded {
 		t.Errorf("against an empty base = %+v, want everything added", got)
+	}
+}
+
+// The branch-1052 shape: a commit adds one instance to a port family and
+// nothing else. Every kind the family carries was declared before and is
+// declared now, at the same addresses by the same components — so the only
+// marks the reader should see are the new component, the new addresses, and
+// the edges that reach it.
+//
+// Two derivations used to break that. The kind's owner was the first claimant
+// of `channel` in sorted order, and the kind's address was the first
+// declaration in the same order; a new instance sorting ahead of the old first
+// moved both, on every kind in the namespace at once — including the ten that
+// only the siblings declare and the new instance never mentions. Fifteen
+// changed rows for a commit that changed nothing on the wire.
+func TestDiffModelViewIgnoresAnInstanceJoiningAPortFamily(t *testing.T) {
+	instance := func(name string, kinds ...string) *eventmodel.Component {
+		c := &eventmodel.Component{ID: "channel/" + name, Owns: "channel", Source: eventmodel.SourceAsyncAPI}
+		for _, kind := range kinds {
+			c.Inputs = append(c.Inputs, eventmodel.Slot{
+				Kind:    kind,
+				Pattern: "app.{tenant}.channel." + name + ".thread.{thread}." + kind,
+			})
+		}
+		return c
+	}
+	// One kind the whole family carries, and one only slack does.
+	const shared, slackOnly = "channel.command.message.send", "channel.event.slack.delivery.failed"
+	view := func(comps ...*eventmodel.Component) modelView {
+		m := &eventmodel.Model{Components: make(map[string]*eventmodel.Component, len(comps))}
+		for _, c := range comps {
+			m.Components[c.ID] = c
+		}
+		return buildModelView(m, eventmodel.BuildGraph(m))
+	}
+
+	base := view(instance("runner", shared), instance("slack", shared, slackOnly))
+	cur := view(instance("adminui", shared), instance("runner", shared), instance("slack", shared, slackOnly))
+
+	got := diffModelView(cur, base)
+
+	for _, c := range got.Components {
+		want := ""
+		if c.ID == "channel/adminui" {
+			want = changeAdded
+		}
+		if c.Diff != want {
+			t.Errorf("component %s = %q, want %q", c.ID, c.Diff, want)
+		}
+	}
+	for _, k := range got.Kinds {
+		switch k.Name {
+		case slackOnly:
+			// Nothing about it moved. Not its address, not who declares it.
+			if k.Diff != "" {
+				t.Errorf("kind %s = %q with was %+v, want no mark", k.Name, k.Diff, k.Was)
+			}
+		case shared:
+			// It does travel one more address now, which is the one true
+			// thing to report — and it is reported as an address arriving,
+			// not as the kind changing identity.
+			if k.Diff != changeChanged {
+				t.Fatalf("kind %s = %q, want %q", k.Name, k.Diff, changeChanged)
+			}
+			if k.Was == nil || k.Was.Owner != k.Owner {
+				t.Errorf("owner moved to %q from %+v, want the same owner", k.Owner, k.Was)
+			}
+			if k.Was.Pattern != k.Pattern {
+				t.Errorf("address moved from %q to %q, want neither named", k.Was.Pattern, k.Pattern)
+			}
+			if len(k.Subjects) != len(k.Was.Subjects)+1 {
+				t.Errorf("subjects = %v, want one more than %v", k.Subjects, k.Was.Subjects)
+			}
+		}
 	}
 }

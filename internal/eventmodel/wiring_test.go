@@ -143,24 +143,39 @@ func kindHealth(t *testing.T, g *Graph, kind string) string {
 }
 
 // Two components claiming one namespace is legal among imported documents —
-// nothing grades them — so OwnerOf still has to answer, and it has to answer
-// the same way every time. A map walk did not: the field flapped between two
-// equally valid owners, and a diff of the model against its own base then
-// reported every kind in that namespace as changed, at random.
-func TestOwnerOfIsStableWhenTwoComponentsClaimOneNamespace(t *testing.T) {
+// nothing grades them — so OwnerOf still has to answer, and no claimant is the
+// answer. Instances of a port family each claim the family's namespace by
+// being instances of it; none of them defines it for the others.
+func TestOwnerOfNamesTheNamespaceWhenTheClaimIsTied(t *testing.T) {
 	runner := comp("channel/runner", "channel")
 	runner.Source = SourceAsyncAPI
 	slack := comp("channel/slack", "channel")
 	slack.Source = SourceAsyncAPI
 	m := model(runner, slack)
 
-	first := OwnerOf(m, "channel.command.message.send")
-	if first != "channel/runner" {
-		t.Errorf("owner = %q, want the first claimant in sorted order", first)
+	if got := OwnerOf(m, "channel.command.message.send"); got != "channel" {
+		t.Errorf("owner = %q, want the tied namespace", got)
 	}
-	for i := 0; i < 50; i++ {
-		if got := OwnerOf(m, "channel.command.message.send"); got != first {
-			t.Fatalf("owner flapped to %q on call %d", got, i)
+}
+
+// The answer has to hold still across a commit that adds an instance. Naming a
+// claimant did not: the first-in-sorted-order tiebreak moved from
+// channel/runner to channel/adminui the moment adminui existed, and the model
+// diff then reported every kind under `channel` as changed against a base that
+// declared none of them differently — including the ones only slack declares.
+func TestOwnerOfHoldsWhenAnInstanceSortingFirstJoins(t *testing.T) {
+	instance := func(id string) *Component {
+		c := comp(id, "channel")
+		c.Source = SourceAsyncAPI
+		return c
+	}
+	before := model(instance("channel/runner"), instance("channel/slack"))
+	after := model(instance("channel/adminui"), instance("channel/runner"), instance("channel/slack"))
+
+	for _, kind := range []string{"channel.command.message.send", "channel.event.slack.delivery.failed"} {
+		was, now := OwnerOf(before, kind), OwnerOf(after, kind)
+		if was != now {
+			t.Errorf("owner of %s moved from %q to %q when an instance joined", kind, was, now)
 		}
 	}
 }

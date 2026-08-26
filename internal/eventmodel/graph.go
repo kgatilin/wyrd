@@ -148,16 +148,15 @@ func BuildGraph(m *Model) *Graph {
 	// one address per instance.
 	subjects := make(map[string][]string, len(patternDecls))
 	for kind, decls := range patternDecls {
-		patterns[kind] = decls[0].Pattern
-		subjects[kind] = distinctPatterns(decls)
-		if imported[kind] {
-			continue
-		}
-		for _, d := range decls[1:] {
-			if d.Pattern != decls[0].Pattern {
-				patternConflict[kind] = true
-				break
-			}
+		all := distinctPatterns(decls)
+		subjects[kind] = all
+		// The first of the sorted set rather than of the declaration order:
+		// where the set holds one address the two are the same, and where it
+		// holds several the declaration order is the component order, which
+		// moves under a component this kind has nothing to do with.
+		patterns[kind] = all[0]
+		if !imported[kind] && len(all) > 1 {
+			patternConflict[kind] = true
 		}
 	}
 
@@ -222,8 +221,23 @@ func BuildGraph(m *Model) *Graph {
 			"delivery":         string(delivery),
 		}
 		if pattern := patterns[kind]; pattern != "" {
-			attrs["pattern"] = pattern
-			if all := subjects[kind]; len(all) > 1 {
+			all := subjects[kind]
+			// An imported kind on more than one address has no canonical one.
+			// A port family puts it on one address per instance by
+			// construction, so the first declared address is the first
+			// instance in sorted order and nothing more — publishing it as
+			// `pattern` states that the kind travels there, which is a
+			// quarter true with four instances, and moves it to a different
+			// instance the moment one sorts ahead of the old first. Subjects
+			// is the whole answer, and it is the one below.
+			//
+			// Where addresses disagree by mistake — a native declaration — the
+			// pick stays, next to the pattern_conflict flag that says it is a
+			// pick.
+			if len(all) <= 1 || !imported[kind] {
+				attrs["pattern"] = pattern
+			}
+			if len(all) > 1 {
 				attrs["subjects"] = all
 			}
 			if part, ok := declaredPartition[kind]; ok {
@@ -527,6 +541,12 @@ func parseCrossComponentRef(ref string) (compID, name string, ok bool) {
 // ID helpers for graph nodes.
 // distinctPatterns lists the addresses a kind was declared at, once each, in
 // the order the declarations were read.
+// distinctPatterns is the set of addresses a kind was declared at, sorted.
+//
+// Sorted because it is a set and the reader reads it as one: the order
+// declarations arrive in is the order their components sort in, which is a
+// fact about the component list rather than about the addresses, and letting
+// it through means a new component reorders a list nothing else changed.
 func distinctPatterns(decls []patternDecl) []string {
 	out := make([]string, 0, len(decls))
 	seen := make(map[string]bool, len(decls))
@@ -537,6 +557,7 @@ func distinctPatterns(decls []patternDecl) []string {
 		seen[d.Pattern] = true
 		out = append(out, d.Pattern)
 	}
+	sort.Strings(out)
 	return out
 }
 

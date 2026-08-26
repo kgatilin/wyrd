@@ -389,6 +389,82 @@ func TestBuildGraphNoPatternConflictFlagWhenConsistent(t *testing.T) {
 	t.Fatal("kind node not found")
 }
 
+// A kind a port family puts on one address per instance has no canonical
+// address, and the projection must not publish one. The first declared address
+// is the first instance in sorted order and nothing more: it says the kind
+// travels there, which is a third true with three instances, and it moves to a
+// different instance the moment one sorts ahead of the old first — which is
+// how a commit adding channel/adminui reported every kind under `channel` as
+// changed. Subjects carries the whole answer, sorted, so a reader and a diff
+// both see a set rather than an arrival order.
+func TestBuildGraphOmitsTheAddressOfAnImportedKindThatTravelsSeveral(t *testing.T) {
+	const kind = "channel.command.message.send"
+	instance := func(name string) *Component {
+		c := comp("channel/"+name, "channel")
+		c.Source = SourceAsyncAPI
+		c.Inputs = []Slot{{Kind: kind, Pattern: "app.{tenant}.channel." + name + ".thread.{thread}.command.message.send"}}
+		return c
+	}
+
+	subjectsOf := func(t *testing.T, m *Model) []string {
+		t.Helper()
+		g := BuildGraph(m)
+		for _, n := range g.Nodes {
+			if n.ID != kindID(kind) {
+				continue
+			}
+			if pattern, ok := n.Attrs["pattern"]; ok {
+				t.Errorf("pattern = %v, want none for a kind on several addresses", pattern)
+			}
+			subjects, _ := n.Attrs["subjects"].([]string)
+			return subjects
+		}
+		t.Fatal("kind node not found")
+		return nil
+	}
+
+	before := subjectsOf(t, model(instance("runner"), instance("slack")))
+	want := []string{
+		"app.{tenant}.channel.runner.thread.{thread}.command.message.send",
+		"app.{tenant}.channel.slack.thread.{thread}.command.message.send",
+	}
+	if !reflect.DeepEqual(before, want) {
+		t.Fatalf("subjects = %v, want %v", before, want)
+	}
+
+	// Adding an instance adds its address and moves nothing else.
+	after := subjectsOf(t, model(instance("adminui"), instance("runner"), instance("slack")))
+	want = append([]string{"app.{tenant}.channel.adminui.thread.{thread}.command.message.send"}, want...)
+	if !reflect.DeepEqual(after, want) {
+		t.Errorf("subjects after the instance joined = %v, want %v", after, want)
+	}
+}
+
+// One address is still an address: a kind that travels one keeps it, and a
+// reader of a single-instance component sees the subject rather than a
+// one-entry list.
+func TestBuildGraphKeepsTheAddressOfAnImportedKindThatTravelsOne(t *testing.T) {
+	const kind = "tools.command.call"
+	c := comp("tools/datetime", "tools")
+	c.Source = SourceAsyncAPI
+	c.Inputs = []Slot{{Kind: kind, Pattern: "app.{tenant}.tools.datetime.call.{call}.command.call"}}
+
+	g := BuildGraph(model(c))
+	for _, n := range g.Nodes {
+		if n.ID != kindID(kind) {
+			continue
+		}
+		if got := n.Attrs["pattern"]; got != "app.{tenant}.tools.datetime.call.{call}.command.call" {
+			t.Errorf("pattern = %v, want the one address it travels", got)
+		}
+		if subjects, ok := n.Attrs["subjects"]; ok {
+			t.Errorf("subjects = %v, want none when there is one address", subjects)
+		}
+		return
+	}
+	t.Fatal("kind node not found")
+}
+
 // A port family is one kind on one address per instance. A producer that named
 // a single instance reaches that instance — not every sibling that takes the
 // same kind, which is what a kind-name-only rule draws.

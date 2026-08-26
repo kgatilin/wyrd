@@ -108,29 +108,46 @@ func Validate(m *Model) []Finding {
 	return findings
 }
 
-// OwnerOf returns the id of the component that defines the schemas for kind —
-// the claimant of the longest `owns` prefix covering it — or "" when no
-// component claims the namespace. Ownership is definitional authority only: it
-// says nothing about who may emit the kind or who may observe it.
+// OwnerOf returns who defines the schemas for kind — the claimant of the
+// longest `owns` prefix covering it — or "" when no component claims the
+// namespace. Ownership is definitional authority only: it says nothing about
+// who may emit the kind or who may observe it.
+//
 // Two components can claim the same namespace: it is a duplicate-owner error
 // among native declarations, and among imported documents nothing reports it —
 // wyrd reads a published document to draw it, not to grade it. Either way this
-// has to answer, and it answers in sorted order with a strict improvement, so
-// tied claimants resolve to the first id rather than to whichever the map
-// handed over first. The previous map walk made the field flap between two
-// equally valid owners on consecutive requests, which is invisible until
-// something compares two answers — a diff of the model against its own base
-// reported every kind in the tied namespace as changed, at random.
+// has to answer, and where the claim is tied the answer is the namespace
+// itself rather than one of the claimants. A port family is the case that
+// makes that the only honest answer: `channel/adminui`, `channel/runner` and
+// `channel/slack` each claim `channel` by being instances of it, none of them
+// defines `channel.*` for the others, and naming one is a fact about the
+// component list rather than about the schema.
+//
+// Naming one also does not hold still. Picking whichever the map handed over
+// first made the field flap between two equally valid owners on consecutive
+// requests; picking the first in sorted order stopped the flapping but moved
+// the answer the moment a new instance sorted ahead of the old first — adding
+// `channel/adminui` reported every kind in the namespace as changed against a
+// base that declared none of them differently. The namespace moves only when
+// the claim does.
 func OwnerOf(m *Model, kind string) string {
-	owner, bestLen := "", -1
+	owner, bestLen, tied := "", -1, false
 	for _, id := range sortedComponentIDs(m) {
 		comp := m.Components[id]
 		if comp.Owns == "" || !kindHasPrefix(kind, comp.Owns) {
 			continue
 		}
-		if len(comp.Owns) > bestLen {
-			owner, bestLen = id, len(comp.Owns)
+		switch {
+		case len(comp.Owns) > bestLen:
+			owner, bestLen, tied = id, len(comp.Owns), false
+		case len(comp.Owns) == bestLen:
+			// Equal length and both a prefix of one kind means the same
+			// string, so this is a tie on the claim and not a second claim.
+			tied = true
 		}
+	}
+	if tied {
+		return m.Components[owner].Owns
 	}
 	return owner
 }
