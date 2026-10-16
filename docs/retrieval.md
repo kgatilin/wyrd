@@ -113,8 +113,9 @@ its own hits is not a search.
 - **Seeds carry their mass.** Personalization is proportional to the fused
   relevance of each hit, so the top hit pulls the region toward itself and a
   marginal one barely moves it.
-- **Edges are weighted by kind** (`calls` 1.0, `implements` 0.8, `uses`/`returns`
-  0.6). The weight map is also the participation list: a kind it does not name
+- **Edges are weighted by kind** (`calls` 1.0, `references` and `implements`
+  0.8, `uses`/`returns` 0.6). `references` is a function or method named as a
+  value without being called — a constructor handed to a DI container. The weight map is also the participation list: a kind it does not name
   contributes no edge at all.
 - **Hubs are damped.** Each edge is divided by `(d_u·d_v)^τ`, so a path through
   a symbol half the codebase touches costs more than a path between two

@@ -39,6 +39,7 @@ const (
 	// 1:1 so projection back to []Dependency is lossless.
 	EdgeKindUses       EdgeKind = "uses"
 	EdgeKindReturns    EdgeKind = "returns"
+	EdgeKindReferences EdgeKind = "references"
 	EdgeKindImplements EdgeKind = "implements"
 	EdgeKindExtends    EdgeKind = "extends"
 	EdgeKindNestedIn   EdgeKind = "nested-in"

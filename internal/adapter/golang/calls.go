@@ -73,14 +73,20 @@ func (r *reader) extractCalls(pkgs []*packages.Package, models []domain.PackageM
 					continue
 				}
 
-				calls := r.extractCallsFromFuncBody(pkg, fd, loadedTypes, implIndex)
+				calls, refs := r.extractCallsFromFuncBody(pkg, fd, loadedTypes, implIndex)
 
 				// Assign calls to the matching FunctionDef or MethodDef.
 				if fd.Recv == nil {
 					// Package-level function.
 					for i := range model.Functions {
 						if model.Functions[i].Name == fd.Name.Name {
+							fn := model.Functions[i]
 							model.Functions[i].Calls = calls
+							addReferences(model, domain.SymbolRef{
+								Package: model.Path,
+								File:    fn.SourceFile,
+								Symbol:  fn.Name,
+							}, fn.IsExported, refs)
 							break
 						}
 					}
@@ -98,7 +104,13 @@ func (r *reader) extractCalls(pkgs []*packages.Package, models []domain.PackageM
 					}
 					for mi := range model.Structs[si].Methods {
 						if model.Structs[si].Methods[mi].Name == fd.Name.Name {
+							s, m := model.Structs[si], model.Structs[si].Methods[mi]
 							model.Structs[si].Methods[mi].Calls = calls
+							addReferences(model, domain.SymbolRef{
+								Package: model.Path,
+								File:    s.SourceFile,
+								Symbol:  s.Name + "." + m.Name,
+							}, s.IsExported && m.IsExported, refs)
 							break
 						}
 					}
@@ -109,16 +121,43 @@ func (r *reader) extractCalls(pkgs []*packages.Package, models []domain.PackageM
 	}
 }
 
+// addReferences appends one DependencyReferences edge from `from` to each of
+// refs onto the model. A function naming itself (recursion through a value)
+// is not a dependency and is skipped.
+func addReferences(model *domain.PackageModel, from domain.SymbolRef, throughExported bool, refs []domain.SymbolRef) {
+	for _, to := range refs {
+		if to.Package == from.Package && to.Symbol == from.Symbol {
+			continue
+		}
+		model.Dependencies = append(model.Dependencies, domain.Dependency{
+			From:            from,
+			To:              to,
+			Kind:            domain.DependencyReferences,
+			ThroughExported: throughExported,
+		})
+	}
+}
+
 // extractCallsFromFuncBody walks a single FuncDecl body and returns the
-// sorted, deduplicated list of CallEdges it contains.
+// sorted, deduplicated list of CallEdges it contains, plus the in-module
+// functions and methods it names as values without calling them — passed as
+// an argument, assigned, stored in a literal — deduplicated in order of first
+// appearance.
 func (r *reader) extractCallsFromFuncBody(
 	pkg *packages.Package,
 	fd *ast.FuncDecl,
 	loadedTypes map[*types.Package]*packages.Package,
 	implIndex map[string][]domain.SymbolRef,
-) []domain.CallEdge {
+) ([]domain.CallEdge, []domain.SymbolRef) {
 	var edges []domain.CallEdge
 	idxByKey := make(map[string]int)
+
+	var refs []domain.SymbolRef
+	seenRef := make(map[string]bool)
+	// callees holds the name in the callee position of every call seen so
+	// far. The walk is pre-order, so a call is visited before its callee
+	// name and that name is never read as a reference.
+	callees := make(map[*ast.Ident]bool)
 
 	addEdge := func(e domain.CallEdge) {
 		// Skip self-referential empty symbols.
@@ -139,9 +178,25 @@ func (r *reader) extractCallsFromFuncBody(
 	}
 
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if ident, ok := n.(*ast.Ident); ok {
+			if callees[ident] {
+				return true
+			}
+			if ref, ok := r.referencedFunc(pkg, ident, loadedTypes); ok {
+				key := ref.Package + "." + ref.Symbol
+				if !seenRef[key] {
+					seenRef[key] = true
+					refs = append(refs, ref)
+				}
+			}
+			return true
+		}
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
+		}
+		if name := calleeName(call.Fun); name != nil {
+			callees[name] = true
 		}
 
 		switch fun := call.Fun.(type) {
@@ -163,7 +218,74 @@ func (r *reader) extractCallsFromFuncBody(
 	sort.Slice(edges, func(i, j int) bool {
 		return edges[i].Order < edges[j].Order
 	})
-	return edges
+	return edges, refs
+}
+
+// calleeName returns the identifier that names the function a call invokes —
+// `F` in `F()`, `pkg.F()`, `x.M()`, `F[T]()` — or nil when the callee is an
+// expression with no name of its own (a call result, a func literal).
+func calleeName(fun ast.Expr) *ast.Ident {
+	for {
+		switch e := fun.(type) {
+		case *ast.ParenExpr:
+			fun = e.X
+		case *ast.IndexExpr:
+			fun = e.X
+		case *ast.IndexListExpr:
+			fun = e.X
+		case *ast.SelectorExpr:
+			return e.Sel
+		case *ast.Ident:
+			return e
+		default:
+			return nil
+		}
+	}
+}
+
+// referencedFunc resolves an identifier that names an in-module function or
+// concrete method to the symbol a references edge points at: `F` for a
+// function, `Recv.M` for a method value or method expression. A method of an
+// interface is left out — its implementations are what runs, and a value
+// gives no call site to fan out from.
+func (r *reader) referencedFunc(
+	pkg *packages.Package,
+	ident *ast.Ident,
+	loadedTypes map[*types.Package]*packages.Package,
+) (domain.SymbolRef, bool) {
+	fn, ok := pkg.TypesInfo.Uses[ident].(*types.Func)
+	if !ok || fn.Pkg() == nil {
+		return domain.SymbolRef{}, false
+	}
+	targetPkg, loaded := loadedTypes[fn.Pkg()]
+	if !loaded {
+		return domain.SymbolRef{}, false
+	}
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok {
+		return domain.SymbolRef{}, false
+	}
+	owner := fn.Name()
+	symbol := fn.Name()
+	if recv := sig.Recv(); recv != nil {
+		t := recv.Type()
+		if ptr, ok := t.(*types.Pointer); ok {
+			t = ptr.Elem()
+		}
+		if _, isIface := t.Underlying().(*types.Interface); isIface {
+			return domain.SymbolRef{}, false
+		}
+		owner = recvTypeName(t)
+		if owner == "" {
+			return domain.SymbolRef{}, false
+		}
+		symbol = owner + "." + fn.Name()
+	}
+	return domain.SymbolRef{
+		Package: r.relativePath(fn.Pkg().Path()),
+		File:    r.findSymbolFile(targetPkg, owner),
+		Symbol:  symbol,
+	}, true
 }
 
 // handleIdentCall resolves a bare identifier call like `Foo()` and emits an

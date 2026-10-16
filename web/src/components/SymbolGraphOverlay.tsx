@@ -384,6 +384,7 @@ function LinkRow({ link, onWalk }: { link: NeighborLink; onWalk: (target: Symbol
 function relClass(kind: string): string {
   if (kind === 'implements') return 'implements';
   if (kind === 'calls') return 'calls';
+  if (kind === 'references') return 'references';
   if (kind === 'returns') return 'returns';
   return 'uses';
 }

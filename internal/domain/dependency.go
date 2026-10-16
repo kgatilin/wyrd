@@ -12,6 +12,13 @@ const (
 	// DependencyReturns indicates a symbol returns another type.
 	DependencyReturns DependencyKind = "returns"
 
+	// DependencyReferences indicates a function or method body names a
+	// function or method as a value without calling it: passed as an
+	// argument, assigned, stored in a literal. Whoever receives the value
+	// calls it, so the dependency is real but no call edge records it — a
+	// constructor wired in through DI would otherwise have no callers.
+	DependencyReferences DependencyKind = "references"
+
 	// DependencyImplements indicates a struct implements an interface.
 	DependencyImplements DependencyKind = "implements"
 

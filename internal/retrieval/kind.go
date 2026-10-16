@@ -89,7 +89,7 @@ func UnknownKinds(kinds []string) []string {
 }
 
 // edgeKinds is every edge kind a traversal may be restricted to.
-var edgeKinds = []EdgeKind{EdgeUses, EdgeReturns, EdgeImplements, EdgeCalls, EdgeContains}
+var edgeKinds = []EdgeKind{EdgeUses, EdgeReturns, EdgeImplements, EdgeCalls, EdgeReferences, EdgeContains}
 
 // EdgeKinds returns the edge kinds expand accepts.
 func EdgeKinds() []string {

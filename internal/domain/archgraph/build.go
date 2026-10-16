@@ -693,6 +693,8 @@ func dependencyKindToEdgeKind(k domain.DependencyKind) EdgeKind {
 		return EdgeKindUses
 	case domain.DependencyReturns:
 		return EdgeKindReturns
+	case domain.DependencyReferences:
+		return EdgeKindReferences
 	case domain.DependencyImplements:
 		return EdgeKindImplements
 	case domain.DependencyExtends:

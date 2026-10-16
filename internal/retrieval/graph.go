@@ -16,6 +16,11 @@ const (
 	EdgeImplements EdgeKind = "implements"
 	EdgeCalls      EdgeKind = "calls"
 
+	// EdgeReferences is a function or method named as a value without being
+	// called — handed to whoever calls it later, as a constructor is to a DI
+	// container. It is wiring, not a call: a sequence never draws it.
+	EdgeReferences EdgeKind = "references"
+
 	// EdgeContains ties a type to the methods declared on it. It is
 	// structural, not behavioural: the diffusion deliberately leaves it out
 	// (DefaultParams gives it no weight, and diffusionEdges reads that as "no
@@ -204,6 +209,8 @@ func dependencyKindToEdgeKind(kind domain.DependencyKind) EdgeKind {
 		return EdgeUses
 	case domain.DependencyReturns:
 		return EdgeReturns
+	case domain.DependencyReferences:
+		return EdgeReferences
 	case domain.DependencyImplements:
 		return EdgeImplements
 	default:

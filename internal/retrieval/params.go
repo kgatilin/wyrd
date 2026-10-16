@@ -59,6 +59,7 @@ func DefaultParams() Params {
 		HubDamping:       0.25,
 		EdgeKindWeights: map[string]float64{
 			"calls":      1.0,
+			"references": 0.8,
 			"implements": 0.8,
 			"uses":       0.6,
 			"returns":    0.6,

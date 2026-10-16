@@ -1783,6 +1783,13 @@ body {
   background: var(--accent);
 }
 .hf-symbol-rel.calls { background: var(--syn-fn); }
+/* Named as a value, called by whoever receives it: the call colour, outlined. */
+.hf-symbol-rel.references {
+  background: transparent;
+  color: var(--syn-fn);
+  border: 1px dashed var(--syn-fn);
+  padding: 0 3px;
+}
 .hf-symbol-rel.returns { background: var(--syn-var); }
 .hf-symbol-rel.uses { background: var(--fg-2); }
 .hf-symbol-rel.implements {

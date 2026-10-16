@@ -1547,6 +1547,41 @@ func buildRelations(
 			)
 		}
 
+		// A function named as a value is recorded on the package's
+		// dependencies, not on a signature or a call list, so it is the one
+		// dependency kind read from there.
+		for _, dep := range model.Dependencies {
+			if dep.Kind != domain.DependencyReferences || dep.To.External {
+				continue
+			}
+			fromInternalID, fromMemberID := relationSymbolIDs(dep.From.Package, dep.From.Symbol)
+			toInternalID, toMemberID := relationSymbolIDs(dep.To.Package, dep.To.Symbol)
+			if fromInternalID == "" || toInternalID == "" {
+				continue
+			}
+			fromID, fromPublic := fromInternalID, publicIndex.HasSymbolID(fromInternalID)
+			if fromMemberID != "" {
+				fromID, fromPublic = fromMemberID, publicIndex.HasMemberID(fromMemberID)
+			}
+			toID, toPublic := toInternalID, publicIndex.HasSymbolID(toInternalID)
+			if toMemberID != "" {
+				toID, toPublic = toMemberID, publicIndex.HasMemberID(toMemberID)
+			}
+			add(SymbolRelation{
+				ID:              relationID(string(dep.Kind), fromID, toID),
+				Kind:            string(dep.Kind),
+				FromComponentID: dep.From.Package,
+				FromInternalID:  fromInternalID,
+				FromMemberID:    fromMemberID,
+				FromLabel:       dep.From.Symbol,
+				ToComponentID:   dep.To.Package,
+				ToInternalID:    toInternalID,
+				ToMemberID:      toMemberID,
+				ToLabel:         dep.To.Symbol,
+				Public:          fromPublic && toPublic,
+			})
+		}
+
 		for _, impl := range model.Implementations {
 			fromInternalID, _ := relationSymbolIDs(impl.Concrete.Package, impl.Concrete.Symbol)
 			toInternalID, _ := relationSymbolIDs(impl.Interface.Package, impl.Interface.Symbol)

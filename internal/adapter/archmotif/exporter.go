@@ -583,6 +583,8 @@ func mapDependencyKind(k domain.DependencyKind) (archmotifimport.DependencyKind,
 		return archmotifimport.DependencyUsesType, true
 	case domain.DependencyReturns:
 		return archmotifimport.DependencyReturns, true
+	case domain.DependencyReferences:
+		return archmotifimport.DependencyReferences, true
 	case domain.DependencyExtends:
 		return archmotifimport.DependencyEmbeds, true
 	case domain.DependencyNestedIn:

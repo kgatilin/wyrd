@@ -83,7 +83,8 @@ export const UNKNOWN_SOURCE_FILE = '(unknown)';
  * Relation kinds the diagram draws, matching what the D2 writer emits:
  * intra-package dependencies plus implementations.
  *
- * `calls` is deliberately absent. It is by far the largest kind the projection
+ * `calls` is deliberately absent, and `references` (a function named as a
+ * value) with it, for the same reason. It is by far the largest kind the projection
  * produces — more than half of every relation in a real repository — and it
  * says "this body invokes that function", which is a level of detail the
  * structural diagram is not about. The symbol wiring overlay still shows call

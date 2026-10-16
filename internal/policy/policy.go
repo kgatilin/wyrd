@@ -133,7 +133,7 @@ const (
 // does not yet enforce them.
 func dependencyKindKnown(k string) bool {
 	switch domain.DependencyKind(k) {
-	case domain.DependencyUses, domain.DependencyReturns,
+	case domain.DependencyUses, domain.DependencyReturns, domain.DependencyReferences,
 		domain.DependencyImplements, domain.DependencyExtends,
 		domain.DependencyNestedIn:
 		return true

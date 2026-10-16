@@ -11,4 +11,4 @@ package golang
 // domain.PackageModel needs no bump; the model store fingerprints the shape
 // itself. A change left unbumped is served from the models the previous
 // reader stored, and reads as a fix that did not take effect.
-const ModelVersion = 1
+const ModelVersion = 2

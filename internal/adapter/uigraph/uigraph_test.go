@@ -702,6 +702,50 @@ func TestProjectEmitsCallRelations(t *testing.T) {
 	}
 }
 
+func TestProjectEmitsReferenceRelationsFromMembers(t *testing.T) {
+	models := []domain.PackageModel{
+		{
+			Path: "app",
+			Name: "app",
+			Structs: []domain.StructDef{{
+				Name:       "Runner",
+				SourceFile: "runner.go",
+				Methods:    []domain.MethodDef{{Name: "Start"}},
+			}},
+			Dependencies: []domain.Dependency{{
+				From: domain.SymbolRef{Package: "app", Symbol: "Runner.Start"},
+				To:   domain.SymbolRef{Package: "store", Symbol: "NewBackend"},
+				Kind: domain.DependencyReferences,
+			}},
+		},
+		{
+			Path:      "store",
+			Name:      "store",
+			Functions: []domain.FunctionDef{{Name: "NewBackend", SourceFile: "factory.go"}},
+		},
+	}
+
+	g, err := Project(models, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	relationID := "r:references:app.Runner.Start->store.NewBackend"
+	for _, relation := range g.Relations {
+		if relation.ID != relationID {
+			continue
+		}
+		if relation.FromInternalID != "app.Runner" || relation.FromMemberID != "app.Runner.Start" {
+			t.Errorf("from = %q / %q, want app.Runner / app.Runner.Start", relation.FromInternalID, relation.FromMemberID)
+		}
+		if relation.ToInternalID != "store.NewBackend" || relation.ToComponentID != "store" {
+			t.Errorf("to = %q in %q, want store.NewBackend in store", relation.ToInternalID, relation.ToComponentID)
+		}
+		return
+	}
+	t.Fatalf("missing reference relation %q in %+v", relationID, g.Relations)
+}
+
 func TestProjectMarksAddedDependencyEdge(t *testing.T) {
 	dep := domain.Dependency{
 		From: domain.SymbolRef{Package: "app", Symbol: "Service"},
