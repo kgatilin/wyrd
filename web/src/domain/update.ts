@@ -266,6 +266,19 @@ function chromeSlice(state: AppState, event: Event): AppState {
           activeChangeId: null,
         },
       };
+    // Diff view: the changed packages, narrowed to what changed in them.
+    // Full view: every package, drawn whole. The diff marks stay either way.
+    case 'ReviewFullViewChanged':
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          reviewImpactMode: event.full ? 'repository' : 'changed_only',
+          changedDetailsOnly: !event.full,
+          focusId: null,
+          activeChangeId: null,
+        },
+      };
     case 'ReviewDefaultsLoaded':
       return applyReviewDefaults(state, event.key, event.defaults);
     case 'CardDensityChanged':

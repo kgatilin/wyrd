@@ -96,8 +96,10 @@ func getReport(t *testing.T, ts *httptest.Server, header string) {
 // The endpoint caches the report, so it has to be wired to the one signal the
 // daemon has that the working tree moved. A cache that keeps answering across a
 // model change would put the panel and the canvas on different working trees —
-// the trap the file diff already documents.
-func TestArchMotifReportRebuildsAfterAModelEvent(t *testing.T) {
+// the trap the file diff already documents. The event only forgets the report:
+// rebuilding it in the background cost every worktree a graph build per edit for
+// a panel that is rarely open.
+func TestArchMotifReportDropsOnAModelEventAndWaitsToBeAsked(t *testing.T) {
 	ts, state, srv := newReportTestServer(t)
 	key := reportKey{baseRef: defaultReviewBaseRef}
 
@@ -115,6 +117,15 @@ func TestArchMotifReportRebuildsAfterAModelEvent(t *testing.T) {
 			t.Fatal("a model event left the cached report in place; the next read would be stale")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if cachedReport(srv, key) != nil {
+		t.Fatal("a model event started a build nobody asked for")
+	}
+
+	getReport(t, ts, "")
+	if cachedReport(srv, key) == nil {
+		t.Fatal("the next open did not build the report")
 	}
 }
 

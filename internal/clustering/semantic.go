@@ -1,6 +1,7 @@
 package clustering
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -9,11 +10,13 @@ import (
 	"github.com/kgatilin/archmotif/pkg/archmotifimport"
 )
 
-// Vectors looks up an embedding by retrieval node id. Declared here, on the
-// consumer side, so the analyses depend on the lookup and not on the retrieval
-// service that happens to provide it.
+// Vectors looks up embeddings by retrieval node id, for a whole node set at
+// once: the store behind it may be remote, and one round trip per symbol
+// would make a lens cost a request per node. An id without an embedding is
+// absent from the map. Declared here, on the consumer side, so the analyses
+// depend on the lookup and not on the retrieval service that provides it.
 type Vectors interface {
-	Vector(id string) ([]float32, bool)
+	Vectors(ctx context.Context, ids []string) (map[string][]float32, error)
 }
 
 // SemanticNode is one selected symbol with the embedding that puts it on the
@@ -46,22 +49,29 @@ func RetrievalID(amid string) string {
 // given, and reports how many were dropped for want of one. Both sides of a
 // two-way comparison run on the surviving set: comparing partitions over
 // different node sets measures nothing.
-func SemanticNodes(archmotifIDs []string, vectors Vectors) (nodes []SemanticNode, dropped int) {
+func SemanticNodes(ctx context.Context, archmotifIDs []string, vectors Vectors) (nodes []SemanticNode, dropped int, err error) {
+	rids := make([]string, 0, len(archmotifIDs))
+	for _, amid := range archmotifIDs {
+		if rid := RetrievalID(amid); rid != "" {
+			rids = append(rids, rid)
+		}
+	}
+	byID, err := vectors.Vectors(ctx, rids)
+	if err != nil {
+		return nil, 0, fmt.Errorf("fetching embeddings: %w", err)
+	}
+
 	nodes = make([]SemanticNode, 0, len(archmotifIDs))
 	for _, amid := range archmotifIDs {
 		rid := RetrievalID(amid)
-		if rid == "" {
-			dropped++
-			continue
-		}
-		vec, ok := vectors.Vector(rid)
-		if !ok || len(vec) == 0 {
+		vec := byID[rid]
+		if rid == "" || len(vec) == 0 {
 			dropped++
 			continue
 		}
 		nodes = append(nodes, SemanticNode{ArchmotifID: amid, RetrievalID: rid, Vec: vec})
 	}
-	return nodes, dropped
+	return nodes, dropped, nil
 }
 
 // SemanticGraph builds a graph whose edges are embedding similarity: every node

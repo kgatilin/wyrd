@@ -57,7 +57,26 @@ Selectors on either side may be comma-lists (`agent -> event, hooks`). The
 
 Everything compiles to operations over the package dependency graph — direct
 rules are adjacency-matrix membership tests, reachability rules are transitive
-closure. This is the archmotif "по матрице" approach, with a richer vocabulary
+closure.
+
+**What is an edge.** Package `u` has an edge to package `v` when either holds:
+
+1. a non-test file of `u` **imports** `v` (`PackageModel.Imports`, recorded by
+   the Go reader). Every import counts — a blank `import _ "…/v"`, a dot
+   import, and an import used only by a call in a function body, a constant, a
+   variable initialised from a call, or a method call on a value whose type is
+   inferred. A Go import is the package dependency, so this is the primary
+   source of edges;
+2. a symbol of `u` has a **symbol dependency** on a symbol of `v`
+   (`PackageModel.Dependencies`: a type in a signature, a struct field, a type
+   referenced in a body). For code read from source this adds nothing beyond
+   the imports; it keeps a model read from an older `.arch` file, written
+   before imports were recorded, evaluating as it did.
+
+Only in-module packages that were actually scanned are nodes: an import of the
+standard library, a third-party module, or a package outside a scoped scan is
+not an edge. Imports made only by `_test.go` files are not edges. The edge kind
+of an import is named `imports` in a `(kinds)` qualifier. This is the archmotif "по матрице" approach, with a richer vocabulary
 than a single grid. archmotif's `graphval` (already a dependency) provides the
 matrix-algebra reachability primitives; iteration 1 uses a BFS for path
 extraction so violations can show an example offending path.
@@ -194,10 +213,18 @@ sub-tree) so strict inversion reports only the cross-component coupling.
   the raw rule strings (`deny_by_default`, `allow`, `forbid`, `reachability`).
   `overlay` stays a pure schema/loader package with no dependency on the policy
   evaluator (no import cycle).
+- **Model** (`internal/domain`, `internal/adapter/golang`): the Go reader
+  records each package's in-module imports from its non-test files' import
+  declarations as `PackageModel.Imports` (module-relative paths, sorted). The
+  full `.arch/internal.yaml` spec carries them under `imports:`; `pub.yaml`
+  does not. A spec or locked target written before the field existed reads as
+  no imports, and `diff` does not compare imports, so an old target shows no
+  drift from it.
 - **Engine** (`internal/policy`, new): parses the DSL, resolves selectors to
-  package sets against `Config.Layers` + globs, evaluates rules over the package
-  dependency graph, returns `[]Violation`. Depends on `domain`, `overlay`, and
-  `archmotif/pkg/graphval`.
+  package sets against `Config.Layers` + globs, builds the package graph from
+  each model's `Imports` plus the target packages of its `Dependencies`,
+  evaluates rules over it, returns `[]Violation`. Depends on `domain`,
+  `overlay`, and `archmotif/pkg/graphval`.
 - **Surfaces**:
   - CLI `archai policy check [packages…]` — reads the Go model, applies
     `overlay.Merge` (layer annotation), runs the engine, prints violations,
@@ -222,8 +249,9 @@ absent, behavior is unchanged.
   Package-level granularity. Operators `->`, `!->`, `!~>`, `~> via`. Total
   deny-by-default. The `(kinds)` qualifier parses but is ignored (config is
   forward-compatible). Unit-tested on synthetic models.
-- **Iteration 2:** edge-kind qualifiers — `(type)` / `(calls)` / `(implements)`
-  restrict a rule to those `domain.DependencyKind` edges, the feature that beats
+- **Iteration 2:** edge-kind qualifiers — `(imports)` / `(type)` / `(calls)` /
+  `(implements)` restrict a rule to those edges (`imports` is the import edge,
+  the others `domain.DependencyKind` symbol edges), the feature that beats
   go-arch-lint (forbid behavioral coupling while permitting type reference). MCP
   `policy` tool. Wire the engine into the review UI.
 - **Same-component allowance (implemented):** `components:` roots define cohesion

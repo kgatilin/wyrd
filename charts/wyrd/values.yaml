@@ -1,0 +1,201 @@
+# Values of the wyrd chart. Every value is documented where it is set; the
+# README next to this file has the walk-through.
+
+image:
+  repository: ghcr.io/kgatilin/wyrd
+  # tag defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# The repository wyrd serves. The chart does not put it there: the checkout
+# is expected at repo.path on the data volume, written by whatever your
+# platform uses to keep a branch checked out — see sync below. wyrd watches
+# the directory and follows what changes in it.
+repo:
+  path: /data/repo
+  # The reader runs `go list`, which downloads the repository's modules into
+  # the data volume. Private modules need a proxy or credentials: set them
+  # with extraEnv (GOPROXY, GOPRIVATE, GONOSUMDB, ...).
+
+# Containers that keep repo.path checked out, in the pod's own terms. The
+# data volume is named "data". Both lists are templated, so they may refer
+# to .Values and .Release.
+sync:
+  # Runs before wyrd starts; wyrd does not start without a checkout.
+  initContainers: []
+  # Runs next to wyrd, for the periodic fetch.
+  containers: []
+  # Example (https://github.com/kubernetes/git-sync):
+  # containers:
+  #   - name: git-sync
+  #     image: registry.k8s.io/git-sync/git-sync:v4.4.0
+  #     args: ["--repo=https://example.com/acme/shop.git", "--ref=main",
+  #            "--root=/data/git", "--link=/data/repo", "--period=60s"]
+  #     volumeMounts: [{name: data, mountPath: /data}]
+
+embedder:
+  # vertex | openai | ollama. The chart refuses noop when requireRemote is on.
+  provider: vertex
+  # Model name; empty takes the provider's default.
+  model: ""
+  # Output dimensionality. Required for vertex (768, 1536 or 3072 for
+  # gemini-embedding-001); it is also the dimension the collection is created
+  # with. Leave 0 for a provider whose model fixes it: the collection
+  # bootstrap then asks the embedder for one vector to find out.
+  dim: 768
+  # Requests in flight; empty takes the provider's default.
+  concurrency: ""
+  # Base URL, for openai-compatible and ollama servers.
+  endpoint: ""
+  vertex:
+    # Google Cloud project the requests are billed to. Required for vertex.
+    project: ""
+    location: global
+    # A Secret holding a service-account key or other ADC JSON, for clusters
+    # without workload identity. Leave name empty on GKE with workload
+    # identity (see serviceAccount.annotations) or wherever the pod has an
+    # attached identity.
+    credentialsSecret:
+      name: ""
+      key: credentials.json
+  # Secret with the API key of an openai-compatible provider.
+  apiKeySecret:
+    name: ""
+    key: api-key
+
+# The bundled Qdrant (the qdrant/qdrant chart). Everything under this key
+# except "enabled" is passed to it; see that chart's values for persistence,
+# resources and API keys. Set enabled to false to use a Qdrant you already
+# run, and fill qdrantConnection.url.
+qdrant:
+  enabled: true
+  replicaCount: 1
+  persistence:
+    size: 5Gi
+
+qdrantConnection:
+  # Base URL of an existing Qdrant, e.g. http://qdrant.search:6333. Required
+  # when qdrant.enabled is false; ignored otherwise.
+  url: ""
+  # One repository per collection keeps BM25's term statistics exact.
+  collection: wyrd
+  # Secret with the token wyrd reads and writes points with. It needs no
+  # right to create a collection.
+  apiKeySecret:
+    name: ""
+    key: api-key
+  # Create the collection before wyrd starts, if it is missing, and verify
+  # it either way. Runs as an init container on every start and changes
+  # nothing once the collection exists.
+  bootstrap:
+    enabled: true
+    # Secret with a token that may create a collection; empty uses
+    # apiKeySecret.
+    adminApiKeySecret:
+      name: ""
+      key: api-key
+
+# Fail the start, and the readiness probe, when the embedder or Qdrant cannot
+# be used, instead of degrading to local files and no embeddings. Turning it
+# off makes the pod's disk the index of last resort.
+requireRemote: true
+
+# Bearer token required by the MCP endpoint (/w/<name>/mcp). The review UI
+# and the read APIs are not covered by it: put those behind your ingress's
+# authentication. Leave name empty to leave MCP open inside the cluster.
+mcpAuth:
+  tokenSecret:
+    name: ""
+    key: token
+
+# The data volume: the checkout, wyrd's parsed models and the Go module
+# cache. All of it can be rebuilt; the search index is in Qdrant.
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+  # Use a claim that exists instead of creating one.
+  existingClaim: ""
+  annotations: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  # GKE workload identity:
+  #   iam.gke.io/gcp-service-account: wyrd@PROJECT.iam.gserviceaccount.com
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+# Optional. wyrd has no login of its own: point the annotations at the
+# authenticating proxy your ingress controller already uses.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: wyrd.example.com
+      # wyrd serves the UI at /w/<name>/review/ with its API and assets under
+      # the same /w/<name>/ prefix. On a host shared with another application
+      # list the paths wyrd owns instead of "/": /w, /review, /api, /plugins.
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: wyrd-tls
+  #    hosts: [wyrd.example.com]
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    memory: 4Gi
+
+# The first start parses the repository and downloads its modules before the
+# listener answers; this is how long that may take (failureThreshold x
+# periodSeconds).
+startupProbe:
+  periodSeconds: 10
+  failureThreshold: 90
+readinessProbe:
+  periodSeconds: 15
+  timeoutSeconds: 12
+  failureThreshold: 2
+livenessProbe:
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+podAnnotations: {}
+podLabels: {}
+# fsGroup makes the data volume writable by the image's user (10001) and by
+# a sync container running as another one.
+podSecurityContext:
+  fsGroup: 10001
+  fsGroupChangePolicy: OnRootMismatch
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Added to the wyrd container (and to the bootstrap init container).
+extraEnv: []
+extraEnvFrom: []
+extraVolumes: []
+extraVolumeMounts: []

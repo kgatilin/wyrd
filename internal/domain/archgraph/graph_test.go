@@ -2,9 +2,9 @@ package archgraph_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"testing"
 
 	"github.com/kgatilin/wyrd/internal/adapter/golang"
@@ -116,6 +116,8 @@ func synthModule() []domain.PackageModel {
 				ThroughExported: true,
 			},
 		},
+		// An imported package outside the slice must round-trip too.
+		Imports: []string{pkgB, "example.com/m/internal/clock"},
 		Implementations: []domain.Implementation{
 			{
 				Concrete:  domain.SymbolRef{Package: pkgA, File: "service.go", Symbol: "userServiceImpl"},
@@ -326,17 +328,15 @@ func hasEdge(g *archgraph.Graph, from, to string, kind archgraph.EdgeKind) bool 
 	return false
 }
 
-// repoRootFromTest walks up from the test file location to find the
-// wyrd repo root (containing go.mod). Returns the absolute path.
+// repoRootFromTest returns the absolute path of the wyrd repo root.
 func repoRootFromTest(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatalf("runtime.Caller failed")
-	}
-	// file is .../internal/domain/archgraph/graph_test.go;
+	// go test runs in the package directory: internal/domain/archgraph;
 	// repo root is three dirs up.
-	dir := filepath.Dir(file)
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
 	for i := 0; i < 3; i++ {
 		dir = filepath.Dir(dir)
 	}

@@ -8,7 +8,7 @@ import (
 
 	"github.com/kgatilin/wyrd/internal/adapter/embed/noop"
 	"github.com/kgatilin/wyrd/internal/adapter/lindex/bm25"
-	"github.com/kgatilin/wyrd/internal/adapter/vindex/brute"
+	"github.com/kgatilin/wyrd/internal/adapter/vindex/vecstore"
 	"github.com/kgatilin/wyrd/internal/domain"
 )
 
@@ -103,8 +103,7 @@ type FooService struct {}
 	}
 
 	// Create service WITHOUT a working embedder (nil embedder simulates unavailable)
-	lidx := bm25.New()
-	svc := NewService(tmpDir, nil, nil, lidx) // nil embedder and vindex
+	svc := NewService(tmpDir, NewCorpus(nil, nil, bm25.New(), "")) // no dense channel
 
 	// Build test model
 	models := []domain.PackageModel{
@@ -177,9 +176,7 @@ type BarHandler struct {}
 
 	// Create service with noop embedder
 	emb := noop.New()
-	vidx := brute.New(emb.ID(), emb.Dim())
-	lidx := bm25.New()
-	svc := NewService(tmpDir, emb, vidx, lidx)
+	svc := NewService(tmpDir, NewCorpus(emb, vecstore.New("", Recipe(emb.ID())), bm25.New(), ""))
 
 	// Build test model
 	models := []domain.PackageModel{
@@ -250,9 +247,7 @@ func MyFunc() string {
 
 	// Create service
 	emb := noop.New()
-	vidx := brute.New(emb.ID(), emb.Dim())
-	lidx := bm25.New()
-	svc := NewService(tmpDir, emb, vidx, lidx)
+	svc := NewService(tmpDir, NewCorpus(emb, vecstore.New("", Recipe(emb.ID())), bm25.New(), ""))
 
 	// Build model with span pointing to function body
 	funcStart := len("package test\n\n// MyFunc does something.\n")
@@ -317,9 +312,7 @@ func TestSearchFilters(t *testing.T) {
 	}
 
 	emb := noop.New()
-	vidx := brute.New(emb.ID(), emb.Dim())
-	lidx := bm25.New()
-	svc := NewService(tmpDir, emb, vidx, lidx)
+	svc := NewService(tmpDir, NewCorpus(emb, vecstore.New("", Recipe(emb.ID())), bm25.New(), ""))
 
 	models := []domain.PackageModel{
 		{

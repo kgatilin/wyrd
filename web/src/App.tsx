@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useState, useMemo, useRef } from 'react';
-import type { UIGraph, Component as ComponentType, ReviewGrouping } from './types';
+import type { UIGraph, Component as ComponentType } from './types';
 import { createAppStore } from './runtime/createAppStore';
 import { StoreProvider, useStore, useDispatch, useStoreApi } from './runtime/react';
 import type { DomViewport } from './adapters/domViewport';
 import { askProjectionOf, groupAskHits } from './domain/ask';
-import { relatedIds, deriveChanges, deriveChangeStats, selectReviewGraph, type ReviewSelectionOptions } from './domain/derive';
+import { relatedIds, deriveChanges, deriveChangeStats, selectReviewGraph } from './domain/derive';
 import {
   applyLayoutPins,
   buildLayoutScopeKey,
@@ -207,15 +207,6 @@ function AppContent({
     }),
     [graph, reviewViewId, reviewScopeId, reviewGroupingId, reviewImpactMode, reviewChangeFilter, hideUnchangedNeighbors, changedDetailsOnly, focusId, askProjection]
   );
-  const groupingOptions = useMemo(
-    () => visibleReviewGroupings(graph, reviewViewId, reviewScopeId, reviewGroupingId, {
-      impactMode: reviewImpactMode,
-      changeFilter: reviewChangeFilter,
-      hideUnchangedNeighbors,
-      changedDetailsOnly,
-    }),
-    [graph, reviewViewId, reviewScopeId, reviewGroupingId, reviewImpactMode, reviewChangeFilter, hideUnchangedNeighbors, changedDetailsOnly]
-  );
   const desiredLayoutPinScopeKey = useMemo(
     () => buildLayoutScopeKey(graph, reviewViewId, reviewScopeId, reviewGroupingId),
     [graph, reviewViewId, reviewScopeId, reviewGroupingId]
@@ -235,7 +226,6 @@ function AppContent({
   const [sourceViewer, setSourceViewer] = useState<SourceDrawerState | null>(null);
   // Review knobs are collapsed by default: opening a review should just show
   // the review, not a bar of selectors.
-  const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
   const [symbolFocus, setSymbolFocus] = useState<SymbolFocusTarget | null>(null);
   // The file diff is a viewer over the same review, opened on demand — like
   // the source drawer, it is not part of the canvas state machine.
@@ -265,12 +255,10 @@ function AppContent({
   const reloadReport = reportSession.reload;
   const related = useMemo(() => relatedIds(displayGraph, focusId), [displayGraph, focusId]);
 
-  // Whether the collapsed "View" popover has anything to offer at all.
-  const hasViewOptions =
-    (graph.reviewViews?.length ?? 0) > 0 ||
-    (graph.reviewScopes?.length ?? 0) > 0 ||
-    groupingOptions.length > 1 ||
-    graph.pr != null;
+  // The bar's two choices: the diff or the whole repository, and exported
+  // symbols or everything.
+  const fullView = reviewImpactMode === 'repository';
+  const publicSurface = reviewScopeId === 'all_public_api' || reviewScopeId === 'top_level_public_api';
 
   useEffect(() => {
     dispatch({
@@ -606,7 +594,7 @@ function AppContent({
   };
 
   const refreshGraph = () => {
-    dispatch({ type: 'GraphRequested', worktree: activeWorktree || undefined });
+    dispatch({ type: 'GraphRequested', worktree: activeWorktree || undefined, fresh: true });
   };
 
   const toggleArchMotifPanel = () => {
@@ -846,108 +834,40 @@ function AppContent({
               </select>
             </label>
           )}
-          {hasViewOptions && (
-            <div className="hf-reviewbar-options">
+          {graph.pr && (
+            <div className="hf-reviewbar-seg hf-reviewbar-mode" role="group" aria-label="Review view">
               <button
-                className={`hf-reviewbar-toggle ${viewOptionsOpen ? 'on' : ''}`}
-                title="Packages, surface, grouping and change filters"
-                onClick={() => setViewOptionsOpen((open) => !open)}
+                className={fullView ? '' : 'on'}
+                title="Changed packages, narrowed to what changed in them."
+                onClick={() => dispatch({ type: 'ReviewFullViewChanged', full: false })}
               >
-                View {viewOptionsOpen ? '\u25B4' : '\u25BE'}
+                Diff
               </button>
-              {viewOptionsOpen && (
-                <div className="hf-reviewbar-popover">
-                  {graph.reviewViews && graph.reviewViews.length > 0 && (
-                    <label title="Package set for this review slice.">
-                      <span>Packages</span>
-                      <select
-                        value={reviewViewId ?? ''}
-                        onChange={(e) => dispatch({ type: 'ReviewViewChanged', id: e.target.value })}
-                      >
-                        {graph.reviewViews.map((view) => (
-                          <option key={view.id} value={view.id}>
-                            {view.title} ({view.componentCount})
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {graph.reviewScopes && graph.reviewScopes.length > 0 && (
-                    <label title="Symbol visibility inside selected packages.">
-                      <span>Surface</span>
-                      <select
-                        value={reviewScopeId ?? ''}
-                        onChange={(e) => dispatch({ type: 'ReviewScopeChanged', id: e.target.value })}
-                      >
-                        {graph.reviewScopes.map((scope) => (
-                          <option key={scope.id} value={scope.id}>
-                            {scope.title}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {groupingOptions.length > 1 && (
-                    <label title="Group visible packages on the canvas.">
-                      <span>Group by</span>
-                      <select
-                        value={reviewGroupingId ?? ''}
-                        onChange={(e) => dispatch({ type: 'ReviewGroupingChanged', id: e.target.value })}
-                      >
-                        {groupingOptions.map((grouping) => (
-                          <option key={grouping.id} value={grouping.id}>
-                            {reviewGroupingLabel(grouping)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {graph.pr && (
-                    <>
-                      <label title="How far to expand from changed packages.">
-                        <span>Focus</span>
-                        <select
-                          value={reviewImpactMode}
-                          onChange={(e) => dispatch({ type: 'ReviewImpactModeChanged', mode: e.target.value as typeof reviewImpactMode })}
-                        >
-                          <option value="changed_only">Changed packages</option>
-                          <option value="changed_neighbors">Changed + linked packages</option>
-                          <option value="containing_group">Changed package groups</option>
-                          <option value="review_view">Whole view</option>
-                          <option value="repository">Whole repo</option>
-                        </select>
-                      </label>
-                      <label title="Which change kinds are visible.">
-                        <span>Changes</span>
-                        <select
-                          value={reviewChangeFilter}
-                          onChange={(e) => dispatch({ type: 'ReviewChangeFilterChanged', filter: e.target.value as typeof reviewChangeFilter })}
-                        >
-                          <option value="all">All changes</option>
-                          <option value="added">Additions</option>
-                          <option value="removed">Removals</option>
-                          <option value="changed">Changed signatures</option>
-                          <option value="dependency">Dependency changes</option>
-                          <option value="policy">Policy/grouping</option>
-                        </select>
-                      </label>
-                      <label title="How much package detail to show for visible packages.">
-                        <span>Details</span>
-                        <select
-                          value={changedDetailsOnly ? 'changed' : 'full'}
-                          onChange={(e) => {
-                            const next = e.target.value === 'changed';
-                            if (next !== changedDetailsOnly) dispatch({ type: 'ChangedDetailsOnlyToggled' });
-                          }}
-                        >
-                          <option value="changed">Changed symbols</option>
-                          <option value="full">Full package</option>
-                        </select>
-                      </label>
-                    </>
-                  )}
-                </div>
-              )}
+              <button
+                className={fullView ? 'on' : ''}
+                title="Every package, drawn whole, with the changes marked."
+                onClick={() => dispatch({ type: 'ReviewFullViewChanged', full: true })}
+              >
+                Full
+              </button>
+            </div>
+          )}
+          {(graph.reviewScopes?.length ?? 0) > 0 && (
+            <div className="hf-reviewbar-seg hf-reviewbar-surface" role="group" aria-label="Symbol surface">
+              <button
+                className={publicSurface ? 'on' : ''}
+                title="Exported symbols only."
+                onClick={() => dispatch({ type: 'ReviewScopeChanged', id: 'all_public_api' })}
+              >
+                Public
+              </button>
+              <button
+                className={publicSurface ? '' : 'on'}
+                title="Exported and unexported symbols."
+                onClick={() => dispatch({ type: 'ReviewScopeChanged', id: 'everything' })}
+              >
+                Public + Internal
+              </button>
             </div>
           )}
           <span className="hf-reviewbar-meta">
@@ -1269,61 +1189,4 @@ function currentWorktreePrefix(): string {
   if (typeof window === 'undefined') return '';
   const match = window.location.pathname.match(/^\/w\/[^/]+/);
   return match?.[0] ?? '';
-}
-
-function visibleReviewGroupings(
-  graph: UIGraph,
-  reviewViewId: string | null,
-  reviewScopeId: string | null,
-  currentGroupingId: string | null,
-  options: ReviewSelectionOptions
-): ReviewGrouping[] {
-  const groupings = graph.reviewGroupings ?? [];
-  if (groupings.length <= 1) return groupings;
-
-  const out: ReviewGrouping[] = [];
-  const seenSignatures = new Set<string>();
-
-  for (const grouping of groupings) {
-    const projection = selectReviewGraph(graph, reviewViewId, reviewScopeId, grouping.id, options);
-    const signature = groupingProjectionSignature(projection);
-    const selected = grouping.id === currentGroupingId;
-    if (selected || !seenSignatures.has(signature)) {
-      out.push(grouping);
-      seenSignatures.add(signature);
-    }
-  }
-
-  const withoutReviewViews = out.filter((grouping) => grouping.id !== 'review_view');
-  return withoutReviewViews.length > 0 ? withoutReviewViews : out;
-}
-
-function groupingProjectionSignature(graph: UIGraph): string {
-  const groups = new Map<string, string[]>();
-  for (const component of graph.components) {
-    const ids = groups.get(component.bc) ?? [];
-    ids.push(component.id);
-    groups.set(component.bc, ids);
-  }
-  return [...groups.values()]
-    .map((componentIds) => componentIds.sort().join(','))
-    .sort((a, b) => a.localeCompare(b))
-    .join('|');
-}
-
-function reviewGroupingLabel(grouping: ReviewGrouping): string {
-  switch (grouping.id) {
-    case 'directory':
-      return 'Package path';
-    case 'review_view':
-      return 'Review slice';
-    case 'package_owner':
-      return 'Owner';
-    case 'layer':
-      return 'Layer';
-    case 'configured_groups':
-      return 'Categories';
-    default:
-      return grouping.title;
-  }
 }

@@ -6,11 +6,11 @@ package yaml
 
 // PackageSpec is the top-level YAML document for a single package.
 type PackageSpec struct {
-	Schema       string           `yaml:"schema"`                  // "wyrd/v1"
-	Package      string           `yaml:"package"`                 // package path
-	Name         string           `yaml:"name"`                    // package name
-	Layer        string           `yaml:"layer,omitempty"`         // overlay-assigned layer
-	Aggregate    string           `yaml:"aggregate,omitempty"`     // overlay-assigned aggregate
+	Schema       string           `yaml:"schema"`              // "wyrd/v1"
+	Package      string           `yaml:"package"`             // package path
+	Name         string           `yaml:"name"`                // package name
+	Layer        string           `yaml:"layer,omitempty"`     // overlay-assigned layer
+	Aggregate    string           `yaml:"aggregate,omitempty"` // overlay-assigned aggregate
 	Interfaces   []InterfaceSpec  `yaml:"interfaces,omitempty"`
 	Structs      []StructSpec     `yaml:"structs,omitempty"`
 	Functions    []FunctionSpec   `yaml:"functions,omitempty"`
@@ -19,6 +19,10 @@ type PackageSpec struct {
 	Variables    []VarSpec        `yaml:"variables,omitempty"`
 	Errors       []ErrorSpec      `yaml:"errors,omitempty"`
 	Dependencies []DependencySpec `yaml:"dependencies,omitempty"`
+	// Imports are the in-module packages the package imports
+	// (module-relative). Written only in the full (internal) spec; a file
+	// without the key reads as no imports, as before the field existed.
+	Imports         []string             `yaml:"imports,omitempty"`
 	Implementations []ImplementationSpec `yaml:"implementations,omitempty"`
 }
 
@@ -80,13 +84,13 @@ type StructSpec struct {
 
 // FunctionSpec represents a package-level function.
 type FunctionSpec struct {
-	Name       string       `yaml:"name"`
-	Params     []ParamSpec  `yaml:"params,omitempty"`
-	Returns    []TypeRefSpec `yaml:"returns,omitempty"`
-	Exported   bool         `yaml:"exported"`
-	SourceFile string       `yaml:"source_file,omitempty"`
-	Doc        string       `yaml:"doc,omitempty"`
-	Stereotype string       `yaml:"stereotype,omitempty"`
+	Name       string         `yaml:"name"`
+	Params     []ParamSpec    `yaml:"params,omitempty"`
+	Returns    []TypeRefSpec  `yaml:"returns,omitempty"`
+	Exported   bool           `yaml:"exported"`
+	SourceFile string         `yaml:"source_file,omitempty"`
+	Doc        string         `yaml:"doc,omitempty"`
+	Stereotype string         `yaml:"stereotype,omitempty"`
 	Calls      []CallEdgeSpec `yaml:"calls,omitempty"`
 }
 
@@ -103,10 +107,10 @@ type TypeDefSpec struct {
 
 // MethodSpec represents a method signature.
 type MethodSpec struct {
-	Name     string       `yaml:"name"`
-	Params   []ParamSpec  `yaml:"params,omitempty"`
-	Returns  []TypeRefSpec `yaml:"returns,omitempty"`
-	Exported bool         `yaml:"exported"`
+	Name     string         `yaml:"name"`
+	Params   []ParamSpec    `yaml:"params,omitempty"`
+	Returns  []TypeRefSpec  `yaml:"returns,omitempty"`
+	Exported bool           `yaml:"exported"`
 	Calls    []CallEdgeSpec `yaml:"calls,omitempty"`
 }
 

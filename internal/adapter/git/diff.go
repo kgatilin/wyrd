@@ -14,6 +14,7 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strconv"
@@ -176,13 +177,35 @@ func HeadRev(repoPath string) string {
 	return strings.TrimSpace(out)
 }
 
-// IsClean reports whether the working tree has no modifications and no
-// untracked files — i.e. whether it still matches its HEAD commit. A caller
-// that wants to reuse an already-parsed worktree as a stand-in for a commit
-// needs this: a dirty checkout is not that commit.
+// IsClean reports whether the working tree's Go model still matches its HEAD
+// commit: no modified, staged or untracked file that the model is read from
+// (a .go file, go.mod or go.sum). A caller that wants to reuse an
+// already-parsed worktree as a stand-in for a commit needs exactly this —
+// a dirty checkout is not that commit — and nothing more: a served checkout
+// almost always carries untracked files the model never reads (a daemon's
+// serve.json, editor state, a .bak), and counting those made a repository
+// clean only in theory. Ignored files are not consulted, as for the diff.
 func IsClean(repoPath string) bool {
 	out, err := run(repoPath, "status", "--porcelain", "--untracked-files=all")
-	return err == nil && strings.TrimSpace(out) == ""
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		for _, p := range strings.Split(line[3:], " -> ") {
+			if isModelInput(strings.Trim(p, "\"")) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// isModelInput reports whether a repository path is read into the Go model.
+func isModelInput(p string) bool {
+	return p == "go.mod" || p == "go.sum" || strings.HasSuffix(p, ".go")
 }
 
 // resolveBaseCandidate returns the first of {ref, origin/ref} that names a
@@ -403,8 +426,21 @@ func parsePatchHeaderPath(header string) string {
 	return ""
 }
 
+// gitCmd builds a git invocation that never takes optional locks. wyrd only
+// reads a repository, but `git status` (and a diff against the working tree)
+// opportunistically rewrites .git/index with refreshed stat data. When the
+// daemon runs in a VM over a shared mount, its stat data (inode, ctime)
+// differs from the host's, so each side's rewrite invalidates the other's
+// stat cache and every following status re-hashes the whole tree — minutes
+// per call on a large repository, on both sides.
+func gitCmd(repoPath string, args ...string) *exec.Cmd {
+	cmd := exec.Command("git", append([]string{"-C", repoPath}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	return cmd
+}
+
 func run(repoPath string, args ...string) (string, error) {
-	out, err := exec.Command("git", append([]string{"-C", repoPath}, args...)...).Output()
+	out, err := gitCmd(repoPath, args...).Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
@@ -417,8 +453,7 @@ func run(repoPath string, args ...string) (string, error) {
 // runAllowingDiffExit runs a git diff variant whose exit code 1 means
 // "differences found", not failure.
 func runAllowingDiffExit(repoPath string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", repoPath}, args...)...)
-	out, err := cmd.Output()
+	out, err := gitCmd(repoPath, args...).Output()
 	if err != nil {
 		exitErr, ok := err.(*exec.ExitError)
 		if !ok || exitErr.ExitCode() != 1 {

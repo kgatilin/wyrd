@@ -442,6 +442,9 @@ Examples:
 	// version — prints `wyrd <Version>`.
 	rootCmd.AddCommand(newVersionCmd())
 
+	// Qdrant collection administration: create, verify, migrate.
+	rootCmd.AddCommand(newQdrantCmd())
+
 	// extract — dumps per-package YAML/JSON (mirror of the MCP extract tool).
 	rootCmd.AddCommand(newExtractCmd())
 
@@ -539,6 +542,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		// clearing HTTPAddr. The MCP stdio callback owns the session
 		// lifetime. Plugin bootstrap runs so plugin tools surface in
 		// the stdio tools/list.
+		stdioCorpus, err := assembleCorpus(root)
+		if err != nil {
+			return fmt.Errorf("serve: %w", err)
+		}
 		return serve.Serve(ctx, serve.Options{
 			Root:     root,
 			MCPStdio: true,
@@ -549,7 +556,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			Debug:           debug,
 			PluginBootstrap: bootstrapDaemonPlugins,
 			Reader:          assembleServeReader(),
-			VectorCache:     assembleVectorCache(root),
+			Corpus:          stdioCorpus,
 		})
 	}
 
@@ -561,12 +568,17 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("serve: %w", err)
 	}
 
-	// Build the reader and the shared vector cache once, then share them
+	// Build the reader and the shared retrieval corpus once, then share them
 	// across every State the daemon may construct (single-state and
 	// per-worktree multi-state loads alike).
 	serveReader := assembleServeReader()
-	serveVecCache := assembleVectorCache(root)
-	stateLoader := newServeStateLoader(serveReader, serveVecCache)
+	serveCorpus, err := assembleCorpus(root)
+	if err != nil {
+		return fmt.Errorf("serve: %w", err)
+	}
+	faults, faultsFail := corpusReadiness(serveCorpus)
+	serveModelStore := assembleModelStore(root)
+	stateLoader := newServeStateLoader(serveReader, serveCorpus, serveModelStore, defaultServeReviewBaseRef)
 
 	// The review UI is the daemon's browser surface: whenever there is an
 	// HTTP listener, it is mounted. Resolving it here (rather than behind
@@ -587,7 +599,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Debug:       debug,
 		IdleTimeout: idleTimeout,
 		Reader:      serveReader,
-		VectorCache: serveVecCache,
+		Corpus:      serveCorpus,
+		ModelStore:  serveModelStore,
 	}
 
 	if multi {
@@ -612,7 +625,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return nil, err
 			}
-			srv = srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins).WithAuthToken(authToken)
+			srv = srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins).WithAuthToken(authToken).WithReadiness(faults, faultsFail)
 			if reviewUI != nil {
 				srv = srv.WithReviewUI(reviewUI)
 			}
@@ -625,7 +638,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return nil, err
 			}
-			srv = srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins).WithAuthToken(authToken)
+			srv = srv.WithVersion(buildinfo.Resolve()).WithPlugins(plugins).WithAuthToken(authToken).WithReadiness(faults, faultsFail)
 			if reviewUI != nil {
 				srv = srv.WithReviewUI(reviewUI)
 			}
@@ -755,6 +768,20 @@ func runMCPThinClient(ctx context.Context, root string) error {
 		return fmt.Errorf("resolving root %s: %w", root, err)
 	}
 
+	base, err := configuredClientURL(absRoot)
+	if err != nil {
+		return err
+	}
+	if base != "" {
+		fmt.Fprintf(os.Stderr, "mcp-client: configured server %s\n", base)
+		return mcp.ServeClient(ctx, mcp.ClientOptions{
+			Endpoint: base,
+			EndpointResolver: func() (string, error) {
+				return configuredClientURL(absRoot)
+			},
+		})
+	}
+
 	// Discover or auto-start a multi-worktree daemon.
 	rec, repoRoot, wtName, err := serve.DiscoverRepoDaemon(absRoot)
 	if err != nil {
@@ -839,6 +866,20 @@ func runMCPSharedClient(ctx context.Context, root string) error {
 	}
 	if _, ok := worktree.RepoRoot(absRoot); !ok {
 		return fmt.Errorf("mcp-client: --shared requires a git worktree; could not resolve repo root from %s", absRoot)
+	}
+
+	base, err := configuredClientURL(absRoot)
+	if err != nil {
+		return err
+	}
+	if base != "" {
+		fmt.Fprintf(os.Stderr, "mcp-client: configured server %s\n", base)
+		return mcp.ServeClient(ctx, mcp.ClientOptions{
+			Endpoint: base,
+			EndpointResolver: func() (string, error) {
+				return configuredClientURL(absRoot)
+			},
+		})
 	}
 
 	// Discover or auto-start the repo's multi-worktree daemon.
@@ -1789,11 +1830,10 @@ func runWhere(cmd *cobra.Command, args []string) error {
 	// worktree under /w/<name>/ is the normal arrangement now, and reading
 	// only the per-worktree file made `where` report no daemon in a directory
 	// where every other command was talking to one.
-	rec, err := resolveDaemonTarget("")
+	base, err := resolveClientURL("")
 	if err != nil {
 		return err
 	}
-	base := daemonBaseURL(rec)
 	// The base URL stays on its own first line: scripts read `wyrd where` as
 	// one address. The MCP endpoint follows it, because a client configured
 	// with a URL rather than a command needs that exact path and cannot

@@ -1,0 +1,170 @@
+{{- include "wyrd.validate" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "wyrd.fullname" . }}
+  labels:
+    {{- include "wyrd.labels" . | nindent 4 }}
+spec:
+  # One writer: the model store, the checkout and the collection's lexical
+  # documents each assume a single daemon. Recreate keeps a rollout from
+  # running two against one volume.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "wyrd.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "wyrd.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "wyrd.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if or .Values.sync.initContainers .Values.qdrantConnection.bootstrap.enabled }}
+      initContainers:
+        {{- with .Values.sync.initContainers }}
+        {{- tpl (toYaml .) $ | nindent 8 }}
+        {{- end }}
+        {{- if .Values.qdrantConnection.bootstrap.enabled }}
+        # Creates the collection when it is missing and verifies it either
+        # way. While Qdrant is still starting this fails and is retried.
+        - name: bootstrap-collection
+          image: {{ include "wyrd.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - qdrant
+            - bootstrap
+            {{- if .Values.embedder.dim }}
+            - --dim={{ .Values.embedder.dim }}
+            {{- end }}
+          env:
+            {{- include "wyrd.env" . | nindent 12 }}
+            {{- with .Values.qdrantConnection.bootstrap.adminApiKeySecret }}
+            {{- if .name }}
+            - name: WYRD_QDRANT_ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name }}
+                  key: {{ .key }}
+            {{- end }}
+            {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with (include "wyrd.credentialMounts" .) }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: wyrd
+          image: {{ include "wyrd.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - serve
+            - --repo={{ .Values.repo.path }}
+            - --http=0.0.0.0:8080
+          env:
+            {{- if .Values.requireRemote }}
+            - name: WYRD_REQUIRE_REMOTE
+              value: "1"
+            {{- end }}
+            {{- if .Values.mcpAuth.tokenSecret.name }}
+            - name: WYRD_HTTP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpAuth.tokenSecret.name }}
+                  key: {{ .Values.mcpAuth.tokenSecret.key }}
+            {{- end }}
+            {{- include "wyrd.env" . | nindent 12 }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            {{- include "wyrd.credentialMounts" . | nindent 12 }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with .Values.sync.containers }}
+        {{- tpl (toYaml .) $ | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "wyrd.fullname" .) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if and (eq .Values.embedder.provider "vertex") .Values.embedder.vertex.credentialsSecret.name }}
+        - name: google-credentials
+          secret:
+            secretName: {{ .Values.embedder.vertex.credentialsSecret.name }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

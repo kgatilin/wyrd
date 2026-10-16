@@ -23,9 +23,15 @@ func (s *Server) handleUIGraphJSON(w nethttp.ResponseWriter, r *nethttp.Request)
 		return
 	}
 
-	snap := state.Snapshot()
 	active := s.currentWorktree(r)
 	baseRef := reviewBaseRefOf(r)
+	if noCache(r) {
+		if err := s.reloadFromDisk(r.Context(), state, active, baseRef); err != nil {
+			nethttp.Error(w, err.Error(), nethttp.StatusInternalServerError)
+			return
+		}
+	}
+	snap := state.Snapshot()
 
 	var base serve.ReviewBase
 	var d *diff.Diff
@@ -78,6 +84,31 @@ func (s *Server) handleUIGraphJSON(w nethttp.ResponseWriter, r *nethttp.Request)
 // the architecture diff and the file diff answer the same question — the one
 // the reviewer asked, "what did this branch change", rather than "how does
 // this branch differ from wherever the base has got to".
+// reloadFromDisk is the review UI's Refresh: both sides of the diff are
+// long-lived models kept current by file events, and a missed event leaves
+// one describing a tree that no longer exists. On a branch only the packages
+// its diff touches are re-read, over the review base's model; on the base
+// worktree (or with no base) the whole worktree is. The base is never
+// re-read on a branch's behalf — a stale base is fixed by a Refresh on it.
+func (s *Server) reloadFromDisk(ctx context.Context, state *serve.State, active, baseRef string) error {
+	var changed bool
+	var err error
+	if s.multi != nil && active != "" {
+		changed, err = s.multi.ReloadWorktree(ctx, active, baseRef)
+	} else {
+		changed, err = state.Reload(ctx)
+	}
+	if err != nil {
+		return err
+	}
+	// One event on the reviewed worktree drops everything derived from it —
+	// the report cache, the clients' file diff.
+	if changed {
+		state.PublishPackageReload(nil)
+	}
+	return nil
+}
+
 func (s *Server) reviewBase(ctx context.Context, active, baseRef string) (serve.ReviewBase, error) {
 	if s.multi == nil || baseRef == "" || active == "" {
 		return serve.ReviewBase{}, nil

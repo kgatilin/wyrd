@@ -51,6 +51,13 @@ describe('createLoadEffect', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'GraphLoaded', graph });
   });
 
+  it('passes fresh through to the port on a fresh GraphRequested', async () => {
+    const load = vi.fn(() => Promise.resolve(graph));
+    createLoadEffect({ load })({ type: 'GraphRequested', worktree: 'feature', fresh: true }, () => initialState, vi.fn());
+    await flush();
+    expect(load).toHaveBeenCalledWith('feature', { fresh: true });
+  });
+
   it('ignores unrelated events', () => {
     const port: GraphSourcePort = { load: vi.fn() };
     createLoadEffect(port)({ type: 'ThemeToggled' }, () => initialState, vi.fn());

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -81,7 +82,7 @@ func (r *reader) ReadPartial(ctx context.Context, paths []string, known []domain
 	usable, warnings := partitionLoadable(pkgs)
 	emitLoadWarnings(warnings)
 	if len(pkgs) > 0 && len(usable) == 0 {
-		return nil, fmt.Errorf("package errors: %s", strings.Join(collectPackageErrors(pkgs), "; "))
+		return nil, fmt.Errorf("package errors: %s: %w", strings.Join(collectPackageErrors(pkgs), "; "), service.ErrNothingToModel)
 	}
 
 	// Cache the module path from the first package that carries module
@@ -359,10 +360,49 @@ func (r *reader) convertPackage(pkg *packages.Package) (domain.PackageModel, err
 	bodyDeps := r.collectBodyTypeDependencies(pkg, &model, astFiles)
 	model.Dependencies = append(model.Dependencies, bodyDeps...)
 
+	// Record the in-module import list: the package dependency itself, which
+	// the symbol dependencies above miss when an import is used only by a
+	// call, a constant, an inferred value or for its side effects.
+	model.Imports = r.collectImports(pkg)
+
 	// Apply stereotype detection
 	r.applyStereotypes(&model)
 
 	return model, nil
+}
+
+// collectImports returns the module-relative paths of the in-module packages
+// imported by the package's non-test files, sorted and deduplicated. Blank
+// (`_`) and dot imports count like any other: each one links the package.
+// Imports are read from the import declarations rather than pkg.Imports so a
+// _test.go file is excluded explicitly, whatever the loader was asked to load.
+func (r *reader) collectImports(pkg *packages.Package) []string {
+	if r.modulePath == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, f := range pkg.Syntax {
+		if strings.HasSuffix(pkg.Fset.File(f.Pos()).Name(), "_test.go") {
+			continue
+		}
+		for _, spec := range f.Imports {
+			p, err := strconv.Unquote(spec.Path.Value)
+			if err != nil {
+				continue
+			}
+			if p != r.modulePath && !strings.HasPrefix(p, r.modulePath+"/") {
+				continue
+			}
+			rel := r.relativePath(p)
+			if !seen[rel] {
+				seen[rel] = true
+				out = append(out, rel)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // relativePath converts an absolute package path to a path relative to the module.

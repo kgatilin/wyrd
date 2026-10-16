@@ -1,5 +1,5 @@
 .PHONY: build build-check test clean install install-check version web-build \
-        wyrd-generate wyrd-baseline wyrd-check wyrd-smoke
+        wyrd-generate wyrd-baseline wyrd-check wyrd-smoke image chart-deps chart-lint
 
 # VERSION is stamped into the binary at build time via -ldflags. By
 # default it is derived from `git describe` so unreleased builds show
@@ -38,6 +38,25 @@ test: web-build
 
 version:
 	@echo $(VERSION)
+
+# The daemon's container image: wyrd with the review UI, the Go toolchain and
+# git. Builds the UI inside the image, so it needs no local Node.
+IMAGE ?= wyrd:$(VERSION)
+image:
+	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
+
+# The Helm chart. chart-deps fetches the pinned Qdrant chart named in
+# Chart.lock; chart-lint lints and renders every case under charts/wyrd/ci.
+CHART := charts/wyrd
+chart-deps:
+	helm dependency build $(CHART)
+
+chart-lint: chart-deps
+	@for values in $(CHART)/ci/*.yaml; do \
+		echo "== $$values"; \
+		helm lint $(CHART) --strict -f $$values || exit 1; \
+		helm template wyrd $(CHART) -f $$values > /dev/null || exit 1; \
+	done
 
 wyrd-generate: build
 	$(WYRD) diagram generate $(WYRD_PACKAGES)

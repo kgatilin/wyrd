@@ -69,3 +69,13 @@ jobs:
         run: |
           npm ci
           npm test
+
+  chart:
+    # The Helm chart: lint and render every values case under charts/wyrd/ci.
+    # helm is preinstalled on the runner; the Qdrant dependency is fetched
+    # at the version Chart.lock pins.
+    name: Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make chart-lint

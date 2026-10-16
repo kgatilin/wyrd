@@ -9,9 +9,12 @@ const SCHEMA_PREFIX = 'wyrd.uigraph/';
  * 2. /archgraph.sample.json (committed sample, for standalone `vite dev`)
  * 3. fixture (hardcoded rich sample)
  */
-export async function loadGraph(worktree?: string): Promise<UIGraph> {
+export async function loadGraph(worktree?: string, fresh = false): Promise<UIGraph> {
+  // no-cache makes the daemon re-read the worktree from disk first, the same
+  // convention the report endpoint uses for its Refresh.
+  const init: RequestInit | undefined = fresh ? { headers: { 'Cache-Control': 'no-cache' } } : undefined;
   for (const url of liveGraphURLs(worktree)) {
-    const graph = await tryFetch(url);
+    const graph = await tryFetch(url, init);
     if (graph) return graph;
   }
 
@@ -46,9 +49,9 @@ function currentWorktreePrefix(): string | null {
   return `/w/${match[1]}`;
 }
 
-async function tryFetch(url: string): Promise<UIGraph | null> {
+async function tryFetch(url: string, init?: RequestInit): Promise<UIGraph | null> {
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, init);
     if (!res.ok) return null;
 
     const data = await res.json();

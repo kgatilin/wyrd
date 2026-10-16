@@ -5,60 +5,57 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
+	"github.com/kgatilin/wyrd/internal/adapter/lindex/bm25"
+	"github.com/kgatilin/wyrd/internal/adapter/vindex/vecstore"
 	"github.com/kgatilin/wyrd/internal/domain"
 )
+
+// testCorpus is a corpus over the real in-memory adapters, returned with them
+// so a test can look at what the channels hold.
+func testCorpus(emb Embedder) (*Corpus, *vecstore.Store, *bm25.Index) {
+	vectors := vecstore.New("", Recipe(emb.ID()))
+	lexical := bm25.New()
+	return NewCorpus(emb, vectors, lexical, ""), vectors, lexical
+}
+
+func func1Node() Node {
+	return Node{
+		ID: "pkg.Func1", Kind: "func", Package: "pkg", Name: "Func1",
+		Signature: "Func1() error", Doc: "Func1 does something",
+		Span:       domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 20, StartLine: 1, EndLine: 1},
+		Embeddable: true,
+	}
+}
 
 func TestService_Index(t *testing.T) {
 	tmpDir := t.TempDir()
 	setupTestSource(t, tmpDir)
 
-	emb := &testEmbedder{dim: 64}
-	vidx := newTestVectorIndex(emb.ID())
-	lidx := newTestLexicalIndex()
-
-	svc := NewService(tmpDir, emb, vidx, lidx)
+	corpus, vectors, lexical := testCorpus(&testEmbedder{dim: 64})
+	svc := NewService(tmpDir, corpus)
 
 	nodes := []Node{
-		{
-			ID:         "pkg.Func1",
-			Kind:       "func",
-			Package:    "pkg",
-			Name:       "Func1",
-			Signature:  "Func1() error",
-			Doc:        "Func1 does something",
-			Span:       domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 20, StartLine: 1, EndLine: 1},
-			Embeddable: true,
-		},
-		{
-			ID:         "pkg.Const1",
-			Kind:       "const",
-			Package:    "pkg",
-			Name:       "Const1",
-			Signature:  "Const1 = 42",
-			Embeddable: false, // Not embeddable
-		},
+		func1Node(),
+		{ID: "pkg.Const1", Kind: "const", Package: "pkg", Name: "Const1", Signature: "Const1 = 42"},
 	}
-
-	err := svc.Index(context.Background(), nodes)
-	if err != nil {
+	if err := svc.Index(context.Background(), nodes); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 
-	// Vector index should have only embeddable node
-	if vidx.Len() != 1 {
-		t.Errorf("expected 1 vector, got %d", vidx.Len())
+	if vectors.Len() != 1 {
+		t.Errorf("vectors = %d, want 1 (only the embeddable node)", vectors.Len())
 	}
-
-	// Lexical index should have ALL nodes
-	if lidx.Len() != 2 {
-		t.Errorf("expected 2 documents, got %d", lidx.Len())
+	if lexical.Len() != 2 {
+		t.Errorf("lexical documents = %d, want 2 (every node)", lexical.Len())
 	}
-
-	// Dense should be available
 	if !svc.DenseAvailable() {
 		t.Error("dense should be available")
+	}
+	if !svc.Embedded("pkg.Func1") || svc.Embedded("pkg.Const1") {
+		t.Errorf("Embedded: Func1=%v Const1=%v, want true/false", svc.Embedded("pkg.Func1"), svc.Embedded("pkg.Const1"))
 	}
 }
 
@@ -67,39 +64,19 @@ func TestService_IndexSkipsUnchangedHashes(t *testing.T) {
 	setupTestSource(t, tmpDir)
 
 	emb := &countingEmbedder{testEmbedder: testEmbedder{dim: 64}}
-	vidx := newTestVectorIndex(emb.ID())
-	lidx := newTestLexicalIndex()
+	corpus, _, _ := testCorpus(emb)
+	svc := NewService(tmpDir, corpus)
+	nodes := []Node{func1Node()}
 
-	svc := NewService(tmpDir, emb, vidx, lidx)
-
-	nodes := []Node{
-		{
-			ID:         "pkg.Func1",
-			Kind:       "func",
-			Package:    "pkg",
-			Name:       "Func1",
-			Signature:  "Func1() error",
-			Span:       domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 20, StartLine: 1, EndLine: 1},
-			Embeddable: true,
-		},
-	}
-
-	// First index
-	err := svc.Index(context.Background(), nodes)
-	if err != nil {
+	if err := svc.Index(context.Background(), nodes); err != nil {
 		t.Fatalf("Index 1: %v", err)
 	}
-
-	firstCallCount := emb.callCount
-
-	// Second index with same content - should skip embedding
-	err = svc.Index(context.Background(), nodes)
-	if err != nil {
+	first := emb.calls()
+	if err := svc.Index(context.Background(), nodes); err != nil {
 		t.Fatalf("Index 2: %v", err)
 	}
-
-	if emb.callCount != firstCallCount {
-		t.Errorf("expected no new embed calls, got %d more", emb.callCount-firstCallCount)
+	if emb.calls() != first {
+		t.Errorf("expected no new embed calls, got %d more", emb.calls()-first)
 	}
 }
 
@@ -107,50 +84,38 @@ func TestService_IndexRemovesDeletedNodes(t *testing.T) {
 	tmpDir := t.TempDir()
 	setupTestSource(t, tmpDir)
 
-	emb := &testEmbedder{dim: 64}
-	vidx := newTestVectorIndex(emb.ID())
-	lidx := newTestLexicalIndex()
+	corpus, _, lexical := testCorpus(&testEmbedder{dim: 64})
+	svc := NewService(tmpDir, corpus)
 
-	svc := NewService(tmpDir, emb, vidx, lidx)
+	a := Node{ID: "pkg.A", Kind: "func", Package: "pkg", Name: "A", Signature: "A()", Embeddable: true,
+		Span: domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 10, StartLine: 1, EndLine: 1}}
+	b := Node{ID: "pkg.B", Kind: "func", Package: "pkg", Name: "B", Signature: "Bravo()", Embeddable: true,
+		Span: domain.Span{File: "pkg/code.go", StartByte: 10, EndByte: 20, StartLine: 2, EndLine: 2}}
 
-	// Index two nodes
-	nodes := []Node{
-		{ID: "pkg.A", Kind: "func", Package: "pkg", Name: "A", Signature: "A()", Embeddable: true,
-			Span: domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 10, StartLine: 1, EndLine: 1}},
-		{ID: "pkg.B", Kind: "func", Package: "pkg", Name: "B", Signature: "B()", Embeddable: true,
-			Span: domain.Span{File: "pkg/code.go", StartByte: 10, EndByte: 20, StartLine: 2, EndLine: 2}},
-	}
-
-	err := svc.Index(context.Background(), nodes)
-	if err != nil {
+	if err := svc.Index(context.Background(), []Node{a, b}); err != nil {
 		t.Fatalf("Index 1: %v", err)
 	}
-
-	if vidx.Len() != 2 {
-		t.Errorf("expected 2 vectors, got %d", vidx.Len())
+	if lexical.Len() != 2 {
+		t.Fatalf("lexical documents = %d, want 2", lexical.Len())
 	}
 
-	// Re-index with only one node (B deleted)
-	nodes = []Node{
-		{ID: "pkg.A", Kind: "func", Package: "pkg", Name: "A", Signature: "A()", Embeddable: true,
-			Span: domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 10, StartLine: 1, EndLine: 1}},
-	}
-
-	err = svc.Index(context.Background(), nodes)
-	if err != nil {
+	if err := svc.Index(context.Background(), []Node{a}); err != nil {
 		t.Fatalf("Index 2: %v", err)
 	}
-
-	// B should be removed from vector index
-	if vidx.Len() != 1 {
-		t.Errorf("expected 1 vector after removal, got %d", vidx.Len())
+	// B's text was held by this view alone, so the corpus drops it.
+	if lexical.Len() != 1 {
+		t.Errorf("lexical documents after removal = %d, want 1", lexical.Len())
 	}
-
-	// Search should not find B
-	results := vidx.Search([]float32{1, 0}, 10)
-	for _, r := range results {
-		if r.ID == "pkg.B" {
-			t.Error("removed node should not appear in search results")
+	if svc.Embedded("pkg.B") {
+		t.Error("a removed node still reads as embedded")
+	}
+	got, err := svc.Search(context.Background(), "Bravo", SearchOptions{K: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range got.Hits {
+		if h.ID == "pkg.B" {
+			t.Error("removed node appeared in search results")
 		}
 	}
 }
@@ -159,162 +124,146 @@ func TestService_GracefulDegradationOnEmbedderError(t *testing.T) {
 	tmpDir := t.TempDir()
 	setupTestSource(t, tmpDir)
 
-	// Use an embedder that always fails
-	emb := &failingEmbedder{}
-	vidx := newTestVectorIndex("failing:model")
-	lidx := newTestLexicalIndex()
+	corpus, _, lexical := testCorpus(&failingEmbedder{})
+	svc := NewService(tmpDir, corpus)
 
-	svc := NewService(tmpDir, emb, vidx, lidx)
-
-	nodes := []Node{
-		{ID: "pkg.Func1", Kind: "func", Package: "pkg", Name: "Func1", Signature: "Func1()", Embeddable: true,
-			Span: domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 20, StartLine: 1, EndLine: 1}},
-	}
-
-	// Index should NOT error - it should gracefully disable dense
-	err := svc.Index(context.Background(), nodes)
-	if err != nil {
+	if err := svc.Index(context.Background(), []Node{func1Node()}); err != nil {
 		t.Fatalf("Index should not error on embed failure: %v", err)
 	}
-
-	// Dense should be unavailable
 	if svc.DenseAvailable() {
 		t.Error("dense should be unavailable after embedder failure")
 	}
-
-	// But BM25 should still work
-	if lidx.Len() != 1 {
-		t.Errorf("expected 1 document in lexical index, got %d", lidx.Len())
+	if lexical.Len() != 1 {
+		t.Errorf("expected 1 document in lexical index, got %d", lexical.Len())
 	}
-
-	results := lidx.Search("Func1", 10)
-	if len(results) != 1 {
-		t.Errorf("expected 1 lexical result, got %d", len(results))
+	svc.SetGraph(&Graph{NodesByID: map[string]Node{"pkg.Func1": func1Node()}})
+	found, err := svc.Search(context.Background(), "Func1", SearchOptions{K: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found.Hits) != 1 || found.Dense {
+		t.Errorf("search = %+v, want one lexical hit", found)
 	}
 }
 
-func TestService_Refresh(t *testing.T) {
+func TestService_UpdateThenEmbedPending(t *testing.T) {
 	tmpDir := t.TempDir()
 	setupTestSource(t, tmpDir)
 
-	emb := &testEmbedder{dim: 64}
-	vidx := newTestVectorIndex(emb.ID())
-	lidx := newTestLexicalIndex()
+	emb := &countingEmbedder{testEmbedder: testEmbedder{dim: 64}}
+	corpus, _, lexical := testCorpus(emb)
+	svc := NewService(tmpDir, corpus)
+	ctx := context.Background()
 
-	svc := NewService(tmpDir, emb, vidx, lidx)
-
-	// Initial index
-	nodes := []Node{
-		{ID: "pkg.A", Kind: "func", Package: "pkg", Name: "A", Signature: "A()", Embeddable: true,
-			Span: domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 10, StartLine: 1, EndLine: 1}},
-		{ID: "pkg.B", Kind: "func", Package: "pkg", Name: "B", Signature: "B()", Embeddable: true,
-			Span: domain.Span{File: "pkg/code.go", StartByte: 10, EndByte: 20, StartLine: 2, EndLine: 2}},
-	}
-
-	err := svc.Index(context.Background(), nodes)
-	if err != nil {
+	a := Node{ID: "pkg.A", Kind: "func", Package: "pkg", Name: "A", Signature: "A()", Embeddable: true,
+		Span: domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 10, StartLine: 1, EndLine: 1}}
+	b := Node{ID: "pkg.B", Kind: "func", Package: "pkg", Name: "B", Signature: "Bravo()", Embeddable: true,
+		Span: domain.Span{File: "pkg/code.go", StartByte: 10, EndByte: 20, StartLine: 2, EndLine: 2}}
+	if err := svc.Index(ctx, []Node{a, b}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 
-	// Refresh: update A, remove B, add C
-	changedNodes := []Node{
-		{ID: "pkg.A", Kind: "func", Package: "pkg", Name: "A", Signature: "A() error", Embeddable: true,
-			Span: domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 15, StartLine: 1, EndLine: 1}},
-		{ID: "pkg.C", Kind: "func", Package: "pkg", Name: "C", Signature: "C()", Embeddable: true,
-			Span: domain.Span{File: "pkg/code.go", StartByte: 20, EndByte: 30, StartLine: 3, EndLine: 3}},
+	// Update A, remove B, add C.
+	a2 := a
+	a2.Signature = "A() error"
+	c := Node{ID: "pkg.C", Kind: "func", Package: "pkg", Name: "C", Signature: "Charlie()", Embeddable: true,
+		Span: domain.Span{File: "pkg/code.go", StartByte: 20, EndByte: 30, StartLine: 3, EndLine: 3}}
+	calls := emb.calls()
+	if err := svc.Update(ctx, []Node{a2, c}, []string{"pkg.B"}); err != nil {
+		t.Fatalf("Update: %v", err)
 	}
-	removedIDs := []string{"pkg.B"}
+	if emb.calls() != calls {
+		t.Error("Update called the embedder; embedding belongs to EmbedPending")
+	}
+	if lexical.Len() != 2 {
+		t.Errorf("lexical documents = %d, want 2 (A's new text and C)", lexical.Len())
+	}
+	svc.SetGraph(&Graph{NodesByID: map[string]Node{a2.ID: a2, c.ID: c}})
+	if st := svc.IndexStatus(); st.Pending != 2 {
+		t.Errorf("pending before EmbedPending = %d, want 2", st.Pending)
+	}
+	if err := svc.EmbedPending(ctx); err != nil {
+		t.Fatalf("EmbedPending: %v", err)
+	}
+	if st := svc.IndexStatus(); st.Embedded != 2 || st.Pending != 0 || st.InProgress {
+		t.Errorf("status after EmbedPending = %+v, want 2 embedded, none pending", st)
+	}
 
-	err = svc.Refresh(context.Background(), changedNodes, removedIDs)
+	found, err := svc.Search(ctx, "Charlie", SearchOptions{K: 10})
 	if err != nil {
-		t.Fatalf("Refresh: %v", err)
+		t.Fatal(err)
 	}
-
-	// B should be gone from lexical
-	results := lidx.Search("B", 10)
-	for _, r := range results {
-		if r.ID == "pkg.B" {
-			t.Error("B should be removed from lexical index")
-		}
-	}
-
-	// C should be searchable
-	results = lidx.Search("C", 10)
-	found := false
-	for _, r := range results {
-		if r.ID == "pkg.C" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("C should be in lexical index")
+	if len(found.Hits) == 0 || found.Hits[0].ID != "pkg.C" {
+		t.Errorf("search for the added node = %+v", found.Hits)
 	}
 }
 
-func TestService_SaveAndLoad(t *testing.T) {
+func TestService_SaveAndLoadLexical(t *testing.T) {
 	tmpDir := t.TempDir()
 	setupTestSource(t, tmpDir)
+	path := filepath.Join(t.TempDir(), "lexical.bm25")
 
 	emb := &testEmbedder{dim: 64}
-	vidx := newTestVectorIndex(emb.ID())
-	lidx := newTestLexicalIndex()
-
-	svc := NewService(tmpDir, emb, vidx, lidx)
-
-	nodes := []Node{
-		{ID: "pkg.Func1", Kind: "func", Package: "pkg", Name: "Func1", Signature: "Func1()", Embeddable: true,
-			Span: domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 20, StartLine: 1, EndLine: 1}},
-	}
-
-	err := svc.Index(context.Background(), nodes)
-	if err != nil {
+	corpus := NewCorpus(emb, vecstore.New("", Recipe(emb.ID())), bm25.New(), path)
+	svc := NewService(tmpDir, corpus)
+	if err := svc.Index(context.Background(), []Node{func1Node()}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
-
-	// Save should not error with test doubles
-	err = svc.Save()
-	if err != nil {
+	if err := svc.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// Load should not error with test doubles
-	err = svc.Load()
-	if err != nil {
+	lexical := bm25.New()
+	if err := NewCorpus(emb, vecstore.New("", Recipe(emb.ID())), lexical, path).Load(); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-
-	// Note: Test doubles don't persist, so we verify the methods don't error.
-	// Actual persistence is tested in adapter-level tests (brute_test.go, bm25_test.go).
+	if lexical.Len() != 1 {
+		t.Errorf("reloaded lexical documents = %d, want 1", lexical.Len())
+	}
 }
 
-func TestService_NilIndexes(t *testing.T) {
+func TestService_NoDenseChannel(t *testing.T) {
 	tmpDir := t.TempDir()
 	setupTestSource(t, tmpDir)
 
-	// Service with no vector index
-	lidx := newTestLexicalIndex()
-	svc := NewService(tmpDir, nil, nil, lidx)
-
-	nodes := []Node{
-		{ID: "pkg.Func1", Kind: "func", Package: "pkg", Name: "Func1", Signature: "Func1()", Embeddable: true,
-			Span: domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 20, StartLine: 1, EndLine: 1}},
-	}
-
-	// Should not panic
-	err := svc.Index(context.Background(), nodes)
-	if err != nil {
+	lexical := bm25.New()
+	svc := NewService(tmpDir, NewCorpus(nil, nil, lexical, ""))
+	if err := svc.Index(context.Background(), []Node{func1Node()}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
-
-	// Dense should be unavailable
 	if svc.DenseAvailable() {
-		t.Error("dense should be unavailable with nil embedder")
+		t.Error("dense should be unavailable with no embedder")
 	}
+	if lexical.Len() != 1 {
+		t.Errorf("expected 1 document, got %d", lexical.Len())
+	}
+	if svc.EmbedderID() != "" {
+		t.Errorf("EmbedderID = %q, want empty", svc.EmbedderID())
+	}
+}
 
-	// But BM25 should work
-	if lidx.Len() != 1 {
-		t.Errorf("expected 1 document, got %d", lidx.Len())
+func TestHashNodesMatchesContentHash(t *testing.T) {
+	root := t.TempDir()
+	setupTestSource(t, root)
+	nodes := []Node{
+		func1Node(),
+		{ID: "pkg.Func2", Kind: "func", Package: "pkg", Name: "Func2", Signature: "Func2()",
+			Span: domain.Span{File: "pkg/code.go", StartByte: 30, EndByte: 50, StartLine: 5, EndLine: 7}},
+		{ID: "pkg.Missing", Kind: "func", Package: "pkg", Name: "Missing", Signature: "Missing()",
+			Span: domain.Span{File: "pkg/gone.go", StartByte: 0, EndByte: 5, StartLine: 1, EndLine: 1}},
+		{ID: "pkg.Bad", Kind: "func", Package: "pkg", Name: "Bad", Signature: "Bad()",
+			Span: domain.Span{File: "pkg/code.go", StartByte: 0, EndByte: 1 << 20, StartLine: 1, EndLine: 1}},
+		{ID: "pkg.NoSpan", Kind: "const", Package: "pkg", Name: "NoSpan"},
+	}
+	got := hashNodes(nodes, root)
+	for _, n := range nodes {
+		want, err := ContentHash(n, root)
+		if err != nil {
+			t.Fatalf("ContentHash(%s): %v", n.ID, err)
+		}
+		if got[n.ID] != want {
+			t.Errorf("%s: hashNodes = %s, ContentHash = %s", n.ID, got[n.ID], want)
+		}
 	}
 }
 
@@ -370,15 +319,44 @@ func (e *testEmbedder) ID() string {
 	return "test:embedder"
 }
 
-// countingEmbedder wraps an embedder and counts calls
+// countingEmbedder wraps an embedder and records what it was asked to embed.
+// Safe for concurrent use.
 type countingEmbedder struct {
 	testEmbedder
+	mu        sync.Mutex
 	callCount int
+	texts     map[string]int
 }
 
 func (e *countingEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	e.mu.Lock()
 	e.callCount++
+	if e.texts == nil {
+		e.texts = make(map[string]int)
+	}
+	for _, t := range texts {
+		e.texts[t]++
+	}
+	e.mu.Unlock()
 	return e.testEmbedder.Embed(ctx, texts)
+}
+
+func (e *countingEmbedder) calls() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.callCount
+}
+
+// embedded returns how many texts were embedded, and the most times any one
+// text was.
+func (e *countingEmbedder) embedded() (total, maxRepeat int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, n := range e.texts {
+		total += n
+		maxRepeat = max(maxRepeat, n)
+	}
+	return total, maxRepeat
 }
 
 // failingEmbedder always returns an error
@@ -398,130 +376,4 @@ func (e *failingEmbedder) Dim() int {
 
 func (e *failingEmbedder) ID() string {
 	return "failing:model"
-}
-
-// testVectorIndex is a simple in-memory vector index for testing.
-type testVectorIndex struct {
-	embedderID string
-	vectors    map[string][]float32
-	hashes     map[string]string
-}
-
-func newTestVectorIndex(embedderID string) *testVectorIndex {
-	return &testVectorIndex{
-		embedderID: embedderID,
-		vectors:    make(map[string][]float32),
-		hashes:     make(map[string]string),
-	}
-}
-
-func (idx *testVectorIndex) Upsert(id string, vec []float32) {
-	idx.vectors[id] = vec
-}
-
-func (idx *testVectorIndex) UpsertWithHash(id string, vec []float32, contentHash string) {
-	idx.vectors[id] = vec
-	idx.hashes[id] = contentHash
-}
-
-func (idx *testVectorIndex) Remove(id string) {
-	delete(idx.vectors, id)
-	delete(idx.hashes, id)
-}
-
-func (idx *testVectorIndex) Search(vec []float32, k int) []Scored {
-	// Simple implementation - return all with dummy scores
-	results := make([]Scored, 0, len(idx.vectors))
-	for id := range idx.vectors {
-		results = append(results, Scored{ID: id, Score: 1.0})
-	}
-	if k < len(results) {
-		return results[:k]
-	}
-	return results
-}
-
-func (idx *testVectorIndex) Len() int {
-	return len(idx.vectors)
-}
-
-func (idx *testVectorIndex) GetHash(id string) string {
-	return idx.hashes[id]
-}
-
-func (idx *testVectorIndex) Vector(id string) ([]float32, bool) {
-	vec, ok := idx.vectors[id]
-	return vec, ok
-}
-
-func (idx *testVectorIndex) IDs() []string {
-	ids := make([]string, 0, len(idx.vectors))
-	for id := range idx.vectors {
-		ids = append(ids, id)
-	}
-	return ids
-}
-
-func (idx *testVectorIndex) EmbedderID() string {
-	return idx.embedderID
-}
-
-func (idx *testVectorIndex) Save(path string) error {
-	return nil // Noop for tests
-}
-
-func (idx *testVectorIndex) Load(path string) error {
-	return nil // Noop for tests
-}
-
-// testLexicalIndex is a simple in-memory lexical index for testing.
-type testLexicalIndex struct {
-	docs map[string]string
-}
-
-func newTestLexicalIndex() *testLexicalIndex {
-	return &testLexicalIndex{
-		docs: make(map[string]string),
-	}
-}
-
-func (idx *testLexicalIndex) Upsert(id, text string) {
-	idx.docs[id] = text
-}
-
-func (idx *testLexicalIndex) Remove(id string) {
-	delete(idx.docs, id)
-}
-
-func (idx *testLexicalIndex) Search(query string, k int) []Scored {
-	// Simple substring match
-	results := make([]Scored, 0)
-	for id, text := range idx.docs {
-		if containsIgnoreCase(text, query) {
-			results = append(results, Scored{ID: id, Score: 1.0})
-		}
-	}
-	if k < len(results) {
-		return results[:k]
-	}
-	return results
-}
-
-func (idx *testLexicalIndex) Len() int {
-	return len(idx.docs)
-}
-
-func (idx *testLexicalIndex) Save(path string) error {
-	return nil // Noop for tests
-}
-
-func (idx *testLexicalIndex) Load(path string) error {
-	return nil // Noop for tests
-}
-
-func containsIgnoreCase(text, substr string) bool {
-	return len(text) > 0 && len(substr) > 0 &&
-		(text == substr ||
-			(len(text) >= len(substr) &&
-				(text[:len(substr)] == substr || containsIgnoreCase(text[1:], substr))))
 }

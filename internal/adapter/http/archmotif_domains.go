@@ -54,8 +54,7 @@ func (s *Server) handleArchMotifDomains(w nethttp.ResponseWriter, r *nethttp.Req
 	}
 	// Both sides of the comparison come from one node set, and the semantic
 	// side of it is the embeddings. Saying so is better than half a grid.
-	vectors := svc.VectorIndexWithLookup()
-	if vectors == nil {
+	if !svc.DenseAvailable() {
 		nethttp.Error(w, "vector index not available — the embedder is not configured, or the index needs a refresh", nethttp.StatusServiceUnavailable)
 		return
 	}
@@ -67,7 +66,7 @@ func (s *Server) handleArchMotifDomains(w nethttp.ResponseWriter, r *nethttp.Req
 	in := clustering.Input{
 		Packages: snap.Packages,
 		Overlay:  snap.Overlay,
-		Vectors:  vectors,
+		Vectors:  svc,
 		Selector: selector,
 		K:        atoiOr(query.Get("k"), 0),
 		KNN:      atoiOr(query.Get("knn"), 0),
@@ -81,7 +80,7 @@ func (s *Server) handleArchMotifDomains(w nethttp.ResponseWriter, r *nethttp.Req
 		in.Base = base.Models
 	}
 
-	res, err := clustering.LatentDomains(in)
+	res, err := clustering.LatentDomains(r.Context(), in)
 	if err != nil {
 		// Every error this analysis returns is a statement about the question
 		// asked — an empty scope, a missing base, too few embedded symbols — so

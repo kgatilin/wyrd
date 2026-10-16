@@ -12,7 +12,7 @@ import (
 
 	"github.com/kgatilin/wyrd/internal/adapter/embed/noop"
 	"github.com/kgatilin/wyrd/internal/adapter/lindex/bm25"
-	"github.com/kgatilin/wyrd/internal/adapter/vindex/brute"
+	"github.com/kgatilin/wyrd/internal/adapter/vindex/vecstore"
 	"github.com/kgatilin/wyrd/internal/domain"
 	"github.com/kgatilin/wyrd/internal/retrieval"
 	"github.com/kgatilin/wyrd/internal/serve"
@@ -49,9 +49,8 @@ func NewHandler() *Handler {
 
 	// Build retrieval service manually with noop embedder
 	emb := noop.New()
-	vidx := brute.New(emb.ID(), emb.Dim())
-	lidx := bm25.New()
-	svc := retrieval.NewService(tmpDir, emb, vidx, lidx)
+	corpus := retrieval.NewCorpus(emb, vecstore.New("", retrieval.Recipe(emb.ID())), bm25.New(), "")
+	svc := retrieval.NewService(tmpDir, corpus)
 
 	// Build and index test models
 	models := []domain.PackageModel{

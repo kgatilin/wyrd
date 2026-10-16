@@ -1,6 +1,7 @@
 package clustering
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -127,7 +128,7 @@ func TestMembersFromLabels(t *testing.T) {
 // A diff-scoped analysis with no base is a question the daemon cannot answer,
 // and it must say so rather than silently falling back to repo scope.
 func TestLatentDomains_DiffWithoutBase(t *testing.T) {
-	_, err := LatentDomains(Input{
+	_, err := LatentDomains(context.Background(), Input{
 		Packages: twoFlowClusters(),
 		Vectors:  stubVectors{},
 		Selector: Selector{Diff: true},
@@ -138,11 +139,13 @@ func TestLatentDomains_DiffWithoutBase(t *testing.T) {
 }
 
 func TestLatentDomains_NoVectors(t *testing.T) {
-	if _, err := LatentDomains(Input{Packages: twoFlowClusters()}); err == nil {
+	if _, err := LatentDomains(context.Background(), Input{Packages: twoFlowClusters()}); err == nil {
 		t.Fatal("expected an error when no vector lookup is supplied")
 	}
 }
 
 type stubVectors struct{}
 
-func (stubVectors) Vector(string) ([]float32, bool) { return nil, false }
+func (stubVectors) Vectors(context.Context, []string) (map[string][]float32, error) {
+	return nil, nil
+}

@@ -38,6 +38,13 @@ type PackageModel struct {
 	// Dependencies is the list of dependencies between symbols.
 	Dependencies []Dependency
 
+	// Imports lists the in-module packages this package's non-test files
+	// import, as module-relative paths (the form of Path), sorted and
+	// deduplicated. Blank and dot imports are included. It is the package
+	// dependency itself: an import used only by a call, a constant or a
+	// side-effect init leaves no symbol dependency, but still appears here.
+	Imports []string
+
 	// Layer is the architectural layer this package belongs to,
 	// as assigned by the overlay (wyrd.yaml). Empty when no overlay
 	// has been applied or the package does not match any layer.

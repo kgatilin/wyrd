@@ -144,6 +144,8 @@ func applyChange(c diff.Change, curIdx map[string]domain.PackageModel, tgtIdx ma
 // applyPackage handles OpAdd / OpRemove / OpChange on an entire package.
 // OpAdd (target has it, current doesn't) => drop from target.
 // OpRemove (current has it, target doesn't) => copy current package into target.
+// The copy is cloned: later changes in the same patch edit it in place, and
+// current is a model other holders share.
 func applyPackage(c diff.Change, curIdx map[string]domain.PackageModel, tgtIdx map[string]*domain.PackageModel) error {
 	switch c.Op {
 	case diff.OpRemove:
@@ -151,7 +153,7 @@ func applyPackage(c diff.Change, curIdx map[string]domain.PackageModel, tgtIdx m
 		if !ok {
 			return fmt.Errorf("current model has no package %q", c.Path)
 		}
-		cp := src
+		cp := clonePackage(src)
 		tgtIdx[c.Path] = &cp
 		return nil
 	case diff.OpAdd:
@@ -165,7 +167,7 @@ func applyPackage(c diff.Change, curIdx map[string]domain.PackageModel, tgtIdx m
 		if !ok {
 			return fmt.Errorf("current model has no package %q", c.Path)
 		}
-		cp := src
+		cp := clonePackage(src)
 		tgtIdx[c.Path] = &cp
 		return nil
 	}

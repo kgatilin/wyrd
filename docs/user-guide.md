@@ -181,6 +181,22 @@ Patterns under `layers` are module-relative Go import patterns
 entries are strict allow-lists: any dependency outside the list is a
 violation.
 
+What counts as a dependency between two packages of the module:
+
+- **`wyrd policy check`** (the `policy:` block, see
+  [the dependency-policy design](features/dependency-policy/design.md)):
+  every import in a non-test file is an edge — including a blank
+  `import _ "…"`, a dot import, and an import used only by a call in a
+  function body, a constant, a variable initialised from a call, or a
+  method call on a value whose type is inferred — plus any symbol
+  dependency (a type in a signature, a struct field, a type named in a
+  body). Imports made only by `_test.go` files do not count. A rule's
+  `(kinds)` qualifier names the import edge `imports`.
+- **`wyrd overlay check`** (`layer_rules`): a symbol dependency only. An
+  import that leaves no type in a declaration or body — a call-only use,
+  a constant, a blank import — is not seen by the layer rules; use a
+  `policy:` block to gate on imports.
+
 ### 3.2 Package-local overlay fragments
 
 Any package can add architecture metadata in `.arch/overlay.yaml` next

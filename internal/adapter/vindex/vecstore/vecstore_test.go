@@ -1,163 +1,173 @@
 package vecstore
 
 import (
+	"context"
 	"encoding/gob"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
+const testRecipe = "ns@r1"
+
+func put(t *testing.T, s *Store, vectors map[string][]float32) {
+	t.Helper()
+	if err := s.Put(context.Background(), vectors); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+}
+
+func get(t *testing.T, s *Store, hash string) ([]float32, bool) {
+	t.Helper()
+	got, err := s.Get(context.Background(), []string{hash})
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	vec, ok := got[hash]
+	return vec, ok
+}
+
 func TestStoreRoundTrip(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "cache")
-
-	store := New(dir)
-	c := store.Namespace("ollama:model@r1")
-	c.Put("hash-a", []float32{1, 2, 3})
-	c.Put("hash-b", []float32{4, 5, 6})
-
-	if err := store.Save(); err != nil {
+	path := Path(filepath.Join(t.TempDir(), "missing", "dir"), testRecipe)
+	s := New(path, testRecipe)
+	put(t, s, map[string][]float32{"h1": {1, 2, 3}, "h2": {4, 5, 6}})
+	if err := s.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// A second store over the same directory sees the persisted vectors.
-	reloaded := New(dir).Namespace("ollama:model@r1")
-	vec, ok := reloaded.Get("hash-a")
-	if !ok {
-		t.Fatal("hash-a missing after reload")
+	reopened := New(path, testRecipe)
+	if !reopened.Has("h1") || !reopened.Has("h2") || reopened.Len() != 2 {
+		t.Fatalf("reopened store: h1=%v h2=%v len=%d", reopened.Has("h1"), reopened.Has("h2"), reopened.Len())
 	}
-	if len(vec) != 3 || vec[0] != 1 || vec[2] != 3 {
-		t.Fatalf("hash-a = %v, want [1 2 3]", vec)
-	}
-	if _, ok := reloaded.Get("hash-b"); !ok {
-		t.Fatal("hash-b missing after reload")
-	}
-	if _, ok := reloaded.Get("hash-missing"); ok {
-		t.Fatal("unknown hash reported as cached")
-	}
-	if _, ok := reloaded.Get(""); ok {
-		t.Fatal("empty hash reported as cached")
+	if vec, _ := get(t, reopened, "h2"); len(vec) != 3 || vec[2] != 6 {
+		t.Errorf("h2 = %v, want [4 5 6]", vec)
 	}
 }
 
-func TestStoreSaveCreatesMissingDir(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "missing", "nested")
-
-	store := New(dir)
-	store.Namespace("ns@r1").Put("hash", []float32{1})
-	if err := store.Save(); err != nil {
-		t.Fatalf("Save: %v", err)
+func TestStoreSaveAppendsOnlyNewVectors(t *testing.T) {
+	path := Path(t.TempDir(), testRecipe)
+	s := New(path, testRecipe)
+	put(t, s, map[string][]float32{"h1": {1, 2}})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
 	}
-
-	if _, err := os.Stat(dir); err != nil {
-		t.Fatalf("cache dir not created: %v", err)
-	}
-}
-
-func TestStoreNamespacesAreIsolated(t *testing.T) {
-	dir := t.TempDir()
-
-	store := New(dir)
-	store.Namespace("model-a@r1").Put("hash", []float32{1, 1})
-	store.Namespace("model-b@r1").Put("hash", []float32{2, 2})
-	if err := store.Save(); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	reloaded := New(dir)
-	a, ok := reloaded.Namespace("model-a@r1").Get("hash")
-	if !ok || a[0] != 1 {
-		t.Fatalf("model-a hash = %v (ok=%v), want [1 1]", a, ok)
-	}
-	b, ok := reloaded.Namespace("model-b@r1").Get("hash")
-	if !ok || b[0] != 2 {
-		t.Fatalf("model-b hash = %v (ok=%v), want [2 2]", b, ok)
-	}
-	if _, ok := reloaded.Namespace("model-c@r1").Get("hash"); ok {
-		t.Fatal("unused namespace served a vector from a sibling namespace")
-	}
-}
-
-func TestStoreNamespaceReturnsSameCache(t *testing.T) {
-	store := New(t.TempDir())
-	store.Namespace("ns@r1").Put("hash", []float32{1})
-	if _, ok := store.Namespace("ns@r1").Get("hash"); !ok {
-		t.Fatal("second Namespace call returned a different cache")
-	}
-}
-
-func TestStorePutIsIdempotentAndTracksDirt(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "ns@r1"+fileExt)
-
-	store := New(dir)
-	c := store.Namespace("ns@r1")
-	c.Put("hash", []float32{1, 2})
-	if err := store.Save(); err != nil {
-		t.Fatalf("first Save: %v", err)
-	}
-	first, err := os.Stat(path)
+	before, err := os.Stat(path)
 	if err != nil {
-		t.Fatalf("stat after first Save: %v", err)
+		t.Fatal(err)
 	}
 
-	// Re-putting known hashes (what seeding a loaded index does) must not
-	// rewrite the file.
-	c.Put("hash", []float32{9, 9})
-	c.Put("", []float32{1})
-	c.Put("empty-vec", nil)
-	if err := os.Remove(path); err != nil {
-		t.Fatalf("remove file: %v", err)
+	// A save with nothing new writes nothing.
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
 	}
-	if err := store.Save(); err != nil {
-		t.Fatalf("second Save: %v", err)
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("clean namespace rewrote its file (err=%v)", err)
+	if after, _ := os.Stat(path); after.Size() != before.Size() {
+		t.Fatalf("an idle save changed the file: %d → %d bytes", before.Size(), after.Size())
 	}
 
-	// The original vector is untouched by the duplicate Put.
-	vec, ok := c.Get("hash")
-	if !ok || vec[0] != 1 || vec[1] != 2 {
-		t.Fatalf("hash = %v (ok=%v), want [1 2]", vec, ok)
+	// A known hash is not re-recorded; a new one is appended.
+	put(t, s, map[string][]float32{"h1": {9, 9}, "h2": {3, 4}})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
 	}
-
-	// A genuinely new hash marks the namespace dirty again.
-	c.Put("hash-2", []float32{3, 4})
-	if err := store.Save(); err != nil {
-		t.Fatalf("third Save: %v", err)
+	after, _ := os.Stat(path)
+	record := int64(2 + len("h2") + 4 + 2*4)
+	if got := after.Size() - before.Size(); got != record {
+		t.Errorf("second save wrote %d bytes, want one appended record of %d", got, record)
 	}
-	again, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat after third Save: %v", err)
-	}
-	if again.Size() <= first.Size() {
-		t.Fatalf("file did not grow after a new hash: %d then %d", first.Size(), again.Size())
+	if vec, _ := get(t, New(path, testRecipe), "h1"); vec[0] != 1 {
+		t.Errorf("h1 = %v, want the first vector: entries are immutable", vec)
 	}
 }
 
-func TestStoreSaveMergesConcurrentWriters(t *testing.T) {
-	dir := t.TempDir()
+func TestStoreSearchScoresOnlyKeptHashes(t *testing.T) {
+	s := New("", testRecipe)
+	put(t, s, map[string][]float32{
+		"exact": {1, 0},
+		"close": {0.9, 0.1},
+		"far":   {0, 1},
+	})
+	ctx := context.Background()
 
-	// Two stores over the same directory, each loading before the other
-	// writes — the situation two daemons over one repo produce.
-	first := New(dir)
-	second := New(dir)
-	first.Namespace("ns@r1").Put("hash-first", []float32{1})
-	second.Namespace("ns@r1").Put("hash-second", []float32{2})
-
-	if err := first.Save(); err != nil {
-		t.Fatalf("first Save: %v", err)
+	got, err := s.Search(ctx, []float32{1, 0}, 2, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := second.Save(); err != nil {
-		t.Fatalf("second Save: %v", err)
+	if len(got) != 2 || got[0].ID != "exact" || got[1].ID != "close" {
+		t.Errorf("unfiltered = %v, want exact, close", got)
 	}
 
-	merged := New(dir).Namespace("ns@r1")
-	if _, ok := merged.Get("hash-first"); !ok {
-		t.Error("first writer's vector was clobbered")
+	got, _ = s.Search(ctx, []float32{1, 0}, 2, func(h string) bool { return h != "exact" })
+	if len(got) != 2 || got[0].ID != "close" || got[1].ID != "far" {
+		t.Errorf("filtered = %v, want close, far: keep applies before the cut", got)
 	}
-	if _, ok := merged.Get("hash-second"); !ok {
-		t.Error("second writer's vector was clobbered")
+}
+
+func TestStoreInMemoryWritesNothing(t *testing.T) {
+	s := New("", testRecipe)
+	put(t, s, map[string][]float32{"h": {1}})
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if !s.Has("h") {
+		t.Fatal("in-memory store lost a vector")
+	}
+}
+
+func TestStoreReadsLegacyFormatAndRewritesIt(t *testing.T) {
+	path := Path(t.TempDir(), testRecipe)
+	writeLegacy(t, path, legacyFile{
+		Magic: legacyMagic, Version: legacyVersion, Namespace: testRecipe,
+		Vectors: map[string][]float32{"old": {1, 2}},
+	})
+
+	s := New(path, testRecipe)
+	if !s.Has("old") {
+		t.Fatal("v1 vector not read")
+	}
+	put(t, s, map[string][]float32{"new": {3, 4}})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	appendable, err := Scan(path, testRecipe, func(string, []float32) error { return nil })
+	if err != nil || !appendable {
+		t.Fatalf("after save: appendable=%v err=%v, want the v2 format", appendable, err)
+	}
+	reopened := New(path, testRecipe)
+	if !reopened.Has("old") || !reopened.Has("new") {
+		t.Error("rewrite lost a vector")
+	}
+}
+
+func TestStoreDropsTruncatedTailAndRewrites(t *testing.T) {
+	path := Path(t.TempDir(), testRecipe)
+	s := New(path, testRecipe)
+	put(t, s, map[string][]float32{"a": {1, 2}})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	put(t, s, map[string][]float32{"b": {3, 4}})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if err := os.WriteFile(path, data[:len(data)-2], 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cut := New(path, testRecipe)
+	if !cut.Has("a") || cut.Has("b") {
+		t.Fatalf("truncated file: a=%v b=%v, want only the whole record", cut.Has("a"), cut.Has("b"))
+	}
+	put(t, cut, map[string][]float32{"c": {5, 6}})
+	if err := cut.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if appendable, err := Scan(path, testRecipe, func(string, []float32) error { return nil }); !appendable || err != nil {
+		t.Fatalf("after save: appendable=%v err=%v, want a clean file", appendable, err)
+	}
+	if re := New(path, testRecipe); !re.Has("a") || !re.Has("c") {
+		t.Error("rewrite after a truncated tail lost a vector")
 	}
 }
 
@@ -169,64 +179,54 @@ func TestStoreIgnoresUnusableFiles(t *testing.T) {
 		{
 			name: "corrupt",
 			write: func(t *testing.T, path string) {
-				if err := os.WriteFile(path, []byte("not a gob stream at all"), 0o644); err != nil {
+				if err := os.WriteFile(path, []byte("not a vector file at all"), 0o644); err != nil {
 					t.Fatalf("write: %v", err)
 				}
 			},
 		},
 		{
-			name: "wrong header",
+			name: "wrong legacy header",
 			write: func(t *testing.T, path string) {
-				writeRecord(t, path, fileFormat{
-					Magic:     "something-else",
-					Version:   99,
-					Namespace: "ns@r1",
-					Vectors:   map[string][]float32{"hash": {1}},
-				})
+				writeLegacy(t, path, legacyFile{Magic: "something-else", Version: 99, Namespace: testRecipe,
+					Vectors: map[string][]float32{"hash": {1}}})
 			},
 		},
 		{
-			name: "wrong namespace",
+			name: "other recipe",
 			write: func(t *testing.T, path string) {
-				writeRecord(t, path, fileFormat{
-					Magic:     fileMagic,
-					Version:   fileVersion,
-					Namespace: "other@r1",
-					Vectors:   map[string][]float32{"hash": {1}},
-				})
+				other := New(path, "other@r1")
+				put(t, other, map[string][]float32{"hash": {1}})
+				if err := other.Save(); err != nil {
+					t.Fatal(err)
+				}
 			},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			path := filepath.Join(dir, "ns@r1"+fileExt)
+			path := Path(t.TempDir(), testRecipe)
 			tc.write(t, path)
 
-			// Construction must not fail, and the cache must read as empty.
-			c := New(dir).Namespace("ns@r1")
-			if _, ok := c.Get("hash"); ok {
+			if New(path, testRecipe).Has("hash") {
 				t.Fatal("unusable file served a vector")
 			}
-
-			// It must still be writable afterwards.
-			store := New(dir)
-			store.Namespace("ns@r1").Put("fresh", []float32{7})
-			if err := store.Save(); err != nil {
+			s := New(path, testRecipe)
+			put(t, s, map[string][]float32{"fresh": {7}})
+			if err := s.Save(); err != nil {
 				t.Fatalf("Save over unusable file: %v", err)
 			}
-			if _, ok := New(dir).Namespace("ns@r1").Get("fresh"); !ok {
+			if !New(path, testRecipe).Has("fresh") {
 				t.Fatal("rewrite over an unusable file did not persist")
 			}
 		})
 	}
 }
 
-func TestFileNameSanitizesNamespace(t *testing.T) {
+func TestFileNameSanitizesRecipe(t *testing.T) {
 	tests := []struct {
-		ns   string
-		want string
+		recipe string
+		want   string
 	}{
 		{"ollama:qwen3-embedding:0.6b@r1", "ollama-qwen3-embedding-0.6b@r1"},
 		{"openai/text-embed@r2", "openai-text-embed@r2"},
@@ -234,13 +234,13 @@ func TestFileNameSanitizesNamespace(t *testing.T) {
 		{"///", "unnamed"},
 	}
 	for _, tc := range tests {
-		if got := fileName(tc.ns); got != tc.want {
-			t.Errorf("fileName(%q) = %q, want %q", tc.ns, got, tc.want)
+		if got := fileName(tc.recipe); got != tc.want {
+			t.Errorf("fileName(%q) = %q, want %q", tc.recipe, got, tc.want)
 		}
 	}
 }
 
-func writeRecord(t *testing.T, path string, rec fileFormat) {
+func writeLegacy(t *testing.T, path string, rec legacyFile) {
 	t.Helper()
 	f, err := os.Create(path)
 	if err != nil {

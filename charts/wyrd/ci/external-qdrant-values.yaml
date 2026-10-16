@@ -1,0 +1,52 @@
+# Lint case: an existing Qdrant with scoped tokens, an openai-compatible
+# embedder, MCP behind a token, the UI behind an authenticating ingress.
+embedder:
+  provider: openai
+  model: text-embedding-3-small
+  dim: 0
+  apiKeySecret:
+    name: embedder-key
+qdrant:
+  enabled: false
+qdrantConnection:
+  url: http://qdrant.search:6333
+  collection: shop
+  apiKeySecret:
+    name: qdrant-tokens
+    key: read-write
+  bootstrap:
+    adminApiKeySecret:
+      name: qdrant-tokens
+      key: admin
+mcpAuth:
+  tokenSecret:
+    name: wyrd-mcp
+persistence:
+  existingClaim: shop-checkout
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/auth-url: https://auth.example.com/oauth2/auth
+    nginx.ingress.kubernetes.io/auth-signin: https://auth.example.com/oauth2/start
+  hosts:
+    - host: code.example.com
+      paths:
+        - {path: /w, pathType: Prefix}
+        - {path: /review, pathType: Prefix}
+        - {path: /api, pathType: Prefix}
+        - {path: /plugins, pathType: Prefix}
+  tls:
+    - secretName: code-example-tls
+      hosts: [code.example.com]
+sync:
+  initContainers:
+    - name: clone
+      image: registry.k8s.io/git-sync/git-sync:v4.4.0
+      args: ["--repo=https://git.example.com/acme/shop.git", "--ref=main", "--root=/data/git", "--link={{ .Values.repo.path }}", "--one-time"]
+      volumeMounts: [{name: data, mountPath: /data}]
+  containers:
+    - name: git-sync
+      image: registry.k8s.io/git-sync/git-sync:v4.4.0
+      args: ["--repo=https://git.example.com/acme/shop.git", "--ref=main", "--root=/data/git", "--link={{ .Values.repo.path }}", "--period=60s"]
+      volumeMounts: [{name: data, mountPath: /data}]

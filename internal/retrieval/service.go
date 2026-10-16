@@ -2,37 +2,38 @@ package retrieval
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/kgatilin/wyrd/internal/domain"
 )
 
-// Service orchestrates the vector and lexical indexes for code search.
-// It handles embedding, freshness tracking, and graceful degradation
-// when the embedder is unavailable.
+// Service is one worktree's view of the repository's corpus: which content
+// hash each of its nodes has, and the graph the diffusion walks. Search,
+// expand, readiness and coverage are answered by the view against the shared
+// corpus, so N worktrees hold one corpus and N views.
 type Service struct {
 	mu sync.RWMutex
 
-	// root is the project root directory for content hash computation.
+	// root is the project root directory, where node source is read.
 	root string
 
-	// embedder generates dense vector embeddings.
-	embedder Embedder
+	// corpus holds the text channels shared with the daemon's other views.
+	corpus *Corpus
 
-	// vindex is the dense vector index (may be nil if embedding failed).
-	vindex vectorIndexWithHash
+	// view maps node ids to content hashes and back. Immutable once
+	// published: an update builds the next one and swaps it under mu.
+	view *view
 
-	// lindex is the BM25 lexical index.
-	lindex LexicalIndex
-
-	// vcache is the repo-level, content-addressed vector cache shared with
-	// the other worktrees of this repository. Consulted before the embedder;
-	// nil disables sharing (every worktree embeds for itself).
-	vcache VectorCache
+	// updateMu serializes view updates, so two updates cannot both build on
+	// the same previous view.
+	updateMu sync.Mutex
 
 	// graph holds the adjacency map for expand/neighbor operations.
 	graph *Graph
@@ -41,30 +42,88 @@ type Service struct {
 	// softmax temperatures, diffusion constants).
 	params Params
 
-	// denseAvailable tracks whether dense search is operational.
-	// Set to false if the embedder fails during Index/Refresh.
+	// denseAvailable tracks whether dense search is operational for this
+	// view. Set to false if the embedder fails during this view's pass.
 	denseAvailable bool
 
-	// vectorsPath is where the vector index is persisted.
-	vectorsPath string
+	// embedding counts this view's embedding passes in flight, including
+	// one waiting for the corpus's embed lock behind another view. Read by
+	// IndexStatus so callers can report "indexing" instead of blocking.
+	embedding int
 
-	// lexicalPath is where the lexical index is persisted.
-	lexicalPath string
-
-	// idxInProgress is true while Index/Refresh is running (notably the slow
-	// dense-embedding pass). Read by IndexStatus so callers — the `status`
-	// tool, the readiness gate on embedding-backed lenses — can report
-	// "indexing in progress" instead of blocking until a client timeout.
-	idxInProgress bool
-
-	// idxStartedAt is when the current (or last) indexing pass began.
+	// idxStartedAt is when the current (or last) embedding pass began.
 	idxStartedAt time.Time
 }
 
-// IndexStatus is a cheap, non-blocking snapshot of the retrieval index's
-// readiness: whether an indexing pass is running, how many embeddable nodes
-// have vectors so far, and whether dense search is operational. It does no
-// heavy work, so the `status` tool answers instantly even mid-indexing.
+// view is the node id ↔ content hash mapping of one worktree.
+type view struct {
+	hashOf  map[string]string   // node id → content hash
+	nodesOf map[string][]string // content hash → node ids (texts can repeat)
+}
+
+func emptyView() *view {
+	return &view{hashOf: map[string]string{}, nodesOf: map[string][]string{}}
+}
+
+// has reports whether the view holds a node with this hash.
+func (v *view) has(hash string) bool {
+	_, ok := v.nodesOf[hash]
+	return ok
+}
+
+// clone returns a copy the caller may modify.
+func (v *view) clone() *view {
+	next := &view{
+		hashOf:  make(map[string]string, len(v.hashOf)),
+		nodesOf: make(map[string][]string, len(v.nodesOf)),
+	}
+	for id, h := range v.hashOf {
+		next.hashOf[id] = h
+	}
+	for h, ids := range v.nodesOf {
+		next.nodesOf[h] = ids
+	}
+	return next
+}
+
+// remove drops a node. The id slice is replaced, never written: it may be
+// shared with the previous view.
+func (v *view) remove(id string) {
+	h, ok := v.hashOf[id]
+	if !ok {
+		return
+	}
+	delete(v.hashOf, id)
+	ids := v.nodesOf[h]
+	kept := make([]string, 0, len(ids))
+	for _, other := range ids {
+		if other != id {
+			kept = append(kept, other)
+		}
+	}
+	if len(kept) == 0 {
+		delete(v.nodesOf, h)
+		return
+	}
+	v.nodesOf[h] = kept
+}
+
+// add maps a node to its hash, replacing any previous mapping.
+func (v *view) add(id, hash string) {
+	if old, ok := v.hashOf[id]; ok {
+		if old == hash {
+			return
+		}
+		v.remove(id)
+	}
+	v.hashOf[id] = hash
+	ids := v.nodesOf[hash]
+	v.nodesOf[hash] = append(ids[:len(ids):len(ids)], id)
+}
+
+// IndexStatus is a cheap, non-blocking snapshot of the view's readiness:
+// whether an embedding pass is running, how many embeddable nodes have
+// vectors so far, and whether dense search is operational.
 type IndexStatus struct {
 	InProgress     bool      `json:"in_progress"`
 	DenseAvailable bool      `json:"dense_available"`
@@ -74,401 +133,175 @@ type IndexStatus struct {
 	StartedAt      time.Time `json:"started_at,omitempty"`
 }
 
-// IndexStatus returns a snapshot of indexing progress. Counts are computed
-// on-demand from the live indexes, so Embedded climbs toward Embeddable as the
-// dense pass streams vectors in.
+// IndexStatus returns a snapshot of the view's readiness, computed from the
+// view's own hashes: Embedded climbs toward Embeddable as the corpus stores
+// vectors, whichever view's pass stored them.
 func (s *Service) IndexStatus() IndexStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	st := IndexStatus{
-		InProgress:     s.idxInProgress,
+		InProgress:     s.embedding > 0,
 		DenseAvailable: s.denseAvailable,
 		StartedAt:      s.idxStartedAt,
 	}
-	if s.vindex != nil {
-		st.Embedded = len(s.vindex.IDs())
-	}
 	if s.graph != nil {
-		for _, n := range s.graph.NodesByID {
-			if n.Embeddable {
-				st.Embeddable++
+		for id, n := range s.graph.NodesByID {
+			if !n.Embeddable {
+				continue
+			}
+			st.Embeddable++
+			if h := s.view.hashOf[id]; h != "" && s.corpus.hasVector(h) {
+				st.Embedded++
 			}
 		}
 	}
-	if st.Pending = st.Embeddable - st.Embedded; st.Pending < 0 {
-		st.Pending = 0
-	}
+	st.Pending = st.Embeddable - st.Embedded
 	return st
 }
 
-func (s *Service) beginIndexing() {
-	s.mu.Lock()
-	s.idxInProgress = true
-	s.idxStartedAt = time.Now()
-	s.mu.Unlock()
-}
-
-func (s *Service) endIndexing() {
-	s.mu.Lock()
-	s.idxInProgress = false
-	s.mu.Unlock()
-}
-
-// vectorIndexWithHash extends VectorIndex with hash and ID tracking methods
-// needed for freshness. Implemented by brute.Index.
-type vectorIndexWithHash interface {
-	VectorIndex
-
-	// UpsertWithHash inserts or updates the vector and its content hash.
-	UpsertWithHash(id string, vec []float32, contentHash string)
-
-	// GetHash returns the stored content hash for a node.
-	GetHash(id string) string
-
-	// IDs returns all node IDs in the index.
-	IDs() []string
-
-	// EmbedderID returns the embedder identifier this index was built with.
-	EmbedderID() string
-
-	// Save persists the index to a file.
-	Save(path string) error
-
-	// Load restores the index from a file.
-	Load(path string) error
-}
-
-// VectorIndexWithLookup extends VectorIndex with direct vector lookup by ID.
-// Used for semantic clustering where we need to compute pairwise similarity
-// across a selected subset of nodes. Implementations should expose this via
-// a type assertion (e.g., brute.Index implements this).
-type VectorIndexWithLookup interface {
-	VectorIndex
-
-	// Vector returns the vector for the given ID, or (nil, false) if not found.
-	Vector(id string) ([]float32, bool)
-}
-
-// lexicalIndexWithPersist extends LexicalIndex with persistence methods.
-type lexicalIndexWithPersist interface {
-	LexicalIndex
-
-	// Save persists the index to a file.
-	Save(path string) error
-
-	// Load restores the index from a file.
-	Load(path string) error
-}
-
-// Option configures optional Service dependencies.
-type Option func(*Service)
-
-// WithVectorCache injects the repo-level, content-addressed vector cache the
-// service consults before calling the embedder. Vectors are keyed by content
-// hash alone, so the cache can be shared by every worktree of a repository:
-// a new branch only pays the embedder for the nodes whose text actually
-// changed. Omitting it (or passing nil) keeps the previous behaviour.
-func WithVectorCache(c VectorCache) Option {
-	return func(s *Service) { s.vcache = c }
-}
-
-// NewService creates a new retrieval service with the given dependencies.
-// Pass nil for vindex or lindex to disable that search mode.
-func NewService(root string, emb Embedder, vidx vectorIndexWithHash, lidx lexicalIndexWithPersist, opts ...Option) *Service {
-	// .archai is the historical cache dir name, kept so existing
-	// gitignores and warm caches survive the archai→wyrd rename.
-	cacheDir := filepath.Join(root, ".archai", "cache")
-	s := &Service{
+// NewService returns an empty view over corpus. Every worktree of one
+// repository should be given the same corpus: sharing is what it is for.
+func NewService(root string, corpus *Corpus) *Service {
+	return &Service{
 		root:           root,
-		embedder:       emb,
-		vindex:         vidx,
-		lindex:         lidx,
-		denseAvailable: vidx != nil && emb != nil,
-		vectorsPath:    filepath.Join(cacheDir, "vectors.json"),
-		lexicalPath:    filepath.Join(cacheDir, "bm25.json"),
+		corpus:         corpus,
+		view:           emptyView(),
+		denseAvailable: corpus.dense(),
 		params:         DefaultParams(),
 	}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s
 }
 
-// Load restores both indexes from disk.
-func (s *Service) Load() error {
-	if s.vindex != nil {
-		if err := s.vindex.Load(s.vectorsPath); err != nil {
-			return fmt.Errorf("loading vector index: %w", err)
-		}
-		s.seedVectorCache()
+// Save persists the corpus.
+func (s *Service) Save() error {
+	return s.corpus.Save()
+}
+
+// Index replaces the view with nodes and embeds what the corpus lacks.
+// If embedding fails, dense search is disabled for this view and the error
+// is logged; the lexical channel keeps working.
+func (s *Service) Index(ctx context.Context, nodes []Node) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	if lidx, ok := s.lindex.(lexicalIndexWithPersist); ok {
-		if err := lidx.Load(s.lexicalPath); err != nil {
-			return fmt.Errorf("loading lexical index: %w", err)
-		}
+	s.update(nodes, nil, true)
+	return s.embedNodes(ctx, nodes)
+}
+
+// Update applies a delta to the view: nodes are added or re-hashed, removed
+// ids are dropped. It touches the lexical channel only; EmbedPending brings
+// the dense channel up to date, so an update never waits for embedding.
+func (s *Service) Update(ctx context.Context, nodes []Node, removedIDs []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
+	s.update(nodes, removedIDs, false)
 	return nil
 }
 
-// seedVectorCache publishes the vectors this worktree already has on disk to
-// the shared cache, so the first worktree to load hands its work to all the
-// others. This doubles as the migration path for indexes written before the
-// cache existed: no special-cased import, just Put of every (hash, vector)
-// pair, which is idempotent and therefore free on later starts.
-func (s *Service) seedVectorCache() {
-	if s.vcache == nil {
-		return
+// update builds the next view, acquires the hashes it gained, publishes it,
+// and releases the hashes it lost — in that order, so a search never sees a
+// hash the corpus has not indexed.
+func (s *Service) update(nodes []Node, removedIDs []string, replace bool) {
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
+
+	hashes := hashNodes(nodes, s.root)
+
+	s.mu.RLock()
+	prev := s.view
+	s.mu.RUnlock()
+
+	next := emptyView()
+	if !replace {
+		next = prev.clone()
+		for _, id := range removedIDs {
+			next.remove(id)
+		}
 	}
-	// Not every VectorIndex can hand a vector back by id; one that cannot
-	// simply leaves the cache cold rather than blocking the load.
-	lookup, ok := s.vindex.(VectorIndexWithLookup)
-	if !ok {
-		return
+	textOf := make(map[string]Node, len(nodes))
+	for _, n := range nodes {
+		h := hashes[n.ID]
+		next.add(n.ID, h)
+		textOf[h] = n
 	}
-	for _, id := range s.vindex.IDs() {
-		hash := s.vindex.GetHash(id)
-		if hash == "" {
+
+	for h := range next.nodesOf {
+		if prev.has(h) {
 			continue
 		}
-		if vec, ok := lookup.Vector(id); ok {
-			s.vcache.Put(hash, vec)
+		n := textOf[h]
+		s.corpus.acquire(h, func() string {
+			text, _ := EmbedText(n, s.root)
+			return text
+		})
+	}
+
+	s.mu.Lock()
+	s.view = next
+	s.mu.Unlock()
+
+	for h := range prev.nodesOf {
+		if !next.has(h) {
+			s.corpus.release(h)
 		}
 	}
 }
 
-// Save persists both indexes to disk.
-func (s *Service) Save() error {
-	if s.vindex != nil {
-		if err := s.vindex.Save(s.vectorsPath); err != nil {
-			return fmt.Errorf("saving vector index: %w", err)
+// EmbedPending embeds every embeddable node of the current graph whose hash
+// has no vector. It is idempotent and order-free: whatever updates landed
+// before it, it converges the dense channel on the view as it is now. An
+// embedding failure disables dense search for this view and is logged, not
+// returned: the lexical channel still answers.
+func (s *Service) EmbedPending(ctx context.Context) error {
+	var nodes []Node
+	if g := s.Graph(); g != nil {
+		nodes = make([]Node, 0, len(g.NodesByID))
+		for _, n := range g.NodesByID {
+			nodes = append(nodes, n)
 		}
 	}
-	if lidx, ok := s.lindex.(lexicalIndexWithPersist); ok {
-		if err := lidx.Save(s.lexicalPath); err != nil {
-			return fmt.Errorf("saving lexical index: %w", err)
-		}
-	}
-	return nil
+	return s.embedNodes(ctx, nodes)
 }
 
-// Index performs a full (re)index of all nodes. Embeddable nodes are
-// embedded for dense search (skipping those with unchanged content hash);
-// ALL nodes are indexed for BM25.
-//
-// If embedding fails, dense search is disabled and the error is logged,
-// but BM25 indexing continues.
-func (s *Service) Index(ctx context.Context, nodes []Node) error {
-	s.beginIndexing()
-	defer s.endIndexing()
+// embedNodes embeds the embeddable nodes whose hash in the current view has
+// no vector yet.
+func (s *Service) embedNodes(ctx context.Context, nodes []Node) error {
+	// The update before this pass acquired the view's texts; a remote
+	// lexical index still holds the tail of them in its buffer.
+	s.corpus.flushLexical(ctx)
 
-	// Index ALL nodes into BM25 (fast, always works)
-	for _, node := range nodes {
-		text, _ := EmbedText(node, s.root)
-		s.lindex.Upsert(node.ID, text)
-	}
-
-	// Embed only embeddable nodes for dense search
-	if s.embedder == nil || s.vindex == nil {
+	if !s.corpus.dense() {
 		s.setDenseAvailable(false)
 		return nil
 	}
 
-	// Collect nodes that need embedding (changed content hash)
-	toEmbed := make([]Node, 0)
-	hashes := make(map[string]string)
+	s.mu.Lock()
+	s.embedding++
+	s.idxStartedAt = time.Now()
+	v := s.view
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.embedding--
+		s.mu.Unlock()
+	}()
 
-	for _, node := range nodes {
-		if !node.Embeddable {
-			continue
-		}
-
-		hash, err := ContentHash(node, s.root)
-		if err != nil {
-			// Skip nodes we can't hash
-			continue
-		}
-		hashes[node.ID] = hash
-
-		// Check if content changed
-		if existingHash := s.vindex.GetHash(node.ID); existingHash != hash {
-			toEmbed = append(toEmbed, node)
+	var pending []Node
+	for _, n := range nodes {
+		if h := v.hashOf[n.ID]; n.Embeddable && h != "" && !s.corpus.hasVector(h) {
+			pending = append(pending, n)
 		}
 	}
+	// Stable order: the embedder's batches, and so its failures, repeat.
+	sort.Slice(pending, func(i, j int) bool { return pending[i].ID < pending[j].ID })
 
-	// Remove vectors for nodes that no longer exist
-	existingIDs := make(map[string]bool)
-	for _, node := range nodes {
-		if node.Embeddable {
-			existingIDs[node.ID] = true
-		}
+	if err := s.corpus.embed(ctx, pending, v.hashOf, s.root); err != nil {
+		fmt.Fprintf(os.Stderr, "retrieval: embedding failed, dense search disabled: %v\n", err)
+		s.setDenseAvailable(false)
+		return nil
 	}
-	for _, id := range s.vindex.IDs() {
-		if !existingIDs[id] {
-			s.vindex.Remove(id)
-		}
-	}
-
-	// Embed new/changed nodes
-	if len(toEmbed) > 0 {
-		if err := s.embedNodes(ctx, toEmbed, hashes); err != nil {
-			// Log and disable dense, but don't fail the whole index
-			fmt.Fprintf(os.Stderr, "retrieval: embedding failed, dense search disabled: %v\n", err)
-			s.setDenseAvailable(false)
-			return nil
-		}
-	}
-
 	s.setDenseAvailable(true)
 	return nil
-}
-
-// Refresh performs incremental index updates. Changed nodes are re-indexed;
-// removed node IDs are deleted from both indexes.
-func (s *Service) Refresh(ctx context.Context, nodes []Node, removedIDs []string) error {
-	s.beginIndexing()
-	defer s.endIndexing()
-
-	// Remove deleted nodes from both indexes
-	for _, id := range removedIDs {
-		s.lindex.Remove(id)
-		if s.vindex != nil {
-			s.vindex.Remove(id)
-		}
-	}
-
-	// Update BM25 for all changed nodes
-	for _, node := range nodes {
-		text, _ := EmbedText(node, s.root)
-		s.lindex.Upsert(node.ID, text)
-	}
-
-	// Update dense index for embeddable nodes with changed content
-	if s.embedder == nil || s.vindex == nil {
-		return nil
-	}
-
-	toEmbed := make([]Node, 0)
-	hashes := make(map[string]string)
-
-	for _, node := range nodes {
-		if !node.Embeddable {
-			continue
-		}
-
-		hash, err := ContentHash(node, s.root)
-		if err != nil {
-			continue
-		}
-		hashes[node.ID] = hash
-
-		if existingHash := s.vindex.GetHash(node.ID); existingHash != hash {
-			toEmbed = append(toEmbed, node)
-		}
-	}
-
-	if len(toEmbed) > 0 {
-		if err := s.embedNodes(ctx, toEmbed, hashes); err != nil {
-			fmt.Fprintf(os.Stderr, "retrieval: embedding failed during refresh: %v\n", err)
-			s.setDenseAvailable(false)
-			return nil
-		}
-	}
-
-	return nil
-}
-
-// embedNodes embeds the given nodes and updates the vector index.
-// For oversized nodes, multiple chunks are embedded and mean-pooled
-// into a single vector to preserve the "one node = one vector" invariant.
-//
-// Nodes whose content hash is already in the shared vector cache never reach
-// the embedder: their vector is copied straight into the index. When every
-// node hits, the embedder is not called at all.
-func (s *Service) embedNodes(ctx context.Context, nodes []Node, hashes map[string]string) error {
-	nodes = s.takeCachedVectors(nodes, hashes)
-	if len(nodes) == 0 {
-		return nil
-	}
-
-	// Build chunks for all nodes and track which chunks belong to which node
-	type chunkInfo struct {
-		nodeIdx int
-		text    string
-	}
-	var allChunks []chunkInfo
-	chunkCounts := make([]int, len(nodes)) // chunks per node
-
-	for i, node := range nodes {
-		chunks, err := BuildChunks(node, s.root)
-		if err != nil || len(chunks) == 0 {
-			// Fall back to EmbedText for problematic nodes
-			text, _ := EmbedText(node, s.root)
-			allChunks = append(allChunks, chunkInfo{nodeIdx: i, text: text})
-			chunkCounts[i] = 1
-			continue
-		}
-		for _, chunk := range chunks {
-			allChunks = append(allChunks, chunkInfo{nodeIdx: i, text: chunk.Text})
-		}
-		chunkCounts[i] = len(chunks)
-	}
-
-	// Extract texts for embedding
-	texts := make([]string, len(allChunks))
-	for i, c := range allChunks {
-		texts[i] = c.text
-	}
-
-	// Call embedder once with all chunks
-	vectors, err := s.embedder.Embed(ctx, texts)
-	if err != nil {
-		return fmt.Errorf("calling embedder: %w", err)
-	}
-
-	if len(vectors) != len(texts) {
-		return fmt.Errorf("embedder returned %d vectors for %d texts", len(vectors), len(texts))
-	}
-
-	// Group vectors by node and mean-pool
-	vecIdx := 0
-	for i, node := range nodes {
-		count := chunkCounts[i]
-		nodeVecs := vectors[vecIdx : vecIdx+count]
-		vecIdx += count
-
-		// Mean-pool chunk vectors into single node vector
-		var pooled []float32
-		if len(nodeVecs) == 1 {
-			pooled = nodeVecs[0]
-		} else {
-			pooled = MeanPoolVectors(nodeVecs)
-		}
-
-		s.vindex.UpsertWithHash(node.ID, pooled, hashes[node.ID])
-		if s.vcache != nil {
-			s.vcache.Put(hashes[node.ID], pooled)
-		}
-	}
-
-	return nil
-}
-
-// takeCachedVectors moves every node whose content hash is already in the
-// shared cache straight into the vector index, and returns the nodes that
-// still need embedding. Without a cache it returns nodes unchanged.
-func (s *Service) takeCachedVectors(nodes []Node, hashes map[string]string) []Node {
-	if s.vcache == nil || len(nodes) == 0 {
-		return nodes
-	}
-	pending := make([]Node, 0, len(nodes))
-	for _, node := range nodes {
-		if vec, ok := s.vcache.Get(hashes[node.ID]); ok {
-			s.vindex.UpsertWithHash(node.ID, vec, hashes[node.ID])
-			continue
-		}
-		pending = append(pending, node)
-	}
-	return pending
 }
 
 // DenseAvailable reports whether dense (vector) search is operational.
@@ -484,31 +317,47 @@ func (s *Service) setDenseAvailable(v bool) {
 	s.denseAvailable = v
 }
 
-// VectorIndex returns the underlying vector index for direct search.
-// Returns nil if dense search is not available.
-func (s *Service) VectorIndex() VectorIndex {
-	if !s.DenseAvailable() {
-		return nil
+// Vectors returns the embeddings of the given node ids, in one batched fetch
+// from the corpus. An id without a vector is absent from the map. It
+// implements clustering.Vectors.
+func (s *Service) Vectors(ctx context.Context, ids []string) (map[string][]float32, error) {
+	out := make(map[string][]float32, len(ids))
+	if !s.corpus.dense() {
+		return out, nil
 	}
-	return s.vindex
+	s.mu.RLock()
+	v := s.view
+	s.mu.RUnlock()
+
+	hashes := make([]string, 0, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if h := v.hashOf[id]; h != "" && !seen[h] {
+			seen[h] = true
+			hashes = append(hashes, h)
+		}
+	}
+	if len(hashes) == 0 {
+		return out, nil
+	}
+	byHash, err := s.corpus.vectors.Get(ctx, hashes)
+	if err != nil {
+		return nil, fmt.Errorf("fetching vectors: %w", err)
+	}
+	for _, id := range ids {
+		if vec, ok := byHash[v.hashOf[id]]; ok {
+			out[id] = vec
+		}
+	}
+	return out, nil
 }
 
-// VectorIndexWithLookup returns the vector index with lookup capability
-// for direct ID-to-vector access. Returns nil if dense search is not
-// available or if the index doesn't support lookup.
-func (s *Service) VectorIndexWithLookup() VectorIndexWithLookup {
-	if !s.DenseAvailable() {
-		return nil
-	}
-	if lookup, ok := s.vindex.(VectorIndexWithLookup); ok {
-		return lookup
-	}
-	return nil
-}
-
-// LexicalIndex returns the underlying lexical index for direct search.
-func (s *Service) LexicalIndex() LexicalIndex {
-	return s.lindex
+// Embedded reports whether the node carries a vector.
+func (s *Service) Embedded(id string) bool {
+	s.mu.RLock()
+	h := s.view.hashOf[id]
+	s.mu.RUnlock()
+	return h != "" && s.corpus.hasVector(h)
 }
 
 // Root returns the project root directory.
@@ -524,23 +373,17 @@ func (s *Service) SetGraph(g *Graph) {
 	s.graph = g
 }
 
-// Graph returns the current graph (for testing).
+// Graph returns the current graph.
 func (s *Service) Graph() *Graph {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.graph
 }
 
-// EmbedderID returns the identifier of the embedder backing the vector index
-// (e.g. an Ollama model name, or "noop" when embeddings are disabled/failed).
-// Empty when no vector index is configured.
+// EmbedderID returns the identifier of the corpus's embedder (e.g. an Ollama
+// model name, or "noop"). Empty when the corpus has no dense channel.
 func (s *Service) EmbedderID() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.vindex != nil {
-		return s.vindex.EmbedderID()
-	}
-	return ""
+	return s.corpus.EmbedderID()
 }
 
 // IndexFromModels builds nodes and graph from domain models, then indexes.
@@ -549,4 +392,42 @@ func (s *Service) IndexFromModels(ctx context.Context, models []domain.PackageMo
 	nodes, graph := BuildGraph(models)
 	s.SetGraph(graph)
 	return s.Index(ctx, nodes)
+}
+
+// hashNodes returns every node's content hash. Nodes are visited file by
+// file and each source file is read once, where ContentHash would read it
+// once per node.
+func hashNodes(nodes []Node, root string) map[string]string {
+	order := make([]int, len(nodes))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		return nodes[order[a]].Span.File < nodes[order[b]].Span.File
+	})
+
+	hashes := make(map[string]string, len(nodes))
+	var (
+		file string
+		data []byte
+		err  error
+	)
+	for _, i := range order {
+		n := nodes[i]
+		body := ""
+		if n.Span.IsValid() {
+			if n.Span.File != file {
+				file = n.Span.File
+				data, err = os.ReadFile(filepath.Join(root, file))
+			}
+			if err == nil && n.Span.StartByte >= 0 && n.Span.EndByte <= len(data) && n.Span.StartByte < n.Span.EndByte {
+				body = string(data[n.Span.StartByte:n.Span.EndByte])
+			}
+		}
+		// Must stay the hash ContentHash computes: header + body, the body
+		// left out when it cannot be read.
+		sum := sha256.Sum256([]byte(buildHeader(n) + body))
+		hashes[n.ID] = hex.EncodeToString(sum[:])
+	}
+	return hashes
 }

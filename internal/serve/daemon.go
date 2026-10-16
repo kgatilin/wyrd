@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/kgatilin/wyrd/internal/plugin"
+	"github.com/kgatilin/wyrd/internal/retrieval"
+	"github.com/kgatilin/wyrd/internal/serve/modelstore"
 	"github.com/kgatilin/wyrd/internal/service"
 	"github.com/kgatilin/wyrd/internal/worktree"
 )
@@ -100,11 +102,17 @@ type Options struct {
 	// every State shares a single reader instance.
 	Reader service.ModelReader
 
-	// VectorCache, when non-nil, is the repo-level vector cache the
+	// Corpus, when non-nil, is the repository's retrieval corpus the
 	// single-State path hands to its State. In multi-worktree mode the
-	// StateLoader is what carries the cache to each worktree, so this
+	// StateLoader is what carries the corpus to each worktree, so this
 	// field is unused there.
-	VectorCache VectorCacheProvider
+	Corpus *retrieval.Corpus
+
+	// ModelStore, when non-nil, is the repository's shared model store. The
+	// single-State path hands it to its State; in multi-worktree mode it is
+	// set on the MultiState, and the StateLoader must carry the same store to
+	// each worktree.
+	ModelStore *modelstore.Store
 
 	// WorktreePollInterval overrides how often a multi-worktree daemon
 	// re-scans `git worktree list`. Zero uses defaultWorktreePollInterval;
@@ -130,18 +138,6 @@ type HTTPTransport interface {
 // participate in idle shutdown (and IdleTimeout becomes a no-op).
 type ActivityAware interface {
 	SetActivityObserver(func())
-}
-
-// WorktreeWarmer is implemented by HTTP transports that precompute a
-// per-worktree answer rather than build it on the first request. serve.Serve
-// wires it to MultiState's LoadedHook, so the work starts the moment a
-// worktree's model is parsed instead of the first time a browser asks — which
-// is what makes "warmed at daemon start" true without a timer. The transport
-// owns what is warmed and when it goes stale; the daemon only says when a
-// model became available. A transport that doesn't implement it simply
-// computes on demand.
-type WorktreeWarmer interface {
-	WarmWorktree(name string, state *State)
 }
 
 // worktreesChanged builds the reaction to a change in the served worktree
@@ -210,8 +206,11 @@ func Serve(ctx context.Context, opts Options) error {
 		if opts.Reader != nil {
 			stateOpts = append(stateOpts, WithReader(opts.Reader))
 		}
-		if opts.VectorCache != nil {
-			stateOpts = append(stateOpts, WithVectorCache(opts.VectorCache))
+		if opts.Corpus != nil {
+			stateOpts = append(stateOpts, WithCorpus(opts.Corpus))
+		}
+		if opts.ModelStore != nil {
+			stateOpts = append(stateOpts, WithModelStore(opts.ModelStore, ""))
 		}
 		state = NewState(absRoot, stateOpts...)
 		if err := state.Load(ctx); err != nil {
@@ -227,6 +226,9 @@ func Serve(ctx context.Context, opts Options) error {
 		// Per-worktree loads run in the background; their failures have no
 		// other reporting path, so point them at the daemon's log sink.
 		opts.MultiState.SetLogOut(logOut)
+		if opts.ModelStore != nil {
+			opts.MultiState.SetModelStore(opts.ModelStore)
+		}
 		// Install a per-worktree fsnotify hook: each State gets its own
 		// watcher the first time it is loaded. The watchers are closed
 		// when Refresh drops a worktree or when the daemon shuts down.
@@ -313,11 +315,6 @@ func Serve(ctx context.Context, opts Options) error {
 			if aware, ok := srv.(ActivityAware); ok {
 				aware.SetActivityObserver(touchActivity)
 			}
-			// Installed before the listener binds, so no request can trigger
-			// a load that the transport then never hears about.
-			if warmer, ok := srv.(WorktreeWarmer); ok && opts.MultiState != nil {
-				opts.MultiState.SetLoadedHook(warmer.WarmWorktree)
-			}
 			fmt.Fprintf(logOut, "serve: HTTP transport binding %s (worktree=%q)\n", opts.HTTPAddr, wtName)
 			httpStarted = true
 			ready := func(boundAddr string) {
@@ -369,8 +366,12 @@ func Serve(ctx context.Context, opts Options) error {
 			}()
 
 			// Idle-timeout monitor. Only meaningful when HTTP is up —
-			// otherwise there's nothing to count as activity.
+			// otherwise there's nothing to count as activity. The clock is
+			// re-seeded here, not at boot: the model parse above can take
+			// longer than a short idle window, and a daemon that shut down
+			// before its first client could reach it was idle only in theory.
 			if opts.IdleTimeout > 0 {
+				touchActivity()
 				fmt.Fprintf(logOut, "serve: idle-timeout %s enabled\n", opts.IdleTimeout)
 				go runIdleMonitor(runCtx, opts.IdleTimeout, &lastActivity, runCancel, logOut)
 			}
@@ -642,6 +643,7 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 		pkgReloads := make(map[string]struct{})
 		overlayDirty := false
 		currentDirty := false
+		sawRemoval := false
 
 		for _, p := range paths {
 			abs := p
@@ -665,8 +667,22 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 			case strings.HasPrefix(rel, ".arch/.worktree/") && strings.HasSuffix(rel, "/CURRENT"):
 				currentDirty = true
 			case strings.HasSuffix(abs, ".go"):
+				if _, err := os.Stat(abs); err != nil {
+					sawRemoval = true
+				}
 				if pkg := state.FindOwningPackage(abs); pkg != "" {
 					pkgReloads[pkg] = struct{}{}
+				}
+			default:
+				// A directory removed wholesale can arrive as the bare
+				// directory path, with no event for the .go files that went
+				// with it. Nothing here can name the packages that were under
+				// it, so it only has to be recognised as a removal — the
+				// reconcile below finds them.
+				if filepath.Ext(rel) == "" {
+					if _, err := os.Stat(abs); err != nil {
+						sawRemoval = true
+					}
 				}
 			}
 		}
@@ -692,6 +708,23 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 				fmt.Fprintf(logOut, "serve: reloaded package %s\n", pkg)
 			}
 		}
+		// Reconcile the model against the tree whenever the batch carried a
+		// path that is no longer there. FindOwningPackage resolves a deletion
+		// only while something at that path survives it; a whole package tree
+		// taken out by a checkout leaves nothing, and the packages under it
+		// would otherwise stay in the model until the daemon restarts. The
+		// scan costs a walk of the worktree and runs only on deletions.
+		if sawRemoval {
+			dropped, err := state.PruneMissingPackages(ctx)
+			if err != nil {
+				fmt.Fprintf(logOut, "serve: reconcile packages: %v\n", err)
+			} else if len(dropped) > 0 {
+				reloaded = append(reloaded, dropped...)
+				fmt.Fprintf(logOut, "serve: dropped %d package(s) whose source is gone: %s\n",
+					len(dropped), strings.Join(dropped, ", "))
+			}
+		}
+
 		if len(reloaded) > 0 {
 			state.PublishPackageReload(reloaded)
 		}

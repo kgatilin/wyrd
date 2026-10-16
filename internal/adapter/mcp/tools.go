@@ -2209,7 +2209,7 @@ func handleEmbeddingCoverage(state *serve.State) (ToolResult, *RPCError) {
 	if g == nil || len(g.NodesByID) == 0 {
 		return errorResult("no nodes indexed — call refresh first"), nil
 	}
-	vidx := svc.VectorIndexWithLookup() // nil when no embedder/vector index is configured
+	dense := svc.DenseAvailable() // false when no embedder/vector store is configured
 
 	byKind := map[string]*kindCoverage{}
 	kindOf := func(kind string) *kindCoverage {
@@ -2232,12 +2232,10 @@ func handleEmbeddingCoverage(state *serve.State) (ToolResult, *RPCError) {
 		}
 		embeddable++
 		c.Embeddable++
-		if vidx != nil {
-			if _, ok := vidx.Vector(id); ok {
-				embedded++
-				c.Embedded++
-				continue
-			}
+		if dense && svc.Embedded(id) {
+			embedded++
+			c.Embedded++
+			continue
 		}
 		missing = append(missing, id)
 	}
@@ -2736,8 +2734,7 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 		return tr, nil
 	}
 
-	vidx := svc.VectorIndexWithLookup()
-	if vidx == nil {
+	if !svc.DenseAvailable() {
 		return errorResult("vector index not available — embedder may not be configured or refresh needed"), nil
 	}
 
@@ -2757,7 +2754,10 @@ func handleSemanticCluster(state *serve.State, rawArgs json.RawMessage) (ToolRes
 		return errorResult("no nodes match the selector"), nil
 	}
 
-	nodesWithVectors, droppedCount := clustering.SemanticNodes(archmotifNodeIDs, vidx)
+	nodesWithVectors, droppedCount, err := clustering.SemanticNodes(context.Background(), archmotifNodeIDs, svc)
+	if err != nil {
+		return errorResult(err.Error()), nil
+	}
 	if len(nodesWithVectors) < 2 {
 		return errorResult(fmt.Sprintf("only %d nodes have embeddings (need at least 2); %d dropped",
 			len(nodesWithVectors), droppedCount)), nil

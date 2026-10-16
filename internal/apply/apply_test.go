@@ -199,3 +199,31 @@ func TestApply_ComputeThenApply_IsIdentity(t *testing.T) {
 		t.Fatalf("expected empty diff after applying, got %d changes: %+v", len(d2.Changes), d2.Changes)
 	}
 }
+
+// A package copied whole from current and then edited symbol by symbol in the
+// same patch must be the target's own copy: current is the daemon's live,
+// shared model, and the in-place delete used to shift its array.
+func TestApply_PackageCopyThenSymbolEditLeavesCurrentAlone(t *testing.T) {
+	current := []domain.PackageModel{{
+		Path: "pkg",
+		Name: "pkg",
+		Functions: []domain.FunctionDef{
+			{Name: "A", IsExported: true},
+			{Name: "B", IsExported: true},
+		},
+	}}
+	d := &diff.Diff{Changes: []diff.Change{
+		{Op: diff.OpRemove, Kind: diff.KindPackage, Path: "pkg"},
+		{Op: diff.OpAdd, Kind: diff.KindFunction, Path: "pkg.A"},
+	}}
+	out, err := Apply(d, current, nil)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(out) != 1 || len(out[0].Functions) != 1 || out[0].Functions[0].Name != "B" {
+		t.Fatalf("target = %+v, want pkg with B alone", out)
+	}
+	if got := current[0].Functions; len(got) != 2 || got[0].Name != "A" || got[1].Name != "B" {
+		t.Fatalf("current was mutated: %+v", got)
+	}
+}

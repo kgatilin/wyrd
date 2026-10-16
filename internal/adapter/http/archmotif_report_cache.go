@@ -31,11 +31,11 @@ type reportKey struct {
 // and several on a large one, paid on every open of the review panel because
 // the endpoint carries no ETag and rebuilt everything per request.
 //
-// One entry per key, computed once however many callers want it: a request that
-// arrives while a warm is in flight waits for that build rather than starting a
-// second one. The build runs on its own goroutine under a background context,
-// so a reviewer who navigates away mid-build still leaves a warm entry behind —
-// and so warming never blocks the request that asked for it.
+// Built only when the panel asks for it, never in the background. One entry per
+// key, computed once however many callers want it: a request that arrives while
+// a build is in flight waits for that build rather than starting a second one.
+// The build runs on its own goroutine under a background context, so a reviewer
+// who navigates away mid-build still leaves the report behind for the next open.
 type reportCache struct {
 	build func(ctx context.Context, key reportKey) (archreview.Report, error)
 
@@ -59,7 +59,7 @@ func newReportCache(build func(ctx context.Context, key reportKey) (archreview.R
 
 // get returns the report for key, waiting for a build already under way or
 // starting one. It returns ctx's error if the caller gives up first; the build
-// carries on regardless, so the next caller finds it warm.
+// carries on regardless, so the next caller finds it built.
 func (c *reportCache) get(ctx context.Context, key reportKey) (archreview.Report, error) {
 	entry := c.start(key)
 	select {
@@ -68,13 +68,6 @@ func (c *reportCache) get(ctx context.Context, key reportKey) (archreview.Report
 	case <-ctx.Done():
 		return archreview.Report{}, ctx.Err()
 	}
-}
-
-// warm starts a build for key unless one is cached or in flight, and returns
-// immediately. It is the whole point of the cache: the panel's first open
-// should read an answer, not commission one.
-func (c *reportCache) warm(key reportKey) {
-	c.start(key)
 }
 
 // drop forgets every report built for a worktree. It is called from the model
@@ -126,8 +119,8 @@ func (c *reportCache) start(key reportKey) *reportEntry {
 // run builds the report and publishes it by closing done.
 func (c *reportCache) run(key reportKey, entry *reportEntry) {
 	// A background context, not the requester's: the build outlives whoever
-	// triggered it, which is what lets a warm survive the request that started
-	// it and a request survive a reviewer who closes the panel.
+	// triggered it, which is what lets a report survive a reviewer who closes
+	// the panel mid-build.
 	entry.report, entry.err = c.build(context.Background(), key)
 
 	c.mu.Lock()
@@ -141,9 +134,9 @@ func (c *reportCache) run(key reportKey, entry *reportEntry) {
 }
 
 // evictLocked keeps the cache within maxCachedReports, dropping the least
-// recently read entry. This is a bound, not a tuned replacement policy: the
-// entries worth keeping are the warmed ones, and those are read on every open
-// and rebuilt on every model change.
+// recently read entry. This is a bound, not a tuned replacement policy: an
+// entry lives until its worktree's model changes, and the worktrees a reviewer
+// is reading are the ones read again.
 func (c *reportCache) evictLocked() {
 	for len(c.entries) > maxCachedReports {
 		var oldest reportKey

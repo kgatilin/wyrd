@@ -64,6 +64,11 @@ type Server struct {
 	// daemon on a workstation wants.
 	authToken string
 
+	// faults reports the backends that failed their last call; faultsFail
+	// makes any of them a failed readiness probe. See health.go.
+	faults     func() map[string]string
+	faultsFail bool
+
 	// reports holds the built architecture review report per
 	// (worktree, base ref) so opening the panel reads an answer instead
 	// of commissioning one. See archmotif_report_cache.go.
@@ -167,6 +172,8 @@ func newServer(s *Server) *Server {
 func (s *Server) Serve(ctx context.Context, addr string, ready func(boundAddr string)) error {
 	mux := nethttp.NewServeMux()
 	s.routes(mux)
+	s.registerHealthRoutes(mux)
+	registerDebugRoutes(mux)
 
 	// When an activity observer is installed (for idle-timeout), wrap
 	// the mux so each incoming request ticks the monitor. Static asset

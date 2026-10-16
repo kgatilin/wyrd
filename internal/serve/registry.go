@@ -1,5 +1,5 @@
 // Package serve implements daemon registry for global daemon discovery.
-// This file provides the global daemon registry under ~/.arch/daemons/.
+// This file provides the global daemon registry under ~/.wyrd/daemons/.
 
 package serve
 
@@ -22,7 +22,7 @@ import (
 // registryDirName is the subdirectory under wyrdHome for daemon records.
 const registryDirName = "daemons"
 
-// DaemonRecord is a global daemon record written to ~/.arch/daemons/<key>.
+// DaemonRecord is a global daemon record written to ~/.wyrd/daemons/<key>.
 // One record per repo root, keyed by a hash of the repo root path.
 type DaemonRecord struct {
 	RepoRoot   string   `json:"repo_root"`
@@ -45,7 +45,12 @@ func (r *DaemonRecord) HasCap(cap string) bool {
 }
 
 // wyrdHome returns the base directory for wyrd global state.
-// Uses WYRD_HOME if set, then the legacy ARCHAI_HOME, otherwise ~/.arch.
+// wyrdHome returns the daemon's home directory: WYRD_HOME if set, then the
+// legacy ARCHAI_HOME, otherwise ~/.wyrd. A ~/.arch left by an earlier
+// version is used as long as it exists and ~/.wyrd does not, so a daemon
+// never silently starts from an empty home next to a full one; moving it
+// (`mv ~/.arch ~/.wyrd`, with no daemon running, since the registry records
+// inside are how clients find a live daemon) is the one-time migration.
 func wyrdHome() (string, error) {
 	if env := os.Getenv("WYRD_HOME"); env != "" {
 		return env, nil
@@ -57,7 +62,15 @@ func wyrdHome() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("registry: cannot determine home dir: %w", err)
 	}
-	return filepath.Join(home, ".arch"), nil
+	current := filepath.Join(home, ".wyrd")
+	if _, err := os.Stat(current); err == nil {
+		return current, nil
+	}
+	legacy := filepath.Join(home, ".arch")
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy, nil
+	}
+	return current, nil
 }
 
 // registryDir returns the path to the daemon registry directory.

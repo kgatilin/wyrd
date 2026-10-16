@@ -190,7 +190,7 @@ to do nothing. `detachStdio` (`internal/serve/autostart.go`) is the one
 place that wires it.
 
 **A worktree created after the daemon started must find its way in.** The
-registry record (`~/.arch/daemons/<repo-key>.json`) lists the worktrees that
+registry record (`~/.wyrd/daemons/<repo-key>.json`) lists the worktrees that
 existed when the listener bound, and the CLI picks which worktree to address
 from that list — so a branch checked out since then matched nothing, and
 `wyrd graph search` was answered from the primary checkout's model at
@@ -205,26 +205,308 @@ addresses the worktree cwd is standing in whenever cwd belongs to the daemon's
 repo, listed or not; a name that genuinely does not exist comes back as a
 loud 404 instead of a quiet answer about `main`.
 
-Rebuilding the binary bumps the model-cache stamp ⇒ the next start re-parses
-every package from scratch. Embeddings survive it: `vectors.json` is keyed by
-node id + content hash, so only nodes whose text changed are re-embedded. A
-**fresh worktree** still re-parses (its `.wyrd/cache/` is empty) but no
-longer re-embeds: vectors are also cached repo-wide, content-addressed, at
-`~/.arch/embeddings/<repo-key>/<embedder>@r<N>.vec` (`WYRD_HOME` honoured;
-repo key = the daemon-registry hash of the **main** worktree root). One
-`vecstore.Store` is shared by every worktree `State` in the daemon and
-consulted *before* the embedder, so a new branch only embeds the nodes whose
-text nothing has embedded yet. `Service.Load` pushes an existing
-`vectors.json` into it, which is also the (zero-code) migration. `r<N>` is
-`retrieval.EmbedRecipeVersion` — **bump it whenever the text fed to the
-embedder changes** (`buildHeader`, `readSpanBody`, `EmbedTextBudget`,
-`BuildChunks`, `MeanPoolVectors`, …), since the freshness hash covers the full
-node text, not the chunked/pooled text actually embedded. Watch either phase
-warm up with `wyrd daemon status`.
+**A worktree that is not a module root is not served.** When the primary
+checkout has a `go.mod` and a worktree does not — a checkout half-deleted by an
+interrupted removal — go/packages climbs to the go.mod of the checkout the
+worktree is nested in and reads the remains as that module's subdirectories:
+`ready` with 0 packages, or a foreign model. Every scan leaves such a worktree
+out of the set (logged once, when the skip starts), and it comes back on the
+scan after its go.mod does.
+
+**One model per repository, not per worktree.** A repo-level daemon used to
+hold a full parsed model per worktree, another per materialized review base,
+and a `.archai/cache/go-model.json` per worktree on disk — near-identical
+copies, so memory grew with the worktree count. Now every State and every
+review base reads one content-addressed store, `internal/serve/modelstore`
+(design: `docs/features/shared-model/design.md`). Three concepts and no
+fourth: a **Version** is one package's model addressed by the SHA-256 of its
+JSON encoding (with `Layer`/`Aggregate` cleared); a **snapshot** maps a commit
+rev to the Version of every package in its tree; a **branch view** is a State
+whose model is a snapshot plus the packages its diff against that rev touches,
+read from disk with the snapshot as `known`. A cold start tries the snapshot of
+HEAD (a restart parses only uncommitted work), then of
+merge-base(`main`, HEAD) (a branch parses only its diff), and otherwise parses
+in full — no snapshot, a diff touching `go.mod`/`go.sum`, or a State built
+without a store. A full parse of a worktree that is clean before and after it
+is recorded as the snapshot of HEAD; nothing else records one, because a
+branch view's untouched packages lack implementations of interfaces the branch
+added, and that approximation must not become "the model of this commit".
+
+- **Shared models are immutable.** Copying a `PackageModel` copies slice
+  headers, so nothing may write through a slice of a model it did not
+  allocate. Writing a top-level field of a copy is fine, which is why
+  `overlay.Merge` keeps working on the consumer's own slice and why the
+  overlay facts (`Layer`, `Aggregate`) are never stored in a Version — they
+  would make one package two Versions in two worktrees. The canonical
+  instance's top-level slices are clipped to their length so an `append`
+  reallocates. `apply.applyPackage` used to keep a shallow copy of the live
+  package and then edit it in place (reachable from MCP `apply_diff`); it
+  clones now.
+- **One instance is the point.** Every model entering a State goes through the
+  store (`Store.Versions`), which swaps in the held instance of an identical
+  Version. The in-memory set is the Versions of the 16 most recently used
+  snapshots; a Version dropped from it stays alive in the States holding it
+  but is no longer deduplicated against.
+- **Disk:** `~/.wyrd/models/<repo key>/<stamp key>/{versions,snapshots}/`
+  (`WYRD_HOME` honoured; the home is `~/.wyrd`, and a `~/.arch` left by the
+  rename is used while it is the only one — move it once, with no daemon
+  running). The stamp key hashes `golang.ModelVersion` with the
+  shape fingerprint of `domain.PackageModel`, and opening the store removes
+  every other stamp's directory: bumping the version or changing the shape
+  discards the previous parser's models, and the first start after it parses
+  in full. A rebuild that changes neither keeps them. 16 snapshots are kept
+  (LRU by mtime); a Version file goes when no kept snapshot references it.
+- Retrieval is shared the same way, by text rather than by package: see
+  "One corpus per repository" below.
+
+**A base tree only produces a snapshot.** `ReviewBase` keeps its two fast
+paths (the base worktree clean on the merge base; this worktree *is* the merge
+base), then reads the store's snapshot of the merge base, and only without one
+does `basetree.go` `git archive` the commit under
+`~/.wyrd/basetrees/<repo key>/<rev>/`, parse it, record the snapshot and
+delete the tree. Its old eviction counted only the loads in the daemon's
+memory, so every restart forgot what was on disk and trees piled up for
+months (22 trees, 1.8 GB on one repository). Now the tree is removed by the load that made it,
+and the first request sweeps whatever an earlier daemon left behind. The
+sweep never removes a load still in flight in this process — removing a tree
+under its parser left a husk, a directory with no source that `materialize`
+used to take for a finished tree — nor anything younger than an hour, which
+may be another process's load. A staged tree also gets a `.wyrd-basetree`
+marker before its rename and only a marked directory counts.
+
+**A package deleted from the tree must leave the model with it.** The
+incremental path could add and update packages but never drop one, so a
+package deleted by a checkout, rebase or merge stayed in a running daemon's
+model until it restarted — and that is not inert. The review canvas reads its
+base from a commit materialized fresh by `basetree.go` and its branch side
+from this long-lived model, so a package that outlived its source on the
+branch side is drawn as a package **the branch added**: a green node in a diff
+that contains no such change. Two reasons it survived. `FindOwningPackage`
+resolved a file's package from the filesystem alone, and a deletion leaves
+nothing there to resolve — with the directory empty or gone the walk climbs
+past it and answers with an ancestor package, or with `""`, so `ReloadPackage`
+(which removes correctly, and always did) was never called for the package
+that lost the file. And a directory removed wholesale can arrive as a single
+bare-directory event, naming no `.go` file at all. So the lookup now also
+accepts a directory the *model* holds a package for, and a batch carrying any
+path that is no longer on disk triggers `State.PruneMissingPackages`, which
+reconciles the model against a scan of the tree. The scan runs only on
+deletions. Cold starts were never affected: a snapshot plus the diff against
+it, or a full parse, both start from what is on disk.
+
+**An attribute event is an edit when the content stamp moved.** The watcher
+drops a bare `Chmod` only if the file's (mtime, size) is the one it last saw:
+macOS raises NOTE_ATTRIB on files `git status`/`git diff` merely inspect, and
+reacting to that looped the review UI through re-parses. Dropping every bare
+`Chmod` instead left a daemon in a VM blind — colima's `mountInotify` forwards
+each host edit as a `chmod` in the guest and nothing else — so a pod in a VM
+served a branch's model as it was at checkout for as long as it ran. A host
+deletion is still never forwarded (chmod on a gone path fails), which is one
+reason Refresh exists.
+
+**Refresh re-reads what the branch changed.** The review UI's `Refresh`
+sends `Cache-Control: no-cache` on `/api/uigraph`, and the handler calls
+`MultiState.ReloadWorktree`. On a branch that is the review base's model
+(the merge base's snapshot) with every package the branch's
+`git diff` touches — committed, uncommitted, untracked — read from disk over
+it (`State.ReloadOver`), so it costs the branch's packages, not a compile of
+the repository. A package the diff does not touch is by definition the
+base's, which is also how a package the branch model lost comes back. On the
+base worktree, with no base, or when the diff touches `go.mod`/`go.sum`, it
+is a full `State.Reload`, never a stored snapshot. The base is never
+re-read on a branch's behalf: a stale base is fixed by a Refresh on the base.
+A change publishes one `model-changed`. Everything else called refresh
+(`/api/refresh`, MCP `refresh`) only re-indexes the model already in memory.
+
+Two things used to empty a branch model silently and keep it empty:
+`ReloadPackage` dropped a package on any read error (now only when no Go
+source is left in its directory; otherwise the error is returned and
+logged), and the per-worktree model cache, since replaced by the store,
+skipped a package its manifest listed but its models did not hold.
+
+**Stored models are keyed by the reader's version, not by the binary.**
+`golang.ModelVersion` (`internal/adapter/golang/version.go`) is a hand-bumped
+constant, the model's counterpart of `EmbedRecipeVersion`. The key used to be
+the executable's mtime and size, so a rebuild that touched only the review UI
+discarded every model and each daemon parsed its repository from scratch.
+**Bump it whenever identical source would parse to a different model with the
+struct shape unchanged** — an extraction rule, a stereotype heuristic, a span
+or path convention, a go/packages upgrade that changes what is read. The
+shape itself is fingerprinted and needs no bump. A change left unbumped is
+served from the old reader's models and reads as a fix that did not take
+effect; nothing detects it. Embeddings were always independent of the binary:
+they are keyed by content hash.
+
+**One corpus per repository, one view per worktree.**
+(`docs/features/shared-retrieval/design.md`.) `retrieval.Corpus` holds both
+text channels keyed by a node's **content hash** (`retrieval.ContentHash`):
+the BM25 index (doc id = hash) and the dense `VectorStore` (vector id =
+hash). It is opened once by `serve.OpenCorpus` in `cmd/wyrd` and handed to
+every State through `serve.WithCorpus`, like the model store; a State without
+one builds a private in-memory corpus that writes nothing. `retrieval.Service`
+is a worktree's **view**: node id ↔ hash maps plus the retrieval graph.
+
+- **A hash is tokenized once and embedded once for the repository.** Views
+  acquire/release hashes (refcounted): the first acquire indexes the text, the
+  last release removes the BM25 document. Vectors are never evicted.
+- **One embedding pass at a time.** `Corpus.embed` holds the corpus's embed
+  lock and re-checks `Has` under it, so two worktrees never embed one hash and
+  the embedder sees one pass, not eleven. A view waiting behind another's pass
+  reports `indexing`.
+- **`Update` never embeds; `EmbedPending` does, in the background.**
+  `State.Load` and `refreshRetrievalLocked` build/patch the view under the
+  State lock and then run `EmbedPending` on a goroutine. Embedding under the
+  State lock would block a worktree's model behind another worktree's cold
+  pass. `EmbedPending` converges on the current view, so it is order-free.
+- **Search filters before ranking.** Both channels take `keep = view has
+  hash`; each scored hash expands to every node id of the view with that text.
+  BM25 and the local store apply it before the top-k cut (exact); Qdrant after
+  (oversampled ×8, min 100). Everything after — fusion, floor, diffusion — is
+  unchanged and works on node ids.
+- **Readiness is per view**: `embeddable`/`embedded` count the view's graph
+  nodes whose hash the store `Has`. A cold worktree whose texts are all in the
+  corpus is ready with zero embedder calls.
+- **Clustering reads vectors in one batch**: `clustering.Vectors` is
+  `Vectors(ctx, ids)`, implemented by `Service` (ids → hashes → one `Get`).
+- **Persistence, per repository only**, under
+  `~/.wyrd/embeddings/<repo-key>/` (`WYRD_HOME` honoured; repo key = the
+  daemon-registry hash of the **main** worktree root):
+  `<embedder>@r<N>.vec` — the local vector store, an append-only record file
+  (a save appends what is new; v1 gob files are read and rewritten once; a
+  truncated tail is dropped) — and `lexical@r<N>.bm25`, the BM25 documents
+  some view holds, streamed record by record. Nothing is written per worktree:
+  `vectors.json` and `bm25.json` are gone (old files are ignored, not read).
+  Never `MarshalIndent` a corpus, and never encode a whole index into one
+  buffer to save it.
+- IDF is computed over every live version in the repository, not one tree — a
+  small, accepted skew.
+
+`r<N>` is `retrieval.EmbedRecipeVersion` — **bump it whenever the text fed to
+the embedder changes** (`buildHeader`, `readSpanBody`, `EmbedTextBudget`,
+`BuildChunks`, `MeanPoolVectors`, …), since the content hash covers the full
+node text, not the chunked/pooled text actually embedded.
+`retrieval.Recipe(embedderID)` = `<embedder>@r<N>` names the local file and
+tags every Qdrant point. `hashNodes` must stay byte-identical with
+`ContentHash` (a test pins it). Watch either phase warm up with
+`wyrd daemon status`.
+
+**Vertex AI embedder** (`internal/adapter/embed/vertex`,
+`WYRD_EMBED_PROVIDER=vertex`): Gemini embedding models over the
+publisher-model `:predict` endpoint, authenticated with Application Default
+Credentials — no key in the environment. Settings and defaults are in
+`docs/retrieval.md`. Three things to keep:
+
+- **Its id carries the model, the dimensionality and both task types**
+  (`vertex:gemini-embedding-001/768/RETRIEVAL_DOCUMENT+CODE_RETRIEVAL_QUERY`).
+  Every other adapter's id is `provider:model` because the dimension follows
+  from the model; here it is a setting, and so are the task types, and each
+  changes what a vector means. The project and location are deliberately
+  absent: they say who is billed.
+- **One text per request** is the model's limit, not a choice, so a batch is
+  that many requests behind a concurrency bound.
+- **`Dim()` is known before the first embed**, so opening Qdrant never has to
+  probe this embedder.
+
+Tests drive an httptest fake of `:predict` with an injected token source —
+never the live endpoint, never real credentials.
+
+**Qdrant (opt-in) holds both text channels**
+(`internal/adapter/vindex/qdrant`, plain REST): the dense vectors (`Store`)
+and the BM25 documents as sparse vectors (`Lexical`). Daemon configuration:
+
+| Variable | Meaning |
+|---|---|
+| `WYRD_QDRANT_URL` | Qdrant base URL; falls back to `QDRANT_URL` |
+| `WYRD_QDRANT_API_KEY` | JWT sent as the `api-key` header; falls back to `QDRANT_API_KEY` |
+| `WYRD_QDRANT_COLLECTION` | collection name; **no fallback** |
+| `WYRD_QDRANT_ADMIN_API_KEY` | token `wyrd qdrant …` uses instead, when set |
+| `QDRANT_URL`, `QDRANT_API_KEY` | the service runner's generic connection |
+| `WYRD_REQUIRE_REMOTE` | `1`: a backend that cannot be used fails the start (below) |
+
+Selected only when a URL **and** `WYRD_QDRANT_COLLECTION` are set, so a
+process that merely has the tenant connection in its environment keeps the
+local files. The token cannot create a collection, so the daemon only verifies
+it; `wyrd qdrant bootstrap` creates one (idempotent), `check` verifies,
+`migrate --from <legacy>` copies an old one. Tests use an httptest fake of the
+REST subset — never a live Qdrant. Supported from Qdrant 1.10 (sparse vectors
+with the IDF modifier, the `/points/query` API); verified against 1.19.
+
+- **Schema:** a named dense vector `dense` (`{size: <embedder dim>, distance:
+  Cosine}`) and a named sparse vector `bm25` with `modifier: idf`, keyword
+  payload indexes on `repo` and `recipe`. A **legacy** collection — a single
+  unnamed vector, as they were created before the sparse channel — still
+  works as the dense channel alone (`Schema.Legacy`), with the lexical index
+  in its local file; the daemon says so at every start.
+- **The two channels keep separate points.** A text is tokenized before it is
+  embedded, the lexical recipe does not depend on the embedder, and an upsert
+  replaces a point whole — sharing one point would make each channel's write a
+  read-modify-write of the other's. Point id = UUID v5 of (recipe, content
+  hash); payload `repo`, `recipe`, `hash`; every query filters on repo +
+  recipe. Recipes: `<embedder>@r<N>` for dense, `lexical@r<N>/w<M>` for
+  lexical.
+- **Dense:** on open it scrolls the repo+recipe hashes into memory (`Has`); no
+  vector is held in RAM and no `.vec` file is written. **Seeding:** when the
+  local `.vec` file for the current recipe exists, the hashes the collection
+  lacks are upserted from it in batches at start, nothing re-embedded, one log
+  line with the count; the file is left for an operator to delete.
+- **Lexical: wyrd tokenizes and weights, Qdrant applies IDF.** A term's
+  dimension is a hash of the token `bm25.Tokenize` produced — the tokenizer of
+  the local index, so camelCase, snake_case and qualified names split the same
+  way wherever the index lives. A document's value is BM25's saturated,
+  length-normalized term frequency; a query's is the term's count; the score
+  Qdrant returns is then the BM25 score, on the scale `LexTemp` was tuned for.
+  Qdrant's own `qdrant/bm25` inference tokenizes for natural language and was
+  not used. Measured on a live pair of daemons, one per backend, the top five
+  seeds were identical on nine identifier and natural-language queries.
+- **`AvgDocLen` is a constant (80).** The local index normalizes length by the
+  live average of its documents; a stored document is weighted once, when it
+  is written, so remotely the average cannot move. Real corpora measured 63–89
+  tokens per symbol. `weightsVersion` in `lexical.go` is part of the lexical
+  recipe: **bump it whenever `bm25.Tokenize`, `DefaultK1`, `DefaultB`,
+  `AvgDocLen` or the token hash changes**, or old and new documents are ranked
+  against each other with different weights.
+- **IDF is collection-wide.** Qdrant computes it over the collection, not over
+  the repo+recipe slice a query filters to, so several repositories in one
+  collection share term statistics. One repository per collection keeps it
+  exact.
+- **Writes are buffered.** `Upsert`/`Remove` are sync and error-free by the
+  port's shape, so `Lexical` batches them (256) and sends what is pending
+  before every `Search`, on `Flush` (the start of every embedding pass) and on
+  `Retain`. A failed send stays buffered and is returned by the next call that
+  can return an error.
+- **`Retain` is the remote index's garbage collection.** A local index is
+  saved as "the documents some view holds"; a collection has to be told, so
+  `Corpus.Save` calls `Retain` with the held set — **under `c.mu`**, because a
+  hash acquired while documents are being dropped would find its document
+  present, skip the upsert, and then lose it. Dense vectors are still never
+  evicted.
+- **Both remote searches filter after ranking** (oversampled ×8, min 100):
+  Qdrant filters on repo + recipe, the view's membership test is applied to
+  what comes back.
+
+**A backend that fails is a fault, not an empty answer.**
+`LexicalIndex.Search` takes a context and returns an error, and `Corpus`
+records the last failure of each channel (`embedder`, `vectors`, `lexical`)
+until that channel next succeeds (`Corpus.Faults`). A search still answers
+from the channel that works; with the lexical index down and no dense answer
+it returns the error, since an empty result would read as "no such code".
+`GET /healthz` is liveness and never looks at faults; `GET /readyz` lists
+them, and each probe **re-asks the backends at fault** (`Corpus.Recheck`) —
+a daemon the probe took out of rotation gets no searches, so nothing else
+would ever clear the fault.
+
+**`WYRD_REQUIRE_REMOTE=1` turns every fallback into a failure.** Without it,
+an embedder that cannot be built, a Qdrant that is not configured or does not
+answer, a wrong dimension and a legacy collection each degrade one channel to
+something local with a log line — right for a workstation. With it the same
+conditions fail the start (`serve.OpenCorpus` returns the reason, `wyrd
+serve` exits), the noop embedder is refused, and `/readyz` answers 503 while
+any channel is at fault. `buildEmbedder` returns the stand-in *and* the
+reason, so the one place that decides is `OpenCorpus`.
 
 The MCP thin client pings `POST /w/<worktree>/api/warm` as soon as it attaches,
 so that cold parse starts at client startup rather than on the agent's first
-tool call. The daemon separately warms only its *default* worktree at startup.
+tool call. It warms the model only; nothing else is precomputed. The daemon separately warms only its *default* worktree at startup.
 
 ### MCP over HTTP (`/mcp`)
 
@@ -255,7 +537,7 @@ read.
 
 **The compatibility test is the specification.**
 `internal/adapter/http/mcp_sdk_compat_test.go` drives the official
-`modelcontextprotocol/go-sdk` client (the one an agent's MCP client plugin uses)
+`modelcontextprotocol/go-sdk` client (the one Go MCP client plugins use)
 against a live listener. Hand-written checks only pin what we *believe* the
 contract is; that one fails when the belief is wrong.
 
@@ -441,9 +723,10 @@ Every read tool (`search`, `expand`, `get_node`, `get_package`, `extract`,
   centre away — it only wanted the singletons. That one call was most of what a
   repo-mode report cost. Ask the lens for a *centre*; count degrees yourself
   (`side.isolatedSymbols`) when the question is "what is unconnected".
-- **Model cache** (`internal/serve/model_cache.go`) is keyed on the binary's
-  build version + executable stamp. After `make install`, restart the daemon and
-  `refresh`, or a parser-logic change is masked by a stale cache.
+- **Model store** (`internal/serve/modelstore`) is keyed on
+  `golang.ModelVersion` plus the model's shape. A parser-logic change that
+  does not bump it is masked by models the old reader stored. A worktree's old `.archai/cache/go-model.json` is no longer read and
+  can be deleted.
 - **`diff.Compute` must not touch the model it is handed.** Its normalizers
   drop the fields that are diff noise (spans, call edges) from a *copy* of each
   symbol — but a `Methods` slice shares its backing array with the caller, so
@@ -492,8 +775,8 @@ Every read tool (`search`, `expand`, `get_node`, `get_package`, `extract`,
   and the exposed spectrum.
 - **`internal/clustering` owns what the clustering lenses share**, transport-free:
   node selection by selector (`SelectNodes`, `DiffRegionNodes`), the semantic kNN
-  graph over embedding vectors (`SemanticGraph`, over a `Vectors` port so the
-  retrieval service is injected rather than reached for), and the whole
+  graph over embedding vectors (`SemanticGraph`, over a batch `Vectors` port
+  so the retrieval service is injected rather than reached for), and the whole
   latent-domains analysis (`LatentDomains` — both clusterings, AMI/NMI agreement,
   glue detection, verdict). Two surfaces call it and neither holds a copy of the
   maths: the MCP tool and the review UI's domains endpoint.
@@ -510,6 +793,24 @@ Every read tool (`search`, `expand`, `get_node`, `get_package`, `extract`,
   (`loadingStatusBody`/`failedStatusBody`). CLI: `cmd/wyrd/daemon.go`.
 - **Result rendering: `internal/adapter/mcp/render.go`.** Every read tool
   answers compact indented text, not JSON — see "Tool results are text" below.
+
+### The review bar has two toggles
+
+- **`Diff | Full`**, on a branch only, opening on `Diff`. `Diff` draws the
+  changed packages narrowed to what changed in them; `Full` draws every
+  package whole, with the diff marks kept. One event,
+  `ReviewFullViewChanged`, sets both fields it stands for
+  (`reviewImpactMode` `changed_only`/`repository` and `changedDetailsOnly`),
+  so the two cannot be set apart.
+- **`Public | Public + Internal`**: exported symbols (scope
+  `all_public_api`) or everything (`everything`).
+
+They replaced a `View` popover of six selects. Grouping, change kind and the
+review view (the package set a `wyrd.yaml` slice names) still exist in the
+store and in `selectReviewGraph` at their defaults, with no control that
+moves them: `Diff` stays inside the default review view, `Full` ignores it,
+and a view or grouping the old popover saved in `localStorage` is still
+applied.
 
 ### File diff in the review UI
 
@@ -539,8 +840,8 @@ answers "what changed architecturally".
 - **A changed file container on a card opens its own patch.** The `±` button
   in a file panel's header (`hf-file-diff`) opens the overlay straight at
   that file. It appears on exactly the panels the review paints as changed
-  (`showDiff && file.diff`) — on `Details: Full package` a changed package
-  also draws its untouched files, and those have no patch to open. The path
+  (`showDiff && file.diff`) — `Full` and an `Ask` answer draw the untouched
+  files of a changed package too, and those have no patch to open. The path
   is `sourceFilePath(componentId, file.path)`
   (`web/src/domain/sourcePath.ts`), the same package-id + `sourceFile`
   convention the source drawer uses, so the two cannot disagree about which
@@ -764,24 +1065,22 @@ to do about it, and where to click.
   packages, so a highlight row also focuses the package it names, which pulls
   that package and its edge neighbours into the projection. Clicking the row
   again puts the accent down, and so does a click on the empty canvas.
-- **The report is warmed, not built on demand.** Building it costs an archmotif
-  graph over the worktree's model and another over its base, plus the branch's
-  git hunks — a second here, several on a large repo, and the panel used to pay
-  it on every first open. `internal/adapter/http/archmotif_report_cache.go`
-  holds one built report per `(worktree, base ref)`, and
-  `Server.WarmWorktree` fills it in the background: on `serve.WorktreeWarmer`,
-  which the daemon wires to `MultiState`'s `LoadedHook` so the build starts the
-  moment a worktree's model is parsed rather than on the first request; on the
-  `/api/warm` an MCP client pings at attach; and again after every model change.
-  Only `defaultReviewBaseRef` is warmed — another ref is a miss that builds on
-  demand. Warming never blocks: one entry per key, computed on its own goroutine
-  under a background context, and a request arriving mid-build waits for that
-  build instead of starting a second. `internal/serve` must not learn what is
-  being warmed, which is why the trigger is an injected port rather than a call.
-- **Invalidation is by event, never by clock.** The entry is dropped on the same
-  `plugin.ModelEvent` the SSE `model-changed` stream is published from — the
-  subscription is made in `watchModel`, before the snapshot the build reads, so
-  an event landing mid-build cannot be missed — and a request whose worktree or
+- **The report is built on demand, never warmed.** Building it costs an
+  archmotif graph over the worktree's model and another over its base, plus the
+  branch's git hunks. It used to be warmed in the background — on every
+  worktree's load, on `/api/warm`, and again after every model change — which on
+  a repository with a dozen worktrees ran that build for each of them on every
+  edit, concurrently, for a panel that is rarely open. With the dense trophic
+  solve archmotif had then, that was gigabytes per build and the daemon's whole
+  memory problem. Now the panel's open is the only trigger:
+  `internal/adapter/http/archmotif_report_cache.go` holds one built report per
+  `(worktree, base ref)`, a request arriving mid-build waits for that build
+  instead of starting a second, and the build runs under a background context
+  so a reviewer who closes the panel still leaves the report for the next open.
+- **Invalidation is by event, never by clock.** The entry is dropped (not rebuilt) on
+  the same `plugin.ModelEvent` the SSE `model-changed` stream is published from
+  — the subscription is made in `watchModel`, before the snapshot the build
+  reads, so an event landing mid-build cannot be missed — and a request whose worktree or
   base differs is a miss that computes synchronously. Nothing is served because
   it is *probably* still current. Two things move with no model event behind
   them, and both are handled rather than tolerated: the embedding index, which
@@ -793,11 +1092,11 @@ to do about it, and where to click.
   the reviewer is trying to replace.
 - **The session is also cached in the app, not in the panel**
   (`useArchReportSession`, exported from `ArchMotifPanel.tsx`): the response
-  carries no ETag, so even a warm answer is a round trip and a re-render.
-  It is re-read on `Refresh` and on the same `model-changed` SSE that reloads
-  the canvas and the file diff — and only `Refresh` asks the daemon to rebuild,
-  because by the time that SSE arrives the daemon has already dropped and
-  re-warmed its own copy.
+  carries no ETag, so even a cached answer is a round trip and a re-render.
+  It is re-read on `Refresh` and, while the panel is open, on the same
+  `model-changed` SSE that reloads the canvas and the file diff — and only
+  `Refresh` sends `no-cache`, because by the time that SSE arrives the daemon
+  has already dropped its own copy.
 - Harness `testing/harness/archmotif-panel.harness.ts`; `mountAppDom` takes a
   `report` responder, so the DOM specs answer without a daemon.
 - What this replaced: a grid of package counts, a degree-sorted coupling table
@@ -1062,6 +1361,52 @@ it skipped every internal edge and always reported "no violations". Merge
 now normalizes both shapes and decides module membership by
 package→layer-map membership. When touching Merge, test with
 module-relative dependency paths; fully-qualified fixtures pass either way.
+
+## Container image and Helm chart
+
+`Dockerfile` builds the daemon's image; `charts/wyrd` deploys it. Operator
+documentation is `charts/wyrd/README.md` — this section is what to keep in
+mind when changing either.
+
+- **The runtime image is the golang image on purpose.** The reader shells out
+  to `go list`, so the Go toolchain, git and CA certificates are run-time
+  dependencies, not build ones. The image builds the review UI in its own
+  Node stage, because `web/dist` is embedded and not in git.
+- **Everything written goes under `/data`**: `WYRD_HOME=/data/wyrd`,
+  `GOMODCACHE` and `GOCACHE` beside it, and the checkout at `/data/repo`. The
+  chart mounts one volume there. None of it is the index — that is in Qdrant
+  — so losing the volume costs a parse and a module download, not embeddings.
+- **The chart does not check the repository out.** Which git host, which
+  credentials and how often to fetch belong to the deployment, so the chart
+  takes containers for it (`sync.initContainers`, `sync.containers`, both
+  `tpl`-rendered) and wyrd follows the directory through its file watcher.
+  The image sets `safe.directory '*'`, since a sync container usually writes
+  the checkout as another user.
+- **One replica, `Recreate`.** The model store, the checkout and the lexical
+  documents' `Retain` each assume a single writer.
+- **The collection is bootstrapped by an init container**, `wyrd qdrant
+  bootstrap`, not by a Helm hook: a hook would have to order itself against
+  the bundled Qdrant coming up, while an init container that fails is simply
+  retried. It is idempotent, and it takes the admin token when one is given.
+- **`requireRemote` defaults to true** and the chart refuses at render time
+  what the daemon would refuse at start (`wyrd.validate` in `_helpers.tpl`):
+  the vertex provider without a project, noop with `requireRemote`, no Qdrant
+  URL with the bundled one off. `values.schema.json` refuses unknown keys.
+- **Probes:** startup and liveness on `/healthz`, readiness on `/readyz`. The
+  readiness timeout (12s) is above the daemon's recheck budget (10s).
+- **The bundled Qdrant is pinned** in `Chart.yaml` to the version the adapter
+  was verified against; `Chart.lock` is committed, the `.tgz` is not.
+- **Checks:** `make chart-lint` lints and renders every values case under
+  `charts/wyrd/ci/` (CI runs it); `make image` builds the image. A release
+  tag publishes `ghcr.io/<owner>/wyrd:<tag>` and
+  `oci://ghcr.io/<owner>/charts/wyrd`.
+- **Verified by hand, once:** installed into k3s with the bundled Qdrant and
+  Gemini on Vertex — collection created on first start, a small repository
+  indexed and searched through UI, API and MCP, a pod restart re-embedding
+  nothing. No test in the repository starts a cluster.
+- Known noise: the daemon logs `write serve.json: … permission denied` when
+  the checkout is not writable by its user; the legacy per-worktree record is
+  not needed in a container.
 
 ## Development Rules
 

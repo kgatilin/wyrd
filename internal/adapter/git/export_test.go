@@ -103,6 +103,7 @@ func TestMergeBaseAndCleanliness(t *testing.T) {
 
 	run("init", "--initial-branch=main")
 	write("a.txt", "one\n")
+	write("m.go", "package m\n")
 	run("add", ".")
 	run("commit", "-m", "base")
 	branchPoint := HeadRev(repo)
@@ -133,12 +134,28 @@ func TestMergeBaseAndCleanliness(t *testing.T) {
 		t.Error("IsClean = false on a freshly checked-out tree")
 	}
 	write("a.txt", "dirty\n")
-	if IsClean(repo) {
-		t.Error("IsClean = true with a modified file")
+	if !IsClean(repo) {
+		t.Error("IsClean = false with a modified file the model never reads")
 	}
 	run("checkout", "--", "a.txt")
-	write("untracked.txt", "x\n")
+	write("m.go", "package m // dirty\n")
 	if IsClean(repo) {
-		t.Error("IsClean = true with an untracked file (it would be parsed into the model)")
+		t.Error("IsClean = true with a modified Go file")
+	}
+	run("checkout", "--", "m.go")
+	write("untracked.txt", "x\n")
+	if !IsClean(repo) {
+		t.Error("IsClean = false with an untracked file the model never reads")
+	}
+	write("untracked.go", "package x\n")
+	if IsClean(repo) {
+		t.Error("IsClean = true with an untracked Go file (it would be parsed into the model)")
+	}
+	if err := os.Remove(filepath.Join(repo, "untracked.go")); err != nil {
+		t.Fatal(err)
+	}
+	write("go.mod", "module example.com/x\n")
+	if IsClean(repo) {
+		t.Error("IsClean = true with an untracked go.mod")
 	}
 }

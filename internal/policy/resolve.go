@@ -26,8 +26,14 @@ type edge struct {
 	to   string
 }
 
-// newGraph builds the dependency graph from models. An edge is kept only when
-// its target is one of the packages actually parsed (a member of models) — the
+// newGraph builds the dependency graph from models. A package's edges are the
+// union of its in-module imports (PackageModel.Imports — the package
+// dependency itself, including an import used only by a call, a constant or a
+// blank import) and the target packages of its symbol dependencies (which a
+// model loaded from an older .arch file without imports still carries).
+//
+// An edge is kept only when its target is one of the packages actually parsed
+// (a member of models) — the
 // robust in-module test, since the Go reader stores dependency package paths
 // module-relative and does not reliably flag stdlib/third-party targets as
 // External. This mirrors overlay.Merge, which likewise only counts a dependency
@@ -54,17 +60,22 @@ func newGraph(models []domain.PackageModel, module string) *graph {
 			g.layerOf[src] = m.Layer
 		}
 	}
+	addEdge := func(src, dst string) {
+		if dst == src || !known[dst] {
+			return
+		}
+		if g.adj[src] == nil {
+			g.adj[src] = make(map[string]bool)
+		}
+		g.adj[src][dst] = true
+	}
 	for _, m := range models {
 		src := relPath(module, m.Path)
+		for _, imp := range m.Imports {
+			addEdge(src, relPath(module, imp))
+		}
 		for _, dep := range m.Dependencies {
-			dst := relPath(module, dep.To.Package)
-			if dst == src || !known[dst] {
-				continue
-			}
-			if g.adj[src] == nil {
-				g.adj[src] = make(map[string]bool)
-			}
-			g.adj[src][dst] = true
+			addEdge(src, relPath(module, dep.To.Package))
 		}
 	}
 	sort.Strings(g.pkgs)

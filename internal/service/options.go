@@ -3,9 +3,18 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"github.com/kgatilin/wyrd/internal/domain"
 )
+
+// ErrNothingToModel is wrapped by a ModelReader when every package the paths
+// named failed to load: a directory of Go files outside the main module, or
+// whose files the build constraints all exclude. A whole-project read skips
+// such a package with a warning; a read scoped to just those packages has
+// nothing left to return, and a caller that asked about them alone needs to
+// tell "these have no model" from a read that broke.
+var ErrNothingToModel = errors.New("nothing to model")
 
 // ModelReader reads package models from a source (code or diagrams).
 // This interface is implemented by:

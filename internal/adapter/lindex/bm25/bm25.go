@@ -4,7 +4,12 @@
 package bm25
 
 import (
-	"encoding/json"
+	"bufio"
+	"context"
+	"encoding/gob"
+	"errors"
+	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -44,6 +49,10 @@ type Index struct {
 
 	// avgDocLen is the average document length
 	avgDocLen float64
+
+	// totalLen is the sum of all document lengths, kept so the average is
+	// O(1) per upsert rather than a pass over every document.
+	totalLen int
 
 	// totalDocs is the total number of documents
 	totalDocs int
@@ -92,29 +101,7 @@ func (idx *Index) Upsert(id, text string) {
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
-
-	// Remove old document if exists
-	idx.removeLocked(id)
-
-	// Add new document
-	idx.docs[id] = tokens
-	idx.docLengths[id] = len(tokens)
-	idx.totalDocs++
-
-	// Update inverted index and term frequencies
-	termCounts := make(map[string]int)
-	for _, token := range tokens {
-		termCounts[token]++
-	}
-
-	for term, count := range termCounts {
-		if idx.termFreqs[term] == nil {
-			idx.termFreqs[term] = make(map[string]int)
-		}
-		idx.termFreqs[term][id] = count
-		idx.invertedIndex[term] = append(idx.invertedIndex[term], id)
-	}
-
+	idx.addTokensLocked(id, tokens)
 	idx.updateAvgDocLen()
 }
 
@@ -161,6 +148,7 @@ func (idx *Index) removeLocked(id string) {
 	delete(idx.docs, id)
 	delete(idx.docLengths, id)
 	idx.totalDocs--
+	idx.totalLen -= len(tokens)
 
 	idx.updateAvgDocLen()
 }
@@ -170,32 +158,38 @@ func (idx *Index) updateAvgDocLen() {
 		idx.avgDocLen = 0
 		return
 	}
-	total := 0
-	for _, length := range idx.docLengths {
-		total += length
-	}
-	idx.avgDocLen = float64(total) / float64(idx.totalDocs)
+	idx.avgDocLen = float64(idx.totalLen) / float64(idx.totalDocs)
 }
 
 // Scored is an alias for types.Scored.
 type Scored = types.Scored
 
-// Search returns the top-k results by BM25 score (descending).
-func (idx *Index) Search(query string, k int) []types.Scored {
+// Has reports whether a document is indexed under id.
+func (idx *Index) Has(id string) bool {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	_, ok := idx.docs[id]
+	return ok
+}
+
+// Search returns the top-k results by BM25 score (descending) among the
+// documents keep accepts; a nil keep accepts all. Statistics (IDF, average
+// length) stay those of the whole index.
+func (idx *Index) Search(_ context.Context, query string, k int, keep func(id string) bool) ([]types.Scored, error) {
 	if k <= 0 {
-		return nil
+		return nil, nil
 	}
 
 	queryTokens := Tokenize(query)
 	if len(queryTokens) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
 	if idx.totalDocs == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Compute BM25 scores for all matching documents
@@ -213,6 +207,9 @@ func (idx *Index) Search(query string, k int) []types.Scored {
 		idf := math.Log((N-n+0.5)/(n+0.5) + 1)
 
 		for _, docID := range postings {
+			if keep != nil && !keep(docID) {
+				continue
+			}
 			tf := float64(idx.termFreqs[term][docID])
 			docLen := float64(idx.docLengths[docID])
 
@@ -233,7 +230,10 @@ func (idx *Index) Search(query string, k int) []types.Scored {
 		sorted = append(sorted, scored{id: id, score: score})
 	}
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].score > sorted[j].score
+		if sorted[i].score != sorted[j].score {
+			return sorted[i].score > sorted[j].score
+		}
+		return sorted[i].id < sorted[j].id
 	})
 
 	// Take top-k
@@ -248,7 +248,7 @@ func (idx *Index) Search(query string, k int) []types.Scored {
 			Score: float32(sorted[i].score),
 		}
 	}
-	return results
+	return results, nil
 }
 
 // Len returns the number of documents in the index.
@@ -260,6 +260,9 @@ func (idx *Index) Len() int {
 
 // Tokenize splits text into lowercase tokens, splitting on whitespace
 // and identifier boundaries (camelCase, snake_case).
+//
+// The remote lexical index (vindex/qdrant) tokenizes with it too and stores
+// the result; a change here needs that package's weightsVersion bumped.
 func Tokenize(text string) []string {
 	var tokens []string
 
@@ -327,94 +330,131 @@ func splitIdentifier(s string) []string {
 	return parts
 }
 
-// persistedIndex is the JSON structure for persistence.
-type persistedIndex struct {
-	K1            float64             `json:"k1"`
-	B             float64             `json:"b"`
-	Docs          map[string][]string `json:"docs"`
-	TotalDocs     int                 `json:"total_docs"`
-	AvgDocLen     float64             `json:"avg_doc_len"`
+// fileMagic and fileVersion head a persisted index, so a foreign or older
+// file reads as "no index" instead of as garbage.
+const (
+	fileMagic   = "wyrd-bm25"
+	fileVersion = 2
+)
+
+// fileHeader is the first record of a persisted index; one docRecord per
+// document follows until EOF.
+type fileHeader struct {
+	Magic   string
+	Version int
+	K1, B   float64
 }
 
-// Save persists the index to a JSON file.
-func (idx *Index) Save(path string) error {
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
+type docRecord struct {
+	ID     string
+	Tokens []string
+}
 
-	persisted := persistedIndex{
-		K1:        idx.k1,
-		B:         idx.b,
-		Docs:      idx.docs,
-		TotalDocs: idx.totalDocs,
-		AvgDocLen: idx.avgDocLen,
+// Save streams the documents keep accepts (all, for a nil keep) to path,
+// record by record, under the read lock: the index is never encoded into one
+// buffer and never copied. The write is atomic (temp file + rename).
+func (idx *Index) Save(path string, keep func(id string) bool) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("bm25: creating %s: %w", dir, err)
 	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(persisted, "", "  ")
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp")
 	if err != nil {
+		return fmt.Errorf("bm25: creating temp file in %s: %w", dir, err)
+	}
+	tmpName := tmp.Name()
+	fail := func(err error) error {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		return err
 	}
 
-	// Atomic write
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
+	w := bufio.NewWriter(tmp)
+	enc := gob.NewEncoder(w)
+
+	idx.mu.RLock()
+	err = enc.Encode(fileHeader{Magic: fileMagic, Version: fileVersion, K1: idx.k1, B: idx.b})
+	for id, tokens := range idx.docs {
+		if err != nil {
+			break
+		}
+		if keep != nil && !keep(id) {
+			continue
+		}
+		err = enc.Encode(docRecord{ID: id, Tokens: tokens})
 	}
-	return os.Rename(tmp, path)
+	idx.mu.RUnlock()
+	if err != nil {
+		return fail(fmt.Errorf("bm25: encoding %s: %w", path, err))
+	}
+
+	if err := w.Flush(); err != nil {
+		return fail(fmt.Errorf("bm25: flushing %s: %w", tmpName, err))
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("bm25: closing %s: %w", tmpName, err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("bm25: renaming %s: %w", tmpName, err)
+	}
+	return nil
 }
 
-// Load restores the index from a JSON file.
+// Load adds the documents persisted at path to the index. A missing file, or
+// one in another format, is an empty index; a truncated tail is dropped.
 func (idx *Index) Load(path string) error {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // No persisted index, start fresh
+			return nil
 		}
-		return err
+		return fmt.Errorf("bm25: opening %s: %w", path, err)
 	}
+	defer func() { _ = f.Close() }()
 
-	var persisted persistedIndex
-	if err := json.Unmarshal(data, &persisted); err != nil {
-		return err
+	dec := gob.NewDecoder(bufio.NewReader(f))
+	var hdr fileHeader
+	if err := dec.Decode(&hdr); err != nil || hdr.Magic != fileMagic || hdr.Version != fileVersion {
+		return nil
 	}
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
-
-	// Reset and rebuild
-	idx.k1 = persisted.K1
-	idx.b = persisted.B
-	idx.docs = make(map[string][]string)
-	idx.docLengths = make(map[string]int)
-	idx.invertedIndex = make(map[string][]string)
-	idx.termFreqs = make(map[string]map[string]int)
-	idx.totalDocs = 0
-	idx.avgDocLen = 0
-
-	// Re-add all documents to rebuild indexes
-	for id, tokens := range persisted.Docs {
-		idx.docs[id] = tokens
-		idx.docLengths[id] = len(tokens)
-		idx.totalDocs++
-
-		// Build inverted index and term frequencies
-		termCounts := make(map[string]int)
-		for _, token := range tokens {
-			termCounts[token]++
-		}
-
-		for term, count := range termCounts {
-			if idx.termFreqs[term] == nil {
-				idx.termFreqs[term] = make(map[string]int)
+	idx.k1, idx.b = hdr.K1, hdr.B
+	for {
+		var rec docRecord
+		if err := dec.Decode(&rec); err != nil {
+			if !errors.Is(err, io.EOF) {
+				fmt.Fprintf(os.Stderr, "bm25: %s: dropping unreadable tail: %v\n", path, err)
 			}
-			idx.termFreqs[term][id] = count
-			idx.invertedIndex[term] = append(idx.invertedIndex[term], id)
+			break
 		}
+		idx.addTokensLocked(rec.ID, rec.Tokens)
 	}
-
 	idx.updateAvgDocLen()
 	return nil
+}
+
+// addTokensLocked indexes an already tokenized document. Must be called with
+// mu held for writing; the caller refreshes the average length.
+func (idx *Index) addTokensLocked(id string, tokens []string) {
+	idx.removeLocked(id)
+	idx.docs[id] = tokens
+	idx.docLengths[id] = len(tokens)
+	idx.totalDocs++
+	idx.totalLen += len(tokens)
+
+	termCounts := make(map[string]int)
+	for _, token := range tokens {
+		termCounts[token]++
+	}
+	for term, count := range termCounts {
+		if idx.termFreqs[term] == nil {
+			idx.termFreqs[term] = make(map[string]int)
+		}
+		idx.termFreqs[term][id] = count
+		idx.invertedIndex[term] = append(idx.invertedIndex[term], id)
+	}
 }

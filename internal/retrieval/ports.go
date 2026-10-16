@@ -1,47 +1,47 @@
 // Package retrieval provides code search and retrieval capabilities for
-// wyrd's domain model. This file defines the port interfaces for vector
-// and lexical indexes.
+// wyrd's domain model. This file defines the ports of the corpus: the dense
+// vector store and the lexical index, both keyed by content hash.
 package retrieval
 
-import "github.com/kgatilin/wyrd/internal/retrieval/types"
+import (
+	"context"
+
+	"github.com/kgatilin/wyrd/internal/retrieval/types"
+)
 
 // Scored is an alias for types.Scored for convenience.
 type Scored = types.Scored
 
-// VectorIndex stores and searches dense vector embeddings.
-type VectorIndex interface {
-	// Upsert inserts or updates the vector for the given ID.
-	Upsert(id string, vec []float32)
-
-	// Remove deletes the vector for the given ID.
-	Remove(id string)
-
-	// Search returns the top-k results by cosine similarity (descending).
-	Search(vec []float32, k int) []Scored
-
-	// Len returns the number of vectors in the index.
-	Len() int
-}
-
-// VectorCache is a repo-level, content-addressed cache of node vectors,
-// shared across the worktrees of one repository. Keys are content hashes
-// (see ContentHash), which makes an entry valid anywhere the same text is
-// embedded with the same model and recipe — nothing worktree-specific is in
-// the key. The Service consults it before calling the Embedder, so a fresh
-// worktree inherits the embedding pass of the ones indexed before it.
+// VectorStore is the corpus's dense channel: one vector per content hash (see
+// ContentHash), shared by every view of the repository. A hash's text is the
+// same wherever it occurs, so a vector stored once serves every worktree that
+// has that text.
 //
-// Implementations must be safe for concurrent use. Vectors handed out by Get
-// may be shared with other callers and must be treated as immutable.
-type VectorCache interface {
-	// Get returns the cached vector for a content hash, if any.
-	Get(contentHash string) ([]float32, bool)
+// Implementations must be safe for concurrent use. Vectors handed out may be
+// shared and must be treated as immutable.
+type VectorStore interface {
+	// Has reports whether a vector is stored for the hash. It is answered
+	// from memory, so readiness can be polled cheaply.
+	Has(hash string) bool
 
-	// Put records a vector for a content hash. Entries are immutable, so
-	// putting a known hash is a no-op.
-	Put(contentHash string, vec []float32)
+	// Get returns the stored vectors of the given hashes; a hash without one
+	// is absent from the map.
+	Get(ctx context.Context, hashes []string) (map[string][]float32, error)
+
+	// Put stores vectors by hash. Re-putting a known hash is harmless.
+	Put(ctx context.Context, vectors map[string][]float32) error
+
+	// Search returns at most k hashes accepted by keep, by cosine similarity
+	// to vec, best first. keep is the asking view's membership test.
+	Search(ctx context.Context, vec []float32, k int, keep func(hash string) bool) ([]Scored, error)
+
+	// Save persists whatever was put since the last call. A store that is
+	// its own persistence returns nil.
+	Save() error
 }
 
-// LexicalIndex provides term-based text search using BM25 ranking.
+// LexicalIndex provides term-based text search using BM25 ranking. In the
+// corpus a document id is a content hash.
 type LexicalIndex interface {
 	// Upsert inserts or updates the document for the given ID.
 	Upsert(id, text string)
@@ -49,8 +49,14 @@ type LexicalIndex interface {
 	// Remove deletes the document for the given ID.
 	Remove(id string)
 
-	// Search returns the top-k results by BM25 score (descending).
-	Search(query string, k int) []Scored
+	// Has reports whether a document is indexed under the ID.
+	Has(id string) bool
+
+	// Search returns at most k documents accepted by keep, by BM25 score
+	// (descending). A nil keep accepts every document. An index that is not
+	// in this process returns an error rather than an empty answer when it
+	// cannot be asked.
+	Search(ctx context.Context, query string, k int, keep func(id string) bool) ([]Scored, error)
 
 	// Len returns the number of documents in the index.
 	Len() int

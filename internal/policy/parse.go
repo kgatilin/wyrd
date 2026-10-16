@@ -132,7 +132,7 @@ func extractKinds(s string) (body string, kinds []string, err error) {
 			return "", nil, fmt.Errorf("empty edge kind in qualifier")
 		}
 		if !dependencyKindKnown(tok) {
-			return "", nil, fmt.Errorf("unknown edge kind %q (want one of: type, uses, returns, implements, extends, nested-in)", tok)
+			return "", nil, fmt.Errorf("unknown edge kind %q (want one of: imports, type, uses, returns, implements, extends, nested-in)", tok)
 		}
 		kinds = append(kinds, tok)
 	}

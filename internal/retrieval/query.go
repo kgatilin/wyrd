@@ -125,6 +125,18 @@ type Filters struct {
 	PackagePrefix string   `json:"package_prefix,omitempty"`
 }
 
+// expand turns scored hashes into scored node ids: each hash stands for every
+// node of the view with that text, all at the hash's score.
+func (v *view) expand(hashes []Scored) []Scored {
+	out := make([]Scored, 0, len(hashes))
+	for _, sc := range hashes {
+		for _, id := range v.nodesOf[sc.ID] {
+			out = append(out, Scored{ID: id, Score: sc.Score})
+		}
+	}
+	return out
+}
+
 // scoredNode is one text-channel match: the node the query hit and the
 // calibrated mass the fusion gave it.
 type scoredNode struct {
@@ -147,20 +159,49 @@ func (s *Service) textHits(ctx context.Context, query string, k int, filters Fil
 		fetchK = 50
 	}
 
+	s.mu.RLock()
+	v := s.view
+	s.mu.RUnlock()
+
+	// Both channels score content hashes of the shared corpus; keep confines
+	// them to the hashes this view holds, so another worktree's text never
+	// takes a slot in this answer.
 	var denseResults []Scored
 	denseUsed := false
-
-	// Dense search if available
-	if s.DenseAvailable() && s.embedder != nil && s.vindex != nil {
-		vec, err := s.embedder.EmbedQuery(ctx, query)
-		if err == nil && len(vec) > 0 {
-			denseResults = s.vindex.Search(vec, fetchK)
-			denseUsed = true
+	if s.DenseAvailable() && s.corpus.dense() {
+		vec, err := s.corpus.embedder.EmbedQuery(ctx, query)
+		if ctx.Err() == nil {
+			s.corpus.report(FaultEmbedder, err)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "retrieval: embedding the query failed, answering lexically: %v\n", err)
+		} else if len(vec) > 0 {
+			found, err := s.corpus.vectors.Search(ctx, vec, fetchK, v.has)
+			if ctx.Err() == nil {
+				s.corpus.report(FaultVectors, err)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "retrieval: dense search failed, answering lexically: %v\n", err)
+			} else {
+				denseResults = v.expand(found)
+				denseUsed = true
+			}
 		}
 	}
 
-	// Lexical search (always available)
-	lexicalResults := s.lindex.Search(query, fetchK)
+	found, err := s.corpus.lexical.Search(ctx, query, fetchK, v.has)
+	if ctx.Err() == nil {
+		s.corpus.report(FaultLexical, err)
+	}
+	if err != nil {
+		// With no dense answer either, an empty result would read as "no
+		// such code" when the truth is that nothing could be asked.
+		if !denseUsed {
+			return nil, false, fmt.Errorf("lexical search: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "retrieval: lexical search failed, answering from embeddings: %v\n", err)
+	}
+	lexicalResults := v.expand(found)
 
 	// Fuse the two channels into one calibrated relevance mass
 	fused := s.fuseCalibrated(query, denseResults, lexicalResults)

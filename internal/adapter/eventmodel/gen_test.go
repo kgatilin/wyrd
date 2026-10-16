@@ -5,7 +5,6 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -249,12 +248,12 @@ func TestRenderTemplateParseError(t *testing.T) {
 // repoFile resolves a path relative to the repository root.
 func repoFile(t *testing.T, rel string) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot determine test file location")
+	// go test runs in the package directory: internal/adapter/eventmodel.
+	pkgDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
 	}
-	// .../internal/adapter/eventmodel/gen_test.go -> repo root
-	root := filepath.Join(filepath.Dir(file), "..", "..", "..")
+	root := filepath.Join(pkgDir, "..", "..", "..")
 	return filepath.Join(root, filepath.FromSlash(rel))
 }
 

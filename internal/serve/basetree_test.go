@@ -4,10 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/kgatilin/wyrd/internal/adapter/git"
 	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/serve/modelstore"
 )
 
 // TestReviewBase_UsesMergeBaseNotBaseTip is the invariant the whole
@@ -125,50 +128,171 @@ func TestReviewBase_UnresolvableRefYieldsNoModels(t *testing.T) {
 	}
 }
 
-func TestBaseTrees_EvictsBeyondLimit(t *testing.T) {
+func testStore(t *testing.T) *modelstore.Store {
+	t.Helper()
+	store, err := modelstore.Open(t.TempDir(), "test-binary")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	return store
+}
+
+// A materialized tree exists to produce a snapshot. Once the snapshot is
+// recorded the tree is gone, and the next request reads the store.
+func TestBaseTrees_RecordsTheSnapshotAndDropsTheTree(t *testing.T) {
 	root := newGitRepo(t)
 	writeGo(t, root, "api/api.go", "package api\n\ntype A struct{}\n")
 	runGit(t, root, "add", ".")
 	runGit(t, root, "commit", "-qm", "one")
-	first := git.HeadRev(root)
-	writeGo(t, root, "api/b.go", "package api\n\ntype B struct{}\n")
-	runGit(t, root, "add", ".")
-	runGit(t, root, "commit", "-qm", "two")
-	second := git.HeadRev(root)
+	rev := git.HeadRev(root)
 
 	cache := t.TempDir()
-	trees := newBaseTrees(cache, 1)
-	ctx := context.Background()
+	store := testStore(t)
+	trees := newBaseTrees(cache)
+	versions, err := trees.Versions(context.Background(), store, root, rev)
+	if err != nil {
+		t.Fatalf("Versions: %v", err)
+	}
+	if !declaredTypeNames(modelsOfVersions(versions))["A"] {
+		t.Fatalf("base commit parsed without its type: %+v", versions)
+	}
+	if _, err := os.Stat(filepath.Join(cache, rev)); !os.IsNotExist(err) {
+		t.Errorf("the materialized tree outlived its snapshot: %v", err)
+	}
+	stored, ok, err := store.Snapshot(rev)
+	if err != nil || !ok {
+		t.Fatalf("no snapshot recorded for %s: ok %v err %v", rev, ok, err)
+	}
+	if len(stored) != len(versions) || &stored[0].Model.Structs[0] != &versions[0].Model.Structs[0] {
+		t.Error("the store does not hold the instances the producer returned")
+	}
+}
 
-	if _, err := trees.Models(ctx, root, first); err != nil {
-		t.Fatalf("Models(first): %v", err)
+// The sweep is what keeps the directory bounded across restarts: it removes
+// the trees earlier daemons left behind, never a load in flight, and nothing
+// recent enough to be another process's load.
+func TestBaseTrees_SweepRemovesLeftoversButNotALoadInFlight(t *testing.T) {
+	cache := t.TempDir()
+	old := time.Now().Add(-2 * baseTreeStaleAfter)
+	mk := func(name string, mod time.Time) {
+		dir := filepath.Join(cache, name)
+		if err := os.MkdirAll(filepath.Join(dir, "api"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(dir, mod, mod); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := os.Stat(filepath.Join(cache, first)); err != nil {
-		t.Fatalf("first base tree not materialized: %v", err)
-	}
-	if _, err := trees.Models(ctx, root, second); err != nil {
-		t.Fatalf("Models(second): %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(cache, first)); !os.IsNotExist(err) {
-		t.Error("the evicted base tree is still on disk")
-	}
-	if _, err := os.Stat(filepath.Join(cache, second)); err != nil {
-		t.Errorf("the live base tree was removed: %v", err)
+	mk("leftover1", old)
+	mk("leftover2", old)
+	mk("inflight", old)
+	mk("inflight.tmp123", old)
+	mk("recent", time.Now())
+
+	trees := newBaseTrees(cache)
+	trees.loads["inflight"] = &baseTreeLoad{done: make(chan struct{})}
+	trees.sweep()
+
+	for name, want := range map[string]bool{
+		"leftover1": false, "leftover2": false,
+		"inflight": true, "inflight.tmp123": true, "recent": true,
+	} {
+		_, err := os.Stat(filepath.Join(cache, name))
+		if got := err == nil; got != want {
+			t.Errorf("%s present = %v, want %v", name, got, want)
+		}
 	}
 }
 
 func TestBaseTrees_UnknownRevisionIsNotCachedAsFailure(t *testing.T) {
 	root := newGitRepo(t)
-	trees := newBaseTrees(t.TempDir(), 2)
-	if _, err := trees.Models(context.Background(), root, "0000000000000000000000000000000000000000"); err == nil {
-		t.Fatal("Models accepted a revision that does not exist")
+	trees := newBaseTrees(t.TempDir())
+	if _, err := trees.Versions(context.Background(), testStore(t), root, "0000000000000000000000000000000000000000"); err == nil {
+		t.Fatal("Versions accepted a revision that does not exist")
 	}
 	trees.mu.Lock()
 	cached := len(trees.loads)
 	trees.mu.Unlock()
 	if cached != 0 {
-		t.Errorf("a failed load stayed in the cache (%d entries); the next request would inherit it", cached)
+		t.Errorf("a failed load stayed in flight (%d entries); the next request would inherit it", cached)
 	}
+}
+
+// TestBaseTrees_HuskIsReExported pins the difference between a directory that
+// exists and a tree that was published. A directory evicted while it was being
+// parsed used to come back — the parser recreated it to write its model cache —
+// holding no source. Accepting it would poison the revision: every review
+// against that commit would fail to parse and nothing would re-export.
+func TestBaseTrees_HuskIsReExported(t *testing.T) {
+	root := newGitRepo(t)
+	writeGo(t, root, "api/api.go", "package api\n\ntype A struct{}\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-qm", "one")
+	rev := git.HeadRev(root)
+
+	cache := t.TempDir()
+	dir := filepath.Join(cache, rev)
+	if err := os.MkdirAll(filepath.Join(dir, ".archai", "cache"), 0o755); err != nil {
+		t.Fatalf("create husk: %v", err)
+	}
+
+	versions, err := newBaseTrees(cache).Versions(context.Background(), testStore(t), root, rev)
+	if err != nil {
+		t.Fatalf("Versions over a husk: %v", err)
+	}
+	if !declaredTypeNames(modelsOfVersions(versions))["A"] {
+		t.Fatalf("the husk was parsed instead of a re-exported tree: %+v", versions)
+	}
+}
+
+// A merge base some State or earlier request already recorded is answered
+// from the store: nothing is materialized and nothing is parsed.
+func TestReviewBase_ServedFromTheStoreWithoutMaterializing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WYRD_HOME", home)
+
+	root := newGitRepo(t)
+	writeGo(t, root, "api/api.go", "package api\n\ntype Existing struct{}\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-qm", "api")
+	branchPoint := git.HeadRev(root)
+	feature := filepath.Join(t.TempDir(), "feature")
+	runGit(t, root, "worktree", "add", "-q", "-b", "feature", feature)
+	writeGo(t, feature, "api/feature.go", "package api\n\ntype Feature struct{}\n")
+	writeGo(t, root, "api/later.go", "package api\n\ntype Later struct{}\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-qm", "main moves on")
+
+	store := testStore(t)
+	recorded := []domain.PackageModel{{Path: "api", Name: "api", Structs: []domain.StructDef{{Name: "Recorded"}}}}
+	if _, err := store.Record(branchPoint, recorded); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	multi := NewMultiState(root, DefaultStateLoader)
+	if err := multi.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	multi.SetReviewBaseRef("main")
+	multi.SetModelStore(store)
+
+	base, err := multi.ReviewBase(context.Background(), worktreeNameFor(t, multi, feature), "")
+	if err != nil {
+		t.Fatalf("ReviewBase: %v", err)
+	}
+	if names := declaredTypeNames(base.Models); !names["Recorded"] || len(names) != 1 {
+		t.Fatalf("base models = %v, want the recorded snapshot", names)
+	}
+	if _, err := os.Stat(filepath.Join(home, baseTreeDirName)); !os.IsNotExist(err) {
+		t.Error("a base tree was materialized although the store had the snapshot")
+	}
+}
+
+func modelsOfVersions(versions []modelstore.Version) []domain.PackageModel {
+	out := make([]domain.PackageModel, len(versions))
+	for i, v := range versions {
+		out[i] = v.Model
+	}
+	return out
 }
 
 func writeGo(t *testing.T, root, rel, content string) {
@@ -201,4 +325,110 @@ func declaredTypeNames(models []domain.PackageModel) map[string]bool {
 		}
 	}
 	return names
+}
+
+// TestReloadWorktree_BranchReadsOnlyItsDiff pins what Refresh costs: on a
+// branch, the packages its diff touches (committed, uncommitted, untracked)
+// are read over the base's model and nothing else is; a package the branch
+// model had lost comes back from the base. On the base worktree Refresh is a
+// full read.
+func TestReloadWorktree_BranchReadsOnlyItsDiff(t *testing.T) {
+	t.Setenv("WYRD_HOME", t.TempDir())
+
+	root := newGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, ".git", "info", "exclude"), []byte(".archai/\n"), 0o644); err != nil {
+		t.Fatalf("exclude: %v", err)
+	}
+	writeGo(t, root, "api/api.go", "package api\n\ntype Existing struct{}\n")
+	writeGo(t, root, "other/other.go", "package other\n\ntype Other struct{}\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-qm", "api and other")
+
+	feature := filepath.Join(t.TempDir(), "feature")
+	runGit(t, root, "worktree", "add", "-q", "-b", "feature", feature)
+	writeGo(t, feature, "api/api.go", "package api\n\ntype Existing struct{}\ntype Edited struct{}\n")
+	writeGo(t, feature, "client/client.go", "package client\n\ntype Client struct{}\n")
+
+	api := domain.PackageModel{Path: "api", Name: "api", Structs: []domain.StructDef{{Name: "Existing"}}}
+	other := domain.PackageModel{Path: "other", Name: "other", Structs: []domain.StructDef{{Name: "Other"}}}
+	real := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return filepath.Clean(p)
+	}
+	readers := map[string]*recordingReader{
+		real(root): {responses: map[string][]domain.PackageModel{
+			"./...": {api, other},
+		}},
+		// The branch's own model has lost "other", the way a dropped
+		// package used to stay lost.
+		real(feature): {responses: map[string][]domain.PackageModel{
+			"./...": {api},
+			"./api,./client": {
+				{Path: "api", Name: "api", Structs: []domain.StructDef{{Name: "Existing"}, {Name: "Edited"}}},
+				{Path: "client", Name: "client", Structs: []domain.StructDef{{Name: "Client"}}},
+			},
+		}},
+	}
+	loader := func(ctx context.Context, _, path string) (*State, error) {
+		st := NewState(path, WithReader(readers[real(path)]))
+		return st, st.Load(ctx)
+	}
+
+	multi := NewMultiState(root, loader)
+	if err := multi.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	multi.SetReviewBaseRef("main")
+	ctx := context.Background()
+	branch := worktreeNameFor(t, multi, feature)
+
+	changed, err := multi.ReloadWorktree(ctx, branch, "main")
+	if err != nil {
+		t.Fatalf("ReloadWorktree(branch): %v", err)
+	}
+	if !changed {
+		t.Fatal("ReloadWorktree(branch) reported no change")
+	}
+	if got, want := flattenCalls(readers[real(feature)].calls), "./...;./api,./client"; got != want {
+		t.Fatalf("branch reads = %q, want %q", got, want)
+	}
+	st, err := multi.Get(ctx, branch)
+	if err != nil {
+		t.Fatalf("Get(branch): %v", err)
+	}
+	names := declaredTypeNames(st.Snapshot().Packages)
+	for _, want := range []string{"Existing", "Edited", "Client", "Other"} {
+		if !names[want] {
+			t.Errorf("branch model missing %s after Refresh: %v", want, names)
+		}
+	}
+
+	baseName := worktreeNameFor(t, multi, root)
+	if _, err := multi.ReloadWorktree(ctx, baseName, "main"); err != nil {
+		t.Fatalf("ReloadWorktree(base): %v", err)
+	}
+	if got, want := flattenCalls(readers[real(root)].calls), "./...;./..."; got != want {
+		t.Fatalf("base reads = %q, want a full read on Refresh (%q)", got, want)
+	}
+}
+
+func TestChangedPackages(t *testing.T) {
+	pkgs, full := changedPackages([]git.FileStat{
+		{Path: "api/api.go"},
+		{Path: "api/api_test.go"},
+		{Path: "main.go"},
+		{Path: "docs/readme.md"},
+		{Path: "next/moved.go", OldPath: "prev/moved.go"},
+	})
+	if full {
+		t.Fatal("a diff without go.mod/go.sum asked for a full read")
+	}
+	if got, want := strings.Join(pkgs, ","), ".,api,next,prev"; got != want {
+		t.Fatalf("packages = %q, want %q", got, want)
+	}
+	if _, full := changedPackages([]git.FileStat{{Path: "api/api.go"}, {Path: "go.sum"}}); !full {
+		t.Fatal("a diff touching go.sum did not ask for a full read")
+	}
 }

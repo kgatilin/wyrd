@@ -101,6 +101,18 @@ func (g *Graph) ProjectPackages() []domain.PackageModel {
 		p.Implementations = append(p.Implementations, impl)
 	}
 
+	// Restore Imports from the package -> package imports edges.
+	for _, e := range g.Edges {
+		if e.Kind != EdgeKindImports {
+			continue
+		}
+		p, ok := pkgs[strings.TrimPrefix(e.From, "pkg:")]
+		if !ok {
+			continue
+		}
+		p.Imports = append(p.Imports, strings.TrimPrefix(e.To, "pkg:"))
+	}
+
 	// Restore Calls on functions / methods inside packages.
 	for _, cp := range g.callPayloads {
 		owner, name, recv := parseCallerID(cp.fromID)
@@ -242,6 +254,7 @@ func normalizePackage(p *domain.PackageModel) {
 	sort.SliceStable(p.Implementations, func(i, j int) bool {
 		return implKey(p.Implementations[i]) < implKey(p.Implementations[j])
 	})
+	sort.Strings(p.Imports)
 }
 
 func sortMethods(ms []domain.MethodDef) {

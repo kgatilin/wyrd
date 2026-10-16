@@ -11,16 +11,52 @@ import (
 // lets these tests state the seed masses instead of reverse-engineering a BM25
 // score that would produce them. Search softmaxes the scores it is given, so a
 // score gap of 10 lands roughly 99% of the mass on the leading seed.
-type stubLexical struct{ hits []Scored }
+type stubLexical struct {
+	hits []Scored
+	// err makes every search fail, as an index that is not in this process can.
+	err error
+}
 
 func (s stubLexical) Upsert(id, text string) {}
 func (s stubLexical) Remove(id string)       {}
 func (s stubLexical) Len() int               { return len(s.hits) }
-func (s stubLexical) Search(query string, k int) []Scored {
-	if k < len(s.hits) {
-		return s.hits[:k]
+func (s stubLexical) Has(id string) bool     { return false }
+func (s stubLexical) Search(_ context.Context, query string, k int, keep func(string) bool) ([]Scored, error) {
+	if s.err != nil {
+		return nil, s.err
 	}
-	return s.hits
+	var out []Scored
+	for _, h := range s.hits {
+		if keep == nil || keep(h.ID) {
+			out = append(out, h)
+		}
+	}
+	if k < len(out) {
+		return out[:k], nil
+	}
+	return out, nil
+}
+
+// identityView maps every node of g to a hash equal to its id, so a stub
+// channel that answers with node ids is answering with hashes of this view.
+func identityView(g *Graph) *view {
+	v := emptyView()
+	if g != nil {
+		for id := range g.NodesByID {
+			v.add(id, id)
+		}
+	}
+	return v
+}
+
+// stubService is a view over a lexical-only corpus whose channel is the stub.
+func stubService(g *Graph, hits []Scored, p Params) *Service {
+	return &Service{
+		graph:  g,
+		corpus: NewCorpus(nil, nil, stubLexical{hits: hits}, ""),
+		view:   identityView(g),
+		params: p,
+	}
 }
 
 // callGraph builds a graph of `calls` edges from a list of endpoint pairs. Node
@@ -66,7 +102,7 @@ func graphParams() Params {
 }
 
 func graphService(pairs [][2]string, hits []Scored, p Params) *Service {
-	return &Service{graph: callGraph(pairs), lindex: stubLexical{hits: hits}, params: p}
+	return stubService(callGraph(pairs), hits, p)
 }
 
 func searchRegion(t *testing.T, svc *Service, hops int) SearchResult {
@@ -359,7 +395,7 @@ func TestSearchEdgeKindWeightsGateParticipation(t *testing.T) {
 
 func TestSearchDegenerate(t *testing.T) {
 	t.Run("no graph", func(t *testing.T) {
-		svc := &Service{lindex: stubLexical{hits: []Scored{{ID: "a1", Score: 10}}}, params: graphParams()}
+		svc := stubService(nil, []Scored{{ID: "a1", Score: 10}}, graphParams())
 		got := searchRegion(t, svc, 1)
 		if len(got.Hits) != 0 || len(got.Edges) != 0 {
 			t.Errorf("answer = %+v, want empty", got)

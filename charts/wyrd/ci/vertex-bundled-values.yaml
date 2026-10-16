@@ -1,0 +1,9 @@
+# Lint case: Gemini on Vertex AI through workload identity, bundled Qdrant.
+embedder:
+  provider: vertex
+  dim: 768
+  vertex:
+    project: acme-search
+serviceAccount:
+  annotations:
+    iam.gke.io/gcp-service-account: wyrd@acme-search.iam.gserviceaccount.com

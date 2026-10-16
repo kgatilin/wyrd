@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -22,11 +21,12 @@ import (
 // testdataRoot returns the absolute path to the testdata directory.
 func testdataRoot(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot determine test file location")
+	// go test runs in the package directory.
+	pkgDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
 	}
-	return filepath.Join(filepath.Dir(file), "testdata")
+	return filepath.Join(pkgDir, "testdata")
 }
 
 // hostStub wires a fixed repo root into the plugin.

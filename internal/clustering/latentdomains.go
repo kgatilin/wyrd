@@ -1,6 +1,7 @@
 package clustering
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -111,7 +112,7 @@ const glueLimit = 10
 // LatentDomains runs the analysis. Every error it returns carries a message a
 // caller can show verbatim: an empty selection or a missing review base are
 // expected outcomes of a question, not faults.
-func LatentDomains(in Input) (Result, error) {
+func LatentDomains(ctx context.Context, in Input) (Result, error) {
 	if len(in.Packages) == 0 {
 		return Result{}, errors.New("no packages loaded")
 	}
@@ -143,7 +144,10 @@ func LatentDomains(in Input) (Result, error) {
 
 	// Both clusterings must run on the identical node set, so a symbol without
 	// an embedding leaves the analysis rather than the semantic side alone.
-	nodes, dropped := SemanticNodes(selected, in.Vectors)
+	nodes, dropped, err := SemanticNodes(ctx, selected, in.Vectors)
+	if err != nil {
+		return Result{}, err
+	}
 	if len(nodes) < minComparableNodes {
 		return Result{}, fmt.Errorf("only %d nodes have embeddings (need at least %d to compare partitions); %d dropped",
 			len(nodes), minComparableNodes, dropped)

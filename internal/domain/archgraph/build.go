@@ -51,6 +51,11 @@ func BuildGraph(models []domain.PackageModel, mod *domain.Module) (*Graph, error
 		b.addCallEdges(pkgByPath[path])
 	}
 
+	// Pass 5: package import edges.
+	for _, path := range paths {
+		b.addImportEdges(pkgByPath[path])
+	}
+
 	return b.finalize(), nil
 }
 
@@ -618,6 +623,24 @@ func (b *builder) addCallEdges(p *domain.PackageModel) {
 		for _, m := range iface.Methods {
 			emit(MethodID(p.Path, iface.Name, m.Name), m.Calls)
 		}
+	}
+}
+
+// addImportEdges emits one package -> package imports edge per entry of
+// PackageModel.Imports. No node is added for an imported package outside
+// the input slice, so such an edge points at an id with no node; adding one
+// would make ProjectPackages invent a package that was never read.
+func (b *builder) addImportEdges(p *domain.PackageModel) {
+	from := PackageID(p.Path)
+	for _, imp := range p.Imports {
+		to := PackageID(imp)
+		e := Edge{
+			ID:   edgeID(EdgeKindImports, from, to),
+			Kind: EdgeKindImports,
+			From: from,
+			To:   to,
+		}
+		b.edges[e.ID] = e
 	}
 }
 

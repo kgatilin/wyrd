@@ -9,7 +9,12 @@ export interface LayoutPort {
 }
 
 export interface GraphSourcePort {
-  load(worktree?: string): Promise<UIGraph>;
+  /**
+   * fresh asks the daemon to re-read the worktree (and the base worktree it
+   * compares against) from disk before answering, instead of serving the
+   * model its file events have kept.
+   */
+  load(worktree?: string, opts?: { fresh?: boolean }): Promise<UIGraph>;
 }
 
 export interface SearchPort {

@@ -7,6 +7,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.3.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/mod v0.32.0
+	golang.org/x/oauth2 v0.30.0
 	golang.org/x/sys v0.40.0
 	golang.org/x/tools v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -15,11 +16,11 @@ require (
 )
 
 require (
+	cloud.google.com/go/compute/metadata v0.5.0 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.3 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	golang.org/x/oauth2 v0.30.0 // indirect
 	gonum.org/v1/gonum v0.15.1 // indirect
 )
 
@@ -34,7 +35,7 @@ require (
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/google/pprof v0.0.0-20240927180334-d43a67379298 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/kgatilin/archmotif v0.39.0
+	github.com/kgatilin/archmotif v0.40.0
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mazznoer/csscolorparser v0.1.5 // indirect

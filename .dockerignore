@@ -26,3 +26,7 @@ web/.vite/
 # build outputs (rebuilt inside the image)
 bin/
 output/
+
+# test output and reports (not part of any build)
+web/playwright-report/
+web/test-results/

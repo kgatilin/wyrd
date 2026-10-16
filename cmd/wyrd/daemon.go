@@ -21,14 +21,14 @@ import (
 )
 
 // newDaemonCmd builds the `wyrd daemon` command group for managing serve
-// daemons via the global registry (~/.arch/daemons): the repo-level daemons
+// daemons via the global registry (~/.wyrd/daemons): the repo-level daemons
 // that MCP and UI clients auto-start.
 func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "daemon",
 		Short: "Manage wyrd serve daemons",
 		Long: `Inspect and control wyrd serve daemons recorded in the global
-registry (~/.arch/daemons) — the repo-level daemons that MCP and UI clients
+registry (~/.wyrd/daemons) — the repo-level daemons that MCP and UI clients
 auto-start. Subcommands: list, stop, restart.`,
 	}
 	cmd.AddCommand(newDaemonStartCmd(), newDaemonListCmd(), newDaemonStatusCmd(), newDaemonStopCmd(), newDaemonRestartCmd())
@@ -55,7 +55,7 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 	if len(args) == 1 {
 		arg = args[0]
 	}
-	rec, err := resolveDaemonTarget(arg)
+	base, err := resolveClientURL(arg)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s  (pid %d)\n%s\n", filepath.Base(rec.RepoRoot), rec.PID, prettyJSON(text))
+	fmt.Fprintf(cmd.OutOrStdout(), "%s\n%s\n", base, prettyJSON(text))
 	return nil
 }
 
@@ -81,11 +81,11 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 // A multi daemon serves only under /w/<worktree>/, so the worktree
 // matching cwd is selected (falling back to the first the daemon knows).
 func callDaemonTool(daemonArg, tool string, arguments map[string]any) (text string, isErr bool, err error) {
-	rec, err := resolveDaemonTarget(daemonArg)
+	base, err := resolveClientURL(daemonArg)
 	if err != nil {
 		return "", false, err
 	}
-	url := daemonBaseURL(rec) + "/api/mcp/tools/call"
+	url := base + "/api/mcp/tools/call"
 
 	if arguments == nil {
 		arguments = map[string]any{}
@@ -102,7 +102,7 @@ func callDaemonTool(daemonArg, tool string, arguments map[string]any) (text stri
 	client := &nethttp.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return "", false, fmt.Errorf("querying daemon for %s at %s: %w", filepath.Base(rec.RepoRoot), rec.HTTPAddr, err)
+		return "", false, fmt.Errorf("querying daemon at %s: %w", base, err)
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)

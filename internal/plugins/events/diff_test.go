@@ -40,7 +40,7 @@ func TestDiffModelViewKeepsWhatTheBaseHadAndTheBranchDropped(t *testing.T) {
 	}
 }
 
-// The branch-996 shape: an address moved. Matching entries on (kind, address)
+// The moved-address shape: an address moved. Matching entries on (kind, address)
 // alone would report that as a removal beside an unrelated addition, and the
 // one thing a reader opened the panel for — what it used to be — would be gone.
 func TestDiffSlotsMatchesOnKindWhenTheAddressMoved(t *testing.T) {
@@ -138,7 +138,7 @@ func TestDiffModelViewAgainstAnEmptyBaseMarksEverythingAdded(t *testing.T) {
 	}
 }
 
-// The branch-1052 shape: a commit adds one instance to a port family and
+// The new-port-instance shape: a commit adds one instance to a port family and
 // nothing else. Every kind the family carries was declared before and is
 // declared now, at the same addresses by the same components — so the only
 // marks the reader should see are the new component, the new addresses, and

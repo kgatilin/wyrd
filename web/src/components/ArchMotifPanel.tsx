@@ -33,7 +33,7 @@ export interface ArchReportSession {
    * Re-read the report — the Refresh button, and the model-changed SSE. Pass
    * `fresh` to make the daemon rebuild it rather than answer from its own
    * cache; the button does, the SSE does not, because the daemon has already
-   * dropped and re-warmed its copy by the time that event arrives.
+   * dropped its copy by the time that event arrives.
    */
   reload: (fresh?: boolean) => void;
 }
@@ -44,10 +44,10 @@ export interface ArchReportSession {
  * package models on every open is seconds of daemon work for an answer that
  * has not changed.
  *
- * The daemon caches it too, warmed as each worktree's model finishes parsing,
- * so a first open no longer waits for a build. This cache still earns its place
- * above that one: the response carries no ETag, so even a warm answer is a
- * round trip and a re-render. It is dropped when the worktree or base changes,
+ * The daemon caches it too, built on the first open and kept until the
+ * worktree's model changes. This cache still earns its place above that one:
+ * the response carries no ETag, so even a cached answer is a round trip and a
+ * re-render. It is dropped when the worktree or base changes,
  * and re-read on the same model-changed SSE that reloads the canvas: the report
  * and the canvas must never end up describing different working trees.
  */

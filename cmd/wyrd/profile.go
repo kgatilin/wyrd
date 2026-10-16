@@ -31,7 +31,7 @@ func newProfileLoadCmd() *cobra.Command {
 		Use:   "load [root]",
 		Short: "Profile project model load and UIGraph projection",
 		Long: `Profile the same expensive stages used by wyrd serve and the
-review UI's /api/uigraph endpoint: serve state load (including model cache,
+review UI's /api/uigraph endpoint: serve state load (a full parse,
 wyrd.yaml overlay, and active target), UIGraph projection, and JSON
 serialization.
 

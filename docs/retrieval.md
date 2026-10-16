@@ -27,19 +27,25 @@ type Embedder interface {
     ID() string // "provider:model"; changing it invalidates cached vectors
 }
 
-type VectorIndex interface {  // dense, brute-force cosine top-K
-    Upsert(id string, vec []float32); Remove(id string)
-    Search(vec []float32, k int) []Scored; Len() int
+type VectorStore interface {  // dense, keyed by content hash
+    Has(hash string) bool
+    Get(ctx, hashes []string) (map[string][]float32, error)
+    Put(ctx, vectors map[string][]float32) error
+    Search(ctx, vec []float32, k int, keep func(hash string) bool) ([]Scored, error)
+    Save() error
 }
 
-type LexicalIndex interface { // BM25 inverted index (always available)
-    Upsert(id, text string); Remove(id string)
-    Search(query string, k int) []Scored; Len() int
+type LexicalIndex interface { // BM25 inverted index (always available), doc id = content hash
+    Upsert(id, text string); Remove(id string); Has(id string) bool
+    Search(query string, k int, keep func(id string) bool) []Scored; Len() int
 }
 ```
 
-`retrieval.Service` orchestrates them: `Index` / `Refresh` (maintain indexes),
-`Search` / `Expand` / `Node` (query). There is one search — `Search` — and it
+Both channels live in a `retrieval.Corpus`, one per repository, shared by every
+worktree; `retrieval.Service` is one worktree's view of it (node id ↔ content
+hash, plus the graph): `Index` / `Update` / `EmbedPending` (maintain the view),
+`Search` / `Expand` / `Node` (query). See
+`docs/features/shared-retrieval/design.md`. There is one search — `Search` — and it
 returns both the hits and the community around them.
 
 **Adapters:**
@@ -49,8 +55,9 @@ returns both the hits and the community around them.
 | Ollama embedder | `internal/adapter/embed/ollama` | default; per-model query/doc templates, batching, bounded concurrency |
 | OpenAI embedder | `internal/adapter/embed/openai` | remote, OpenAI-compatible `/v1/embeddings`; API key from env only |
 | Noop embedder | `internal/adapter/embed/noop` | deterministic stub for tests + degradation fallback |
-| Brute vector index | `internal/adapter/vindex/brute` | in-memory cosine top-K, persists `vectors.json` |
-| BM25 lexical index | `internal/adapter/lindex/bm25` | inverted index + BM25, persists `bm25.json` |
+| Local vector store | `internal/adapter/vindex/vecstore` | default; in-memory brute-force cosine, one append-only `.vec` file per repository |
+| Qdrant vector store and lexical index | `internal/adapter/vindex/qdrant` | opt-in (`WYRD_QDRANT_URL` + `WYRD_QDRANT_COLLECTION`); REST, dense kNN and BM25 as sparse vectors, nothing in RAM |
+| BM25 lexical index | `internal/adapter/lindex/bm25` | inverted index + BM25, one `lexical@r<N>.bm25` file per repository |
 
 ### Nodes & chunking
 
@@ -145,7 +152,7 @@ serving never fail because of a missing embedder.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `WYRD_EMBED_PROVIDER` | `ollama` | `ollama` / `openai` / `noop` |
+| `WYRD_EMBED_PROVIDER` | `ollama` | `ollama` / `openai` / `vertex` / `noop` |
 | `WYRD_EMBED_MODEL` | `qwen3-embedding:0.6b` | embedding model |
 | `WYRD_EMBED_ENDPOINT` | `http://localhost:11434` | Ollama endpoint |
 | `WYRD_EMBED_QUERY_INSTRUCTION` | code-search default | query task instruction (Qwen3) |
@@ -153,6 +160,99 @@ serving never fail because of a missing embedder.
 | `WYRD_EMBED_CONCURRENCY` | `4` | concurrent batch requests (helps remote; no-op for local embedding models — see Performance) |
 | `WYRD_EMBED_API_KEY` | — | API key for `openai` provider (env only, never on disk) |
 | `WYRD_RETRIEVAL_DISABLE` | — | `1` disables retrieval entirely |
+
+### Gemini embeddings on Vertex AI (`WYRD_EMBED_PROVIDER=vertex`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `WYRD_VERTEX_PROJECT` | `GOOGLE_CLOUD_PROJECT` | Google Cloud project the requests are billed to; required |
+| `WYRD_VERTEX_LOCATION` | `GOOGLE_CLOUD_LOCATION`, else `global` | Vertex AI location |
+| `WYRD_EMBED_MODEL` | `gemini-embedding-001` | embedding model |
+| `WYRD_EMBED_DIM` | `768` | output dimensionality; the model supports 768, 1536 and 3072 |
+| `WYRD_EMBED_DOCUMENT_TASK` | `RETRIEVAL_DOCUMENT` | task type sent with indexed code |
+| `WYRD_EMBED_QUERY_TASK` | `CODE_RETRIEVAL_QUERY` | task type sent with a search query |
+| `WYRD_EMBED_CONCURRENCY` | `8` | requests in flight |
+
+Authentication is Application Default Credentials: a workload identity or
+attached service account in a cluster, `GOOGLE_APPLICATION_CREDENTIALS`, or
+`gcloud auth application-default login` on a workstation. The identity needs
+`aiplatform.endpoints.predict` on the project (role `roles/aiplatform.user`).
+No key is read from the environment or from disk by wyrd itself.
+
+`gemini-embedding-001` takes one text per request, so a cold index of N
+symbols is at least N requests; concurrency is the only lever. A throttled
+(`429`) or failed (`5xx`) request is retried with exponential backoff, six
+attempts in all, honouring `Retry-After`; a rejected one (`4xx`) is not.
+
+The model, the dimensionality and both task types are part of the embedder's
+id, and the id names the stored vectors. Changing any of them starts a new
+set of vectors and re-embeds; the project and the location are not part of
+it, so moving between them keeps what is stored. Vectors are scaled to unit
+length on arrival, since the model returns unit vectors only at 3072.
+
+### Qdrant for both channels
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `WYRD_QDRANT_URL` | `QDRANT_URL` | Qdrant base URL |
+| `WYRD_QDRANT_COLLECTION` | — | collection name; Qdrant is used only when this and a URL are set |
+| `WYRD_QDRANT_API_KEY` | `QDRANT_API_KEY` | token sent as the `api-key` header |
+| `WYRD_QDRANT_ADMIN_API_KEY` | — | token the `wyrd qdrant` commands use instead, when set |
+| `WYRD_REQUIRE_REMOTE` | — | `1` makes an unusable embedder or collection a failed start |
+
+Qdrant 1.10 or newer is required: sparse vectors with the IDF modifier and
+the `/points/query` API. Verified against 1.19.
+
+The collection holds two named vectors: `dense`, of the embedder's dimension
+with Cosine distance, and the sparse `bm25` with `modifier: idf`. The daemon
+never creates it:
+
+```bash
+wyrd qdrant bootstrap     # create it if missing, verify it either way
+wyrd qdrant check         # verify only; non-zero exit when unusable
+```
+
+Both take the dimension from the configured embedder, or from `--dim`. A
+token that may only read and write points is enough for the daemon;
+`bootstrap` needs one that may create a collection.
+
+BM25 documents are tokenized by wyrd, with the tokenizer of the local index —
+`loadHTTPConfig`, `load_http_config` and `cfg.LoadHTTPConfig` are found by
+`http`, by `config` and by the whole name — and stored as sparse vectors of
+term weights; Qdrant applies IDF. Term statistics are those of the whole
+collection, so use one collection per repository if you want them exact.
+
+**Migrating a collection created before the sparse channel** (a single
+unnamed vector). It keeps working as the dense channel, with the lexical
+index in its local file, and the daemon says so at start. To move it:
+
+```bash
+export WYRD_QDRANT_COLLECTION=code-v2      # the new collection
+wyrd qdrant migrate --from code            # creates code-v2, copies every vector
+# restart the daemon with WYRD_QDRANT_COLLECTION=code-v2, then delete "code"
+```
+
+Ids and payloads are kept, so nothing is embedded again. The lexical
+documents are written by the daemon on its first start against the new
+collection; that costs no embedding.
+
+### Required backends and probes
+
+By default every backend problem degrades one channel to something local and
+logs why: no embedder credentials means no dense search, an unreachable Qdrant
+means local files. `WYRD_REQUIRE_REMOTE=1` is for a deployment whose disk is
+not the index: the same conditions make `wyrd serve` exit with the reason, and
+the `noop` embedder is refused.
+
+| Endpoint | Answers |
+|---|---|
+| `GET /healthz` | `200` while the listener serves |
+| `GET /readyz` | `200`, or `503` when `WYRD_REQUIRE_REMOTE=1` and a backend failed its last call; the body lists the faults by channel (`embedder`, `vectors`, `lexical`) either way |
+
+A fault clears when the channel next succeeds, and `/readyz` re-asks the
+backends at fault on every probe, so a daemon taken out of rotation returns by
+itself. A search during a fault answers from the channel that still works and
+returns an error when neither does.
 
 ---
 
@@ -282,14 +382,15 @@ Setup notes:
 
 ## Freshness
 
-`.wyrd/cache/` holds:
-- `go-model.json` — parsed AST model, per-file mtime/size stamps (incremental re-parse)
-- `vectors.json` — dense vectors keyed by `node_id` + content hash + embedder ID
-- `bm25.json` — lexical index
+Retrieval state is per repository, under `~/.wyrd/embeddings/<repo key>/`:
+- `<embedder>@r<N>.vec` — dense vectors keyed by content hash (local store)
+- `lexical@r<N>.bm25` — the BM25 documents some worktree holds
 
-The file watcher re-runs `Refresh` for the changed package only. A symbol whose
-embed-text hash is unchanged is not re-embedded; disappeared nodes are dropped.
-Changing the embedder model (its `ID()`) invalidates all persisted vectors.
+Nothing is persisted per worktree. The file watcher updates the view for the
+changed package only and embeds in the background; a text whose content hash
+any worktree already embedded is not embedded again; disappeared nodes leave
+the view. Changing the embedder model (its `ID()`) or the recipe opens a new
+vector file.
 
 ---
 

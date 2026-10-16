@@ -23,6 +23,7 @@ const LAYOUT_TRIGGERS: ReadonlySet<Event['type']> = new Set([
   'ReviewChangeFilterChanged',
   'UnchangedNeighborsToggled',
   'ChangedDetailsOnlyToggled',
+  'ReviewFullViewChanged',
   'CardDensityChanged',
   'InlineSignaturesToggled',
   // An answered question re-selects the packages on the canvas.

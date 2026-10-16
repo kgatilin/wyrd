@@ -67,21 +67,25 @@ export class AppHarness extends ComponentHarness {
     return new SourceDrawerHarness(this.root, this.env);
   }
 
-  // ── Review bar "View" popover ───────────────────────────────────────────
-  async openViewOptions(): Promise<void> {
-    if ((await this.env.rootLocator('.hf-reviewbar-popover').count()) > 0) return;
-    await (await this.env.rootLocator('.hf-reviewbar-toggle').first()).click();
+  // ── Review bar toggles ──────────────────────────────────────────────────
+  /** Switch between the branch's diff and the whole repository. */
+  async setReviewMode(mode: 'Diff' | 'Full'): Promise<void> {
+    await (await this.env.rootLocator('.hf-reviewbar-mode button').filterByText(mode).first()).click();
   }
-  /** Set one of the popover's selects by its label ("Details", "Focus", ...). */
-  async setViewOption(label: string, value: string): Promise<void> {
-    await this.openViewOptions();
-    for (const row of await this.env.rootLocator('.hf-reviewbar-popover label').all()) {
-      if ((await (await row.locator('span').first()).text()) === label) {
-        await (await row.locator('select').first()).fill(value);
-        return;
-      }
+  /** The view the bar marks as active. */
+  async reviewMode(): Promise<string> {
+    return (await this.env.rootLocator('.hf-reviewbar-mode button.on').first()).text();
+  }
+  /** Switch the canvas between exported symbols and everything. */
+  async setSurface(surface: 'Public' | 'Public + Internal'): Promise<void> {
+    for (const button of await this.env.rootLocator('.hf-reviewbar-surface button').all()) {
+      if ((await button.text()) === surface) return button.click();
     }
-    throw new Error(`review view option "${label}" not found`);
+    throw new Error(`surface "${surface}" not found`);
+  }
+  /** The surface the bar marks as active. */
+  async surface(): Promise<string> {
+    return (await this.env.rootLocator('.hf-reviewbar-surface button.on').first()).text();
   }
 
   // ── Left panel review tree ──────────────────────────────────────────────

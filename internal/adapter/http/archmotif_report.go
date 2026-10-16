@@ -12,10 +12,6 @@ import (
 	"github.com/kgatilin/wyrd/internal/serve"
 )
 
-// The daemon calls WarmWorktree through this port the moment a worktree's
-// model is parsed; the assertion keeps the two in step at compile time.
-var _ serve.WorktreeWarmer = (*Server)(nil)
-
 // handleArchMotifReport serves the architecture review report for the active
 // worktree. The report itself comes from the cache, which builds it through the
 // same reviewBase the uigraph handler uses and the same git.Diff the file-diff
@@ -50,9 +46,7 @@ func (s *Server) handleArchMotifReport(w nethttp.ResponseWriter, r *nethttp.Requ
 }
 
 // buildReport computes one report from scratch. It takes a worktree name rather
-// than a request because warming has no request to read one off — and because
-// the endpoint and the warm must compute the same thing, or the cache would be
-// answering a question nobody asked.
+// than a request because the build outlives the request that started it.
 func (s *Server) buildReport(ctx context.Context, key reportKey) (archreview.Report, error) {
 	state, err := s.reportState(ctx, key.worktree)
 	if err != nil {
@@ -102,25 +96,15 @@ func (s *Server) buildReport(ctx context.Context, key reportKey) (archreview.Rep
 	return archreview.Build(in), nil
 }
 
-// WarmWorktree precomputes the worktree's report for the default base ref, in
-// the background. It implements serve.WorktreeWarmer, so the daemon calls it
-// the moment a worktree's model finishes parsing; the /api/warm ping an MCP
-// client sends on attach calls it too.
-//
-// Only the default base is warmed. Any other ref is a miss that builds on
-// demand — warming every ref anyone might name is work nobody asked for.
-func (s *Server) WarmWorktree(name string, state *serve.State) {
-	if state == nil {
-		return
-	}
-	s.watchModel(name, state)
-	s.reports.warm(reportKey{worktree: name, baseRef: defaultReviewBaseRef})
-}
-
 // watchModel subscribes the report cache to a worktree's model events, once per
-// State. Every path that warms or serves a report calls it, because a cache
-// that is not wired to the model does not fail loudly — it goes on serving a
+// State. The report handler calls it before every read, because a cache that is
+// not wired to the model does not fail loudly — it goes on serving a
 // description of a working tree that has since changed.
+//
+// An event only drops the entry. The report is built when someone opens the
+// panel, never in the background: on a large repository a build is two
+// archmotif graphs and their lenses, and paying that for every worktree on
+// every edit bought an answer that was almost never read.
 //
 // Keyed by the State rather than by the name so a worktree that is dropped and
 // re-created subscribes to its new State's bus instead of listening to a bus
@@ -140,12 +124,12 @@ func (s *Server) watchModel(worktree string, state *serve.State) {
 
 	state.Bus().Subscribe(func(plugin.ModelEvent) {
 		s.reports.drop(worktree)
-		s.reports.warm(reportKey{worktree: worktree, baseRef: defaultReviewBaseRef})
 	})
 }
 
 // reportState resolves the State a report is built from. It goes by worktree
-// name because warming has no request whose context carries a dispatched state;
+// name because a build outlives the request that started it, so it has no
+// request context carrying a dispatched state;
 // in single-worktree mode the served state answers for the empty name.
 func (s *Server) reportState(ctx context.Context, worktree string) (*serve.State, error) {
 	if s.state != nil {

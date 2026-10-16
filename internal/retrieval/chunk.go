@@ -23,13 +23,21 @@ import (
 // vectors produced by the old recipe under an unchanged content hash.
 const EmbedRecipeVersion = 1
 
-// VectorCacheNamespace returns the cache namespace for an embedder. Vectors
-// only interchange between worktrees that agree on both the model and the
-// recipe, so the namespace carries both. The embedder's dimension is
+// Recipe names the corpus an embedder's vectors belong to. Vectors only
+// interchange where the model and the recipe agree, so the name carries both:
+// it names the local vector file and tags every Qdrant point. The embedder's dimension is
 // deliberately absent: it is derived from the model, and adapters may report
 // it lazily (0 until the first embed).
-func VectorCacheNamespace(embedderID string) string {
+func Recipe(embedderID string) string {
 	return embedderID + "@r" + strconv.Itoa(EmbedRecipeVersion)
+}
+
+// LexicalRecipe names the corpus's lexical documents. They are built from the
+// same node text as the embedder's input and from no embedder, so the name
+// carries the recipe version alone: it names the local index file and tags
+// every lexical point in Qdrant.
+func LexicalRecipe() string {
+	return "lexical@r" + strconv.Itoa(EmbedRecipeVersion)
 }
 
 // Chunk represents a text segment for embedding. Normal nodes produce

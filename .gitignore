@@ -31,3 +31,10 @@ go.work.sum
 # The .wyrd spec dir name is also accepted by readers; runtime junk there is ignored like .arch
 .wyrd/.worktree/
 .wyrd/*.lock
+
+# Helm dependency archives (rebuilt from Chart.lock by `helm dependency build`)
+charts/*/charts/*.tgz
+
+# Local agent settings and scratch screenshots
+.claude/settings.local.json
+/output/

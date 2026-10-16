@@ -1,6 +1,8 @@
 package bm25
 
 import (
+	"context"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -17,7 +19,7 @@ func TestIndex_UpsertAndSearch(t *testing.T) {
 	}
 
 	// Search for "State" - should find documents containing state
-	results := idx.Search("State", 10)
+	results := find(idx, "State", 10, nil)
 	if len(results) < 2 {
 		t.Errorf("expected at least 2 results for 'State', got %d", len(results))
 	}
@@ -43,7 +45,7 @@ func TestIndex_SearchRanking(t *testing.T) {
 	idx.Upsert("single", "state once")
 	idx.Upsert("none", "something else")
 
-	results := idx.Search("state", 10)
+	results := find(idx, "state", 10, nil)
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -66,7 +68,7 @@ func TestIndex_SearchDescendingOrder(t *testing.T) {
 	idx.Upsert("c", "foo")
 	idx.Upsert("d", "bar")
 
-	results := idx.Search("foo", 10)
+	results := find(idx, "foo", 10, nil)
 
 	// Verify descending order
 	for i := 1; i < len(results); i++ {
@@ -85,7 +87,7 @@ func TestIndex_IdentifierSearch(t *testing.T) {
 	idx.Upsert("httpserver", "type HTTPServer struct")
 
 	// Search for camelCase term
-	results := idx.Search("NewState", 10)
+	results := find(idx, "NewState", 10, nil)
 	if len(results) == 0 {
 		t.Fatal("expected results for 'NewState'")
 	}
@@ -94,7 +96,7 @@ func TestIndex_IdentifierSearch(t *testing.T) {
 	}
 
 	// Search for partial identifier
-	results = idx.Search("handler", 10)
+	results = find(idx, "handler", 10, nil)
 	found := false
 	for _, r := range results {
 		if r.ID == "newhandler" {
@@ -107,7 +109,7 @@ func TestIndex_IdentifierSearch(t *testing.T) {
 	}
 
 	// Search for acronym
-	results = idx.Search("http", 10)
+	results = find(idx, "http", 10, nil)
 	found = false
 	for _, r := range results {
 		if r.ID == "httpserver" {
@@ -137,7 +139,7 @@ func TestIndex_Remove(t *testing.T) {
 	}
 
 	// Search should not find removed document
-	results := idx.Search("world", 10)
+	results := find(idx, "world", 10, nil)
 	for _, r := range results {
 		if r.ID == "a" {
 			t.Error("removed document should not appear in results")
@@ -145,7 +147,7 @@ func TestIndex_Remove(t *testing.T) {
 	}
 
 	// But should still find "b"
-	results = idx.Search("hello", 10)
+	results = find(idx, "hello", 10, nil)
 	if len(results) != 1 || results[0].ID != "b" {
 		t.Error("expected 'b' in results")
 	}
@@ -153,14 +155,14 @@ func TestIndex_Remove(t *testing.T) {
 
 func TestIndex_PersistenceRoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "bm25.json")
+	path := filepath.Join(tmpDir, "lexical.bm25")
 
 	// Create and populate index
 	idx1 := New()
 	idx1.Upsert("state", "type State struct")
 	idx1.Upsert("handler", "type Handler interface")
 
-	if err := idx1.Save(path); err != nil {
+	if err := idx1.Save(path, nil); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -175,7 +177,7 @@ func TestIndex_PersistenceRoundTrip(t *testing.T) {
 	}
 
 	// Search should work
-	results := idx2.Search("state", 1)
+	results := find(idx2, "state", 1, nil)
 	if len(results) != 1 || results[0].ID != "state" {
 		t.Errorf("search after load failed: got %v", results)
 	}
@@ -196,7 +198,7 @@ func TestIndex_LoadMissingFile(t *testing.T) {
 
 func TestIndex_SearchEmptyIndex(t *testing.T) {
 	idx := New()
-	results := idx.Search("anything", 10)
+	results := find(idx, "anything", 10, nil)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results from empty index, got %d", len(results))
 	}
@@ -206,7 +208,7 @@ func TestIndex_SearchEmptyQuery(t *testing.T) {
 	idx := New()
 	idx.Upsert("a", "hello world")
 
-	results := idx.Search("", 10)
+	results := find(idx, "", 10, nil)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results for empty query, got %d", len(results))
 	}
@@ -216,7 +218,7 @@ func TestIndex_UpsertReplacesDocument(t *testing.T) {
 	idx := New()
 
 	idx.Upsert("doc", "hello world")
-	results := idx.Search("world", 10)
+	results := find(idx, "world", 10, nil)
 	if len(results) != 1 {
 		t.Error("expected 1 result for 'world'")
 	}
@@ -225,13 +227,13 @@ func TestIndex_UpsertReplacesDocument(t *testing.T) {
 	idx.Upsert("doc", "goodbye universe")
 
 	// Old content should not be searchable
-	results = idx.Search("world", 10)
+	results = find(idx, "world", 10, nil)
 	if len(results) != 0 {
 		t.Error("expected 0 results for 'world' after update")
 	}
 
 	// New content should be searchable
-	results = idx.Search("universe", 10)
+	results = find(idx, "universe", 10, nil)
 	if len(results) != 1 {
 		t.Error("expected 1 result for 'universe'")
 	}
@@ -326,8 +328,88 @@ func TestIndex_WithCustomParameters(t *testing.T) {
 	idx.Upsert("a", "test document")
 
 	// Just verify it works with custom params
-	results := idx.Search("test", 1)
+	results := find(idx, "test", 1, nil)
 	if len(results) != 1 {
 		t.Errorf("expected 1 result, got %d", len(results))
 	}
+}
+
+func TestIndex_SearchKeepFiltersBeforeRanking(t *testing.T) {
+	idx := New()
+	idx.Upsert("strong", "state state state")
+	idx.Upsert("weak", "state handler")
+
+	all := find(idx, "state", 1, nil)
+	if len(all) != 1 || all[0].ID != "strong" {
+		t.Fatalf("unfiltered top hit = %v, want strong", all)
+	}
+	got := find(idx, "state", 1, func(id string) bool { return id == "weak" })
+	if len(got) != 1 || got[0].ID != "weak" {
+		t.Errorf("filtered top hit = %v, want weak: keep must apply before the cut to k", got)
+	}
+}
+
+func TestIndex_SaveWritesOnlyKeptDocuments(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lexical.bm25")
+	idx := New()
+	idx.Upsert("held", "alpha beta")
+	idx.Upsert("dropped", "gamma delta")
+	if err := idx.Save(path, func(id string) bool { return id == "held" }); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded := New()
+	if err := loaded.Load(path); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !loaded.Has("held") || loaded.Has("dropped") || loaded.Len() != 1 {
+		t.Errorf("loaded held=%v dropped=%v len=%d, want only held", loaded.Has("held"), loaded.Has("dropped"), loaded.Len())
+	}
+	if got := find(loaded, "alpha", 5, nil); len(got) != 1 || got[0].ID != "held" {
+		t.Errorf("search after load = %v, want held", got)
+	}
+}
+
+func TestIndex_LoadIgnoresForeignAndTruncatedFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	foreign := filepath.Join(dir, "foreign.bm25")
+	if err := os.WriteFile(foreign, []byte(`{"docs":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx := New()
+	if err := idx.Load(foreign); err != nil || idx.Len() != 0 {
+		t.Errorf("foreign file: err=%v len=%d, want an empty index", err, idx.Len())
+	}
+
+	full := filepath.Join(dir, "full.bm25")
+	src := New()
+	for _, id := range []string{"a", "b", "c"} {
+		src.Upsert(id, "token "+id+id)
+	}
+	if err := src.Save(full, nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	truncated := filepath.Join(dir, "truncated.bm25")
+	if err := os.WriteFile(truncated, data[:len(data)-3], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx = New()
+	if err := idx.Load(truncated); err != nil {
+		t.Fatalf("Load truncated: %v", err)
+	}
+	if n := idx.Len(); n != 2 {
+		t.Errorf("truncated file loaded %d documents, want the 2 whole records", n)
+	}
+}
+
+// find searches without a context: the local index answers from memory and
+// never fails.
+func find(idx *Index, query string, k int, keep func(id string) bool) []Scored {
+	found, _ := idx.Search(context.Background(), query, k, keep)
+	return found
 }

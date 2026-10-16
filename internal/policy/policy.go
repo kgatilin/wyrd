@@ -139,6 +139,8 @@ func dependencyKindKnown(k string) bool {
 		return true
 	}
 	// "type" is a DSL shorthand for the type-reference kinds (uses/returns),
-	// resolved in iteration 2; accept it at parse time.
-	return k == "type"
+	// resolved in iteration 2; accept it at parse time. "imports" names the
+	// package edge an import declaration makes (PackageModel.Imports), which
+	// is not a symbol dependency and so has no domain.DependencyKind.
+	return k == "type" || k == "imports"
 }

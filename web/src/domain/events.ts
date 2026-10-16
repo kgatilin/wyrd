@@ -14,7 +14,7 @@ export interface TreeFocusTarget {
 
 export type Event =
   // lifecycle
-  | { type: 'GraphRequested'; worktree?: string; source?: 'manual' | 'auto' }
+  | { type: 'GraphRequested'; worktree?: string; source?: 'manual' | 'auto'; fresh?: boolean }
   | { type: 'GraphLoaded'; graph: UIGraph }
   | { type: 'GraphUnchanged' }
   | { type: 'GraphLoadFailed'; error: string }
@@ -39,6 +39,7 @@ export type Event =
   | { type: 'ReviewChangeFilterChanged'; filter: ReviewChangeFilter }
   | { type: 'UnchangedNeighborsToggled' }
   | { type: 'ChangedDetailsOnlyToggled' }
+  | { type: 'ReviewFullViewChanged'; full: boolean }
   | { type: 'ReviewDefaultsLoaded'; key: string; defaults: ReviewDefaults }
   | { type: 'CardDensityChanged'; density: CardDensity }
   | { type: 'InlineSignaturesToggled' }

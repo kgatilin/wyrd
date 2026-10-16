@@ -1,0 +1,14 @@
+wyrd serves {{ .Values.repo.path }} from the "data" volume.
+
+The chart does not check the repository out. Until something has written it
+there (sync.initContainers / sync.containers), the wyrd container restarts.
+
+  Service (in the cluster):  http://{{ include "wyrd.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}
+  Review UI:                 /w/<directory name of the checkout>/review/
+  MCP (Streamable HTTP):     /w/<directory name of the checkout>/mcp
+  Probes:                    /healthz, /readyz
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "wyrd.fullname" . }} 8080:{{ .Values.service.port }}
+  curl -s localhost:8080/readyz
+
+Search index: Qdrant at {{ include "wyrd.qdrantURL" . }}, collection {{ .Values.qdrantConnection.collection | quote }}.

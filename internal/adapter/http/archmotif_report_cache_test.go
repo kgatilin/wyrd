@@ -110,10 +110,9 @@ func TestReportCacheKeysOnTheBaseRef(t *testing.T) {
 	}
 }
 
-// Warming is only worth having if it costs the caller nothing: it runs on the
-// load hook, on /api/warm and on every model event, none of which may wait for
-// a graph build.
-func TestReportCacheWarmDoesNotBlock(t *testing.T) {
+// A build outlives the reader that asked for it: a reviewer who closes the
+// panel mid-build still leaves the report behind, and the next open joins it.
+func TestReportCacheBuildOutlivesAReaderThatGivesUp(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var builds int64
@@ -125,37 +124,24 @@ func TestReportCacheWarmDoesNotBlock(t *testing.T) {
 	})
 	key := reportKey{worktree: "feature", baseRef: "main"}
 
-	returned := make(chan struct{})
-	go func() {
-		cache.warm(key)
-		close(returned)
-	}()
-	select {
-	case <-returned:
-	case <-time.After(5 * time.Second):
-		t.Fatal("warm blocked on the build")
-	}
-
-	// It returned while the build was genuinely still running: a reader that
-	// gives up now gets its context's error rather than the report.
-	<-started
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	if _, err := cache.get(ctx, key); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("get during the warm = %v, want the context deadline", err)
+		t.Fatalf("get = %v, want the context deadline", err)
 	}
+	<-started
 
 	close(release)
 	if got := mustGet(t, cache, key).Base.Ref; got != "main" {
 		t.Errorf("base ref = %q, want main", got)
 	}
 	if got := atomic.LoadInt64(&builds); got != 1 {
-		t.Errorf("builds = %d, want 1 — a read must join the warm, not race it", got)
+		t.Errorf("builds = %d, want 1 — a read must join the build in flight", got)
 	}
 }
 
-// Concurrent first opens must collapse into one build. Without this the panel,
-// the reviewer's refresh and the warm could each start their own.
+// Concurrent first opens must collapse into one build. Without this the panel
+// and the reviewer's refresh could each start their own.
 func TestReportCacheCollapsesConcurrentReads(t *testing.T) {
 	var builds int64
 	release := make(chan struct{})

@@ -93,7 +93,7 @@ Point it elsewhere with environment variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WYRD_EMBED_PROVIDER` | `ollama` | `ollama`, `openai`, or `noop` |
+| `WYRD_EMBED_PROVIDER` | `ollama` | `ollama`, `openai`, `vertex`, or `noop` |
 | `WYRD_EMBED_ENDPOINT` | `http://localhost:11434` | Server to embed against |
 | `WYRD_EMBED_MODEL` | `qwen3-embedding:0.6b` | Embedding model |
 | `WYRD_EMBED_API_KEY` | — | Required by the `openai` provider; read from env only |
@@ -102,6 +102,10 @@ Point it elsewhere with environment variables:
 `openai` targets any OpenAI-compatible `/v1/embeddings` endpoint. Selecting it
 without an API key falls back to no embeddings and says so, rather than crashing
 the daemon.
+
+`vertex` uses the Gemini embedding models on Vertex AI with Application
+Default Credentials; it needs `WYRD_VERTEX_PROJECT` (or `GOOGLE_CLOUD_PROJECT`).
+Its settings are in [docs/retrieval.md](docs/retrieval.md).
 
 ## Sixty seconds
 
@@ -240,6 +244,31 @@ wyrd graph search --daemon myrepo --query "retry policy"   # another repo's daem
 
 Every subcommand carries typed flags built from its tool's input schema, and
 `--daemon <name|pid>` reaches a daemon other than the current repo's.
+
+### Connecting to a container or remote server
+
+Put repository endpoints in `~/.config/wyrd/config.yaml` (or
+`$XDG_CONFIG_HOME/wyrd/config.yaml` when set):
+
+```yaml
+repos:
+  ~/src/myrepo:
+    endpoint: http://myrepo-wyrd.localhost
+```
+
+Keys are absolute paths to the main checkout; `~/` is expanded using your home
+directory. Endpoints are HTTP(S) origins, without a worktree or API path.
+One entry covers every linked worktree: wyrd resolves the main checkout from
+the current directory and adds `/w/<current-worktree>` to the endpoint.
+
+`wyrd graph`, `wyrd where`, `wyrd daemon status`, and `wyrd serve --mcp-stdio`
+(including `--shared`) use this connection before local daemon discovery.
+A configured server being unavailable produces an error; it never starts a
+replacement daemon on the host. Repositories without an entry keep local
+discovery and MCP autostart. An explicit `--daemon <name|pid>` selects a local
+daemon instead. `daemon start/stop/restart/list` manage local processes only;
+container lifecycle stays with your container manager. `--no-daemon` still
+selects in-process MCP mode.
 
 **Why an agent should reach for either before `grep`:** the graph returns
 architecture. Callers, implementers, the edge that crosses a package boundary —
@@ -458,6 +487,7 @@ to the right of it.
 | [`docs/user-guide.md`](docs/user-guide.md) | Installation, quick start, project setup, browser UI, editor integration |
 | [`docs/mcp-server-guide.md`](docs/mcp-server-guide.md) | MCP transport, server modes, tool reference, agent workflows |
 | [`docs/retrieval.md`](docs/retrieval.md) | Retrieval service: chunking, embedders, hybrid search |
+| [`charts/wyrd/README.md`](charts/wyrd/README.md) | Running the daemon in Kubernetes: the container image and the Helm chart |
 | [`docs/roadmap.md`](docs/roadmap.md) | What is not built yet |
 
 ## Development

@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/kgatilin/wyrd/internal/adapter/git"
 	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/serve/modelstore"
 	"github.com/kgatilin/wyrd/internal/worktree"
 )
 
@@ -30,14 +33,6 @@ type StateLoader func(ctx context.Context, name, path string) (*State, error)
 // A nil hook disables per-worktree watching (used by lightweight tests
 // and by callers that prefer manual refreshes).
 type WatcherHook func(ctx context.Context, name string, state *State) (io.Closer, error)
-
-// LoadedHook is invoked once a worktree's State has been loaded and wired.
-// It exists so a transport can start work that needs the parsed model — a
-// subscription to the State's event bus, an answer precomputed before anyone
-// asks for it — at the moment the model becomes available, without MultiState
-// learning what that work is. Each call runs on its own goroutine, so a hook
-// that does real work cannot hold up the load or the callers waiting on it.
-type LoadedHook func(name string, state *State)
 
 // WorktreesChangedHook is invoked after a re-discovery that changed the set of
 // served worktrees, with the names added and removed relative to the previous
@@ -113,10 +108,6 @@ type MultiState struct {
 	// watchers and released on Refresh-drop / Close.
 	watcherHook WatcherHook
 
-	// loadedHook, when non-nil, is invoked once per successful load so a
-	// transport can act on a freshly available model.
-	loadedHook LoadedHook
-
 	// changedHook, when non-nil, is invoked after any scan that changed the
 	// worktree set.
 	changedHook WorktreesChangedHook
@@ -124,10 +115,20 @@ type MultiState struct {
 	// watchers tracks per-worktree closers registered by watcherHook.
 	watchers map[string]io.Closer
 
-	// baseTrees caches the materialized+parsed base commits (see
-	// ReviewBase). Created on first use so a daemon that never diffs
-	// never touches the cache directory.
+	// skipped holds the worktrees the last scan left out for not being a
+	// module root (see hasGoMod), so a skip is logged when it starts
+	// rather than on every scan.
+	skipped map[string]bool
+
+	// baseTrees produces the snapshots of base commits no State has parsed
+	// (see ReviewBase). Created on first use so a daemon that never diffs
+	// never touches its directory.
 	baseTrees *baseTrees
+
+	// store is the repository's shared model store, the one the StateLoader
+	// hands its States (see SetModelStore). Opened on first use when nothing
+	// was set.
+	store *modelstore.Store
 
 	// baseRef is the review-base git ref (e.g. "main") used for
 	// diff-scoped analysis. When non-empty, every loaded worktree State is
@@ -213,6 +214,16 @@ func (m *MultiState) wireBaseResolver(name string, state *State) {
 	})
 }
 
+// SetModelStore sets the repository's model store, which ReviewBase reads and
+// records snapshots into. It must be the store the StateLoader gives its
+// States: a second store over the same directory shares nothing in memory
+// with the first.
+func (m *MultiState) SetModelStore(store *modelstore.Store) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.store = store
+}
+
 // ReviewBase is the resolved answer to "what is this worktree reviewed
 // against". Models is nil when there is nothing to diff — no base ref
 // configured, the ref does not exist, or the worktree already *is* the base
@@ -229,6 +240,18 @@ type ReviewBase struct {
 	// used for labels and to mark the base in the branch picker; the models
 	// come from Rev, which is often an older commit than that checkout.
 	Worktree string
+
+	// versions is Models with their Version hashes, what a branch view is
+	// built over (see ReloadWorktree).
+	versions []modelstore.Version
+}
+
+func (b *ReviewBase) setVersions(versions []modelstore.Version) {
+	b.versions = versions
+	b.Models = make([]domain.PackageModel, len(versions))
+	for i, v := range versions {
+		b.Models[i] = v.Model
+	}
 }
 
 // ReviewBase resolves the review base for the named worktree: the tree at
@@ -245,7 +268,10 @@ type ReviewBase struct {
 //   - this worktree is clean and sits on the merge base itself — there is
 //     nothing to diff.
 //
-// Otherwise the base commit is materialized and parsed once, and cached.
+// Otherwise the store's snapshot of the merge base answers, and only when
+// there is none is the commit materialized and parsed — once, recording the
+// snapshot every later request reads. Models is a fresh slice per call; the
+// models in it are shared and read-only.
 func (m *MultiState) ReviewBase(ctx context.Context, name, ref string) (ReviewBase, error) {
 	baseRef := ref
 	if baseRef == "" {
@@ -282,7 +308,7 @@ func (m *MultiState) ReviewBase(ctx context.Context, name, ref string) (ReviewBa
 				if err != nil {
 					return out, err
 				}
-				out.Models = state.Snapshot().Packages
+				out.setVersions(state.versionList())
 				return out, nil
 			}
 		}
@@ -292,21 +318,81 @@ func (m *MultiState) ReviewBase(ctx context.Context, name, ref string) (ReviewBa
 		return out, nil // this worktree is the base commit; nothing to diff
 	}
 
+	store, err := m.ensureStore()
+	if err != nil {
+		return out, err
+	}
 	trees, err := m.ensureBaseTrees()
 	if err != nil {
 		return out, err
 	}
-	models, err := trees.Models(ctx, entry.Path, rev)
+	versions, err := trees.Versions(ctx, store, entry.Path, rev)
 	if err != nil {
 		return out, err
 	}
-	out.Models = models
+	out.setVersions(versions)
 	return out, nil
 }
 
-// ensureBaseTrees lazily creates the materialized-base cache. It is keyed by
-// the repository's main worktree root so every worktree of a repo shares one
-// cache — branches off the same base commit then pay for it once.
+// ReloadWorktree is Refresh for the named worktree, reviewed against ref.
+//
+// On a branch it re-reads only what the branch changed: the review base's
+// model (already parsed and cached) with every package the branch's diff
+// touches — committed, uncommitted or untracked — read from disk over it.
+// The base worktree itself, a worktree with no review base, and a branch
+// whose diff touches go.mod or go.sum (which can move every package's
+// types) get a full re-read. The base worktree is never re-read on a
+// branch's behalf: refreshing the base is a Refresh on the base.
+func (m *MultiState) ReloadWorktree(ctx context.Context, name, ref string) (bool, error) {
+	state, err := m.Get(ctx, name)
+	if err != nil {
+		return false, err
+	}
+	base, err := m.ReviewBase(ctx, name, ref)
+	if err != nil {
+		return false, err
+	}
+	entry, ok := m.Entry(name)
+	if !ok || base.Worktree == name || base.Models == nil || base.Rev == "" {
+		return state.Reload(ctx)
+	}
+	d, err := git.Diff(entry.Path, base.Rev)
+	if err != nil {
+		return false, fmt.Errorf("serve: diff of %q against %s: %w", name, base.Rev, err)
+	}
+	changed, full := changedPackages(d.Files)
+	if full {
+		return state.Reload(ctx)
+	}
+	return state.ReloadOver(ctx, base.versions, changed)
+}
+
+// changedPackages names the packages a diff touches — the directory of every
+// Go file on either side of it — and reports whether it touches go.mod or
+// go.sum, which only a full read answers.
+func changedPackages(files []git.FileStat) ([]string, bool) {
+	seen := make(map[string]bool)
+	for _, f := range files {
+		for _, p := range []string{f.Path, f.OldPath} {
+			switch {
+			case p == "":
+			case p == "go.mod", p == "go.sum":
+				return nil, true
+			case strings.HasSuffix(p, ".go"):
+				seen[path.Dir(p)] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out, false
+}
+
+// ensureBaseTrees lazily creates the base-tree producer. Its directory is
+// keyed by the repository's main worktree root, like the model store.
 func (m *MultiState) ensureBaseTrees() (*baseTrees, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -321,8 +407,25 @@ func (m *MultiState) ensureBaseTrees() (*baseTrees, error) {
 	if err != nil {
 		return nil, err
 	}
-	m.baseTrees = newBaseTrees(dir, defaultBaseTreeLimit)
+	m.baseTrees = newBaseTrees(dir)
 	return m.baseTrees, nil
+}
+
+// ensureStore returns the model store, opening the repository's when none was
+// set. The daemon always sets one; this is the path a MultiState built
+// without it (a test, a tool) takes.
+func (m *MultiState) ensureStore() (*modelstore.Store, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.store != nil {
+		return m.store, nil
+	}
+	store, err := OpenModelStore(m.root)
+	if err != nil {
+		return nil, err
+	}
+	m.store = store
+	return store, nil
 }
 
 // NewMultiState constructs a MultiState rooted at projectRoot, using
@@ -376,15 +479,6 @@ func (m *MultiState) SetWatcherHook(hook WatcherHook) {
 	m.watcherHook = hook
 }
 
-// SetLoadedHook installs a LoadedHook invoked after each successful worktree
-// load. Safe to call before Refresh; already-loaded states are not replayed,
-// so install it before anything can trigger a load.
-func (m *MultiState) SetLoadedHook(hook LoadedHook) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.loadedHook = hook
-}
-
 // SetWorktreesChangedHook installs the WorktreesChangedHook invoked after each
 // scan that changed the worktree set. Install it after the initial Refresh:
 // that first scan populates an empty entry set, so every worktree counts as
@@ -419,13 +513,23 @@ func (m *MultiState) refreshLocked() error {
 	if err != nil {
 		return fmt.Errorf("serve: discover worktrees: %w", err)
 	}
+	rootIsModule := hasGoMod(m.root)
 	m.mu.Lock()
 
 	next := make(map[string]worktree.Entry, len(entries))
 	order := make([]string, 0, len(entries))
 	defaultName := ""
+	skipped := make(map[string]bool)
+	var newlySkipped []worktree.Entry
 	for _, e := range entries {
 		if e.Name == "" {
+			continue
+		}
+		if rootIsModule && !hasGoMod(e.Path) {
+			skipped[e.Name] = true
+			if !m.skipped[e.Name] {
+				newlySkipped = append(newlySkipped, e)
+			}
 			continue
 		}
 		if prev, dup := next[e.Name]; dup {
@@ -465,6 +569,7 @@ func (m *MultiState) refreshLocked() error {
 	m.entries = next
 	m.order = order
 	m.defaultName = defaultName
+	m.skipped = skipped
 
 	// Drop cached states whose worktrees have disappeared, and close
 	// any watchers they held. We collect closers under the lock and
@@ -493,6 +598,9 @@ func (m *MultiState) refreshLocked() error {
 
 	for _, c := range toClose {
 		_ = c.Close()
+	}
+	for _, e := range newlySkipped {
+		m.logf("serve: ignoring worktree %q (%s): no go.mod at its root, so it would be read as part of the module above it\n", e.Name, e.Path)
 	}
 	if changed != nil && (len(added) > 0 || len(removed) > 0) {
 		go changed(added, removed)
@@ -726,7 +834,6 @@ func (m *MultiState) runLoad(name string, entry worktree.Entry, load *stateLoad)
 	}
 	m.states[name] = loaded
 	hook := m.watcherHook
-	loadedHook := m.loadedHook
 	m.mu.Unlock()
 
 	// Wire the base-model resolver so diff-scoped tools on this worktree can
@@ -736,13 +843,6 @@ func (m *MultiState) runLoad(name string, entry worktree.Entry, load *stateLoad)
 	// Review UI config (review_views / review_groups) follows the primary
 	// checkout, not the branch's possibly-stale wyrd.yaml copy.
 	loaded.SetReviewConfigRoot(m.root)
-
-	// The State is committed and fully wired, so anything keyed off "this
-	// worktree's model is ready" can start. Its own goroutine: the hook is
-	// free to do the real work that makes it worth having.
-	if loadedHook != nil {
-		go loadedHook(name, loaded)
-	}
 
 	// Spin up the per-worktree watcher. If the hook fails we keep the loaded
 	// state (the transport is still usable — just without auto-reload) and
@@ -826,6 +926,16 @@ func (m *MultiState) Entry(name string) (worktree.Entry, bool) {
 	defer m.mu.Unlock()
 	e, ok := m.entries[name]
 	return e, ok
+}
+
+// hasGoMod reports whether dir is a Go module root. A worktree that is not one
+// while the primary checkout is — a checkout gutted by an interrupted removal,
+// say — is not modelled at all: go/packages would climb to the go.mod of the
+// checkout it is nested in and read the remains as that module's
+// subdirectories, which is an empty or foreign model served as "ready".
+func hasGoMod(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, "go.mod"))
+	return err == nil && !info.IsDir()
 }
 
 func sameDiscoveredPath(a, b string) bool {

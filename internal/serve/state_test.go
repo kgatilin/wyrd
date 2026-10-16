@@ -147,105 +147,6 @@ func New() *Thing { return &Thing{} }
 	}
 }
 
-func TestStateLoadUsesModelCacheWhenSourcesUnchanged(t *testing.T) {
-	root := newFixture(t)
-	initial := &recordingReader{
-		responses: map[string][]domain.PackageModel{
-			"./...": {
-				{Path: "internal/foo", Name: "foo"},
-				{Path: "internal/bar", Name: "bar"},
-			},
-		},
-	}
-	st := NewState(root, WithReader(initial))
-	if err := st.Load(context.Background()); err != nil {
-		t.Fatalf("initial Load: %v", err)
-	}
-	if got := len(initial.calls); got != 1 {
-		t.Fatalf("initial reader calls = %d, want 1", got)
-	}
-	if _, err := os.Stat(modelCachePath(root)); err != nil {
-		t.Fatalf("model cache not written: %v", err)
-	}
-	before, err := os.Stat(modelCachePath(root))
-	if err != nil {
-		t.Fatalf("stat cache before cached load: %v", err)
-	}
-
-	cached := &recordingReader{fail: true}
-	st = NewState(root, WithReader(cached))
-	if err := st.Load(context.Background()); err != nil {
-		t.Fatalf("cached Load: %v", err)
-	}
-	if got := len(cached.calls); got != 0 {
-		t.Fatalf("cached reader calls = %d, want 0: %v", got, cached.calls)
-	}
-	if got := len(st.Snapshot().Packages); got != 2 {
-		t.Fatalf("cached packages = %d, want 2", got)
-	}
-	after, err := os.Stat(modelCachePath(root))
-	if err != nil {
-		t.Fatalf("stat cache after cached load: %v", err)
-	}
-	if !after.ModTime().Equal(before.ModTime()) {
-		t.Fatalf("clean cache hit rewrote cache: before=%s after=%s", before.ModTime(), after.ModTime())
-	}
-}
-
-func TestStateLoadModelCacheReloadsOnlyChangedPackages(t *testing.T) {
-	root := newFixture(t)
-	initial := &recordingReader{
-		responses: map[string][]domain.PackageModel{
-			"./...": {
-				{Path: "internal/foo", Name: "foo", Structs: []domain.StructDef{{Name: "Thing"}}},
-				{Path: "internal/bar", Name: "bar", Structs: []domain.StructDef{{Name: "Bar"}}},
-			},
-		},
-	}
-	st := NewState(root, WithReader(initial))
-	if err := st.Load(context.Background()); err != nil {
-		t.Fatalf("initial Load: %v", err)
-	}
-
-	fooFile := filepath.Join(root, "internal", "foo", "foo.go")
-	writeFile(t, fooFile, `package foo
-
-type Thing struct{ Name string }
-type Second struct{ X int }
-`)
-	touchFile(t, fooFile)
-
-	incremental := &recordingReader{
-		responses: map[string][]domain.PackageModel{
-			"./internal/foo": {
-				{
-					Path:    "internal/foo",
-					Name:    "foo",
-					Structs: []domain.StructDef{{Name: "Thing"}, {Name: "Second"}},
-				},
-			},
-		},
-	}
-	st = NewState(root, WithReader(incremental))
-	if err := st.Load(context.Background()); err != nil {
-		t.Fatalf("incremental Load: %v", err)
-	}
-	if got, want := flattenCalls(incremental.calls), "./internal/foo"; got != want {
-		t.Fatalf("incremental reader calls = %q, want %q", got, want)
-	}
-	if got := countStructs(t, st, "internal/foo"); got != 2 {
-		t.Fatalf("internal/foo structs = %d, want 2", got)
-	}
-	if got := countStructs(t, st, "internal/bar"); got != 1 {
-		t.Fatalf("internal/bar structs = %d, want 1 from cache", got)
-	}
-	// The package kept from cache goes back to the reader: without it the
-	// reload cannot resolve calls that dispatch through internal/bar's types.
-	if got, want := incremental.knownPaths(0), []string{"internal/bar"}; !equalStrings(got, want) {
-		t.Fatalf("known models handed to the reload = %v, want %v", got, want)
-	}
-}
-
 func TestStateReloadPackagePassesTheRestOfTheModelAsKnown(t *testing.T) {
 	root := newFixture(t)
 	initial := &recordingReader{
@@ -286,29 +187,6 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-func TestStateLoadIgnoresModelCacheVersionMismatch(t *testing.T) {
-	root := newFixture(t)
-	if err := os.MkdirAll(filepath.Dir(modelCachePath(root)), 0o755); err != nil {
-		t.Fatalf("mkdir cache: %v", err)
-	}
-	if err := os.WriteFile(modelCachePath(root), []byte(`{"schema":"old","version":0}`), 0o644); err != nil {
-		t.Fatalf("write cache: %v", err)
-	}
-
-	reader := &recordingReader{
-		responses: map[string][]domain.PackageModel{
-			"./...": {{Path: "internal/foo", Name: "foo"}},
-		},
-	}
-	st := NewState(root, WithReader(reader))
-	if err := st.Load(context.Background()); err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if got, want := flattenCalls(reader.calls), "./..."; got != want {
-		t.Fatalf("reader calls = %q, want %q", got, want)
-	}
 }
 
 func TestStateReviewConfigFollowsPrimaryWorktree(t *testing.T) {
@@ -420,6 +298,139 @@ func TestStateFindOwningPackage(t *testing.T) {
 	}
 }
 
+// hasPackagePath reports whether the state's snapshot holds a package at path.
+func hasPackagePath(st *State, path string) bool {
+	for _, p := range st.Snapshot().Packages {
+		if p.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+// TestStateFindOwningPackageResolvesAPackageWhoseSourceIsGone pins the answer
+// a deletion needs. The watcher names a file that is no longer there; if the
+// lookup consults only the filesystem it climbs past the package that lost the
+// file and answers with an ancestor, so that package is never reloaded and
+// never removed.
+func TestStateFindOwningPackageResolvesAPackageWhoseSourceIsGone(t *testing.T) {
+	root := newFixture(t)
+	st := NewState(root)
+	if err := st.Load(context.Background()); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	gone := filepath.Join(root, "internal", "foo", "foo.go")
+	if err := os.RemoveAll(filepath.Join(root, "internal", "foo")); err != nil {
+		t.Fatalf("remove package dir: %v", err)
+	}
+
+	if got := st.FindOwningPackage(gone); got != "internal/foo" {
+		t.Fatalf("FindOwningPackage(%s) = %q, want %q", gone, got, "internal/foo")
+	}
+}
+
+// TestStateReloadPackageDropsAPackageWhoseDirectoryIsGone checks the other
+// half: once the deletion routes to the right package, reloading it removes it.
+func TestStateReloadPackageDropsAPackageWhoseDirectoryIsGone(t *testing.T) {
+	root := newFixture(t)
+	st := NewState(root)
+	ctx := context.Background()
+	if err := st.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !hasPackagePath(st, "internal/foo") {
+		t.Fatalf("internal/foo missing from the loaded model: %v", packagePaths(st.Snapshot().Packages))
+	}
+
+	if err := os.RemoveAll(filepath.Join(root, "internal", "foo")); err != nil {
+		t.Fatalf("remove package dir: %v", err)
+	}
+
+	changed, err := st.ReloadPackage(ctx, "internal/foo")
+	if err != nil {
+		t.Fatalf("ReloadPackage: %v", err)
+	}
+	if !changed {
+		t.Fatal("ReloadPackage reported no change after the package was deleted")
+	}
+	if hasPackagePath(st, "internal/foo") {
+		t.Fatalf("internal/foo survived its own source: %v", packagePaths(st.Snapshot().Packages))
+	}
+}
+
+// TestStateReloadPackageKeepsAPackageItCouldNotRead pins that a failed read
+// of a package whose source is still on disk is an error, not a deletion: a
+// loader failing under a go.mod mid-edit used to empty the model one event
+// at a time, silently.
+func TestStateReloadPackageKeepsAPackageItCouldNotRead(t *testing.T) {
+	root := newFixture(t)
+	reader := &recordingReader{
+		responses: map[string][]domain.PackageModel{
+			"./...": {
+				{Path: "internal/foo", Name: "foo", Structs: []domain.StructDef{{Name: "Thing"}}},
+				{Path: "internal/bar", Name: "bar", Structs: []domain.StructDef{{Name: "Bar"}}},
+			},
+		},
+	}
+	st := NewState(root, WithReader(reader))
+	ctx := context.Background()
+	if err := st.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	reader.fail = true
+	changed, err := st.ReloadPackage(ctx, "internal/foo")
+	if err == nil {
+		t.Fatal("ReloadPackage swallowed a read failure")
+	}
+	if changed {
+		t.Fatal("ReloadPackage reported a change for a package it could not read")
+	}
+	if got := countStructs(t, st, "internal/foo"); got != 1 {
+		t.Fatalf("internal/foo structs = %d, want the model it had (1)", got)
+	}
+}
+
+// TestStatePruneMissingPackagesDropsWhatTheTreeNoLongerHas covers the case no
+// file event can describe: a whole package tree removed by a checkout, where
+// nothing is left on disk for the watcher to resolve to a package.
+func TestStatePruneMissingPackagesDropsWhatTheTreeNoLongerHas(t *testing.T) {
+	root := newFixture(t)
+	st := NewState(root)
+	ctx := context.Background()
+	if err := st.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if err := os.RemoveAll(filepath.Join(root, "internal", "foo")); err != nil {
+		t.Fatalf("remove package dir: %v", err)
+	}
+
+	dropped, err := st.PruneMissingPackages(ctx)
+	if err != nil {
+		t.Fatalf("PruneMissingPackages: %v", err)
+	}
+	if len(dropped) != 1 || dropped[0] != "internal/foo" {
+		t.Fatalf("dropped = %v, want [internal/foo]", dropped)
+	}
+	if hasPackagePath(st, "internal/foo") {
+		t.Fatalf("internal/foo survived the reconcile: %v", packagePaths(st.Snapshot().Packages))
+	}
+	if !hasPackagePath(st, "internal/bar") {
+		t.Fatalf("internal/bar was dropped too: %v", packagePaths(st.Snapshot().Packages))
+	}
+
+	// A second pass has nothing left to do.
+	dropped, err = st.PruneMissingPackages(ctx)
+	if err != nil {
+		t.Fatalf("PruneMissingPackages (second pass): %v", err)
+	}
+	if len(dropped) != 0 {
+		t.Fatalf("second pass dropped %v, want nothing", dropped)
+	}
+}
+
 // countStructs returns the number of structs extracted for the given
 // module-relative package path in the state.
 func countStructs(t *testing.T, st *State, pkgPath string) int {
@@ -449,6 +460,9 @@ type recordingReader struct {
 	// way as calls. Nil for a read that arrived through Read.
 	known [][]domain.PackageModel
 	fail  bool
+	// errs answers a read with an error instead of models, keyed like
+	// responses.
+	errs map[string]error
 }
 
 func (r *recordingReader) Read(_ context.Context, paths []string) ([]domain.PackageModel, error) {
@@ -467,6 +481,9 @@ func (r *recordingReader) record(paths []string, known []domain.PackageModel) ([
 		return nil, fmt.Errorf("reader should not have been called")
 	}
 	key := strings.Join(paths, ",")
+	if err, ok := r.errs[key]; ok {
+		return nil, err
+	}
 	if models, ok := r.responses[key]; ok {
 		return append([]domain.PackageModel(nil), models...), nil
 	}
@@ -519,10 +536,13 @@ func TestBuildEmbedder_ProviderSelection(t *testing.T) {
 		disable  string
 		apiKey   string
 		wantID   string
+		// standIn is set where wantID is not the provider that was asked
+		// for, which the caller must be told.
+		standIn bool
 	}{
 		{
-			name:    "default_is_ollama",
-			wantID:  "ollama:qwen3-embedding:0.6b",
+			name:   "default_is_ollama",
+			wantID: "ollama:qwen3-embedding:0.6b",
 		},
 		{
 			name:     "explicit_ollama",
@@ -544,6 +564,13 @@ func TestBuildEmbedder_ProviderSelection(t *testing.T) {
 			provider: "openai",
 			apiKey:   "",
 			wantID:   "noop",
+			standIn:  true,
+		},
+		{
+			name:     "vertex_without_project_falls_back_to_noop",
+			provider: "vertex",
+			wantID:   "noop",
+			standIn:  true,
 		},
 		{
 			name:     "openai_with_key",
@@ -555,6 +582,7 @@ func TestBuildEmbedder_ProviderSelection(t *testing.T) {
 			name:     "unknown_provider_falls_back_to_ollama",
 			provider: "unknown-xyz",
 			wantID:   "ollama:qwen3-embedding:0.6b",
+			standIn:  true,
 		},
 	}
 
@@ -564,10 +592,58 @@ func TestBuildEmbedder_ProviderSelection(t *testing.T) {
 			os.Setenv("WYRD_EMBED_DISABLE", tc.disable)
 			os.Setenv("WYRD_EMBED_API_KEY", tc.apiKey)
 
-			emb := buildEmbedder()
+			t.Setenv("WYRD_VERTEX_PROJECT", "")
+			t.Setenv("GOOGLE_CLOUD_PROJECT", "")
+
+			emb, err := buildEmbedder()
 			if emb.ID() != tc.wantID {
 				t.Errorf("buildEmbedder().ID() = %q, want %q", emb.ID(), tc.wantID)
 			}
+			if (err != nil) != tc.standIn {
+				t.Errorf("buildEmbedder() err = %v, stand-in = %v", err, tc.standIn)
+			}
 		})
+	}
+}
+
+func TestStateReloadReadsWhatNoEventReported(t *testing.T) {
+	root := newFixture(t)
+	st := NewState(root)
+	ctx := context.Background()
+	if err := st.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Edits the State was never told about: a new package, a deleted one.
+	if err := os.MkdirAll(filepath.Join(root, "internal", "added"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "added", "added.go"),
+		[]byte("package added\n\ntype Added struct{}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, "internal", "foo")); err != nil {
+		t.Fatalf("remove package dir: %v", err)
+	}
+
+	changed, err := st.Reload(ctx)
+	if err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if !changed {
+		t.Fatalf("Reload reported no change")
+	}
+	if !hasPackagePath(st, "internal/added") || hasPackagePath(st, "internal/foo") {
+		t.Fatalf("packages after Reload = %v, want internal/added in and internal/foo out",
+			packagePaths(st.Snapshot().Packages))
+	}
+
+	// Nothing moved since, so a second Reload is not a change.
+	changed, err = st.Reload(ctx)
+	if err != nil {
+		t.Fatalf("Reload (second): %v", err)
+	}
+	if changed {
+		t.Fatalf("second Reload reported a change on an unchanged tree")
 	}
 }

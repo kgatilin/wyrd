@@ -1,0 +1,18 @@
+apiVersion: v2
+name: wyrd
+description: Code graph, search and review UI for a Go repository, with its search index in Qdrant
+type: application
+# version is the chart's; appVersion is the wyrd image tag it deploys by
+# default. The release workflow sets both from the git tag.
+version: 0.1.0
+appVersion: "dev"
+home: https://github.com/kgatilin/wyrd
+sources:
+  - https://github.com/kgatilin/wyrd
+dependencies:
+  # The version wyrd's Qdrant adapter is verified against. wyrd needs 1.10 or
+  # newer: sparse vectors with the IDF modifier and the /points/query API.
+  - name: qdrant
+    version: 1.19.1
+    repository: https://qdrant.github.io/qdrant-helm
+    condition: qdrant.enabled

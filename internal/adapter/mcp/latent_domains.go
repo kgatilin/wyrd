@@ -55,8 +55,7 @@ func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResul
 	if tr, gated := indexingGate(svc); gated {
 		return tr, nil
 	}
-	vidx := svc.VectorIndexWithLookup()
-	if vidx == nil {
+	if !svc.DenseAvailable() {
 		return errorResult("vector index not available — embedder may not be configured or refresh needed"), nil
 	}
 
@@ -69,7 +68,7 @@ func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResul
 	in := clustering.Input{
 		Packages: snap.Packages,
 		Overlay:  snap.Overlay,
-		Vectors:  vidx,
+		Vectors:  svc,
 		Selector: args.Selector.domain(),
 		K:        k,
 		KNN:      args.KNN,
@@ -84,7 +83,7 @@ func handleLatentDomains(state *serve.State, rawArgs json.RawMessage) (ToolResul
 		in.Base = base
 	}
 
-	res, err := clustering.LatentDomains(in)
+	res, err := clustering.LatentDomains(context.Background(), in)
 	if err != nil {
 		return errorResult(err.Error()), nil
 	}

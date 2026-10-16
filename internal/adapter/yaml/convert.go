@@ -79,6 +79,12 @@ func toSpec(model domain.PackageModel, publicOnly bool) PackageSpec {
 		spec.Implementations = append(spec.Implementations, toImplementationSpec(impl))
 	}
 
+	// Imports are not public API: the public spec leaves them out, as it
+	// leaves out dependencies that are not through an exported symbol.
+	if !publicOnly {
+		spec.Imports = append([]string(nil), model.Imports...)
+	}
+
 	return spec
 }
 
@@ -118,6 +124,7 @@ func fromSpec(spec PackageSpec) domain.PackageModel {
 	for _, impl := range spec.Implementations {
 		model.Implementations = append(model.Implementations, fromImplementationSpec(impl))
 	}
+	model.Imports = append([]string(nil), spec.Imports...)
 
 	return model
 }

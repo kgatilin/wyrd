@@ -9,25 +9,24 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 
 	"time"
 
-	"github.com/kgatilin/wyrd/internal/adapter/embed/noop"
-	"github.com/kgatilin/wyrd/internal/adapter/embed/ollama"
-	"github.com/kgatilin/wyrd/internal/adapter/embed/openai"
+	"github.com/kgatilin/wyrd/internal/adapter/git"
 	"github.com/kgatilin/wyrd/internal/adapter/golang"
-	"github.com/kgatilin/wyrd/internal/adapter/lindex/bm25"
-	"github.com/kgatilin/wyrd/internal/adapter/vindex/brute"
 	"github.com/kgatilin/wyrd/internal/domain"
 	"github.com/kgatilin/wyrd/internal/overlay"
 	"github.com/kgatilin/wyrd/internal/plugin"
 	"github.com/kgatilin/wyrd/internal/retrieval"
+	"github.com/kgatilin/wyrd/internal/serve/modelstore"
 	"github.com/kgatilin/wyrd/internal/service"
 	"github.com/kgatilin/wyrd/internal/target"
 )
@@ -46,7 +45,17 @@ type State struct {
 	reader service.ModelReader
 
 	// packages is the current extracted model, keyed by PackageModel.Path.
-	packages map[string]domain.PackageModel
+	// Each entry is a Version: a model the store holds is the store's
+	// canonical instance, shared with every other State, so it is read-only.
+	packages map[string]modelstore.Version
+
+	// store is the repository's shared model store. Nil means every cold
+	// start is a full parse and nothing is shared or persisted.
+	store *modelstore.Store
+
+	// baseRef is the ref whose merge base a cold start loads over when the
+	// store has no snapshot of HEAD. Empty: only HEAD's snapshot is tried.
+	baseRef string
 
 	// overlayCfg is the parsed wyrd.yaml (may be nil if absent).
 	overlayCfg *overlay.Config
@@ -74,13 +83,13 @@ type State struct {
 	// adapter built from this State.
 	bus *plugin.EventBus
 
-	// retrieval is the code search service holding dense+BM25 indexes.
-	// May be nil if retrieval is disabled.
+	// retrieval is this worktree's view of the corpus. May be nil if
+	// retrieval is disabled.
 	retrieval *retrieval.Service
 
-	// vecCache is the repo-level vector cache shared with the daemon's other
-	// worktree States. Set once at construction; nil disables sharing.
-	vecCache VectorCacheProvider
+	// corpus is the repository's retrieval corpus, shared with the daemon's
+	// other worktree States. Nil: the State builds a private in-memory one.
+	corpus *retrieval.Corpus
 
 	// retrievalReady is closed when the initial retrieval indexing completes.
 	// Nil if retrieval is disabled.
@@ -166,10 +175,7 @@ func (s *State) CurrentModel() *plugin.Model {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	pkgs := make([]domain.PackageModel, 0, len(s.packages))
-	for _, p := range s.packages {
-		pkgs = append(pkgs, p)
-	}
+	pkgs := modelsOf(s.packages)
 
 	var cfgCopy *overlay.Config
 	module := ""
@@ -198,12 +204,25 @@ func WithReader(r service.ModelReader) StateOption {
 	return func(s *State) { s.reader = r }
 }
 
-// WithVectorCache shares a repo-level vector cache with this State. Every
-// State the daemon builds for the same repo should receive the same provider
-// so a fresh worktree reuses the vectors its siblings already computed
-// instead of re-embedding identical code.
-func WithVectorCache(p VectorCacheProvider) StateOption {
-	return func(s *State) { s.vecCache = p }
+// WithModelStore shares the repository's model store with this State. A cold
+// start then loads the snapshot of HEAD, or else of merge-base(baseRef, HEAD),
+// with the packages the worktree's diff against it touches read on top, and a
+// full parse of a clean worktree is recorded as the snapshot of its HEAD.
+// Every State the daemon builds for one repository must receive the same
+// store: sharing is what it is for.
+func WithModelStore(store *modelstore.Store, baseRef string) StateOption {
+	return func(s *State) {
+		s.store = store
+		s.baseRef = baseRef
+	}
+}
+
+// WithCorpus shares the repository's retrieval corpus with this State, whose
+// retrieval service becomes one view over it. Every State the daemon builds
+// for the same repository must receive the same corpus, so a text is indexed
+// and embedded once for all of them.
+func WithCorpus(c *retrieval.Corpus) StateOption {
+	return func(s *State) { s.corpus = c }
 }
 
 // WithRetrieval sets a pre-configured retrieval service. Used in tests
@@ -228,7 +247,7 @@ func NewState(root string, opts ...StateOption) *State {
 	s := &State{
 		root:     root,
 		reader:   golang.NewReader(),
-		packages: make(map[string]domain.PackageModel),
+		packages: make(map[string]modelstore.Version),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -238,9 +257,15 @@ func NewState(root string, opts ...StateOption) *State {
 
 // Snapshot is a read-only view of the State. All slices/maps are
 // independent of the live State and safe to retain.
+//
+// Packages are shared with the State and with every other holder of the same
+// package Version: the slice is the caller's, the models in it are read-only.
 type Snapshot struct {
-	Root          string
-	Packages      []domain.PackageModel
+	Root     string
+	Packages []domain.PackageModel
+	// Versions maps each package path to the hash of its Version, the key a
+	// content-addressed index can share across worktrees.
+	Versions      map[string]string
 	Overlay       *overlay.Config
 	CurrentTarget string
 }
@@ -251,8 +276,10 @@ func (s *State) Snapshot() Snapshot {
 	defer s.mu.RUnlock()
 
 	pkgs := make([]domain.PackageModel, 0, len(s.packages))
-	for _, p := range s.packages {
-		pkgs = append(pkgs, p)
+	versions := make(map[string]string, len(s.packages))
+	for path, v := range s.packages {
+		pkgs = append(pkgs, v.Model)
+		versions[path] = v.Hash
 	}
 
 	var cfgCopy *overlay.Config
@@ -264,6 +291,7 @@ func (s *State) Snapshot() Snapshot {
 	return Snapshot{
 		Root:          s.root,
 		Packages:      pkgs,
+		Versions:      versions,
 		Overlay:       cfgCopy,
 		CurrentTarget: s.currentTarget,
 	}
@@ -274,7 +302,7 @@ func (s *State) Root() string {
 	return s.root
 }
 
-// Load performs the initial full extraction: Go packages under ./...,
+// Load performs the initial extraction: Go packages (see coldStart),
 // wyrd.yaml overlay (if present), and the active target id
 // (.arch/targets/CURRENT). Errors extracting packages are returned; a
 // missing overlay or CURRENT file is not an error.
@@ -286,15 +314,12 @@ func (s *State) Load(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	models, err := s.readAll(ctx)
+	versions, err := s.coldStart(ctx)
 	if err != nil {
 		return fmt.Errorf("serve: loading packages: %w", err)
 	}
-
-	s.packages = make(map[string]domain.PackageModel, len(models))
-	for _, m := range models {
-		s.packages[m.Path] = m
-	}
+	s.packages = byPath(versions)
+	models := modelsOf(s.packages)
 
 	// Overlay: best-effort. Missing file → leave nil.
 	if err := s.reloadOverlayLocked(); err != nil {
@@ -314,98 +339,43 @@ func (s *State) Load(ctx context.Context) error {
 	return nil
 }
 
-// initRetrievalLocked sets up the retrieval service and starts background indexing.
+// initRetrievalLocked builds this worktree's view of the corpus and starts
+// the background embedding pass. The view itself — hashes, lexical documents
+// — is built here, under the lock, so no later update can be overtaken by it;
+// only the embedder's work runs in the background.
 // Must be called with mu held.
 func (s *State) initRetrievalLocked(ctx context.Context, models []domain.PackageModel) {
-	// Skip retrieval initialization if disabled
 	if os.Getenv("WYRD_RETRIEVAL_DISABLE") == "1" {
 		return
 	}
 
-	// Build embedder - try Ollama, fall back to noop
-	emb := buildEmbedder()
-
-	// Create indexes
-	vidx := brute.New(emb.ID(), emb.Dim())
-	lidx := bm25.New()
-
-	// Share the repo-level vector cache, namespaced by embedder and recipe so
-	// a model or chunking change starts cold instead of resurrecting vectors
-	// from a different recipe.
-	vecCache := s.vecCache
-	var svcOpts []retrieval.Option
-	if vecCache != nil {
-		svcOpts = append(svcOpts, retrieval.WithVectorCache(
-			vecCache.Namespace(retrieval.VectorCacheNamespace(emb.ID()))))
+	corpus := s.corpus
+	if corpus == nil {
+		corpus = privateCorpus()
 	}
-
-	// Create service
-	svc := retrieval.NewService(s.root, emb, vidx, lidx, svcOpts...)
-
-	// Try to load persisted indexes. This also publishes whatever vectors
-	// this worktree already has to the shared cache.
-	if err := svc.Load(); err != nil {
-		fmt.Fprintf(os.Stderr, "serve: loading retrieval indexes: %v\n", err)
+	svc := retrieval.NewService(s.root, corpus)
+	nodes, graph := retrieval.BuildGraph(models)
+	svc.SetGraph(graph)
+	if err := svc.Update(ctx, nodes, nil); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: retrieval indexing: %v\n", err)
 	}
 
 	s.retrieval = svc
 	s.retrievalReady = make(chan struct{})
-
-	// BM25 indexing is synchronous (fast)
-	// Dense indexing happens in background (may be slow with Ollama)
-	// IndexFromModels builds both nodes and graph adjacency
+	ready := s.retrievalReady
 	go func() {
-		defer close(s.retrievalReady)
-
-		if err := svc.IndexFromModels(ctx, models); err != nil {
-			fmt.Fprintf(os.Stderr, "serve: retrieval indexing: %v\n", err)
-			return
-		}
-
-		if err := svc.Save(); err != nil {
-			fmt.Fprintf(os.Stderr, "serve: saving retrieval indexes: %v\n", err)
-		}
-		if vecCache != nil {
-			if err := vecCache.Save(); err != nil {
-				fmt.Fprintf(os.Stderr, "serve: saving shared vector cache: %v\n", err)
-			}
-		}
+		defer close(ready)
+		s.embedAndSave(context.WithoutCancel(ctx), svc)
 	}()
 }
 
-// buildEmbedder creates an embedder based on WYRD_EMBED_PROVIDER:
-//   - "ollama" (default): local Ollama server
-//   - "openai": OpenAI-compatible API (requires WYRD_EMBED_API_KEY)
-//   - "noop": deterministic pseudo-embeddings for testing
-//
-// Falls back to noop if embedding is disabled or if openai is selected
-// without an API key (logged, not crashed).
-func buildEmbedder() retrieval.Embedder {
-	// Check if embedding should be disabled entirely
-	if os.Getenv("WYRD_EMBED_DISABLE") == "1" {
-		return noop.New()
+// embedAndSave runs the view's embedding pass and persists the corpus.
+func (s *State) embedAndSave(ctx context.Context, svc *retrieval.Service) {
+	if err := svc.EmbedPending(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: retrieval embedding: %v\n", err)
 	}
-
-	provider := os.Getenv("WYRD_EMBED_PROVIDER")
-	switch provider {
-	case "openai":
-		emb := openai.New()
-		if !emb.HasAPIKey() {
-			fmt.Fprintf(os.Stderr, "serve: openai embedder selected but WYRD_EMBED_API_KEY not set, falling back to noop\n")
-			return noop.New()
-		}
-		return emb
-
-	case "noop":
-		return noop.New()
-
-	case "ollama", "":
-		// Default to Ollama (it will fail gracefully if not running)
-		return ollama.New()
-
-	default:
-		fmt.Fprintf(os.Stderr, "serve: unknown WYRD_EMBED_PROVIDER %q, falling back to ollama\n", provider)
-		return ollama.New()
+	if err := svc.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: saving retrieval corpus: %v\n", err)
 	}
 }
 
@@ -448,7 +418,7 @@ func (s *State) ReloadPackage(ctx context.Context, pkgPath string) (bool, error)
 	oldPkg, hadOldPkg := s.packages[pkgPath]
 	var oldNodeIDs []string
 	if hadOldPkg {
-		oldNodes := retrieval.BuildNodes([]domain.PackageModel{oldPkg})
+		oldNodes := retrieval.BuildNodes([]domain.PackageModel{oldPkg.Model})
 		for _, n := range oldNodes {
 			oldNodeIDs = append(oldNodeIDs, n.ID)
 		}
@@ -456,18 +426,21 @@ func (s *State) ReloadPackage(ctx context.Context, pkgPath string) (bool, error)
 
 	// The rest of the model goes in as known: reloading one package must not
 	// cost it the interface-dispatch edges a full read would have given it.
-	models, err := s.readPackageSet(ctx, []string{pkgPath}, mapValues(s.packages))
+	models, err := s.readPackageSet(ctx, []string{pkgPath}, modelsOf(s.packages))
 	if err != nil {
-		// Package may have been removed; drop it and return no error so
-		// the watcher loop stays alive.
+		// A failed read is not a deletion: a go.mod mid-edit or a loader
+		// under pressure fails the same way, and dropping on every failure
+		// let a burst of events empty the model without a word. Only a
+		// directory with no Go source left is a package that is gone; any
+		// other failure keeps the model it had and is reported.
+		if hasGoFiles(filepath.Join(s.root, filepath.FromSlash(pkgPath))) {
+			return false, fmt.Errorf("serve: reading package %s: %w", pkgPath, err)
+		}
 		delete(s.packages, pkgPath)
 		if !hadOldPkg {
 			// Nothing was dropped, so nothing moved: an unreadable path
 			// that was never in the model is not a change.
 			return false, nil
-		}
-		if err := s.writeModelCache(mapValues(s.packages)); err != nil {
-			fmt.Fprintf(os.Stderr, "serve: write model cache: %v\n", err)
 		}
 		// Refresh retrieval: all old nodes are now removed
 		s.refreshRetrievalLocked(ctx, nil, oldNodeIDs)
@@ -475,20 +448,19 @@ func (s *State) ReloadPackage(ctx context.Context, pkgPath string) (bool, error)
 	}
 
 	// An identical re-parse is the common case behind a file event, so it
-	// is answered before any of the expensive writes below.
-	if hadOldPkg && len(models) == 1 && models[0].Path == pkgPath &&
-		reflect.DeepEqual(oldPkg, models[0]) {
+	// is answered before any of the expensive writes below. A package edited
+	// back to what a snapshot holds comes back as that snapshot's instance.
+	versions := s.store.Versions(models)
+	if hadOldPkg && len(versions) == 1 && versions[0].Model.Path == pkgPath &&
+		versions[0].Hash == oldPkg.Hash {
 		return false, nil
 	}
 
 	// Remove the old entry so stale data cannot leak if the reader
 	// returned zero packages (deleted/empty dir).
 	delete(s.packages, pkgPath)
-	for _, m := range models {
-		s.packages[m.Path] = m
-	}
-	if err := s.writeModelCache(mapValues(s.packages)); err != nil {
-		fmt.Fprintf(os.Stderr, "serve: write model cache: %v\n", err)
+	for _, v := range versions {
+		s.packages[v.Model.Path] = v
 	}
 
 	// Refresh retrieval indexes
@@ -510,28 +482,237 @@ func (s *State) ReloadPackage(ctx context.Context, pkgPath string) (bool, error)
 	return true, nil
 }
 
-// refreshRetrievalLocked updates the retrieval indexes for changed nodes.
+// Reload re-reads the whole worktree from disk — every package, the overlay
+// and the active target — and reports whether anything differs from what the
+// State held. It is the answer to a missed file event: the watcher keeps the
+// model current one package at a time, and when an event never arrives
+// (a share that does not forward it, a watch the kernel refused) nothing
+// else ever looks at the disk again. The read is a full parse, never a
+// stored snapshot, and like every full parse of a clean worktree it is
+// recorded as the snapshot of HEAD. Retrieval is refreshed for the packages
+// that changed only.
+func (s *State) Reload(ctx context.Context) (bool, error) {
+	// The parse is the slow part and needs no lock; holding it would stall
+	// every reader of the model for the length of a full read.
+	versions, err := s.readAll(ctx)
+	if err != nil {
+		return false, fmt.Errorf("serve: reloading packages: %w", err)
+	}
+	return s.replaceModel(ctx, versions)
+}
+
+// ReloadOver rebuilds the model as base with the packages in changed read
+// from disk. It is Refresh on a branch: base is the model of the commit the
+// branch is reviewed against, changed is every package the branch's diff
+// touches, and a package the diff does not touch is by definition the
+// base's. So a Refresh costs the branch's packages rather than a parse of
+// the repository. A changed package with no Go source left on disk is
+// dropped; one the reader fails on fails the whole call and leaves the model
+// as it was.
+func (s *State) ReloadOver(ctx context.Context, base []modelstore.Version, changed []string) (bool, error) {
+	versions, err := s.readOver(ctx, base, changed)
+	if err != nil {
+		return false, err
+	}
+	return s.replaceModel(ctx, versions)
+}
+
+// coldStart reads the model a State starts with. With a store, a snapshot of
+// HEAD — or, failing that, of the merge base with baseRef — is the base, and
+// only the packages the worktree's diff against it touches are read from
+// disk. Everything else is a full parse: no store, no snapshot, a diff that
+// touches go.mod or go.sum, or a diff git cannot produce.
+func (s *State) coldStart(ctx context.Context) ([]modelstore.Version, error) {
+	base, rev := s.storedBase()
+	if base == nil {
+		return s.readAll(ctx)
+	}
+	d, err := git.Diff(s.root, rev)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "serve: diff of %s against %s, parsing in full: %v\n", s.root, short(rev), err)
+		return s.readAll(ctx)
+	}
+	changed, full := changedPackages(d.Files)
+	if full {
+		return s.readAll(ctx)
+	}
+	return s.readOver(ctx, base, changed)
+}
+
+// storedBase returns the stored snapshot a cold start can build on and its
+// rev: HEAD's when the store has one, else the merge base's with baseRef.
+func (s *State) storedBase() ([]modelstore.Version, string) {
+	if s.store == nil {
+		return nil, ""
+	}
+	head := git.HeadRev(s.root)
+	if head == "" {
+		return nil, ""
+	}
+	revs := []string{head}
+	if s.baseRef != "" {
+		if mb, ok := git.MergeBase(s.root, s.baseRef); ok && mb != head {
+			revs = append(revs, mb)
+		}
+	}
+	for _, rev := range revs {
+		versions, ok, err := s.store.Snapshot(rev)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "serve: %v\n", err)
+			continue
+		}
+		if ok {
+			return versions, rev
+		}
+	}
+	return nil, ""
+}
+
+// readAll parses the whole worktree. When the worktree is clean, and still
+// clean on the same HEAD once the parse is done, the result is recorded as
+// the snapshot of HEAD, which is how a branch gets its base without a parse.
+func (s *State) readAll(ctx context.Context) ([]modelstore.Version, error) {
+	head := s.cleanHead()
+	models, err := s.readPackages(ctx, []string{"./..."})
+	if err != nil {
+		return nil, err
+	}
+	if head != "" && s.cleanHead() == head {
+		versions, err := s.store.Record(head, models)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "serve: %v\n", err)
+		}
+		return versions, nil
+	}
+	return s.store.Versions(models), nil
+}
+
+// cleanHead returns HEAD when the worktree matches it exactly and a store is
+// there to record a snapshot of it, and "" otherwise.
+func (s *State) cleanHead() string {
+	if s.store == nil {
+		return ""
+	}
+	head := git.HeadRev(s.root)
+	if head == "" || !git.IsClean(s.root) {
+		return ""
+	}
+	return head
+}
+
+// readOver returns base with the packages in changed read from disk over it.
+// A changed package with no Go source left on disk is dropped; the read gets
+// the rest of the model as known, so interface dispatch into base packages
+// keeps its edges.
+func (s *State) readOver(ctx context.Context, base []modelstore.Version, changed []string) ([]modelstore.Version, error) {
+	onDisk, err := goPackageDirs(s.root)
+	if err != nil {
+		return nil, fmt.Errorf("serve: scanning packages: %w", err)
+	}
+	drop := make(map[string]bool, len(changed))
+	var read []string
+	for _, pkgPath := range changed {
+		drop[pkgPath] = true
+		if onDisk[pkgPath] {
+			read = append(read, pkgPath)
+		}
+	}
+	versions := make([]modelstore.Version, 0, len(base)+len(read))
+	known := make([]domain.PackageModel, 0, len(base))
+	for _, v := range base {
+		if !drop[v.Model.Path] {
+			versions = append(versions, v)
+			known = append(known, v.Model)
+		}
+	}
+	if len(read) > 0 {
+		sort.Strings(read)
+		fresh, err := s.readPackageSet(ctx, read, known)
+		// A changed directory the reader cannot model (another module, every
+		// file excluded by build tags) is what a full read skips too.
+		if errors.Is(err, service.ErrNothingToModel) {
+			fresh, err = nil, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("serve: reloading changed packages: %w", err)
+		}
+		versions = append(versions, s.store.Versions(fresh)...)
+	}
+	return versions, nil
+}
+
+// replaceModel installs models as the whole model, re-reads the overlay and
+// the active target, refreshes retrieval for the packages that differ, and
+// reports whether anything moved.
+func (s *State) replaceModel(ctx context.Context, versions []modelstore.Version) (bool, error) {
+	cur, err := target.Current(s.root)
+	if err != nil {
+		return false, fmt.Errorf("serve: reading CURRENT: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	next := byPath(versions)
+	var changedNodes []retrieval.Node
+	var removedIDs []string
+	modelChanged := len(next) != len(s.packages)
+	for path, old := range s.packages {
+		m, ok := next[path]
+		if ok && old.Hash == m.Hash {
+			continue
+		}
+		modelChanged = true
+		var newIDs map[string]bool
+		if ok {
+			nodes := retrieval.BuildNodes([]domain.PackageModel{m.Model})
+			changedNodes = append(changedNodes, nodes...)
+			newIDs = make(map[string]bool, len(nodes))
+			for _, n := range nodes {
+				newIDs[n.ID] = true
+			}
+		}
+		for _, n := range retrieval.BuildNodes([]domain.PackageModel{old.Model}) {
+			if !newIDs[n.ID] {
+				removedIDs = append(removedIDs, n.ID)
+			}
+		}
+	}
+	for path, m := range next {
+		if _, ok := s.packages[path]; !ok {
+			changedNodes = append(changedNodes, retrieval.BuildNodes([]domain.PackageModel{m.Model})...)
+		}
+	}
+
+	oldOverlay, oldTarget := s.overlayCfg, s.currentTarget
+	if err := s.reloadOverlayLocked(); err != nil {
+		return false, fmt.Errorf("serve: reloading overlay: %w", err)
+	}
+	s.currentTarget = cur
+	s.packages = next
+
+	if modelChanged {
+		s.refreshRetrievalLocked(ctx, changedNodes, removedIDs)
+	}
+	return modelChanged || cur != oldTarget || !reflect.DeepEqual(oldOverlay, s.overlayCfg), nil
+}
+
+// refreshRetrievalLocked updates the view for changed nodes and rebuilds its
+// graph, then embeds in the background. Embedding waits for the corpus's one
+// pass at a time, possibly behind another worktree's cold pass, so it must not
+// run under this State's lock.
 // Must be called with mu held.
 func (s *State) refreshRetrievalLocked(ctx context.Context, changedNodes []retrieval.Node, removedIDs []string) {
 	if s.retrieval == nil {
 		return
 	}
-	if err := s.retrieval.Refresh(ctx, changedNodes, removedIDs); err != nil {
+	if err := s.retrieval.Update(ctx, changedNodes, removedIDs); err != nil {
 		fmt.Fprintf(os.Stderr, "serve: retrieval refresh: %v\n", err)
 		return
 	}
-	if err := s.retrieval.Save(); err != nil {
-		fmt.Fprintf(os.Stderr, "serve: saving retrieval indexes: %v\n", err)
-	}
-	if s.vecCache != nil {
-		if err := s.vecCache.Save(); err != nil {
-			fmt.Fprintf(os.Stderr, "serve: saving shared vector cache: %v\n", err)
-		}
-	}
-	// Rebuild the graph from the full model for search/expand operations
-	allModels := mapValues(s.packages)
-	_, graph := retrieval.BuildGraph(allModels)
+	_, graph := retrieval.BuildGraph(modelsOf(s.packages))
 	s.retrieval.SetGraph(graph)
+	go s.embedAndSave(context.WithoutCancel(ctx), s.retrieval)
 }
 
 // ReloadOverlay re-reads wyrd.yaml from disk and updates the cached
@@ -625,19 +806,49 @@ func (s *State) withPrimaryReviewConfig(cfg *overlay.Config) *overlay.Config {
 	return &merged
 }
 
-func mapValues(in map[string]domain.PackageModel) []domain.PackageModel {
+// modelsOf returns the models of a State's package map, in a slice the caller
+// owns (the models in it are shared).
+func modelsOf(in map[string]modelstore.Version) []domain.PackageModel {
 	out := make([]domain.PackageModel, 0, len(in))
-	for _, value := range in {
-		out = append(out, value)
+	for _, v := range in {
+		out = append(out, v.Model)
 	}
 	return out
 }
 
-// FindOwningPackage walks up from the directory of path until it finds
-// a directory containing .go files, then converts that absolute
-// directory into a module-relative package path by stripping the root
-// prefix. Returns "" when no owning package is found (e.g. the change
-// was outside the project root or in a non-Go directory tree).
+// versionList returns the State's Versions sorted by package path.
+func (s *State) versionList() []modelstore.Version {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]modelstore.Version, 0, len(s.packages))
+	for _, v := range s.packages {
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Model.Path < out[j].Model.Path })
+	return out
+}
+
+func byPath(versions []modelstore.Version) map[string]modelstore.Version {
+	out := make(map[string]modelstore.Version, len(versions))
+	for _, v := range versions {
+		out[v.Model.Path] = v
+	}
+	return out
+}
+
+// FindOwningPackage walks up from the directory of path until it finds a
+// directory that owns a package, then converts that absolute directory into a
+// module-relative package path by stripping the root prefix. Returns "" when
+// no owning package is found (e.g. the change was outside the project root or
+// in a non-Go directory tree).
+//
+// A directory owns a package when it holds .go files — or when the model
+// already holds a package at that path. The second clause is what routes a
+// *deletion*: the file the watcher names is gone, and if it was the last .go
+// file there the directory is empty or gone with it, so asking the filesystem
+// alone answers with an ancestor package (or with nothing) and the package
+// that actually lost the file never gets reloaded, never gets removed, and
+// outlives its own source for the life of the daemon.
 func (s *State) FindOwningPackage(path string) string {
 	abs := path
 	if !filepath.IsAbs(abs) {
@@ -653,15 +864,13 @@ func (s *State) FindOwningPackage(path string) string {
 		if !strings.HasPrefix(dir, rootAbs) {
 			return ""
 		}
-		if hasGoFiles(dir) {
-			rel, err := filepath.Rel(rootAbs, dir)
-			if err != nil {
-				return ""
-			}
-			if rel == "." {
-				return "."
-			}
-			return filepath.ToSlash(rel)
+		rel, err := filepath.Rel(rootAbs, dir)
+		if err != nil {
+			return ""
+		}
+		rel = filepath.ToSlash(rel)
+		if hasGoFiles(dir) || s.hasPackage(rel) {
+			return rel
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -669,6 +878,57 @@ func (s *State) FindOwningPackage(path string) string {
 		}
 		dir = parent
 	}
+}
+
+// hasPackage reports whether the model currently holds a package at the given
+// module-relative path.
+func (s *State) hasPackage(rel string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.packages[rel]
+	return ok
+}
+
+// PruneMissingPackages drops every package the model still holds whose
+// directory no longer contains Go source, and reports the paths it dropped.
+//
+// ReloadPackage removes a package once the watcher names it, but the watcher
+// can only name a package something on disk still resolves to. A checkout,
+// rebase or merge that deletes a whole package tree can leave nothing to
+// resolve, and what stays behind is not inert: the review base is re-read
+// from a materialized commit while the branch side is this long-lived model,
+// so a package that outlived its source on one side is reported as a package
+// the branch added.
+func (s *State) PruneMissingPackages(ctx context.Context) ([]string, error) {
+	onDisk, err := goPackageDirs(s.root)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var removed []string
+	for pkgPath := range s.packages {
+		if !onDisk[pkgPath] {
+			removed = append(removed, pkgPath)
+		}
+	}
+	if len(removed) == 0 {
+		return nil, nil
+	}
+	sort.Strings(removed)
+
+	var removedIDs []string
+	for _, pkgPath := range removed {
+		for _, n := range retrieval.BuildNodes([]domain.PackageModel{s.packages[pkgPath].Model}) {
+			removedIDs = append(removedIDs, n.ID)
+		}
+		delete(s.packages, pkgPath)
+	}
+
+	s.refreshRetrievalLocked(ctx, nil, removedIDs)
+	return removed, nil
 }
 
 // hasGoFiles reports whether dir contains at least one .go file

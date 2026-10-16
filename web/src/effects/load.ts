@@ -13,7 +13,8 @@ export function createLoadEffect(port: GraphSourcePort, navigation?: NavigationP
     }
     const previousGraph = getState().graph;
     const previousFingerprint = previousGraph ? graphFingerprint(previousGraph) : null;
-    port.load(worktree).then(
+    const fresh = event.type === 'GraphRequested' && event.fresh;
+    (fresh ? port.load(worktree, { fresh: true }) : port.load(worktree)).then(
       (graph) => {
         if (previousFingerprint != null && graphFingerprint(graph) === previousFingerprint) {
           dispatch({ type: 'GraphUnchanged' });

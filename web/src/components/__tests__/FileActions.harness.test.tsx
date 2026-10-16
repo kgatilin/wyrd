@@ -80,8 +80,20 @@ const sources: Record<string, string> = {
   'controllers/llm/config.go': 'package llm\n\ntype Config struct{}\n',
 };
 
+// An answer naming a symbol in each file. A review card draws the files the
+// branch changed; an ask draws what it matched, so it is how an untouched file
+// of a changed package gets onto a card.
+const bothFiles = {
+  hits: [
+    { id: 'controllers/llm.New', kind: 'func', package: 'controllers/llm', name: 'New', file: 'controllers/llm/controller.go', line: 4, doc: '', seed: true, text_score: 0.31, score: 0.031 },
+    { id: 'controllers/llm.Config', kind: 'class', package: 'controllers/llm', name: 'Config', file: 'controllers/llm/config.go', line: 3, doc: '', seed: true, text_score: 0.3, score: 0.03 },
+  ],
+  dense: true,
+};
+
 async function mount() {
   const env = await mountAppDom(graph, {
+    search: () => bothFiles,
     gitDiff: () => diff,
     source: (path) => ({ content: sources[path] ?? '' }),
   });
@@ -104,9 +116,10 @@ afterEach(() => {
 describe('open a card file in the diff', () => {
   it('offers the button only on the files the review marks as changed', async () => {
     const { env, app, card } = await mount();
-    // "Full package" draws the untouched files of a changed package too —
-    // they are the ones that must NOT offer a patch.
-    await app.setViewOption('Details', 'full');
+    // The untouched file of a changed package is the one that must NOT
+    // offer a patch.
+    await app.ask().open();
+    await app.ask().ask('llm');
     await env.waitUntil(async () => (await card.fileCount()) === 2, {
       message: 'card never drew its unchanged file',
     });
@@ -130,7 +143,8 @@ describe('open a card file in the diff', () => {
 describe('show a card file\'s code', () => {
   it('offers the button on every file the card draws, changed or not', async () => {
     const { env, app, card } = await mount();
-    await app.setViewOption('Details', 'full');
+    await app.ask().open();
+    await app.ask().ask('llm');
     await env.waitUntil(async () => (await card.fileCount()) === 2, {
       message: 'card never drew its unchanged file',
     });
