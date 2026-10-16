@@ -1419,6 +1419,7 @@ mind when changing either.
 4. **Domain models are data containers** - No behavior, no external dependencies
 5. **Adapters depend on domain** - Never the reverse
 6. **CLI does the wiring** - Assembles adapters and passes to service
+7. **Open-source ready** - Nothing personal and nothing from any employer or client in code, tests, fixtures, docs, design notes, generated artifacts (`.arch/`, diagrams, snapshots) or commit messages: no names of private repositories, packages, hosts, tickets, people or tenants, and no paths from a home directory. Fixtures and examples use neutral invented names (`test.example/...`, `store`, `app`). A bug found on a private repository is reproduced on an invented fixture and described in those terms.
 
 ## Running Tests
 
