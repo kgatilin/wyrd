@@ -9,6 +9,7 @@ import (
 
 	"github.com/kgatilin/wyrd/internal/domain"
 	"github.com/kgatilin/wyrd/internal/service"
+	"github.com/kgatilin/wyrd/internal/treestamp"
 )
 
 // readPackageSet re-reads part of the project. known carries the models the
@@ -72,7 +73,7 @@ func goPackageDirs(root string) (map[string]bool, error) {
 			return nil
 		}
 		if d.IsDir() {
-			if path != rootAbs && skipSourceDir(d.Name()) {
+			if path != rootAbs && treestamp.SkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -91,15 +92,4 @@ func goPackageDirs(root string) (map[string]bool, error) {
 		return nil, err
 	}
 	return dirs, nil
-}
-
-func skipSourceDir(name string) bool {
-	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
-		return true
-	}
-	switch name {
-	case "node_modules", "vendor", "testdata":
-		return true
-	}
-	return false
 }

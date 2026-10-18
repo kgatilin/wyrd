@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/kgatilin/wyrd/internal/adapter/daemonmodel"
 	"github.com/kgatilin/wyrd/internal/adapter/golang"
 	yamlAdapter "github.com/kgatilin/wyrd/internal/adapter/yaml"
 	"github.com/kgatilin/wyrd/internal/buildinfo"
@@ -32,8 +33,18 @@ func init() {
 	}
 }
 
-func newChecker() *check.Checker {
-	return check.New(golang.NewReader(), yamlAdapter.NewReader())
+// newChecker reads the Go model through the daemon configured for the
+// repository (~/.config/wyrd/config.yaml) when there is one: it syncs with
+// the disk and answers only for the same source and the same reader, so the
+// gates see the model a parse here would produce. --no-daemon, a repository
+// with no daemon configured (CI), and a daemon that does not answer all
+// parse locally.
+func newChecker(cmd *cobra.Command) *check.Checker {
+	source := golang.NewReader()
+	if noDaemon, _ := cmd.Flags().GetBool("no-daemon"); !noDaemon {
+		source = daemonmodel.NewReader(source, cmd.ErrOrStderr())
+	}
+	return check.New(source, yamlAdapter.NewReader())
 }
 
 func main() {
@@ -50,6 +61,7 @@ server or review UI. Every command exits non-zero when its gate fails.`,
 	}
 	root.PersistentFlags().StringP("chdir", "C", "", "Change to this directory before checking (like 'go -C')")
 	root.PersistentFlags().String("overlay", "", "Path to wyrd.yaml overlay (default: auto-detect wyrd.yaml)")
+	root.PersistentFlags().Bool("no-daemon", false, "Parse the module here even when a daemon is configured for the repository")
 
 	root.AddCommand(newOverlayCmd(), newPolicyCmd(), newEventsCmd(), newTargetCmd(), newAllCmd(), newVersionCmd())
 
@@ -98,7 +110,7 @@ rule. Packages default to ./... .`,
 			if err != nil {
 				return err
 			}
-			return newChecker().RunOverlay(cmd.Context(), check.OverlayOptions{
+			return newChecker(cmd).RunOverlay(cmd.Context(), check.OverlayOptions{
 				OverlayPath: overlayPath,
 				GoModPath:   goModPath,
 				Paths:       args,
@@ -122,7 +134,7 @@ source and report every edge it forbids. Packages default to ./... .`,
 			}
 			format, _ := cmd.Flags().GetString("format")
 			warn, _ := cmd.Flags().GetBool("warn")
-			return newChecker().RunPolicy(cmd.Context(), check.PolicyOptions{
+			return newChecker(cmd).RunPolicy(cmd.Context(), check.PolicyOptions{
 				OverlayPath: overlayPath,
 				GoModPath:   goModPath,
 				Paths:       args,
@@ -176,7 +188,7 @@ Examples:
 			format, _ := cmd.Flags().GetString("format")
 			strict, _ := cmd.Flags().GetBool("strict")
 			warn, _ := cmd.Flags().GetBool("warn")
-			return newChecker().RunEvents(cmd.Context(), check.EventsOptions{
+			return newChecker(cmd).RunEvents(cmd.Context(), check.EventsOptions{
 				Root:   root,
 				Only:   only,
 				Format: format,
@@ -211,7 +223,7 @@ per line as "<op> <kind> <path>"; --target overrides the CURRENT target.`,
 			}
 			targetID, _ := cmd.Flags().GetString("target")
 			format, _ := cmd.Flags().GetString("format")
-			return newChecker().RunDrift(cmd.Context(), check.DriftOptions{
+			return newChecker(cmd).RunDrift(cmd.Context(), check.DriftOptions{
 				ProjectRoot: projectRoot,
 				TargetID:    targetID,
 				Format:      format,
@@ -239,7 +251,7 @@ the exit code is non-zero when either failed.`,
 			if err != nil {
 				return err
 			}
-			return newChecker().RunAll(cmd.Context(), check.AllOptions{
+			return newChecker(cmd).RunAll(cmd.Context(), check.AllOptions{
 				OverlayPath: overlayPath,
 				GoModPath:   goModPath,
 				Paths:       args,

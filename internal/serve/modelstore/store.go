@@ -88,7 +88,7 @@ type heldVersion struct {
 // changed. Open also trims the snapshots to the retention limit and removes
 // the Versions none of the survivors reference.
 func Open(dir, stamp string) (*Store, error) {
-	key := stampKey(stamp)
+	key := StampKey(stamp)
 	root := filepath.Join(dir, key)
 	for _, sub := range []string{versionsDir, snapshotsDir} {
 		if err := os.MkdirAll(filepath.Join(root, sub), 0o755); err != nil {
@@ -488,11 +488,12 @@ func clip(m domain.PackageModel) domain.PackageModel {
 	return m
 }
 
-// stampKey is the directory a parser's models live under: the stamp the
-// caller passes (the parser's version) and the structural shape of
-// domain.PackageModel, so a model written for another shape is never decoded
-// into this one.
-func stampKey(stamp string) string {
+// StampKey identifies the models a parser writes: the stamp the caller passes
+// (the parser's version) and the structural shape of domain.PackageModel. It
+// names the directory those models live under, so a model written for
+// another shape is never decoded into this one, and two processes with the
+// same key read identical source to identical models.
+func StampKey(stamp string) string {
 	sum := sha256.Sum256([]byte(schemaFingerprint + "\n" + stamp))
 	return hex.EncodeToString(sum[:8])
 }

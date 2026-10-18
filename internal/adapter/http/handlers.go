@@ -99,6 +99,8 @@ func (s *Server) routesContent(mux *nethttp.ServeMux) {
 	mux.HandleFunc("/api/gitdiff", s.handleGitDiffJSON)
 	mux.HandleFunc("/api/archmotif/report", s.handleArchMotifReport)
 	mux.HandleFunc("/api/archmotif/domains", s.handleArchMotifDomains)
+	// The model as it is on disk now, for wyrd-check.
+	mux.HandleFunc("/api/model", s.handleModel)
 	// Plugin API routes are per-worktree for the same reason the routes
 	// above are: they answer out of one worktree's tree.
 	s.registerPluginAPIRoutes(mux)

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kgatilin/wyrd/internal/clientconfig"
 	"github.com/kgatilin/wyrd/internal/serve"
 )
 
@@ -33,7 +34,7 @@ func TestClientConfigWorktrees(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	writeClientConfig(t, "repos:\n  ~/proj:\n    endpoint: https://wyrd.example/\n")
 	for _, root := range []string{repo, linked} {
-		got, err := configuredClientURL(root)
+		got, err := clientconfig.URL(root)
 		want := "https://wyrd.example/w/" + filepath.Base(root)
 		if err != nil || got != want {
 			t.Fatalf("root %s: got %q, %v; want %q", root, got, err, want)
@@ -57,11 +58,11 @@ func TestClientConfigWorktrees(t *testing.T) {
 	if err := os.Mkdir(subdir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := configuredClientURL(subdir); err != nil || got != "https://wyrd.example/w/feature" {
+	if got, err := clientconfig.URL(subdir); err != nil || got != "https://wyrd.example/w/feature" {
 		t.Fatalf("subdirectory: %q, %v", got, err)
 	}
 	other, _ := newRepoWithWorktree(t)
-	if got, err := configuredClientURL(other); err != nil || got != "" {
+	if got, err := clientconfig.URL(other); err != nil || got != "" {
 		t.Fatalf("unconfigured repo: %q, %v", got, err)
 	}
 	// The default location deliberately uses .config on macOS too.
@@ -73,7 +74,7 @@ func TestClientConfigWorktrees(t *testing.T) {
 		[]byte("repos:\n  ~/proj:\n    endpoint: http://default.example\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := configuredClientURL(linked); err != nil || got != "http://default.example/w/feature" {
+	if got, err := clientconfig.URL(linked); err != nil || got != "http://default.example/w/feature" {
 		t.Fatalf("home config: %q, %v", got, err)
 	}
 }
@@ -81,17 +82,17 @@ func TestClientConfigWorktrees(t *testing.T) {
 func TestClientConfigErrors(t *testing.T) {
 	repo, _ := newRepoWithWorktree(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if got, err := configuredClientURL(repo); err != nil || got != "" {
+	if got, err := clientconfig.URL(repo); err != nil || got != "" {
 		t.Fatalf("missing config: %q, %v", got, err)
 	}
 	for _, endpoint := range []string{"", "file:///tmp/server", "http://", "http://server/w/code", "http://server?x=1", "http://user:pass@server"} {
 		writeClientConfig(t, "repos:\n  "+repo+":\n    endpoint: "+endpoint+"\n")
-		if _, err := configuredClientURL(repo); err == nil {
+		if _, err := clientconfig.URL(repo); err == nil {
 			t.Errorf("accepted invalid endpoint %q", endpoint)
 		}
 	}
 	writeClientConfig(t, "repoz: {}\n")
-	if _, err := configuredClientURL(repo); err == nil {
+	if _, err := clientconfig.URL(repo); err == nil {
 		t.Fatal("accepted misspelled config field")
 	}
 }

@@ -1,5 +1,7 @@
 package golang
 
+import "strconv"
+
 // ModelVersion identifies what the reader writes into a domain.PackageModel
 // for a given source tree. Stored models are keyed by it, so they survive a
 // rebuild of the binary and are discarded only when this number moves.
@@ -12,3 +14,8 @@ package golang
 // itself. A change left unbumped is served from the models the previous
 // reader stored, and reads as a fix that did not take effect.
 const ModelVersion = 2
+
+// ReaderStamp names this reader's output wherever models are stored or
+// compared: the model store keys by it, and a daemon serving its model to
+// another process proves with it that both read alike.
+var ReaderStamp = "go-reader@v" + strconv.Itoa(ModelVersion)

@@ -193,7 +193,7 @@ func TestAnotherBinaryStartsEmptyAndRemovesTheOldModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != stampKey("bin-2") {
+	if len(entries) != 1 || entries[0].Name() != StampKey("bin-2") {
 		t.Fatalf("store dir holds %v, want only this binary's", entries)
 	}
 }
@@ -210,7 +210,7 @@ func TestRetentionDropsOldSnapshotsAndTheirVersions(t *testing.T) {
 	if _, ok, _ := s.Snapshot("rev0"); ok {
 		t.Error("the snapshot beyond the limit is still served from memory")
 	}
-	root := filepath.Join(dir, stampKey("bin-1"))
+	root := filepath.Join(dir, StampKey("bin-1"))
 	snaps, _ := os.ReadDir(filepath.Join(root, snapshotsDir))
 	versions, _ := os.ReadDir(filepath.Join(root, versionsDir))
 	if len(snaps) != snapshotLimit || len(versions) != snapshotLimit {

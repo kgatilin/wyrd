@@ -28,6 +28,7 @@ import (
 	"github.com/kgatilin/wyrd/internal/serve/modelstore"
 	"github.com/kgatilin/wyrd/internal/service"
 	"github.com/kgatilin/wyrd/internal/target"
+	"github.com/kgatilin/wyrd/internal/treestamp"
 )
 
 // State holds the in-memory model consumed by the daemon's transports.
@@ -50,7 +51,9 @@ type State struct {
 
 	// stamps are the content stamps of the tree, taken before the read that
 	// produced packages. Sync compares them with the disk.
-	stamps treeStamps
+	stamps treestamp.Tree
+	// tree is stamps.Fingerprint(), kept with them.
+	tree string
 
 	// readMu serializes the operations that read the tree and replace the
 	// model (Sync, Reload, ReloadOver), so a read over the current model is
@@ -276,6 +279,10 @@ type Snapshot struct {
 	Versions      map[string]string
 	Overlay       *overlay.Config
 	CurrentTarget string
+	// Tree is the fingerprint of the source tree Packages were read from
+	// (treestamp.Tree.Fingerprint): a client that scans the same tree and
+	// gets the same fingerprint is looking at the source this model is of.
+	Tree string
 }
 
 // Snapshot returns a consistent read-only copy of the state.
@@ -302,6 +309,7 @@ func (s *State) Snapshot() Snapshot {
 		Versions:      versions,
 		Overlay:       cfgCopy,
 		CurrentTarget: s.currentTarget,
+		Tree:          s.tree,
 	}
 }
 
@@ -322,7 +330,7 @@ func (s *State) Load(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	stamps, err := scanStamps(s.root)
+	stamps, err := treestamp.Scan(s.root)
 	if err != nil {
 		return fmt.Errorf("serve: scanning sources: %w", err)
 	}
@@ -331,7 +339,7 @@ func (s *State) Load(ctx context.Context) error {
 		return fmt.Errorf("serve: loading packages: %w", err)
 	}
 	s.packages = byPath(versions)
-	s.stamps = stamps
+	s.stamps, s.tree = stamps, stamps.Fingerprint()
 	models := modelsOf(s.packages)
 
 	// Overlay: best-effort. Missing file → leave nil.
@@ -419,7 +427,7 @@ func (s *State) RetrievalReady() <-chan struct{} {
 func (s *State) Reload(ctx context.Context) (bool, error) {
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
-	stamps, err := scanStamps(s.root)
+	stamps, err := treestamp.Scan(s.root)
 	if err != nil {
 		return false, fmt.Errorf("serve: scanning sources: %w", err)
 	}
@@ -444,7 +452,7 @@ func (s *State) Reload(ctx context.Context) (bool, error) {
 func (s *State) ReloadOver(ctx context.Context, base []modelstore.Version, changed []string) (bool, error) {
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
-	stamps, err := scanStamps(s.root)
+	stamps, err := treestamp.Scan(s.root)
 	if err != nil {
 		return false, fmt.Errorf("serve: scanning sources: %w", err)
 	}
@@ -654,7 +662,7 @@ func importersOf(versions []modelstore.Version, roots, skip []string) []string {
 // they were read from, re-reads the overlay and the active target, and
 // refreshes retrieval for the packages that differ. It returns those packages
 // and whether anything moved, the overlay and the target included.
-func (s *State) replaceModel(ctx context.Context, versions []modelstore.Version, stamps treeStamps) ([]string, bool, error) {
+func (s *State) replaceModel(ctx context.Context, versions []modelstore.Version, stamps treestamp.Tree) ([]string, bool, error) {
 	cur, err := target.Current(s.root)
 	if err != nil {
 		return nil, false, fmt.Errorf("serve: reading CURRENT: %w", err)
@@ -702,7 +710,7 @@ func (s *State) replaceModel(ctx context.Context, versions []modelstore.Version,
 	}
 	s.currentTarget = cur
 	s.packages = next
-	s.stamps = stamps
+	s.stamps, s.tree = stamps, stamps.Fingerprint()
 
 	if len(moved) > 0 {
 		s.refreshRetrievalLocked(ctx, changedNodes, removedIDs)

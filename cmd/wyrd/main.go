@@ -24,6 +24,7 @@ import (
 	"github.com/kgatilin/wyrd/internal/apply"
 	"github.com/kgatilin/wyrd/internal/buildinfo"
 	"github.com/kgatilin/wyrd/internal/check"
+	"github.com/kgatilin/wyrd/internal/clientconfig"
 	"github.com/kgatilin/wyrd/internal/diff"
 	"github.com/kgatilin/wyrd/internal/domain"
 	"github.com/kgatilin/wyrd/internal/overlay"
@@ -768,7 +769,7 @@ func runMCPThinClient(ctx context.Context, root string) error {
 		return fmt.Errorf("resolving root %s: %w", root, err)
 	}
 
-	base, err := configuredClientURL(absRoot)
+	base, err := clientconfig.URL(absRoot)
 	if err != nil {
 		return err
 	}
@@ -777,7 +778,7 @@ func runMCPThinClient(ctx context.Context, root string) error {
 		return mcp.ServeClient(ctx, mcp.ClientOptions{
 			Endpoint: base,
 			EndpointResolver: func() (string, error) {
-				return configuredClientURL(absRoot)
+				return clientconfig.URL(absRoot)
 			},
 		})
 	}
@@ -868,7 +869,7 @@ func runMCPSharedClient(ctx context.Context, root string) error {
 		return fmt.Errorf("mcp-client: --shared requires a git worktree; could not resolve repo root from %s", absRoot)
 	}
 
-	base, err := configuredClientURL(absRoot)
+	base, err := clientconfig.URL(absRoot)
 	if err != nil {
 		return err
 	}
@@ -877,7 +878,7 @@ func runMCPSharedClient(ctx context.Context, root string) error {
 		return mcp.ServeClient(ctx, mcp.ClientOptions{
 			Endpoint: base,
 			EndpointResolver: func() (string, error) {
-				return configuredClientURL(absRoot)
+				return clientconfig.URL(absRoot)
 			},
 		})
 	}

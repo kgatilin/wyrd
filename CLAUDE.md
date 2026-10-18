@@ -304,14 +304,37 @@ Sync are serialized on `readMu`.
 - **Stamps are taken before the read.** A file edited while it is being read
   keeps its old stamp, so the next Sync reads it again rather than trusting a
   model that may predate the edit.
-- **The MCP `check` tool syncs first** (`internal/adapter/mcp/check.go`, CLI
-  `wyrd graph check`): Sync, publish what moved (the sync consumed the change
-  the watcher would have broadcast), then `check.RunAll` over the synced
-  snapshot with the worktree's own `wyrd.yaml`. It is the daemon's answer,
-  not CI's: `wyrd-check` stays a standalone full parse and never asks a
-  daemon. The incremental model misses one thing a full parse has — an
-  `implements` edge from an untouched package to an interface a changed
-  package added — and policy counts `implements` as a dependency.
+- **An importer follows the API it imports.** A type inferred in a body —
+  a generic argument, an elided composite literal — names whatever the
+  imported packages declare, so an untouched package's `Dependencies` can
+  move when an import's API does. The reader records `APIHash` per package
+  (package-level declarations with their types, no bodies), and `readOver`
+  re-reads every package that reaches a changed one through `Imports` when
+  that package's hash moved, appeared or went away. The walk goes through
+  packages already re-read: a hash can stay put while a type it re-exports
+  changed underneath. So Sync, Refresh on a branch and a cold start over a
+  snapshot give the gates what a full parse gives; a body edit still costs
+  the package alone. `Implementations` stays approximate (an untouched
+  package's implementation of an interface a changed package added waits
+  for a full parse); no gate reads it.
+
+**wyrd-check asks the daemon for the model.** When the repository has a
+daemon in `~/.config/wyrd/config.yaml` (`internal/clientconfig`, the same
+file the thin client reads), `wyrd-check` reads the Go model through
+`internal/adapter/daemonmodel` instead of parsing: `GET
+/w/<worktree>/api/model?tree=<fingerprint>&reader=<key>` syncs the daemon's
+model with the disk and returns it, and the gates, the overlay and the report
+are wyrd-check's own. The daemon answers only for the same source and the
+same reader — `tree` is the client's `treestamp` fingerprint of the worktree
+(paths, mtimes and sizes of the files the model is read from), `reader` is
+`modelstore.StampKey(golang.ReaderStamp)` — and refuses with 409 otherwise.
+Anything that is not an answer — no configured daemon (CI), a read narrower
+than `./...`, a working directory other than the worktree root (its
+fingerprint differs), an unreachable or refusing daemon — is a local parse,
+with one stderr line when a configured daemon did not answer.
+`--no-daemon` forces the local parse. The equivalence test
+(`internal/adapter/daemonmodel/reader_test.go`) runs every gate both ways,
+before and after an API edit an untouched package infers from.
 
 **Refresh re-reads what the branch changed.** The review UI's `Refresh`
 sends `Cache-Control: no-cache` on `/api/uigraph`, and the handler calls

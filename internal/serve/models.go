@@ -3,7 +3,6 @@ package serve
 import (
 	"fmt"
 	"path/filepath"
-	"strconv"
 
 	"github.com/kgatilin/wyrd/internal/adapter/golang"
 	"github.com/kgatilin/wyrd/internal/serve/modelstore"
@@ -41,5 +40,5 @@ func OpenModelStore(root string) (*modelstore.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return modelstore.Open(dir, "go-reader@v"+strconv.Itoa(golang.ModelVersion))
+	return modelstore.Open(dir, golang.ReaderStamp)
 }
