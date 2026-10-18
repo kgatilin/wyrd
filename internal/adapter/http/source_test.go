@@ -58,6 +58,10 @@ func TestSourceFileJSON_SaveWritesFile(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "internal", "event"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// A module, so the saved package is one the reader can model.
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/app\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(root, "internal", "event", "event.go")
 	original := "package event\n"
 	updated := "package event\n\nconst Name = \"created\"\n"

@@ -34,19 +34,6 @@ type Watcher struct {
 	// walked into when adding watches. Tests inject one; production
 	// code uses defaultSkipDir.
 	skipDir func(name string) bool
-
-	// seen is the last (mtime, size) observed per file. It decides what an
-	// attribute-only event means: a file whose content stamp did not move
-	// was only inspected, one whose stamp moved was edited by something that
-	// reports edits as attribute changes. Touched only by addTree and Run,
-	// which never run concurrently.
-	seen map[string]contentStamp
-}
-
-// contentStamp is what an edit changes and an inspection does not.
-type contentStamp struct {
-	mod  int64
-	size int64
 }
 
 // NewWatcher creates a fsnotify-backed Watcher rooted at root. The
@@ -68,7 +55,6 @@ func NewWatcher(root string, debounce time.Duration) (*Watcher, error) {
 		root:     root,
 		debounce: debounce,
 		skipDir:  defaultSkipDir,
-		seen:     make(map[string]contentStamp),
 	}
 	if err := w.addTree(root); err != nil {
 		_ = inner.Close()
@@ -137,25 +123,13 @@ func (w *Watcher) Run(ctx context.Context, handler EventHandler) error {
 			if !w.contains(ev.Name) {
 				continue
 			}
-			// An attribute-only event is an edit only when the file's
-			// content stamp moved. macOS kqueue reports NOTE_ATTRIB
-			// (fsnotify Chmod) for files that were merely inspected —
-			// `git diff` and `git status` raise it on every file that
-			// differs from the index — and treating that as an edit closed
-			// a loop through the review UI: the UI reads /api/gitdiff, git
-			// trips NOTE_ATTRIB, the daemon re-parses and publishes
-			// model-changed, and the UI reads the diff again. But a host
-			// directory shared into a VM (colima's mountInotify) delivers
-			// *every* host edit as a chmod in the guest, so dropping the
-			// bare Chmod outright left a daemon in a container blind to
-			// all edits.
-			if ev.Op&^fsnotify.Chmod == 0 {
-				if !w.stampMoved(ev.Name) {
-					continue
-				}
-			} else {
-				w.stampMoved(ev.Name)
-			}
+			// An attribute-only event is passed on like any other. macOS
+			// kqueue raises NOTE_ATTRIB on files `git status` and `git diff`
+			// merely inspect, and a host directory shared into a VM
+			// (colima's mountInotify) delivers every host edit as a chmod.
+			// The handler syncs by content stamp, so an inspection costs a
+			// walk of stats and moves nothing.
+			//
 			// If the event is the creation of a new directory, start
 			// watching it too so nested edits are picked up.
 			// The walk's own skip rules apply to it: addTree exempts its
@@ -220,9 +194,6 @@ func (w *Watcher) addTree(root string) error {
 			return nil
 		}
 		if !d.IsDir() {
-			if info, err := d.Info(); err == nil {
-				w.seen[path] = stampOf(info)
-			}
 			return nil
 		}
 		if w.skipDir(d.Name()) && path != root {
@@ -236,30 +207,6 @@ func (w *Watcher) addTree(root string) error {
 		}
 		return nil
 	})
-}
-
-// stampMoved records path's current content stamp and reports whether it
-// differs from the last one seen. A path that is gone has no stamp to
-// compare and counts as moved, which is the safe direction: a spurious event
-// costs one identical re-parse, a dropped one a stale model. A directory's
-// own attributes say nothing about the files in it.
-func (w *Watcher) stampMoved(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil {
-		delete(w.seen, path)
-		return true
-	}
-	if info.IsDir() {
-		return false
-	}
-	next := stampOf(info)
-	prev, ok := w.seen[path]
-	w.seen[path] = next
-	return !ok || prev != next
-}
-
-func stampOf(info os.FileInfo) contentStamp {
-	return contentStamp{mod: info.ModTime().UnixNano(), size: info.Size()}
 }
 
 // shouldIgnore returns true for paths the daemon should never react to

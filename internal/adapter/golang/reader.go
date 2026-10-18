@@ -1851,7 +1851,7 @@ func (r *reader) applyStereotypes(model *domain.PackageModel) {
 // the CONCRETE side: the PackageModel that declares the concrete type owns it.
 // This makes the daemon's single-package reload self-consistent — reloading a
 // concrete's package atomically drops its stale edges and recomputes fresh ones
-// via the splice in serve.State.ReloadPackage — and it converges to a full
+// when serve.State.Sync reads it over the rest of the model — and it converges to a full
 // `./...` build, which the incremental path must match.
 //
 // To detect a concrete that implements an interface from another (unchanged)

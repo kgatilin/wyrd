@@ -274,35 +274,36 @@ used to take for a finished tree — nor anything younger than an hour, which
 may be another process's load. A staged tree also gets a `.wyrd-basetree`
 marker before its rename and only a marked directory counts.
 
-**A package deleted from the tree must leave the model with it.** The
-incremental path could add and update packages but never drop one, so a
-package deleted by a checkout, rebase or merge stayed in a running daemon's
-model until it restarted — and that is not inert. The review canvas reads its
-base from a commit materialized fresh by `basetree.go` and its branch side
-from this long-lived model, so a package that outlived its source on the
-branch side is drawn as a package **the branch added**: a green node in a diff
-that contains no such change. Two reasons it survived. `FindOwningPackage`
-resolved a file's package from the filesystem alone, and a deletion leaves
-nothing there to resolve — with the directory empty or gone the walk climbs
-past it and answers with an ancestor package, or with `""`, so `ReloadPackage`
-(which removes correctly, and always did) was never called for the package
-that lost the file. And a directory removed wholesale can arrive as a single
-bare-directory event, naming no `.go` file at all. So the lookup now also
-accepts a directory the *model* holds a package for, and a batch carrying any
-path that is no longer on disk triggers `State.PruneMissingPackages`, which
-reconciles the model against a scan of the tree. The scan runs only on
-deletions. Cold starts were never affected: a snapshot plus the diff against
-it, or a full parse, both start from what is on disk.
+**The model follows the disk by content stamps, not by events.** A State
+keeps the (mtime, size) of every file its model was read from — non-test
+`.go` files under the trees the Go tool walks, plus the root `go.mod` and
+`go.sum` — taken *before* the read. `State.Sync` (`internal/serve/sync.go`)
+walks the tree with stats only, reads the package directories whose files
+differ over the current model (`readOver`, the rest as known), drops a
+package whose source is gone, parses in full when `go.mod`/`go.sum` moved,
+and returns the packages whose model moved. An unchanged tree costs one walk.
+Load, Reload and ReloadOver record stamps the same way, and all three plus
+Sync are serialized on `readMu`.
 
-**An attribute event is an edit when the content stamp moved.** The watcher
-drops a bare `Chmod` only if the file's (mtime, size) is the one it last saw:
-macOS raises NOTE_ATTRIB on files `git status`/`git diff` merely inspect, and
-reacting to that looped the review UI through re-parses. Dropping every bare
-`Chmod` instead left a daemon in a VM blind — colima's `mountInotify` forwards
-each host edit as a `chmod` in the guest and nothing else — so a pod in a VM
-served a branch's model as it was at checkout for as long as it ran. A host
-deletion is still never forwarded (chmod on a gone path fails), which is one
-reason Refresh exists.
+- **A watcher batch only triggers Sync.** It used to name the package from
+  the event: `FindOwningPackage` resolved a deleted file from a filesystem
+  that no longer had it and climbed to an ancestor, a directory removed
+  wholesale arrived as one bare-directory event, and each needed its own
+  repair (`PruneMissingPackages`). A package that outlived its source on a
+  branch is drawn as a package **the branch added**, since the review base is
+  read fresh from a commit. Sync compares the tree with the stamps, so which
+  events arrived no longer decides what is read.
+- **Attribute events are passed on.** macOS raises NOTE_ATTRIB on files
+  `git status`/`git diff` merely inspect, and colima's `mountInotify`
+  forwards every host edit as a `chmod` in the guest. The watcher used to
+  hold its own stamp map to tell the two apart; now an inspection costs Sync
+  a walk and moves nothing, and nothing is published.
+- **A failed read leaves the model and the stamps as they were**, so the next
+  Sync reads those packages again. A package the reader cannot model at all
+  is what a full parse skips too, and it leaves the model.
+- **Stamps are taken before the read.** A file edited while it is being read
+  keeps its old stamp, so the next Sync reads it again rather than trusting a
+  model that may predate the edit.
 
 **Refresh re-reads what the branch changed.** The review UI's `Refresh`
 sends `Cache-Control: no-cache` on `/api/uigraph`, and the handler calls
@@ -318,11 +319,10 @@ re-read on a branch's behalf: a stale base is fixed by a Refresh on the base.
 A change publishes one `model-changed`. Everything else called refresh
 (`/api/refresh`, MCP `refresh`) only re-indexes the model already in memory.
 
-Two things used to empty a branch model silently and keep it empty:
-`ReloadPackage` dropped a package on any read error (now only when no Go
-source is left in its directory; otherwise the error is returned and
-logged), and the per-worktree model cache, since replaced by the store,
-skipped a package its manifest listed but its models did not hold.
+Two things used to empty a branch model silently and keep it empty: the
+single-package reload dropped a package on any read error, and the
+per-worktree model cache, since replaced by the store, skipped a package its
+manifest listed but its models did not hold.
 
 **Stored models are keyed by the reader's version, not by the binary.**
 `golang.ModelVersion` (`internal/adapter/golang/version.go`) is a hand-bumped

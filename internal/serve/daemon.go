@@ -639,11 +639,9 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 			fmt.Fprintf(logOut, "serve: batch %d event(s)\n", len(paths))
 		}
 
-		// Deduplicate owning-package reloads within a batch.
-		pkgReloads := make(map[string]struct{})
+		syncDirty := false
 		overlayDirty := false
 		currentDirty := false
-		sawRemoval := false
 
 		for _, p := range paths {
 			abs := p
@@ -666,67 +664,33 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 				currentDirty = true
 			case strings.HasPrefix(rel, ".arch/.worktree/") && strings.HasSuffix(rel, "/CURRENT"):
 				currentDirty = true
-			case strings.HasSuffix(abs, ".go"):
-				if _, err := os.Stat(abs); err != nil {
-					sawRemoval = true
-				}
-				if pkg := state.FindOwningPackage(abs); pkg != "" {
-					pkgReloads[pkg] = struct{}{}
-				}
-			default:
+			case strings.HasSuffix(rel, ".go"), rel == "go.mod", rel == "go.sum",
 				// A directory removed wholesale can arrive as the bare
-				// directory path, with no event for the .go files that went
-				// with it. Nothing here can name the packages that were under
-				// it, so it only has to be recognised as a removal — the
-				// reconcile below finds them.
-				if filepath.Ext(rel) == "" {
-					if _, err := os.Stat(abs); err != nil {
-						sawRemoval = true
-					}
-				}
+				// directory path, with no event for the files that went
+				// with it.
+				filepath.Ext(rel) == "":
+				syncDirty = true
 			}
 		}
 
-		var reloaded []string
-		for pkg := range pkgReloads {
-			changed, err := state.ReloadPackage(ctx, pkg)
-			if err != nil {
-				fmt.Fprintf(logOut, "serve: reload %s: %v\n", pkg, err)
-				continue
-			}
-			if !changed {
-				// The file moved but the model did not. Broadcasting here
-				// would tell every review client to throw its canvas and
-				// file diff away and read them again for nothing.
+		// The batch only says that something moved; Sync compares the tree
+		// with the stamps the model was read at, so what it reloads does not
+		// depend on which events arrived, and a deleted package goes even
+		// when nothing on disk is left to name it.
+		if syncDirty {
+			moved, err := state.Sync(ctx)
+			switch {
+			case err != nil:
+				fmt.Fprintf(logOut, "serve: sync: %v\n", err)
+			case len(moved) > 0:
+				// Only a model that moved is broadcast: an identical
+				// re-parse would make every review client throw its canvas
+				// and file diff away and read them again for nothing.
+				state.PublishPackageReload(moved)
 				if debug {
-					fmt.Fprintf(logOut, "serve: package %s unchanged\n", pkg)
+					fmt.Fprintf(logOut, "serve: reloaded %s\n", strings.Join(moved, ", "))
 				}
-				continue
 			}
-			reloaded = append(reloaded, pkg)
-			if debug {
-				fmt.Fprintf(logOut, "serve: reloaded package %s\n", pkg)
-			}
-		}
-		// Reconcile the model against the tree whenever the batch carried a
-		// path that is no longer there. FindOwningPackage resolves a deletion
-		// only while something at that path survives it; a whole package tree
-		// taken out by a checkout leaves nothing, and the packages under it
-		// would otherwise stay in the model until the daemon restarts. The
-		// scan costs a walk of the worktree and runs only on deletions.
-		if sawRemoval {
-			dropped, err := state.PruneMissingPackages(ctx)
-			if err != nil {
-				fmt.Fprintf(logOut, "serve: reconcile packages: %v\n", err)
-			} else if len(dropped) > 0 {
-				reloaded = append(reloaded, dropped...)
-				fmt.Fprintf(logOut, "serve: dropped %d package(s) whose source is gone: %s\n",
-					len(dropped), strings.Join(dropped, ", "))
-			}
-		}
-
-		if len(reloaded) > 0 {
-			state.PublishPackageReload(reloaded)
 		}
 
 		if overlayDirty {

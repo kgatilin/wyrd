@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
-	"strings"
 	"sync"
 
 	"time"
@@ -48,6 +47,15 @@ type State struct {
 	// Each entry is a Version: a model the store holds is the store's
 	// canonical instance, shared with every other State, so it is read-only.
 	packages map[string]modelstore.Version
+
+	// stamps are the content stamps of the tree, taken before the read that
+	// produced packages. Sync compares them with the disk.
+	stamps treeStamps
+
+	// readMu serializes the operations that read the tree and replace the
+	// model (Sync, Reload, ReloadOver), so a read over the current model is
+	// never installed over a model replaced while it ran.
+	readMu sync.Mutex
 
 	// store is the repository's shared model store. Nil means every cold
 	// start is a full parse and nothing is shared or persisted.
@@ -314,11 +322,16 @@ func (s *State) Load(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	stamps, err := scanStamps(s.root)
+	if err != nil {
+		return fmt.Errorf("serve: scanning sources: %w", err)
+	}
 	versions, err := s.coldStart(ctx)
 	if err != nil {
 		return fmt.Errorf("serve: loading packages: %w", err)
 	}
 	s.packages = byPath(versions)
+	s.stamps = stamps
 	models := modelsOf(s.packages)
 
 	// Overlay: best-effort. Missing file → leave nil.
@@ -394,94 +407,6 @@ func (s *State) RetrievalReady() <-chan struct{} {
 	return s.retrievalReady
 }
 
-// ReloadPackage re-extracts the single package identified by its
-// module-relative path (e.g. "internal/serve") and splices the result
-// into the in-memory model. A package that no longer exists is removed.
-// Also refreshes the retrieval indexes for changed/removed nodes.
-//
-// The bool reports whether the model actually moved. A file event does not
-// prove an edit — an editor rewriting identical bytes, or a `go:generate`
-// run that reproduces its output, both re-parse to the same model — and a
-// no-op reload is expensive downstream: it rewrites the model, BM25 and
-// vector caches (hundreds of MB on a large repo) and makes every subscribed
-// review client reload itself. Callers publish model-changed only when this
-// is true.
-func (s *State) ReloadPackage(ctx context.Context, pkgPath string) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if pkgPath == "" {
-		return false, fmt.Errorf("serve: empty package path")
-	}
-
-	// Collect old node IDs for this package (to detect removals)
-	oldPkg, hadOldPkg := s.packages[pkgPath]
-	var oldNodeIDs []string
-	if hadOldPkg {
-		oldNodes := retrieval.BuildNodes([]domain.PackageModel{oldPkg.Model})
-		for _, n := range oldNodes {
-			oldNodeIDs = append(oldNodeIDs, n.ID)
-		}
-	}
-
-	// The rest of the model goes in as known: reloading one package must not
-	// cost it the interface-dispatch edges a full read would have given it.
-	models, err := s.readPackageSet(ctx, []string{pkgPath}, modelsOf(s.packages))
-	if err != nil {
-		// A failed read is not a deletion: a go.mod mid-edit or a loader
-		// under pressure fails the same way, and dropping on every failure
-		// let a burst of events empty the model without a word. Only a
-		// directory with no Go source left is a package that is gone; any
-		// other failure keeps the model it had and is reported.
-		if hasGoFiles(filepath.Join(s.root, filepath.FromSlash(pkgPath))) {
-			return false, fmt.Errorf("serve: reading package %s: %w", pkgPath, err)
-		}
-		delete(s.packages, pkgPath)
-		if !hadOldPkg {
-			// Nothing was dropped, so nothing moved: an unreadable path
-			// that was never in the model is not a change.
-			return false, nil
-		}
-		// Refresh retrieval: all old nodes are now removed
-		s.refreshRetrievalLocked(ctx, nil, oldNodeIDs)
-		return true, nil
-	}
-
-	// An identical re-parse is the common case behind a file event, so it
-	// is answered before any of the expensive writes below. A package edited
-	// back to what a snapshot holds comes back as that snapshot's instance.
-	versions := s.store.Versions(models)
-	if hadOldPkg && len(versions) == 1 && versions[0].Model.Path == pkgPath &&
-		versions[0].Hash == oldPkg.Hash {
-		return false, nil
-	}
-
-	// Remove the old entry so stale data cannot leak if the reader
-	// returned zero packages (deleted/empty dir).
-	delete(s.packages, pkgPath)
-	for _, v := range versions {
-		s.packages[v.Model.Path] = v
-	}
-
-	// Refresh retrieval indexes
-	newNodes := retrieval.BuildNodes(models)
-
-	// Compute removed IDs: old IDs that are not in new nodes
-	newNodeSet := make(map[string]bool)
-	for _, n := range newNodes {
-		newNodeSet[n.ID] = true
-	}
-	var removedIDs []string
-	for _, id := range oldNodeIDs {
-		if !newNodeSet[id] {
-			removedIDs = append(removedIDs, id)
-		}
-	}
-
-	s.refreshRetrievalLocked(ctx, newNodes, removedIDs)
-	return true, nil
-}
-
 // Reload re-reads the whole worktree from disk — every package, the overlay
 // and the active target — and reports whether anything differs from what the
 // State held. It is the answer to a missed file event: the watcher keeps the
@@ -492,13 +417,20 @@ func (s *State) ReloadPackage(ctx context.Context, pkgPath string) (bool, error)
 // recorded as the snapshot of HEAD. Retrieval is refreshed for the packages
 // that changed only.
 func (s *State) Reload(ctx context.Context) (bool, error) {
+	s.readMu.Lock()
+	defer s.readMu.Unlock()
+	stamps, err := scanStamps(s.root)
+	if err != nil {
+		return false, fmt.Errorf("serve: scanning sources: %w", err)
+	}
 	// The parse is the slow part and needs no lock; holding it would stall
 	// every reader of the model for the length of a full read.
 	versions, err := s.readAll(ctx)
 	if err != nil {
 		return false, fmt.Errorf("serve: reloading packages: %w", err)
 	}
-	return s.replaceModel(ctx, versions)
+	_, changed, err := s.replaceModel(ctx, versions, stamps)
+	return changed, err
 }
 
 // ReloadOver rebuilds the model as base with the packages in changed read
@@ -510,11 +442,18 @@ func (s *State) Reload(ctx context.Context) (bool, error) {
 // dropped; one the reader fails on fails the whole call and leaves the model
 // as it was.
 func (s *State) ReloadOver(ctx context.Context, base []modelstore.Version, changed []string) (bool, error) {
+	s.readMu.Lock()
+	defer s.readMu.Unlock()
+	stamps, err := scanStamps(s.root)
+	if err != nil {
+		return false, fmt.Errorf("serve: scanning sources: %w", err)
+	}
 	versions, err := s.readOver(ctx, base, changed)
 	if err != nil {
 		return false, err
 	}
-	return s.replaceModel(ctx, versions)
+	_, moved, err := s.replaceModel(ctx, versions, stamps)
+	return moved, err
 }
 
 // coldStart reads the model a State starts with. With a store, a snapshot of
@@ -641,28 +580,29 @@ func (s *State) readOver(ctx context.Context, base []modelstore.Version, changed
 	return versions, nil
 }
 
-// replaceModel installs models as the whole model, re-reads the overlay and
-// the active target, refreshes retrieval for the packages that differ, and
-// reports whether anything moved.
-func (s *State) replaceModel(ctx context.Context, versions []modelstore.Version) (bool, error) {
+// replaceModel installs versions as the whole model and stamps as the tree
+// they were read from, re-reads the overlay and the active target, and
+// refreshes retrieval for the packages that differ. It returns those packages
+// and whether anything moved, the overlay and the target included.
+func (s *State) replaceModel(ctx context.Context, versions []modelstore.Version, stamps treeStamps) ([]string, bool, error) {
 	cur, err := target.Current(s.root)
 	if err != nil {
-		return false, fmt.Errorf("serve: reading CURRENT: %w", err)
+		return nil, false, fmt.Errorf("serve: reading CURRENT: %w", err)
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	next := byPath(versions)
+	var moved []string
 	var changedNodes []retrieval.Node
 	var removedIDs []string
-	modelChanged := len(next) != len(s.packages)
 	for path, old := range s.packages {
 		m, ok := next[path]
 		if ok && old.Hash == m.Hash {
 			continue
 		}
-		modelChanged = true
+		moved = append(moved, path)
 		var newIDs map[string]bool
 		if ok {
 			nodes := retrieval.BuildNodes([]domain.PackageModel{m.Model})
@@ -680,21 +620,24 @@ func (s *State) replaceModel(ctx context.Context, versions []modelstore.Version)
 	}
 	for path, m := range next {
 		if _, ok := s.packages[path]; !ok {
+			moved = append(moved, path)
 			changedNodes = append(changedNodes, retrieval.BuildNodes([]domain.PackageModel{m.Model})...)
 		}
 	}
+	sort.Strings(moved)
 
 	oldOverlay, oldTarget := s.overlayCfg, s.currentTarget
 	if err := s.reloadOverlayLocked(); err != nil {
-		return false, fmt.Errorf("serve: reloading overlay: %w", err)
+		return nil, false, fmt.Errorf("serve: reloading overlay: %w", err)
 	}
 	s.currentTarget = cur
 	s.packages = next
+	s.stamps = stamps
 
-	if modelChanged {
+	if len(moved) > 0 {
 		s.refreshRetrievalLocked(ctx, changedNodes, removedIDs)
 	}
-	return modelChanged || cur != oldTarget || !reflect.DeepEqual(oldOverlay, s.overlayCfg), nil
+	return moved, len(moved) > 0 || cur != oldTarget || !reflect.DeepEqual(oldOverlay, s.overlayCfg), nil
 }
 
 // refreshRetrievalLocked updates the view for changed nodes and rebuilds its
@@ -834,118 +777,4 @@ func byPath(versions []modelstore.Version) map[string]modelstore.Version {
 		out[v.Model.Path] = v
 	}
 	return out
-}
-
-// FindOwningPackage walks up from the directory of path until it finds a
-// directory that owns a package, then converts that absolute directory into a
-// module-relative package path by stripping the root prefix. Returns "" when
-// no owning package is found (e.g. the change was outside the project root or
-// in a non-Go directory tree).
-//
-// A directory owns a package when it holds .go files — or when the model
-// already holds a package at that path. The second clause is what routes a
-// *deletion*: the file the watcher names is gone, and if it was the last .go
-// file there the directory is empty or gone with it, so asking the filesystem
-// alone answers with an ancestor package (or with nothing) and the package
-// that actually lost the file never gets reloaded, never gets removed, and
-// outlives its own source for the life of the daemon.
-func (s *State) FindOwningPackage(path string) string {
-	abs := path
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(s.root, path)
-	}
-	dir := filepath.Dir(abs)
-	rootAbs, err := filepath.Abs(s.root)
-	if err != nil {
-		rootAbs = s.root
-	}
-
-	for {
-		if !strings.HasPrefix(dir, rootAbs) {
-			return ""
-		}
-		rel, err := filepath.Rel(rootAbs, dir)
-		if err != nil {
-			return ""
-		}
-		rel = filepath.ToSlash(rel)
-		if hasGoFiles(dir) || s.hasPackage(rel) {
-			return rel
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
-}
-
-// hasPackage reports whether the model currently holds a package at the given
-// module-relative path.
-func (s *State) hasPackage(rel string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	_, ok := s.packages[rel]
-	return ok
-}
-
-// PruneMissingPackages drops every package the model still holds whose
-// directory no longer contains Go source, and reports the paths it dropped.
-//
-// ReloadPackage removes a package once the watcher names it, but the watcher
-// can only name a package something on disk still resolves to. A checkout,
-// rebase or merge that deletes a whole package tree can leave nothing to
-// resolve, and what stays behind is not inert: the review base is re-read
-// from a materialized commit while the branch side is this long-lived model,
-// so a package that outlived its source on one side is reported as a package
-// the branch added.
-func (s *State) PruneMissingPackages(ctx context.Context) ([]string, error) {
-	onDisk, err := goPackageDirs(s.root)
-	if err != nil {
-		return nil, err
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var removed []string
-	for pkgPath := range s.packages {
-		if !onDisk[pkgPath] {
-			removed = append(removed, pkgPath)
-		}
-	}
-	if len(removed) == 0 {
-		return nil, nil
-	}
-	sort.Strings(removed)
-
-	var removedIDs []string
-	for _, pkgPath := range removed {
-		for _, n := range retrieval.BuildNodes([]domain.PackageModel{s.packages[pkgPath].Model}) {
-			removedIDs = append(removedIDs, n.ID)
-		}
-		delete(s.packages, pkgPath)
-	}
-
-	s.refreshRetrievalLocked(ctx, nil, removedIDs)
-	return removed, nil
-}
-
-// hasGoFiles reports whether dir contains at least one .go file
-// (excluding _test.go files is unnecessary here — we only need to know
-// the directory is a Go package for reload purposes).
-func hasGoFiles(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if filepath.Ext(e.Name()) == ".go" {
-			return true
-		}
-	}
-	return false
 }

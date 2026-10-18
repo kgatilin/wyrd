@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/kgatilin/wyrd/internal/domain"
 )
 
 // TestBuildHandlerDropsAPackageDeletedFromTheTree covers the two shapes a
@@ -88,5 +90,28 @@ func New() *Thing { return &Thing{} }
 	}
 	if countStructs(t, st, "internal/foo") != 2 {
 		t.Fatalf("the edit was not picked up: %d struct(s)", countStructs(t, st, "internal/foo"))
+	}
+}
+
+// TestBuildHandlerReadsNothingForAnInspection: macOS raises an attribute event
+// on files `git status` merely inspects, and the watcher passes it on. Such a
+// batch must not reach the reader, or the review UI's own diff reads would
+// loop it through re-parses.
+func TestBuildHandlerReadsNothingForAnInspection(t *testing.T) {
+	root := newFixture(t)
+	reader := &recordingReader{responses: map[string][]domain.PackageModel{
+		"./...": {{Path: "internal/foo", Name: "foo"}, {Path: "internal/bar", Name: "bar"}},
+	}}
+	st := NewState(root, WithReader(reader))
+	ctx := context.Background()
+	if err := st.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	var logOut bytes.Buffer
+	buildHandler(ctx, st, &logOut, false)([]string{filepath.Join(root, "internal", "foo", "foo.go")})
+
+	if got := flattenCalls(reader.calls); got != "./..." {
+		t.Fatalf("reads = %q, want only the load", got)
 	}
 }

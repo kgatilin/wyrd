@@ -116,7 +116,7 @@ func (s *Server) saveSourceFile(ctx context.Context, r *nethttp.Request, req sav
 		return "", "", nil, errSourceRead("write source: " + err.Error())
 	}
 
-	reloaded := s.reloadSourceOwner(ctx, r, abs)
+	reloaded := s.syncAfterWrite(ctx, r, abs)
 	return rel, req.Content, reloaded, nil
 }
 
@@ -129,7 +129,7 @@ func (s *Server) resolveSourceFile(r *nethttp.Request, requested string) (string
 	return resolveSourcePath(snap.Root, requested, snap.Packages)
 }
 
-func (s *Server) reloadSourceOwner(ctx context.Context, r *nethttp.Request, abs string) []string {
+func (s *Server) syncAfterWrite(ctx context.Context, r *nethttp.Request, abs string) []string {
 	if !strings.HasSuffix(abs, ".go") {
 		return nil
 	}
@@ -137,16 +137,12 @@ func (s *Server) reloadSourceOwner(ctx context.Context, r *nethttp.Request, abs 
 	if state == nil {
 		return nil
 	}
-	pkg := state.FindOwningPackage(abs)
-	if pkg == "" {
+	moved, err := state.Sync(ctx)
+	if err != nil || len(moved) == 0 {
 		return nil
 	}
-	changed, err := state.ReloadPackage(ctx, pkg)
-	if err != nil || !changed {
-		return nil
-	}
-	state.PublishPackageReload([]string{pkg})
-	return []string{pkg}
+	state.PublishPackageReload(moved)
+	return moved
 }
 
 func resolveSourcePath(root, requested string, packages []domain.PackageModel) (string, string, error) {
