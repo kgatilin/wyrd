@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { UIGraph } from '../types';
-import { relatedIds, deriveChanges, deriveChangeStats, addInternalsOfExpanded, initialExpanded, seedMarkers, selectReviewGraph } from './derive';
+import { relatedIds, deriveChanges, deriveChangeStats, addInternalsOfExpanded, initialExpanded, seedMarkers, selectReviewGraph, undrawnChangedPackages } from './derive';
 import type { AskProjection } from './ask';
 
 function graph(overrides?: Partial<UIGraph>): UIGraph {
@@ -684,6 +684,45 @@ describe('selectReviewGraph', () => {
 
     expect(selected.components.map((c) => c.id)).toEqual(['api', 'event']);
     expect(selected.edges.map((e) => e.id)).toEqual(['api-event']);
+  });
+
+  it('draws nothing when every change lies outside the review view', () => {
+    const g = graph({
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 1, removed: 0, changed: 0, comments: 0 } },
+      components: [
+        { id: 'app', name: 'app', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
+        { id: 'store', name: 'store', tech: '', desc: '', bc: 'bc1', internals: [], ports: [] },
+        { id: 'tests/probe', name: 'probe', tech: '', desc: '', bc: 'bc1', diff: 'added', internals: [], ports: [] },
+      ],
+      edges: [{ id: 'app-store', from: 'app', to: 'store', fromPort: '', toPort: '', label: '' }],
+      reviewViews: [
+        { id: 'main', title: 'Main', defaultScope: 'everything', componentIds: ['app', 'store'], componentCount: 2 },
+      ],
+    });
+
+    const selected = selectReviewGraph(g, 'main', 'everything', null, {
+      impactMode: 'changed_only',
+      changeFilter: 'all',
+      changedDetailsOnly: true,
+    });
+
+    expect(selected.components).toHaveLength(0);
+    expect(selected.edges).toHaveLength(0);
+    expect(undrawnChangedPackages(g, selected)).toEqual(['tests/probe']);
+  });
+
+  it('reports no undrawn change when the branch touched no declaration', () => {
+    const g = graph({
+      pr: { title: 'Review', branch: 'feature', agent: 'wyrd', summary: '', stats: { added: 0, removed: 0, changed: 0, comments: 0 } },
+      policyViolations: [
+        { id: 'v1', kind: 'layer', sourceComponentId: 'a', targetComponentId: 'b', message: 'pre-existing' },
+      ],
+    });
+
+    const selected = selectReviewGraph(g, null, 'everything', null, { impactMode: 'changed_only' });
+
+    expect(selected.components).toHaveLength(0);
+    expect(undrawnChangedPackages(g, selected)).toEqual([]);
   });
 
   it('can hide unchanged neighbors while keeping the selected impact mode', () => {

@@ -305,7 +305,7 @@ describe('domains canvas — scope', () => {
   });
 
   it('asks for the change region on a branch, and re-asks when the scope changes', async () => {
-    const { app, domains, scopes } = await mount({}, graphOf({ pr: true }));
+    const { app, domains, scopes } = await mount({}, graphOf({ pr: true, diffs: { 'store.Put': 'added' } }));
     await domains.waitForGrid();
 
     expect(await domains.scope()).toBe('diff region');

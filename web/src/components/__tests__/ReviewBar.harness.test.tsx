@@ -102,3 +102,32 @@ describe('review bar surface toggle', () => {
     });
   });
 });
+
+describe('empty diff', () => {
+  it('names the changes the view leaves out instead of drawing the whole view', async () => {
+    const outside: UIGraph = {
+      ...graph,
+      components: [
+        ...graph.components.map((component) => ({
+          ...component,
+          internals: component.internals.map((internal) => ({ ...internal, diff: undefined })),
+        })),
+        { id: 'probe', name: 'probe', tech: 'Go', desc: '', bc: 'root', diff: 'added', internals: [], ports: [] },
+      ],
+    };
+    const env = await mountAppDom(outside);
+    const app = await env.load(AppHarness);
+    await env.waitUntil(async () => (await app.emptyDiffNote()) != null, {
+      message: 'an empty diff showed no note',
+    });
+    expect(await (await app.diagram()).componentCount()).toBe(0);
+    expect(await app.emptyDiffNote()).toContain('probe');
+
+    await app.showInFull();
+    await env.waitUntil(async () => (await (await app.diagram()).componentCount()) === 3, {
+      message: 'Show in Full never drew the package outside the view',
+    });
+    expect(await app.reviewMode()).toBe('Full');
+    expect(await app.emptyDiffNote()).toBeNull();
+  });
+});

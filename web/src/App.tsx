@@ -4,7 +4,7 @@ import { createAppStore } from './runtime/createAppStore';
 import { StoreProvider, useStore, useDispatch, useStoreApi } from './runtime/react';
 import type { DomViewport } from './adapters/domViewport';
 import { askProjectionOf, groupAskHits } from './domain/ask';
-import { relatedIds, deriveChanges, deriveChangeStats, selectReviewGraph } from './domain/derive';
+import { relatedIds, deriveChanges, deriveChangeStats, selectReviewGraph, undrawnChangedPackages } from './domain/derive';
 import {
   applyLayoutPins,
   buildLayoutScopeKey,
@@ -314,6 +314,16 @@ function AppContent({
 
   // Determine if diff mode is active (semantic — raw graph)
   const showDiff = graph.pr != null;
+
+  // An empty Diff canvas says why it is empty: the branch touched no
+  // declaration, or what it changed is outside the view or the scope.
+  const undrawnChanges = useMemo(
+    () =>
+      showDiff && !fullView && !askProjection && displayGraph.components.length === 0
+        ? undrawnChangedPackages(graph, displayGraph)
+        : null,
+    [showDiff, fullView, askProjection, graph, displayGraph]
+  );
 
   // Map bounded-context id → display name, so each component's header icon can
   // show its parent (BC) initial instead of its own.
@@ -956,6 +966,25 @@ function AppContent({
 
         {/* CENTER PANE - canvas viewport (does not scroll; pins toolbar/legend) */}
         <div className="hf-canvas-viewport">
+        {undrawnChanges && (
+          <div className="hf-canvas-empty" data-testid="diff-empty">
+            {undrawnChanges.length === 0 ? (
+              <p>No architectural change: this branch changes no declaration.</p>
+            ) : (
+              <>
+                <p>Nothing changed in this view. Changed outside it:</p>
+                <ul>
+                  {undrawnChanges.map((id) => (
+                    <li key={id}><code>{id}</code></li>
+                  ))}
+                </ul>
+                <button type="button" onClick={() => dispatch({ type: 'ReviewFullViewChanged', full: true })}>
+                  Show in Full
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <div
           ref={canvasWrapRef}
           className="hf-canvas-wrap"

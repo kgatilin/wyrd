@@ -281,10 +281,11 @@ function selectDiffImpact(
     };
   }
 
-  if (changed.size === 0) {
-    if (changeFilter === 'all') return { components, edges, relations };
-    return { components: [], edges: [], relations: [] };
-  }
+  // Nothing changed here draws nothing. Falling back to every package put the
+  // whole review view on the canvas as a "diff" — with changed-details on, a
+  // screen of empty cards — whenever the branch's changes lay outside the view
+  // or did not touch a declaration at all.
+  if (changed.size === 0) return { components: [], edges: [], relations: [] };
 
   let impacted = new Set(changed);
   if (!hideUnchangedNeighbors) {
@@ -724,6 +725,20 @@ export function initialExpanded(graph: UIGraph, expansion: string | null = 'auto
   if (orders) return ['orders'];
   if (graph.components.length > 0) return [graph.components[0].id];
   return [];
+}
+
+/**
+ * Packages the branch changed that `drawn` does not draw — those the review
+ * view or the scope left out. Policy entries are not changes: a violation the
+ * repository already had would name packages the branch never touched.
+ */
+export function undrawnChangedPackages(graph: UIGraph, drawn: UIGraph): string[] {
+  const drawnIds = new Set(drawn.components.map((component) => component.id));
+  const ids = new Set<string>();
+  for (const change of deriveChanges(graph)) {
+    if (change.kind !== 'policy' && !drawnIds.has(change.cmp)) ids.add(change.cmp);
+  }
+  return [...ids].sort();
 }
 
 /** A change entry derived from graph elements with diff flags. */

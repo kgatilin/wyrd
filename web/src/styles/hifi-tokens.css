@@ -601,6 +601,30 @@ body {
   cursor: grabbing;
   user-select: none;
 }
+.hf-canvas-empty {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  z-index: 2;
+  max-width: 520px;
+  padding: 12px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--bg-1);
+  color: var(--fg-1);
+  font-size: 13px;
+}
+.hf-canvas-empty p { margin: 0 0 8px; }
+.hf-canvas-empty p:last-child { margin-bottom: 0; }
+.hf-canvas-empty ul { margin: 0 0 10px; padding-left: 18px; color: var(--fg-2); }
+.hf-canvas-empty button {
+  padding: 4px 10px;
+  border: 1px solid var(--accent-line);
+  border-radius: 6px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  cursor: pointer;
+}
 /* Reserves the zoom-scaled footprint so scrollbars track the zoom level. */
 .hf-canvas-sizer {
   position: relative;

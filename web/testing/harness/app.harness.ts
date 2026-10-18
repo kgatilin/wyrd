@@ -83,6 +83,15 @@ export class AppHarness extends ComponentHarness {
     }
     throw new Error(`surface "${surface}" not found`);
   }
+  /** The note an empty Diff canvas shows, or null when there is none. */
+  async emptyDiffNote(): Promise<string | null> {
+    const notes = await this.env.rootLocator('.hf-canvas-empty').all();
+    return notes.length > 0 ? notes[0].text() : null;
+  }
+  /** The note's way out: the same diff drawn over the whole repository. */
+  async showInFull(): Promise<void> {
+    await (await this.env.rootLocator('.hf-canvas-empty button').first()).click();
+  }
   /** The surface the bar marks as active. */
   async surface(): Promise<string> {
     return (await this.env.rootLocator('.hf-reviewbar-surface button.on').first()).text();
