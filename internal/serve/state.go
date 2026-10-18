@@ -543,14 +543,45 @@ func (s *State) cleanHead() string {
 // A changed package with no Go source left on disk is dropped; the read gets
 // the rest of the model as known, so interface dispatch into base packages
 // keeps its edges.
+//
+// An untouched package's model is the base's only while the API it imports
+// is: a type inferred in its bodies — a generic argument, an elided composite
+// literal — names whatever its imports declare, so its dependencies follow
+// their API. When a changed package's APIHash moved, or the package appeared
+// or went away, every package that reaches it through imports is read as
+// well. A full read would give each of them the same model, which is what
+// makes the result equal to one.
 func (s *State) readOver(ctx context.Context, base []modelstore.Version, changed []string) ([]modelstore.Version, error) {
 	onDisk, err := goPackageDirs(s.root)
 	if err != nil {
 		return nil, fmt.Errorf("serve: scanning packages: %w", err)
 	}
-	drop := make(map[string]bool, len(changed))
-	var read []string
+	versions, err := s.readPackagesOver(ctx, base, changed, onDisk)
+	if err != nil {
+		return nil, err
+	}
+	before, after := byPath(base), byPath(versions)
+	var moved []string
 	for _, pkgPath := range changed {
+		old, had := before[pkgPath]
+		cur, has := after[pkgPath]
+		if had != has || old.Model.APIHash != cur.Model.APIHash {
+			moved = append(moved, pkgPath)
+		}
+	}
+	importers := importersOf(versions, moved, changed)
+	if len(importers) == 0 {
+		return versions, nil
+	}
+	return s.readPackagesOver(ctx, versions, importers, onDisk)
+}
+
+// readPackagesOver returns base with the packages in pkgPaths read from disk
+// over it, the rest of base as known. One with no source on disk is dropped.
+func (s *State) readPackagesOver(ctx context.Context, base []modelstore.Version, pkgPaths []string, onDisk map[string]bool) ([]modelstore.Version, error) {
+	drop := make(map[string]bool, len(pkgPaths))
+	var read []string
+	for _, pkgPath := range pkgPaths {
 		drop[pkgPath] = true
 		if onDisk[pkgPath] {
 			read = append(read, pkgPath)
@@ -578,6 +609,45 @@ func (s *State) readOver(ctx context.Context, base []modelstore.Version, changed
 		versions = append(versions, s.store.Versions(fresh)...)
 	}
 	return versions, nil
+}
+
+// importersOf returns the packages of versions that import one of roots,
+// directly or through other packages, leaving out the ones in skip. The walk
+// goes through a skipped package all the same: its own hash can stay put
+// while a type it re-exports changed underneath.
+func importersOf(versions []modelstore.Version, roots, skip []string) []string {
+	if len(roots) == 0 {
+		return nil
+	}
+	importedBy := make(map[string][]string)
+	for _, v := range versions {
+		for _, imp := range v.Model.Imports {
+			importedBy[imp] = append(importedBy[imp], v.Model.Path)
+		}
+	}
+	skipped := make(map[string]bool, len(skip))
+	for _, p := range skip {
+		skipped[p] = true
+	}
+	seen := make(map[string]bool)
+	var out []string
+	queue := append([]string(nil), roots...)
+	for len(queue) > 0 {
+		p := queue[0]
+		queue = queue[1:]
+		for _, importer := range importedBy[p] {
+			if seen[importer] {
+				continue
+			}
+			seen[importer] = true
+			queue = append(queue, importer)
+			if !skipped[importer] {
+				out = append(out, importer)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // replaceModel installs versions as the whole model and stamps as the tree

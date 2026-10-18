@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/kgatilin/wyrd/internal/domain"
@@ -211,4 +212,123 @@ func TestStateReloadRecordsTheStampsItRead(t *testing.T) {
 	if moved != nil {
 		t.Fatalf("Sync after Reload moved %v", moved)
 	}
+}
+
+// TestStateSyncReadsImportersOnlyWhenTheAPIMoved: an importer's model follows
+// the API of what it imports, so a changed package whose APIHash moved takes
+// its importers — direct and transitive — with it, and one whose body alone
+// changed does not.
+func TestStateSyncReadsImportersOnlyWhenTheAPIMoved(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		apiHash string
+		reads   string
+	}{
+		{name: "body edit", apiHash: "v1", reads: "./...;./internal/foo"},
+		{name: "API edit", apiHash: "v2", reads: "./...;./internal/foo;./internal/bar,./internal/baz"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newFixture(t)
+			writeFile(t, filepath.Join(root, "internal", "baz", "baz.go"), "package baz\n")
+			writeFile(t, filepath.Join(root, "internal", "qux", "qux.go"), "package qux\n")
+			reader := &recordingReader{responses: map[string][]domain.PackageModel{
+				"./...": {
+					{Path: "internal/foo", Name: "foo", APIHash: "v1"},
+					{Path: "internal/bar", Name: "bar", Imports: []string{"internal/foo"}},
+					{Path: "internal/baz", Name: "baz", Imports: []string{"internal/bar"}},
+					{Path: "internal/qux", Name: "qux"},
+				},
+				"./internal/foo":                {{Path: "internal/foo", Name: "foo", APIHash: tc.apiHash}},
+				"./internal/bar,./internal/baz": {{Path: "internal/bar", Name: "bar"}, {Path: "internal/baz", Name: "baz"}},
+			}}
+			st := NewState(root, WithReader(reader))
+			ctx := context.Background()
+			if err := st.Load(ctx); err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+
+			writeFile(t, filepath.Join(root, "internal", "foo", "foo.go"), "package foo\n\ntype Thing struct{}\n")
+			if _, err := st.Sync(ctx); err != nil {
+				t.Fatalf("Sync: %v", err)
+			}
+			if got := flattenCalls(reader.calls); got != tc.reads {
+				t.Fatalf("reads = %q, want %q", got, tc.reads)
+			}
+		})
+	}
+}
+
+// TestStateSyncMatchesAFullReadAfterAnAPIChange: an untouched package whose
+// dependency comes from an inferred generic argument gets the dependency a
+// full read gives it once the API it is inferred from changes.
+func TestStateSyncMatchesAFullReadAfterAnAPIChange(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/fixture\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(root, "internal", "gen", "gen.go"), `package gen
+
+func First[T any](xs []T) T { return xs[0] }
+`)
+	writeFile(t, filepath.Join(root, "internal", "store", "store.go"), `package store
+
+type Item struct{}
+type Other struct{}
+
+func Get() []Item { return nil }
+`)
+	writeFile(t, filepath.Join(root, "internal", "app", "app.go"), `package app
+
+import (
+	"example.com/fixture/internal/gen"
+	"example.com/fixture/internal/store"
+)
+
+func Use() { _ = gen.First(store.Get()) }
+`)
+	st := NewState(root)
+	ctx := context.Background()
+	if err := st.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := dependencyTargets(st.Snapshot().Packages, "internal/app"); !equalStrings(got, []string{"internal/store.Item"}) {
+		t.Fatalf("app dependencies before = %v, want [internal/store.Item]", got)
+	}
+
+	writeFile(t, filepath.Join(root, "internal", "store", "store.go"), `package store
+
+type Item struct{}
+type Other struct{}
+
+func Get() []Other { return nil }
+`)
+	if _, err := st.Sync(ctx); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	full := NewState(root)
+	if err := full.Load(ctx); err != nil {
+		t.Fatalf("full Load: %v", err)
+	}
+	want := dependencyTargets(full.Snapshot().Packages, "internal/app")
+	if !equalStrings(want, []string{"internal/store.Other"}) {
+		t.Fatalf("full read: app dependencies = %v, want [internal/store.Other]", want)
+	}
+	if got := dependencyTargets(st.Snapshot().Packages, "internal/app"); !equalStrings(got, want) {
+		t.Fatalf("synced app dependencies = %v, want %v as a full read gives", got, want)
+	}
+}
+
+func dependencyTargets(models []domain.PackageModel, pkgPath string) []string {
+	var out []string
+	for _, m := range models {
+		if m.Path != pkgPath {
+			continue
+		}
+		for _, d := range m.Dependencies {
+			if !d.To.External {
+				out = append(out, d.To.Package+"."+d.To.Symbol)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }

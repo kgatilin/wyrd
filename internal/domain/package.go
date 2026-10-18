@@ -45,6 +45,13 @@ type PackageModel struct {
 	// side-effect init leaves no symbol dependency, but still appears here.
 	Imports []string
 
+	// APIHash identifies what other packages' type checkers see of this
+	// package: its package-level declarations with their types, without
+	// bodies. An importer's model can depend on it — a type inferred in the
+	// importer's bodies names whatever this API says — so a package re-read
+	// with a different APIHash means its importers must be re-read too.
+	APIHash string
+
 	// Layer is the architectural layer this package belongs to,
 	// as assigned by the overlay (wyrd.yaml). Empty when no overlay
 	// has been applied or the package does not match any layer.

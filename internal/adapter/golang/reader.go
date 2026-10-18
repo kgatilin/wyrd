@@ -365,6 +365,10 @@ func (r *reader) convertPackage(pkg *packages.Package) (domain.PackageModel, err
 	// call, a constant, an inferred value or for its side effects.
 	model.Imports = r.collectImports(pkg)
 
+	// What importers see of this package: a reader that re-reads it alone
+	// re-reads its importers only when this moved.
+	model.APIHash = apiHash(pkg.Types)
+
 	// Apply stereotype detection
 	r.applyStereotypes(&model)
 
