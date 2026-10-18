@@ -93,6 +93,19 @@ func graphTools() []toolCmd {
 			flags: []argFlag{{name: "target", kind: argString, path: "target", usage: "Target id (default: active target)"}},
 		},
 		{
+			name:  "check",
+			short: "Sync the daemon's model with the disk, then run the layer and policy gates",
+			long: `Run the overlay's layer rules and dependency policy over this worktree
+as it is on disk now, answered by the running daemon. The daemon first reads
+again every file whose mtime or size moved since its model was read, so a
+file saved a moment ago is checked without waiting for the watcher. Exits
+non-zero when a gate fails.
+
+The daemon's model is incremental: an implements edge from an untouched
+package to an interface a changed package added appears only after a full
+parse. wyrd-check, which CI runs, always parses in full.`,
+		},
+		{
 			name:  "validate",
 			short: "Report drift between the current model and a target",
 			flags: []argFlag{{name: "target", kind: argString, path: "target", usage: "Target id (default: active target)"}},

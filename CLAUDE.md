@@ -304,6 +304,14 @@ Sync are serialized on `readMu`.
 - **Stamps are taken before the read.** A file edited while it is being read
   keeps its old stamp, so the next Sync reads it again rather than trusting a
   model that may predate the edit.
+- **The MCP `check` tool syncs first** (`internal/adapter/mcp/check.go`, CLI
+  `wyrd graph check`): Sync, publish what moved (the sync consumed the change
+  the watcher would have broadcast), then `check.RunAll` over the synced
+  snapshot with the worktree's own `wyrd.yaml`. It is the daemon's answer,
+  not CI's: `wyrd-check` stays a standalone full parse and never asks a
+  daemon. The incremental model misses one thing a full parse has — an
+  `implements` edge from an untouched package to an interface a changed
+  package added — and policy counts `implements` as a dependency.
 
 **Refresh re-reads what the branch changed.** The review UI's `Refresh`
 sends `Cache-Control: no-cache` on `/api/uigraph`, and the handler calls

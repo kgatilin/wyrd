@@ -126,7 +126,7 @@ type BCSummary struct {
 // prefix; the prefix lets agents tell core tools from plugin tools at
 // a glance and prevents accidental collisions.
 func ToolDefinitions() []ToolDefinition {
-	defs := builtinToolDefinitions()
+	defs := append(builtinToolDefinitions(), checkToolDefinition())
 	for _, t := range pluginToolsSnapshot() {
 		schema := any(t.Tool.InputSchema)
 		if schema == nil {
@@ -689,6 +689,8 @@ func dispatch(ctx context.Context, state *serve.State, name string, rawArgs json
 		return handleApplyDiff(state, rawArgs)
 	case "validate":
 		return handleValidate(state, rawArgs)
+	case "check":
+		return handleCheck(ctx, state)
 	case "list_bounded_contexts":
 		return handleListBoundedContexts(state)
 	case "get_bounded_context":

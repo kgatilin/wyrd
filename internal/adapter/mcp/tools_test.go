@@ -61,9 +61,9 @@ func mustWrite(t *testing.T, path, body string) {
 
 func TestToolDefinitions(t *testing.T) {
 	defs := ToolDefinitions()
-	// 11 original tools + 4 retrieval tools (search, expand, get_node, refresh) + spectral_cluster + components + trophic_layers + semantic_cluster + file_hotspots + latent_domains + embedding_coverage + status + read_file + search_files
-	if len(defs) != 25 {
-		t.Fatalf("expected 25 tool definitions, got %d", len(defs))
+	// 11 original tools + 4 retrieval tools (search, expand, get_node, refresh) + spectral_cluster + components + trophic_layers + semantic_cluster + file_hotspots + latent_domains + embedding_coverage + status + read_file + search_files + check
+	if len(defs) != 26 {
+		t.Fatalf("expected 26 tool definitions, got %d", len(defs))
 	}
 	names := map[string]bool{}
 	for _, d := range defs {
@@ -75,7 +75,7 @@ func TestToolDefinitions(t *testing.T) {
 			t.Errorf("tool %q missing input schema", d.Name)
 		}
 	}
-	for _, want := range []string{"extract", "list_packages", "get_package", "lock_target", "list_targets", "set_current_target", "diff", "apply_diff", "validate", "list_bounded_contexts", "get_bounded_context", "trophic_layers", "file_hotspots"} {
+	for _, want := range []string{"extract", "list_packages", "get_package", "lock_target", "list_targets", "set_current_target", "diff", "apply_diff", "validate", "check", "list_bounded_contexts", "get_bounded_context", "trophic_layers", "file_hotspots"} {
 		if !names[want] {
 			t.Errorf("missing tool definition for %q", want)
 		}
