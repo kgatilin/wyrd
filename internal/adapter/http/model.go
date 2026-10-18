@@ -13,8 +13,8 @@ import (
 // model of this worktree as it is on disk now, for wyrd-check to run its
 // gates over instead of parsing the module itself.
 //
-// The model is synced with the disk first, so an edit the watcher has not
-// delivered yet is in the answer. It is answered only to a caller looking
+// A model not read from the caller's tree is synced with the disk first, so
+// an edit the watcher has not delivered yet is in the answer. It is answered only to a caller looking
 // at the same thing: tree is the caller's treestamp fingerprint of the
 // worktree, reader the modelstore.StampKey of its Go reader, and either one
 // differing from the daemon's is 409 — the caller would get a model of other
@@ -40,16 +40,21 @@ func (s *Server) handleModel(w nethttp.ResponseWriter, r *nethttp.Request) {
 		nethttp.Error(w, "state unavailable", nethttp.StatusServiceUnavailable)
 		return
 	}
-	moved, err := state.Sync(r.Context())
-	if err != nil {
-		nethttp.Error(w, "sync: "+err.Error(), nethttp.StatusInternalServerError)
-		return
-	}
-	// The sync consumed the change the watcher would have broadcast.
-	if len(moved) > 0 {
-		state.PublishPackageReload(moved)
-	}
+	// A model already read from the caller's tree needs no walk of it: the
+	// fingerprint is that proof. Otherwise sync and compare again.
 	snap := state.Snapshot()
+	if snap.Tree != tree {
+		moved, err := state.Sync(r.Context())
+		if err != nil {
+			nethttp.Error(w, "sync: "+err.Error(), nethttp.StatusInternalServerError)
+			return
+		}
+		// The sync consumed the change the watcher would have broadcast.
+		if len(moved) > 0 {
+			state.PublishPackageReload(moved)
+		}
+		snap = state.Snapshot()
+	}
 	if snap.Tree != tree {
 		nethttp.Error(w, "the daemon's model is of another source tree", nethttp.StatusConflict)
 		return
