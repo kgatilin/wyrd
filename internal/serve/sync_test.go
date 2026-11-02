@@ -162,8 +162,9 @@ func TestStateSyncReadsInFullWhenTheModuleChanges(t *testing.T) {
 }
 
 // TestStateSyncRetriesWhatItCouldNotRead pins that a failed read is neither a
-// deletion nor forgotten: the model stays as it was, and the next Sync reads
-// the package again because its stamp was never recorded.
+// deletion nor forgotten: the model stays as it was, ReadError says it is
+// stale, and the next Sync reads the package again because its stamp was
+// never recorded.
 func TestStateSyncRetriesWhatItCouldNotRead(t *testing.T) {
 	root := newFixture(t)
 	reader := &recordingReader{responses: map[string][]domain.PackageModel{
@@ -184,11 +185,17 @@ func TestStateSyncRetriesWhatItCouldNotRead(t *testing.T) {
 	if got := countStructs(t, st, "internal/foo"); got != 1 {
 		t.Fatalf("internal/foo structs = %d, want the model it had (1)", got)
 	}
+	if st.ReadError() == nil {
+		t.Fatal("ReadError is nil while the model predates a failed read")
+	}
 
 	reader.fail = false
 	moved, err := st.Sync(ctx)
 	if err != nil {
 		t.Fatalf("Sync (retry): %v", err)
+	}
+	if err := st.ReadError(); err != nil {
+		t.Fatalf("ReadError = %v after a read that succeeded", err)
 	}
 	if !equalStrings(moved, []string{"internal/foo"}) || countStructs(t, st, "internal/foo") != 2 {
 		t.Fatalf("retry moved %v, structs %d; want [internal/foo] and 2", moved, countStructs(t, st, "internal/foo"))

@@ -400,7 +400,7 @@ func builtinToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "status",
-			Description: "Report daemon readiness and indexing progress — cheaply, without running any heavy analysis. Returns text: a state word (ready / indexing / lexical-only), the package/node/embedding counts, the embedder id, and a message saying what to do next. Programs that need the fields rather than the prose read the same record as JSON from GET /api/mcp/status. On a large repo the dense-embedding pass runs for a while after startup or a refresh; call this first to see whether embedding-backed lenses (semantic_cluster, latent_domains) are ready or still building, instead of firing one that blocks until the transport times out. ready=true means dense search is operational and no indexing pass is in flight.",
+			Description: "Report daemon readiness and indexing progress — cheaply, without running any heavy analysis. Returns text: a state word (ready / indexing / lexical-only / stale), the package/node/embedding counts, the embedder id, an error line when stale, and a message saying what to do next. Programs that need the fields rather than the prose read the same record as JSON from GET /api/mcp/status. On a large repo the dense-embedding pass runs for a while after startup or a refresh; call this first to see whether embedding-backed lenses (semantic_cluster, latent_domains) are ready or still building, instead of firing one that blocks until the transport times out. ready=true means dense search is operational, no indexing pass is in flight and the model is current. stale means the last re-read of the source failed: answers describe the source as it was before that read.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -2088,6 +2088,7 @@ type statusResult struct {
 	Embeddable     int    `json:"embeddable"`         // nodes that should carry a vector
 	Pending        int    `json:"pending"`            // embeddable not yet embedded
 	Embedder       string `json:"embedder,omitempty"` // embedder id (e.g. ollama model, "noop")
+	Stale          string `json:"stale,omitempty"`    // why the last re-read failed; the model predates it
 	Message        string `json:"message"`
 }
 
@@ -2135,9 +2136,14 @@ func buildStatus(state *serve.State) statusResult {
 	if g := svc.Graph(); g != nil {
 		res.Nodes = len(g.NodesByID)
 	}
-	res.Ready = st.DenseAvailable && !st.InProgress
+	if readErr := state.ReadError(); readErr != nil {
+		res.Stale = readErr.Error()
+	}
+	res.Ready = st.DenseAvailable && !st.InProgress && res.Stale == ""
 
 	switch {
+	case res.Stale != "":
+		res.Message = "Stale: the last re-read of the source failed, so every answer describes the source as it was before. Fix the cause; the next file change or refresh reads it again."
 	case st.InProgress:
 		res.Message = fmt.Sprintf("Indexing in progress: %d/%d nodes embedded. Embedding-backed lenses (semantic_cluster, latent_domains) will be ready when this completes — retry shortly.", st.Embedded, st.Embeddable)
 	case st.DenseAvailable:

@@ -427,6 +427,12 @@ func TestRenderStatus_ReportsThePhaseAsAWord(t *testing.T) {
 	if !strings.HasPrefix(indexing, "status  indexing\n") || !strings.Contains(indexing, "pending 90") {
 		t.Errorf("indexing state not reported:\n%s", indexing)
 	}
+
+	// A stale model outranks every other word: its answers are about old source.
+	stale := renderStatus(statusResult{DenseAvailable: true, Stale: "loading packages: no go.mod", Message: "Stale."})
+	if !strings.HasPrefix(stale, "status  stale\n") || !strings.Contains(stale, "error  loading packages: no go.mod\n") {
+		t.Errorf("stale state not reported:\n%s", stale)
+	}
 }
 
 func TestRenderSearch_OneKindVocabularyThroughout(t *testing.T) {

@@ -60,6 +60,11 @@ type State struct {
 	// never installed over a model replaced while it ran.
 	readMu sync.Mutex
 
+	// readErr is the failure of the last of those operations, nil once one
+	// succeeds. While it is set the model is the one from before the failed
+	// read, and no longer what is on disk.
+	readErr error
+
 	// store is the repository's shared model store. Nil means every cold
 	// start is a full parse and nothing is shared or persisted.
 	store *modelstore.Store
@@ -424,9 +429,10 @@ func (s *State) RetrievalReady() <-chan struct{} {
 // stored snapshot, and like every full parse of a clean worktree it is
 // recorded as the snapshot of HEAD. Retrieval is refreshed for the packages
 // that changed only.
-func (s *State) Reload(ctx context.Context) (bool, error) {
+func (s *State) Reload(ctx context.Context) (moved bool, err error) {
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
+	defer func() { s.recordRead(err) }()
 	stamps, err := treestamp.Scan(s.root)
 	if err != nil {
 		return false, fmt.Errorf("serve: scanning sources: %w", err)
@@ -449,9 +455,10 @@ func (s *State) Reload(ctx context.Context) (bool, error) {
 // the repository. A changed package with no Go source left on disk is
 // dropped; one the reader fails on fails the whole call and leaves the model
 // as it was.
-func (s *State) ReloadOver(ctx context.Context, base []modelstore.Version, changed []string) (bool, error) {
+func (s *State) ReloadOver(ctx context.Context, base []modelstore.Version, changed []string) (moved bool, err error) {
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
+	defer func() { s.recordRead(err) }()
 	stamps, err := treestamp.Scan(s.root)
 	if err != nil {
 		return false, fmt.Errorf("serve: scanning sources: %w", err)
@@ -460,8 +467,25 @@ func (s *State) ReloadOver(ctx context.Context, base []modelstore.Version, chang
 	if err != nil {
 		return false, err
 	}
-	_, moved, err := s.replaceModel(ctx, versions, stamps)
+	_, moved, err = s.replaceModel(ctx, versions, stamps)
 	return moved, err
+}
+
+// recordRead keeps the outcome of a read that would have replaced the model.
+func (s *State) recordRead(err error) {
+	s.mu.Lock()
+	s.readErr = err
+	s.mu.Unlock()
+}
+
+// ReadError returns why the last re-read of the tree failed, or nil when
+// the model is the disk's. A failed read leaves the previous model in place
+// so the tools keep answering; this is how a reader of those answers learns
+// that they describe source that has since changed.
+func (s *State) ReadError() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.readErr
 }
 
 // coldStart reads the model a State starts with. With a store, a snapshot of

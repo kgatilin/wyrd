@@ -1192,6 +1192,8 @@ func renderStatus(r statusResult) string {
 	var b strings.Builder
 	state := "lexical-only"
 	switch {
+	case r.Stale != "":
+		state = "stale"
 	case r.Indexing:
 		state = "indexing"
 	case r.Ready:
@@ -1209,6 +1211,9 @@ func renderStatus(r statusResult) string {
 	fmt.Fprintf(&b, "counts  %s\n", strings.Join(counts, "  "))
 	if r.Embedder != "" {
 		fmt.Fprintf(&b, "embedder  %s\n", r.Embedder)
+	}
+	if r.Stale != "" {
+		fmt.Fprintf(&b, "error  %s\n", r.Stale)
 	}
 	if r.Message != "" {
 		fmt.Fprintf(&b, "%s\n", r.Message)

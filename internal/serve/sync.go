@@ -17,9 +17,13 @@ import (
 // full parse. An unchanged tree costs one walk of stats. Every read records
 // the stamps it took before reading, so a file edited during a read keeps
 // its old stamp and the next Sync reads it again.
-func (s *State) Sync(ctx context.Context) ([]string, error) {
+//
+// A failed read is kept (ReadError) until a Sync succeeds. The stamps stay
+// those of the old model, so the next Sync reads the same packages again.
+func (s *State) Sync(ctx context.Context) (moved []string, err error) {
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
+	defer func() { s.recordRead(err) }()
 
 	now, err := treestamp.Scan(s.root)
 	if err != nil {
@@ -42,6 +46,6 @@ func (s *State) Sync(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	moved, _, err := s.replaceModel(ctx, versions, now)
+	moved, _, err = s.replaceModel(ctx, versions, now)
 	return moved, err
 }
