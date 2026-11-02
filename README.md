@@ -124,6 +124,19 @@ serve:
   http_addr: "127.0.0.1:47823"
 ```
 
+A repository of several Go modules lists the ones to read together; without
+the list the model is the root module alone, and a nested `go.mod` marks a
+tree it leaves out, as with `go list ./...`:
+
+```yaml
+go:
+  modules: [api, worker, tools/gen]   # directories, "." for the root module
+```
+
+The listed modules are read as one workspace (wyrd writes the `go.work` outside
+the repository): package paths are directories from the repository root, and an
+import from one module into another is an edge like any other.
+
 Manage the daemon with `wyrd daemon status | list | restart | stop`.
 
 ---

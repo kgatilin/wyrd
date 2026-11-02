@@ -452,7 +452,7 @@ func (r *reader) handleSelectorCall(
 // metadata inModuleUniverse cannot tell in-module imports from stdlib ones, so
 // there we stay with the loaded set rather than admit stdlib targets.
 func (r *reader) callTargetUniverse(pkgs []*packages.Package) []*packages.Package {
-	if r.modulePath == "" {
+	if len(r.modules) == 0 {
 		return pkgs
 	}
 	return r.inModuleUniverse(pkgs)

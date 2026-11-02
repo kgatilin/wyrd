@@ -16,9 +16,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 // maxPatchBytes caps a single file's unified patch. Generated files and
@@ -179,7 +182,8 @@ func HeadRev(repoPath string) string {
 
 // IsClean reports whether the working tree's Go model still matches its HEAD
 // commit: no modified, staged or untracked file that the model is read from
-// (a .go file, go.mod or go.sum). A caller that wants to reuse an
+// (a .go file, a go.mod or go.sum at any depth, or the project overlay,
+// which may list the modules the model reads). A caller that wants to reuse an
 // already-parsed worktree as a stand-in for a commit needs exactly this —
 // a dirty checkout is not that commit — and nothing more: a served checkout
 // almost always carries untracked files the model never reads (a daemon's
@@ -205,7 +209,9 @@ func IsClean(repoPath string) bool {
 
 // isModelInput reports whether a repository path is read into the Go model.
 func isModelInput(p string) bool {
-	return p == "go.mod" || p == "go.sum" || strings.HasSuffix(p, ".go")
+	base := path.Base(p)
+	return base == "go.mod" || base == "go.sum" || strings.HasSuffix(p, ".go") ||
+		p == overlay.FileName || p == overlay.LegacyFileName
 }
 
 // resolveBaseCandidate returns the first of {ref, origin/ref} that names a

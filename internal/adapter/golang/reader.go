@@ -24,8 +24,14 @@ import (
 
 // reader reads Go source code and converts it to domain.PackageModel structures.
 type reader struct {
-	// modulePath is cached from the first package load to calculate relative paths.
-	modulePath string
+	// modules are the modules the last read covered, longest path first.
+	// Without go.modules it is the module of the first package loaded, at
+	// ".", which makes a model path the import path less the module path;
+	// with it, every listed module at its directory under the root.
+	modules []module
+	// root is the absolute directory spans are relative to under go.modules.
+	// Empty otherwise: a span is then relative to its package's module.
+	root string
 }
 
 // NewReader creates a new Go code reader that implements service.ModelReader.
@@ -58,6 +64,16 @@ func (r *reader) ReadPartial(ctx context.Context, paths []string, known []domain
 			packages.NeedModule,
 		Context: ctx,
 	}
+	ws, err := loadWorkspace(".")
+	if err != nil {
+		return nil, err
+	}
+	r.modules, r.root = nil, ""
+	if ws != nil {
+		cfg.Env = append(os.Environ(), "GOWORK="+ws.goWork)
+		paths = ws.patterns(paths)
+		r.modules, r.root = ws.modules, ws.root
+	}
 
 	pkgs, err := packages.Load(cfg, paths...)
 	if err != nil {
@@ -85,12 +101,14 @@ func (r *reader) ReadPartial(ctx context.Context, paths []string, known []domain
 		return nil, fmt.Errorf("package errors: %s: %w", strings.Join(collectPackageErrors(pkgs), "; "), service.ErrNothingToModel)
 	}
 
-	// Cache the module path from the first package that carries module
-	// metadata (a package that failed to load may have none).
-	for _, pkg := range pkgs {
-		if pkg.Module != nil {
-			r.modulePath = pkg.Module.Path
-			break
+	// Without go.modules the module is the one of the first package that
+	// carries module metadata (a package that failed to load may have none).
+	if ws == nil {
+		for _, pkg := range pkgs {
+			if pkg.Module != nil {
+				r.modules = []module{{path: pkg.Module.Path, dir: "."}}
+				break
+			}
 		}
 	}
 
@@ -241,8 +259,8 @@ const parallelConvertThreshold = 8
 // package counts, GOMAXPROCS == 1) the function executes a serial loop.
 // In the parallel path, each worker writes only into its own index of
 // the results slice, so no locking is required for the conversion
-// output. r.modulePath is set before this function runs and is read-only
-// thereafter, which is the only field shared across workers. ctx is
+// output. r.modules and r.root are set before this function runs and are read-only
+// thereafter, the only fields shared across workers. ctx is
 // checked once per package so a cancelled context aborts promptly.
 func (r *reader) convertPackagesParallel(ctx context.Context, pkgs []*packages.Package) ([]domain.PackageModel, error) {
 	results := make([]domain.PackageModel, len(pkgs))
@@ -381,7 +399,7 @@ func (r *reader) convertPackage(pkg *packages.Package) (domain.PackageModel, err
 // Imports are read from the import declarations rather than pkg.Imports so a
 // _test.go file is excluded explicitly, whatever the loader was asked to load.
 func (r *reader) collectImports(pkg *packages.Package) []string {
-	if r.modulePath == "" {
+	if len(r.modules) == 0 {
 		return nil
 	}
 	seen := make(map[string]bool)
@@ -395,7 +413,7 @@ func (r *reader) collectImports(pkg *packages.Package) []string {
 			if err != nil {
 				continue
 			}
-			if p != r.modulePath && !strings.HasPrefix(p, r.modulePath+"/") {
+			if !r.inModule(p) {
 				continue
 			}
 			rel := r.relativePath(p)
@@ -409,17 +427,31 @@ func (r *reader) collectImports(pkg *packages.Package) []string {
 	return out
 }
 
-// relativePath converts an absolute package path to a path relative to the module.
+// relativePath converts an import path to the package's model path, its
+// directory under the root. A path outside the modules read is returned as is.
 func (r *reader) relativePath(pkgPath string) string {
-	if r.modulePath != "" && strings.HasPrefix(pkgPath, r.modulePath) {
-		relPath := strings.TrimPrefix(pkgPath, r.modulePath)
-		relPath = strings.TrimPrefix(relPath, "/")
-		if relPath == "" {
-			return "."
-		}
-		return relPath
+	if m, ok := moduleOf(r.modules, pkgPath); ok {
+		return m.rootRelative(pkgPath)
 	}
 	return pkgPath
+}
+
+// inModule reports whether pkgPath belongs to one of the modules read.
+func (r *reader) inModule(pkgPath string) bool {
+	_, ok := moduleOf(r.modules, pkgPath)
+	return ok
+}
+
+// spanRoot is the directory a package's spans are relative to: the root
+// under go.modules, the package's module otherwise.
+func (r *reader) spanRoot(pkg *packages.Package) string {
+	if r.root != "" {
+		return r.root
+	}
+	if pkg.Module != nil {
+		return pkg.Module.Dir
+	}
+	return ""
 }
 
 // collectMethodsByReceiver builds a map from receiver type name to its methods.
@@ -1060,15 +1092,20 @@ func (r *reader) convertTypeRef(t types.Type) domain.TypeRef {
 	return ref
 }
 
-// stripModulePath removes the module path prefix from type strings.
-// e.g., "github.com/user/project/pkg.Type" becomes "pkg.Type"
+// stripModulePath rewrites the import paths in a type string to model paths.
+// e.g., "github.com/user/project/pkg.Type" becomes "pkg.Type", and with
+// go.modules a module in dir "api" turns "example.com/api/pkg.Type" into
+// "api/pkg.Type". Modules are walked longest path first, so a nested
+// module's prefix is rewritten before its parent's could match it.
 func (r *reader) stripModulePath(s string) string {
-	if r.modulePath == "" {
-		return s
+	for _, m := range r.modules {
+		repl := ""
+		if m.dir != "." {
+			repl = m.dir + "/"
+		}
+		s = strings.ReplaceAll(s, m.path+"/", repl)
 	}
-	// Replace full module path with empty string, leaving just the relative path
-	// The module path in type strings appears as "module/path/pkg.Type"
-	return strings.ReplaceAll(s, r.modulePath+"/", "")
+	return s
 }
 
 // getSourceFile extracts the filename from a token position.
@@ -1109,10 +1146,7 @@ func (r *reader) getSpan(fset *token.FileSet, moduleDir string, start, end token
 
 // findTypeSpecSpan locates the AST TypeSpec for the given name and returns its span.
 func (r *reader) findTypeSpecSpan(pkg *packages.Package, astFiles map[string]*ast.File, name string) domain.Span {
-	moduleDir := ""
-	if pkg.Module != nil {
-		moduleDir = pkg.Module.Dir
-	}
+	moduleDir := r.spanRoot(pkg)
 
 	for _, f := range astFiles {
 		for _, decl := range f.Decls {
@@ -1135,10 +1169,7 @@ func (r *reader) findTypeSpecSpan(pkg *packages.Package, astFiles map[string]*as
 
 // findFuncDeclSpan locates the AST FuncDecl for the given function name and returns its span.
 func (r *reader) findFuncDeclSpan(pkg *packages.Package, astFiles map[string]*ast.File, name string) domain.Span {
-	moduleDir := ""
-	if pkg.Module != nil {
-		moduleDir = pkg.Module.Dir
-	}
+	moduleDir := r.spanRoot(pkg)
 
 	for _, f := range astFiles {
 		for _, decl := range f.Decls {
@@ -1161,10 +1192,7 @@ func (r *reader) findFuncDeclSpan(pkg *packages.Package, astFiles map[string]*as
 // a method and a package-level function sharing a name in one file would swap
 // their comments.
 func (r *reader) findMethodDecl(pkg *packages.Package, astFiles map[string]*ast.File, receiverType, methodName string) (domain.Span, string) {
-	moduleDir := ""
-	if pkg.Module != nil {
-		moduleDir = pkg.Module.Dir
-	}
+	moduleDir := r.spanRoot(pkg)
 
 	for _, f := range astFiles {
 		for _, decl := range f.Decls {
@@ -1213,10 +1241,7 @@ func declDoc(fd *ast.FuncDecl) string {
 
 // findValueSpecSpan locates the AST ValueSpec for a const or var declaration.
 func (r *reader) findValueSpecSpan(pkg *packages.Package, astFiles map[string]*ast.File, name string, tok token.Token) domain.Span {
-	moduleDir := ""
-	if pkg.Module != nil {
-		moduleDir = pkg.Module.Dir
-	}
+	moduleDir := r.spanRoot(pkg)
 
 	for _, f := range astFiles {
 		for _, decl := range f.Decls {
@@ -1755,10 +1780,10 @@ func (r *reader) typeRefToSymbolRef(ref domain.TypeRef, pkg *packages.Package) *
 		// Same package (handles root-level packages like "observability")
 		symRef.Package = ref.Package
 		symRef.File = r.findSymbolFile(pkg, ref.Name)
-	} else if r.modulePath != "" && (strings.HasPrefix(ref.Package, r.modulePath) || strings.Contains(ref.Package, "/")) {
+	} else if len(r.modules) > 0 && (r.inModule(ref.Package) || strings.Contains(ref.Package, "/")) {
 		// Internal package: either has full module prefix or contains /
 		symRef.Package = ref.Package
-	} else if !strings.Contains(ref.Package, "/") && r.modulePath != "" {
+	} else if !strings.Contains(ref.Package, "/") && len(r.modules) > 0 {
 		// No slash and we have a module path - check if it could be a sibling root package
 		// by seeing if the module has no slashes (meaning root packages are valid)
 		// For now, assume packages without / that aren't the current package are external (stdlib)
@@ -2030,7 +2055,7 @@ func (r *reader) inModuleUniverse(pkgs []*packages.Package) []*packages.Package 
 		if p == nil || p.Types == nil {
 			return
 		}
-		if r.modulePath != "" && !strings.HasPrefix(p.PkgPath, r.modulePath) {
+		if len(r.modules) > 0 && !r.inModule(p.PkgPath) {
 			return
 		}
 		if _, ok := seen[p.PkgPath]; ok {

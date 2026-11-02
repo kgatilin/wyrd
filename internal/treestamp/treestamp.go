@@ -9,9 +9,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/kgatilin/wyrd/internal/overlay"
 )
 
 // Stamp is what an edit changes and an inspection does not.
@@ -22,8 +25,15 @@ type Stamp struct {
 
 // Tree is the stamp of every file the model is read from, keyed by
 // slash-separated path relative to the scanned root: each non-test .go file
-// under the directories the Go tool walks, plus the root go.mod and go.sum.
+// under the directories the Go tool walks, plus every go.mod and go.sum
+// among them. When the overlay lists go.modules, the list is one more entry,
+// keyed by the list itself: the modules a read covers are as much what the
+// model is read from as the files are, so a changed list is a changed tree.
 type Tree map[string]Stamp
+
+// modulesKey prefixes the entry that records go.modules. No file is stamped
+// under it: only .go files, go.mod and go.sum are.
+const modulesKey = "go.modules="
 
 // Scan stats the source files of the tree at root without reading them.
 func Scan(root string) (Tree, error) {
@@ -58,6 +68,13 @@ func Scan(root string) (Tree, error) {
 	if err != nil {
 		return nil, err
 	}
+	mods, err := overlay.GoModules(rootAbs)
+	if err != nil {
+		return nil, err
+	}
+	if len(mods) > 0 {
+		out[modulesKey+strings.Join(mods, ",")] = Stamp{}
+	}
 	return out, nil
 }
 
@@ -75,8 +92,16 @@ func SkipDir(name string) bool {
 	return false
 }
 
+// isModuleFile reports whether rel decides what every package reads as: a
+// go.mod or go.sum at any depth, or the go.modules entry. A nested go.mod
+// counts whether or not the model reads that module, which costs a full
+// parse for an edit in a module the model leaves out.
 func isModuleFile(rel string) bool {
-	return rel == "go.mod" || rel == "go.sum"
+	if strings.HasPrefix(rel, modulesKey) {
+		return true
+	}
+	base := path.Base(rel)
+	return base == "go.mod" || base == "go.sum"
 }
 
 // isModelSource reports whether a file contributes to the model. Test files
@@ -86,7 +111,8 @@ func isModelSource(name string) bool {
 }
 
 // Changed returns the package directories whose source differs from prev —
-// a file edited, added or removed — and whether go.mod or go.sum did.
+// a file edited, added or removed — and whether a go.mod, a go.sum or the
+// go.modules list did.
 func (t Tree) Changed(prev Tree) (dirs []string, module bool) {
 	set := make(map[string]bool)
 	mark := func(rel string) {

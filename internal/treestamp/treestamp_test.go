@@ -81,3 +81,43 @@ func TestChangedNamesDirectoriesAndTheModule(t *testing.T) {
 		t.Fatalf("a go.mod edit is not a module change")
 	}
 }
+
+// TestChangedCountsEveryModuleFile: a nested go.mod moves every package of
+// its module, so it is a full parse like the root's.
+func TestChangedCountsEveryModuleFile(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "api", "go.mod"), "module example.com/api\n")
+	write(t, filepath.Join(root, "api", "store", "store.go"), "package store\n")
+	before := scan(t, root)
+
+	write(t, filepath.Join(root, "api", "go.sum"), "example.com/x v1.0.0 h1:x\n")
+	dirs, module := scan(t, root).Changed(before)
+	if !module || len(dirs) != 0 {
+		t.Fatalf("Changed = %v, %v; want a module change and no package dirs", dirs, module)
+	}
+}
+
+// TestChangedCountsTheModuleList: the modules a read covers are part of what
+// the model is read from, so changing go.modules is a full parse even when
+// no file under them moved.
+func TestChangedCountsTheModuleList(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "api", "go.mod"), "module example.com/api\n")
+	write(t, filepath.Join(root, "worker", "go.mod"), "module example.com/worker\n")
+	write(t, filepath.Join(root, "wyrd.yaml"), "go:\n  modules: [api]\n")
+	before := scan(t, root)
+
+	write(t, filepath.Join(root, "wyrd.yaml"), "# layers edited\ngo:\n  modules: [api]\n")
+	if _, module := scan(t, root).Changed(before); module {
+		t.Fatalf("an overlay edit that keeps the module list counted as a module change")
+	}
+
+	write(t, filepath.Join(root, "wyrd.yaml"), "go:\n  modules: [api, worker]\n")
+	after := scan(t, root)
+	if _, module := after.Changed(before); !module {
+		t.Fatalf("a changed module list did not count as a module change")
+	}
+	if after.Fingerprint() == before.Fingerprint() {
+		t.Fatalf("a changed module list kept the fingerprint")
+	}
+}

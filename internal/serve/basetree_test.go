@@ -431,4 +431,11 @@ func TestChangedPackages(t *testing.T) {
 	if _, full := changedPackages([]git.FileStat{{Path: "api/api.go"}, {Path: "go.sum"}}); !full {
 		t.Fatal("a diff touching go.sum did not ask for a full read")
 	}
+	if _, full := changedPackages([]git.FileStat{{Path: "worker/go.mod"}}); !full {
+		t.Fatal("a diff touching a nested go.mod did not ask for a full read")
+	}
+	// The overlay may list go.modules, so the branch may read other modules.
+	if _, full := changedPackages([]git.FileStat{{Path: "wyrd.yaml"}}); !full {
+		t.Fatal("a diff touching the overlay did not ask for a full read")
+	}
 }

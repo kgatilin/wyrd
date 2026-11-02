@@ -56,7 +56,7 @@ func BenchmarkConvertPackagesParallel(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		r := &reader{}
 		if len(pkgs) > 0 && pkgs[0].Module != nil {
-			r.modulePath = pkgs[0].Module.Path
+			r.modules = []module{{path: pkgs[0].Module.Path, dir: "."}}
 		}
 		if _, err := r.convertPackagesParallel(context.Background(), pkgs); err != nil {
 			b.Fatalf("convert: %v", err)
@@ -92,7 +92,7 @@ func BenchmarkConvertSerial(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		r := &reader{}
 		if len(pkgs) > 0 && pkgs[0].Module != nil {
-			r.modulePath = pkgs[0].Module.Path
+			r.modules = []module{{path: pkgs[0].Module.Path, dir: "."}}
 		}
 		if _, err := r.convertSerial(pkgs); err != nil {
 			b.Fatalf("convert: %v", err)

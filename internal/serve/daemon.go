@@ -664,7 +664,7 @@ func buildHandler(ctx context.Context, state *State, logOut io.Writer, debug boo
 				currentDirty = true
 			case strings.HasPrefix(rel, ".arch/.worktree/") && strings.HasSuffix(rel, "/CURRENT"):
 				currentDirty = true
-			case strings.HasSuffix(rel, ".go"), rel == "go.mod", rel == "go.sum",
+			case strings.HasSuffix(rel, ".go"), filepath.Base(rel) == "go.mod", filepath.Base(rel) == "go.sum",
 				// A directory removed wholesale can arrive as the bare
 				// directory path, with no event for the files that went
 				// with it.

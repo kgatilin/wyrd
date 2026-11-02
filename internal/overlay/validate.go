@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -18,6 +19,8 @@ import (
 //
 // Specifically it enforces:
 //   - cfg.Module is non-empty and matches the module directive in go.mod.
+//   - Every go.modules entry is a directory inside the project root,
+//     listed once.
 //   - Each layer has at least one package glob, and every glob looks
 //     syntactically reasonable (non-empty, no whitespace, no absolute
 //     paths, at most one trailing "...").
@@ -51,6 +54,8 @@ func Validate(cfg *Config, goModPath string) error {
 				cfg.Module, goModPath, declared))
 		}
 	}
+
+	errs = append(errs, validateGoModules(cfg.Go.Modules)...)
 
 	if len(cfg.Layers) == 0 {
 		errs = append(errs, errors.New("overlay: at least one layer is required"))
@@ -454,4 +459,27 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// validateGoModules checks go.modules: each entry a directory inside the
+// project root, written once. Whether it holds a go.mod is the reader's to
+// say, at the moment it reads.
+func validateGoModules(dirs []string) []error {
+	var errs []error
+	seen := make(map[string]bool, len(dirs))
+	for _, dir := range dirs {
+		clean := path.Clean(dir)
+		switch {
+		case strings.TrimSpace(dir) == "":
+			errs = append(errs, errors.New("overlay: go.modules: empty entry"))
+		case path.IsAbs(dir) || filepath.IsAbs(dir):
+			errs = append(errs, fmt.Errorf("overlay: go.modules: %q is absolute; write it relative to the project root", dir))
+		case clean == ".." || strings.HasPrefix(clean, "../"):
+			errs = append(errs, fmt.Errorf("overlay: go.modules: %q is outside the project root", dir))
+		case seen[clean]:
+			errs = append(errs, fmt.Errorf("overlay: go.modules: %q is listed twice", dir))
+		}
+		seen[clean] = true
+	}
+	return errs
 }

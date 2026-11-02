@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -325,6 +326,42 @@ func ServeHTTPAddr(root string) (string, error) {
 		}
 	}
 	return cfg.Serve.HTTPAddr, nil
+}
+
+// GoModules reads go.modules from the overlay discovered under root: the
+// module directories the Go reader reads together, cleaned and relative to
+// root. No overlay, or none listed, is nil — the root module alone.
+//
+// Only the go block is decoded, and not strictly: the Go reader calls this on
+// every read, and a typo elsewhere in the overlay must not stop the code from
+// being read. A malformed go block is an error, because reading one module
+// where several were asked for is a model that looks complete and is not.
+func GoModules(root string) ([]string, error) {
+	p := DiscoverPath(root)
+	if p == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, fmt.Errorf("overlay: reading %s: %w", p, err)
+	}
+	var doc struct {
+		Go GoConfig `yaml:"go"`
+	}
+	if err := yamlv3.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("overlay: parsing go block of %s: %w", p, err)
+	}
+	if errs := validateGoModules(doc.Go.Modules); len(errs) > 0 {
+		return nil, fmt.Errorf("%s: %w", p, errors.Join(errs...))
+	}
+	if len(doc.Go.Modules) == 0 {
+		return nil, nil
+	}
+	out := make([]string, len(doc.Go.Modules))
+	for i, dir := range doc.Go.Modules {
+		out[i] = path.Clean(filepath.ToSlash(dir))
+	}
+	return out, nil
 }
 
 // ServeAuthToken returns the bearer token the daemon's MCP endpoint requires,

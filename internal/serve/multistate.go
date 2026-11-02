@@ -14,6 +14,7 @@ import (
 
 	"github.com/kgatilin/wyrd/internal/adapter/git"
 	"github.com/kgatilin/wyrd/internal/domain"
+	"github.com/kgatilin/wyrd/internal/overlay"
 	"github.com/kgatilin/wyrd/internal/serve/modelstore"
 	"github.com/kgatilin/wyrd/internal/worktree"
 )
@@ -368,15 +369,20 @@ func (m *MultiState) ReloadWorktree(ctx context.Context, name, ref string) (bool
 }
 
 // changedPackages names the packages a diff touches — the directory of every
-// Go file on either side of it — and reports whether it touches go.mod or
-// go.sum, which only a full read answers.
+// Go file on either side of it — and reports whether it touches a go.mod or
+// go.sum at any depth, or the project overlay, which only a full read
+// answers. The overlay because it may list go.modules: a module the branch
+// adds to the list holds packages its diff never touches. Any overlay edit
+// counts, since telling a go.modules edit from a layer edit takes the base's
+// copy, and a full read is what the rare branch editing it costs.
 func changedPackages(files []git.FileStat) ([]string, bool) {
 	seen := make(map[string]bool)
 	for _, f := range files {
 		for _, p := range []string{f.Path, f.OldPath} {
 			switch {
 			case p == "":
-			case p == "go.mod", p == "go.sum":
+			case path.Base(p) == "go.mod", path.Base(p) == "go.sum",
+				p == overlay.FileName, p == overlay.LegacyFileName:
 				return nil, true
 			case strings.HasSuffix(p, ".go"):
 				seen[path.Dir(p)] = true

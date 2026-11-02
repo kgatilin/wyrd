@@ -40,6 +40,25 @@ type Config struct {
 	Policy          PolicyConfig              `yaml:"policy,omitempty"`
 	Ports           Ports                     `yaml:"ports,omitempty"`
 	Events          EventsConfig              `yaml:"events,omitempty"`
+	Go              GoConfig                  `yaml:"go,omitempty"`
+}
+
+// GoConfig says how the Go reader reads this project.
+//
+// Modules lists the Go modules the model is read from, as directories
+// relative to the project root ("." is the root module):
+//
+//	go:
+//	  modules: [api, worker, tools/gen]
+//
+// Absent, the model is the module at the root alone, and a nested go.mod
+// marks a tree the model leaves out — what `go list ./...` does. Present, the
+// listed modules are read together as one workspace: package paths are
+// directories relative to the project root, and an import from one listed
+// module into another is an edge like any other. A nested module not listed
+// stays out either way.
+type GoConfig struct {
+	Modules []string `yaml:"modules,omitempty"`
 }
 
 // EventsConfig declares where this project keeps its event declarations.

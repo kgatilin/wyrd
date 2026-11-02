@@ -318,6 +318,53 @@ Sync are serialized on `readMu`.
   package's implementation of an interface a changed package added waits
   for a full parse); no gate reads it.
 
+**Several modules are one model only when the overlay says so.**
+`go.modules` in `wyrd.yaml` lists module directories relative to the root
+(`.` for the root module). Absent, the reader reads the root module, and a
+nested `go.mod` is a tree left out, as `go list ./...` leaves it — some
+repositories nest modules they do not want in the picture, so discovery is
+never automatic. Present, the reader (`internal/adapter/golang/workspace.go`)
+writes a `go.work` of those modules under `$TMPDIR/wyrd-gowork/<content
+hash>/` — never into the project, where it would change how the project
+builds — passes it as `GOWORK`, and expands `./...` into one pattern per
+module, since a workspace root that is not itself a module matches nothing.
+Three consequences:
+
+- **A model path is a directory under the root**, not an import path less
+  one module path: `api/store` for `example.com/api/store` in dir `api`. For
+  the single-module case the two are the same string, which is why nothing
+  else had to change — treestamp dirs, git diff paths, the overlay's layer
+  globs and the source drawer were already root-relative. Spans follow:
+  relative to the root under `go.modules`, to the package's module without.
+- **The reader reads the overlay itself**, on every read, through
+  `overlay.GoModules` — the way `serve.http_addr` is read. Every caller
+  (`wyrd`, `wyrd-check`, base trees, the daemon) runs the reader at the
+  project root, so none needs wiring. `GoModules` decodes the `go` block
+  alone and leniently: an overlay typo elsewhere must not stop code from
+  being read, while a malformed `go` block must, since one module read where
+  several were asked for looks complete.
+- **The list is part of what the model is read from.** treestamp records it
+  as an entry (`go.modules=<list>`) and counts every `go.mod`/`go.sum` at any
+  depth as a module file, so a list edit or a nested `go.mod` edit is a full
+  parse; `changedPackages` treats any overlay edit on a branch as one (a
+  module added to the list holds packages the diff never touches); and
+  `git.IsClean` counts the overlay, so a snapshot of HEAD is never recorded
+  from a list HEAD does not have. Cost: in a repo without the list, an edit to
+  a nested module's `go.mod` reparses for nothing.
+
+A workspace type-checks the modules together, with one version of each
+dependency across them (MVS over every listed module). A module whose own
+build selects a different version reads, in the model, against the
+workspace's.
+
+**A failed re-read leaves a stale model, and says so.** Sync, Reload and
+ReloadOver keep the previous model when their read fails (so tools still
+answer) and record the error until a read succeeds (`State.ReadError`).
+`status` then answers `stale` with an `error` line and `ready=false`; before,
+a daemon whose repository stopped parsing — a root `go.mod` removed when the
+repository was split into modules — reported `ready` over the old model
+indefinitely.
+
 **wyrd-check asks the daemon for the model.** When the repository has a
 daemon in `~/.config/wyrd/config.yaml` (`internal/clientconfig`, the same
 file the thin client reads), `wyrd-check` reads the Go model through
