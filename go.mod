@@ -1,6 +1,6 @@
 module github.com/kgatilin/wyrd
 
-go 1.25.1
+go 1.26.0
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
